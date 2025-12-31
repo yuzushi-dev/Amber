@@ -1,0 +1,69 @@
+# =============================================================================
+# Hybrid GraphRAG System - Python Dependencies
+# =============================================================================
+# Install with: pip install -r requirements.txt
+# For development: pip install -r requirements.txt -r requirements-dev.txt
+# =============================================================================
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Configuration & Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+pyyaml>=6.0
+
+# Database - PostgreSQL
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Database - Neo4j
+neo4j>=5.15.0
+
+# Database - Milvus
+pymilvus>=2.3.4
+
+# Cache & Message Broker
+redis>=5.0.0
+celery[redis]>=5.3.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# LLM Providers
+openai>=1.10.0
+anthropic>=0.18.0
+
+# Embeddings & Tokenization
+tiktoken>=0.5.0
+sentence-transformers>=2.7.0
+
+# Reranking
+flashrank>=0.2.0
+
+# Utilities
+python-dateutil>=2.8.2
+tenacity>=8.2.0
+
+# Testing (included for convenience)
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Community Detection
+cdlib>=0.3.0
+leidenalg>=0.10.0
+python-igraph>=0.11.0
+
+# Document Processing
+unstructured>=0.11.0
+python-magic>=0.4.27
+
+# Observability & Tracing
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
+opentelemetry-exporter-otlp>=1.22.0
+opentelemetry-instrumentation-fastapi>=0.43b0

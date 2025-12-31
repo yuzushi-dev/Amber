@@ -1,0 +1,120 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+    darkMode: ["class"],
+    content: [
+        "./index.html",
+        "./src/**/*.{js,ts,jsx,tsx}",
+    ],
+    theme: {
+        extend: {
+            colors: {
+                border: "hsl(var(--border))",
+                input: "hsl(var(--input))",
+                ring: "hsl(var(--ring))",
+                background: "hsl(var(--background))",
+                foreground: "hsl(var(--foreground))",
+                primary: {
+                    DEFAULT: "hsl(var(--primary))",
+                    foreground: "hsl(var(--primary-foreground))",
+                },
+                secondary: {
+                    DEFAULT: "hsl(var(--secondary))",
+                    foreground: "hsl(var(--secondary-foreground))",
+                },
+                destructive: {
+                    DEFAULT: "hsl(var(--destructive))",
+                    foreground: "hsl(var(--destructive-foreground))",
+                },
+                muted: {
+                    DEFAULT: "hsl(var(--muted))",
+                    foreground: "hsl(var(--muted-foreground))",
+                },
+                accent: {
+                    DEFAULT: "hsl(var(--accent))",
+                    foreground: "hsl(var(--accent-foreground))",
+                },
+                popover: {
+                    DEFAULT: "hsl(var(--popover))",
+                    foreground: "hsl(var(--popover-foreground))",
+                },
+                card: {
+                    DEFAULT: "hsl(var(--card))",
+                    foreground: "hsl(var(--card-foreground))",
+                },
+                amber: {
+                    50: "hsl(var(--amber-50))",
+                    100: "hsl(var(--amber-100))",
+                    200: "hsl(var(--amber-200))",
+                    300: "hsl(var(--amber-300))",
+                    400: "hsl(var(--amber-400))",
+                    500: "hsl(var(--amber-500))",
+                    600: "hsl(var(--amber-600))",
+                    700: "hsl(var(--amber-700))",
+                    800: "hsl(var(--amber-800))",
+                    900: "hsl(var(--amber-900))",
+                },
+                surface: {
+                    950: "hsl(var(--surface-950))",
+                    900: "hsl(var(--surface-900))",
+                    850: "hsl(var(--surface-850))",
+                    800: "hsl(var(--surface-800))",
+                    700: "hsl(var(--surface-700))",
+                    600: "hsl(var(--surface-600))",
+                    500: "hsl(var(--surface-500))",
+                    400: "hsl(var(--surface-400))",
+                },
+                success: {
+                    DEFAULT: "hsl(var(--success))",
+                    foreground: "hsl(var(--success-foreground))",
+                    muted: "hsl(var(--success-muted))",
+                },
+                warning: {
+                    DEFAULT: "hsl(var(--warning))",
+                    foreground: "hsl(var(--warning-foreground))",
+                    muted: "hsl(var(--warning-muted))",
+                },
+                info: {
+                    DEFAULT: "hsl(var(--info))",
+                    foreground: "hsl(var(--info-foreground))",
+                    muted: "hsl(var(--info-muted))",
+                },
+                chart: {
+                    1: "hsl(var(--chart-1))",
+                    2: "hsl(var(--chart-2))",
+                    3: "hsl(var(--chart-3))",
+                    4: "hsl(var(--chart-4))",
+                    5: "hsl(var(--chart-5))",
+                },
+                node: {
+                    entity: "hsl(var(--node-entity))",
+                    document: "hsl(var(--node-document))",
+                    chunk: "hsl(var(--node-chunk))",
+                    community: "hsl(var(--node-community))",
+                    relationship: "hsl(var(--node-relationship))",
+                },
+                edge: {
+                    default: "hsl(var(--edge-default))",
+                    strong: "hsl(var(--edge-strong))",
+                    weak: "hsl(var(--edge-weak))",
+                    highlight: "hsl(var(--edge-highlight))",
+                },
+            },
+            borderRadius: {
+                lg: "var(--radius)",
+                md: "calc(var(--radius) - 2px)",
+                sm: "calc(var(--radius) - 4px)",
+            },
+            fontFamily: {
+                sans: ["var(--font-sans)", "sans-serif"],
+                mono: ["var(--font-mono)", "monospace"],
+                display: ["var(--font-display)", "sans-serif"],
+            },
+            boxShadow: {
+                "glow-sm": "0 0 10px hsl(var(--primary) / 0.2)",
+                "glow": "0 0 20px hsl(var(--primary) / 0.25)",
+                "glow-lg": "0 0 40px hsl(var(--primary) / 0.35)",
+            },
+        },
+    },
+    plugins: [require("tailwindcss-animate")],
+}

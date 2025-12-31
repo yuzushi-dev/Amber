@@ -1,0 +1,81 @@
+# =============================================================================
+# Amber System - Optional Dependencies
+# =============================================================================
+# Heavy ML packages installed on-demand via Setup Wizard
+# Each section can be installed separately
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# [local_embeddings] - Local Sentence Transformers (~2.1 GB)
+# For offline embedding generation without API calls
+# -----------------------------------------------------------------------------
+# Install with: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Then: pip install sentence-transformers>=2.7.0
+#
+# Packages:
+#   torch (CPU-only)
+#   sentence-transformers>=2.7.0
+
+# -----------------------------------------------------------------------------
+# [reranking] - FlashRank Reranker (~50 MB)
+# For high-quality result reranking
+# -----------------------------------------------------------------------------
+# Install with: pip install flashrank>=0.2.0
+#
+# Packages:
+#   flashrank>=0.2.0
+
+# -----------------------------------------------------------------------------
+# [community_detection] - Graph Community Algorithms (~150 MB)
+# For Leiden community detection on knowledge graphs
+# -----------------------------------------------------------------------------
+# Install with: pip install cdlib>=0.3.0 leidenalg>=0.10.0 python-igraph>=0.11.0
+#
+# Packages:
+#   cdlib>=0.3.0
+#   leidenalg>=0.10.0
+#   python-igraph>=0.11.0
+
+# -----------------------------------------------------------------------------
+# [document_processing] - Unstructured Document Parser (~800 MB)
+# For parsing PDFs, DOCX, HTML, and other document types
+# -----------------------------------------------------------------------------
+# Install with: pip install unstructured>=0.11.0 python-magic>=0.4.27
+#
+# Packages:
+#   unstructured>=0.11.0
+#   python-magic>=0.4.27
+
+# -----------------------------------------------------------------------------
+# Feature Definitions (for setup_service.py reference)
+# -----------------------------------------------------------------------------
+# FEATURES = {
+#     "local_embeddings": {
+#         "name": "Local Embeddings",
+#         "description": "Generate embeddings locally without API calls",
+#         "packages": ["torch", "sentence-transformers>=2.7.0"],
+#         "size_mb": 2100,
+#         "pip_extra_args": ["--index-url", "https://download.pytorch.org/whl/cpu"]
+#     },
+#     "reranking": {
+#         "name": "FlashRank Reranking",
+#         "description": "High-quality result reranking",
+#         "packages": ["flashrank>=0.2.0"],
+#         "size_mb": 50,
+#         "pip_extra_args": []
+#     },
+#     "community_detection": {
+#         "name": "Community Detection",
+#         "description": "Leiden algorithm for knowledge graph communities",
+#         "packages": ["cdlib>=0.3.0", "leidenalg>=0.10.0", "python-igraph>=0.11.0"],
+#         "size_mb": 150,
+#         "pip_extra_args": []
+#     },
+#     "document_processing": {
+#         "name": "Document Processing",
+#         "description": "Parse PDFs, DOCX, HTML and other formats",
+#         "packages": ["unstructured>=0.11.0", "python-magic>=0.4.27"],
+#         "size_mb": 800,
+#         "pip_extra_args": []
+#     }
+# }

@@ -1,0 +1,74 @@
+# =============================================================================
+# Hybrid GraphRAG System - Application Configuration
+# =============================================================================
+# This file contains default configuration values.
+# Environment variables take precedence over these defaults.
+# =============================================================================
+
+# Application
+app:
+  name: "Amber"
+  version: "0.1.0"
+  debug: false
+
+# Database Configuration
+db:
+  pool_size: 5
+  max_overflow: 5
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+
+# Rate Limiting
+rate_limits:
+  requests_per_minute: 6000
+  requests_per_hour: 100000
+  queries_per_minute: 6000
+  uploads_per_hour: 5000
+
+# Upload Limits
+uploads:
+  max_size_mb: 100
+  max_concurrent: 5
+  allowed_extensions:
+    - pdf
+    - docx
+    - doc
+    - txt
+    - md
+    - html
+    - pptx
+    - xlsx
+
+# Query Configuration
+query:
+  max_chunks: 10
+  traversal_depth: 2
+  similarity_threshold: 0.7
+  include_trace: false
+
+# Embedding Configuration
+embeddings:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  dimensions: 1536
+  batch_size: 100
+
+# LLM Configuration
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  temperature: 0.1
+  max_tokens: 2048
+
+# Community Detection
+communities:
+  algorithm: "leiden"
+  min_community_size: 3
+  resolution: 1.0

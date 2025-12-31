@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* === Brand: Amber Scale === */
+    --amber-50: 43 100% 95%;
+    --amber-100: 43 100% 87%;
+    --amber-200: 43 100% 76%;
+    --amber-300: 43 100% 66%;
+    --amber-400: 43 100% 56%;
+    --amber-500: 40 100% 50%;
+    --amber-600: 39 100% 45%;
+    --amber-700: 36 100% 40%;
+    --amber-800: 36 100% 30%;
+    --amber-900: 36 100% 20%;
+
+    /* === Brand: Surface Scale === */
+    --surface-950: 240 8% 5%;
+    --surface-900: 240 8% 7%;
+    --surface-850: 240 9% 11%;
+    --surface-800: 240 9% 14%;
+    --surface-700: 240 9% 18%;
+    --surface-600: 240 9% 23%;
+    --surface-500: 240 7% 29%;
+    --surface-400: 240 5% 40%;
+
+    /* === Brand: Accent (Orange) === */
+    --accent-orange-400: 18 100% 64%;
+    --accent-orange-500: 14 100% 57%;
+    --accent-orange-600: 14 85% 46%;
+
+    /* === Shadcn Core Tokens (Dark Default for Amber) === */
+    --background: 240 8% 7%;
+    --foreground: 240 5% 96%;
+    --card: 240 9% 11%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 9% 14%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 40 100% 50%;
+    --primary-foreground: 240 8% 7%;
+    --secondary: 240 9% 18%;
+    --secondary-foreground: 240 5% 90%;
+    --muted: 240 9% 18%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 240 9% 18%;
+    --accent-foreground: 43 100% 56%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 9% 23%;
+    --input: 240 9% 23%;
+    --ring: 40 100% 50%;
+    --radius: 0.5rem;
+
+    /* === Extended Semantic === */
+    --success: 142 71% 45%;
+    --success-foreground: 142 76% 90%;
+    --success-muted: 142 50% 10%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 48 96% 72%;
+    --warning-muted: 38 50% 12%;
+    --info: 217 91% 60%;
+    --info-foreground: 213 97% 87%;
+    --info-muted: 217 50% 12%;
+
+    /* === Chart Colors === */
+    --chart-1: 40 100% 50%;
+    --chart-2: 18 100% 64%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 30 100% 45%;
+    --chart-5: 45 100% 55%;
+    --chart-6: 14 100% 57%;
+    --chart-7: 36 100% 40%;
+    --chart-8: 50 100% 60%;
+    --chart-9: 25 100% 50%;
+    --chart-10: 0 70% 55%;
+
+    /* === Graph Node Colors === */
+    --node-entity: 40 100% 50%;
+    --node-document: 217 91% 60%;
+    --node-chunk: 142 71% 45%;
+    --node-community: 280 70% 55%;
+    --node-relationship: 18 100% 64%;
+
+    /* === Edge Colors === */
+    --edge-default: 240 9% 35%;
+    --edge-strong: 40 100% 50%;
+    --edge-weak: 240 9% 25%;
+    --edge-highlight: 40 100% 65%;
+
+    /* === Typography === */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-display: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  }
+
+  /* Keeping .dark block just in case, but Amber uses dark by default as per palette */
+  .dark {
+    --background: 240 8% 7%;
+    --foreground: 240 5% 96%;
+    --card: 240 9% 11%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 9% 14%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 40 100% 50%;
+    --primary-foreground: 240 8% 7%;
+    --secondary: 240 9% 18%;
+    --secondary-foreground: 240 5% 90%;
+    --muted: 240 9% 18%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 240 9% 18%;
+    --accent-foreground: 43 100% 56%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 9% 23%;
+    --input: 240 9% 23%;
+    --ring: 40 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Headings use Display font */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Screen reader only */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Focus visible for keyboard users */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-pulse {
+    animation: none;
+    opacity: 1;
+  }
+
+  .animate-spin {
+    animation: none;
+  }
+}
