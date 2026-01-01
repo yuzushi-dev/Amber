@@ -16,7 +16,7 @@ export default function EvidenceBoard() {
     const lastMessage = assistantMessages[assistantMessages.length - 1]
     const sources = lastMessage?.sources || []
 
-    const selectedSource = sources.find(s => s.id === selectedSourceId)
+    const selectedSource = sources.find(s => s.chunk_id === selectedSourceId)
 
     return (
         <div className="flex flex-col h-full w-[400px] border-l bg-card overflow-hidden">
@@ -61,10 +61,10 @@ export default function EvidenceBoard() {
                     view === 'list' ? (
                         sources.map((source) => (
                             <SourceCard
-                                key={source.id}
+                                key={source.chunk_id}
                                 source={source}
-                                isActive={selectedSourceId === source.id}
-                                onClick={() => setSelectedSourceId(source.id)}
+                                isActive={selectedSourceId === source.chunk_id}
+                                onClick={() => setSelectedSourceId(source.chunk_id)}
                             />
                         ))
                     ) : (

@@ -10,9 +10,10 @@ export interface Message {
 }
 
 export interface Source {
-    id: string
+    chunk_id: string
+    document_id?: string
     title: string
-    snippet: string
+    content_preview: string
     score?: number
     page?: number
 }

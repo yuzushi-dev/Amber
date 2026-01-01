@@ -220,7 +220,7 @@ class OpenAILLMProvider(BaseLLMProvider):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
-                **kwargs,
+                **{k: v for k, v in kwargs.items() if k != 'history'},
             )
 
             async for chunk in stream:

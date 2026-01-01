@@ -196,13 +196,19 @@ class GenerationService:
         )
         ctx = builder.build(candidates, query=query)
         
-        # 2. Yield source metadata first
+        # 2. Build document title lookup
+        doc_titles = await self._get_document_titles(ctx.used_candidates)
+        
+        # 3. Yield source metadata first
         cited_sources = [
             {
                 "index": i + 1,
                 "chunk_id": getattr(c, "id", c.get("chunk_id", f"chunk_{i}")),
                 "document_id": getattr(c, "metadata", c).get("document_id", "unknown") if hasattr(c, "metadata") else c.get("document_id", "unknown"),
-                "title": getattr(c, "metadata", c).get("title", "Untitled") if hasattr(c, "metadata") else c.get("metadata", {}).get("title", "Untitled"),
+                "title": doc_titles.get(
+                    getattr(c, "metadata", c).get("document_id", "") if hasattr(c, "metadata") else c.get("document_id", ""),
+                    "Untitled"
+                ),
                 "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "...")
             }
             for i, c in enumerate(ctx.used_candidates)
@@ -280,3 +286,48 @@ class GenerationService:
             follow_ups.append("Are there any conflicting viewpoints in the sources?")
             
         return follow_ups[:3]
+
+    async def _get_document_titles(self, candidates: List[Any]) -> Dict[str, str]:
+        """
+        Fetch document titles (filenames) from database for display in sources.
+        
+        Args:
+            candidates: List of candidates with document_id
+            
+        Returns:
+            Dict mapping document_id -> filename
+        """
+        # Extract unique document IDs
+        doc_ids = set()
+        for c in candidates:
+            if hasattr(c, "metadata"):
+                doc_id = getattr(c, "metadata", {}).get("document_id")
+            else:
+                doc_id = c.get("document_id")
+            if doc_id:
+                doc_ids.add(doc_id)
+        
+        if not doc_ids:
+            return {}
+        
+        try:
+            from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import select
+            from src.api.config import settings
+            from src.core.models.document import Document
+            
+            engine = create_async_engine(settings.db.database_url)
+            async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            
+            async with async_session() as session:
+                result = await session.execute(
+                    select(Document.id, Document.filename).where(Document.id.in_(list(doc_ids)))
+                )
+                rows = result.all()
+                
+                return {row.id: row.filename for row in rows}
+                
+        except Exception as e:
+            logger.warning(f"Failed to fetch document titles: {e}")
+            return {}

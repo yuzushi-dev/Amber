@@ -300,12 +300,45 @@ def _fallback_response(
 # =============================================================================
 
 
-@router.post(
+@router.api_route(
     "/stream",
+    methods=["GET", "POST"],
     summary="Stream Query Response",
     description="Stream the query response using Server-Sent Events.",
 )
-async def query_stream(request: QueryRequest, http_request: Request):
+async def query_stream(
+    http_request: Request,
+    request: QueryRequest = None,
+    query: str = None,
+):
+    """
+    Stream the query response.
+
+    Uses SSE to stream LLM tokens as they're generated.
+    Supports both POST (JSON body) and GET (query params).
+    """
+    # Handle GET request parameters
+    if http_request.method == "GET":
+        if not query:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Query parameter 'query' is required for GET requests",
+            )
+        request = QueryRequest(query=query)
+    
+    # Handle POST request body (FastAPI dependency injection)
+    if request is None and http_request.method == "POST":
+         # This case should be handled by FastAPI if signature is correct, 
+         # but since we made request optional for GET, we might need to validate.
+         # Actually, mixing Body and Query params in one function can be tricky in FastAPI.
+         # Better approach is to separate into two functions or use logic below.
+         pass
+         
+    if request is None:
+         # If dependency failed or wasn't provided (shouldn't happen for POST if validated)
+         raise HTTPException(status_code=400, detail="Invalid request")
+
+    tenant_id = _get_tenant_id(http_request)
     """
     Stream the query response.
 

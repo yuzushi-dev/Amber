@@ -29,7 +29,7 @@ class Chunk(Base):
     __tablename__ = "chunks"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
-    document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id"), nullable=False, index=True)
+    document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     index: Mapped[int] = mapped_column(Integer, nullable=False) # 0-based index in the document
     
     content: Mapped[str] = mapped_column(Text, nullable=False)
