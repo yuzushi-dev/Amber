@@ -30,7 +30,7 @@ export default function SourceCard({ source, isActive, onClick }: SourceCardProp
             </div>
 
             <p className="text-xs text-muted-foreground line-clamp-3 mb-3 leading-relaxed">
-                {source.snippet}
+                {source.content_preview}
             </p>
 
             <div className="flex items-center justify-between text-[10px] text-muted-foreground font-medium">

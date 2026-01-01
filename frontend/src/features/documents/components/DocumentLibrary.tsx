@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
-import { FileText, Plus, Search, RefreshCw, Trash2, BookOpen } from 'lucide-react'
+import { FileText, Plus, Search, RefreshCw, Trash2, BookOpen, AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import UploadWizard from './UploadWizard'
 import SampleDataModal from './SampleDataModal'
@@ -14,9 +14,17 @@ interface Document {
     created_at: string
 }
 
+type ConfirmAction =
+    | { type: 'delete-single'; documentId: string; documentTitle: string }
+    | { type: 'delete-all' }
+    | null
+
 export default function DocumentLibrary() {
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [isSampleOpen, setIsSampleOpen] = useState(false)
+    const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
+
+    const queryClient = useQueryClient()
 
     const { data: documents, isLoading, refetch } = useQuery({
         queryKey: ['documents'],
@@ -25,6 +33,52 @@ export default function DocumentLibrary() {
             return response.data
         }
     })
+
+    // Delete single document mutation
+    const deleteDocumentMutation = useMutation({
+        mutationFn: async (documentId: string) => {
+            await apiClient.delete(`/documents/${documentId}`)
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['documents'] })
+            setConfirmAction(null)
+        },
+        onError: (error) => {
+            console.error('Failed to delete document:', error)
+            setConfirmAction(null)
+        }
+    })
+
+    // Delete all documents mutation
+    const deleteAllDocumentsMutation = useMutation({
+        mutationFn: async () => {
+            if (!documents) return
+            // Delete all documents sequentially
+            for (const doc of documents) {
+                await apiClient.delete(`/documents/${doc.id}`)
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['documents'] })
+            setConfirmAction(null)
+        },
+        onError: (error) => {
+            console.error('Failed to delete all documents:', error)
+            setConfirmAction(null)
+        }
+    })
+
+    const handleConfirmDelete = () => {
+        if (!confirmAction) return
+
+        if (confirmAction.type === 'delete-single') {
+            deleteDocumentMutation.mutate(confirmAction.documentId)
+        } else if (confirmAction.type === 'delete-all') {
+            deleteAllDocumentsMutation.mutate()
+        }
+    }
+
+    const isDeleting = deleteDocumentMutation.isPending || deleteAllDocumentsMutation.isPending
 
     const handleSampleComplete = () => {
         setIsSampleOpen(false)
@@ -98,13 +152,25 @@ export default function DocumentLibrary() {
                             aria-label="Filter documents"
                         />
                     </div>
-                    <button
-                        onClick={() => refetch()}
-                        className="p-2 hover:bg-muted rounded-md transition-colors"
-                        aria-label="Refresh document list"
-                    >
-                        <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {documents && documents.length > 0 && (
+                            <button
+                                onClick={() => setConfirmAction({ type: 'delete-all' })}
+                                className="flex items-center gap-2 px-3 py-2 text-sm text-destructive border border-destructive/30 rounded-md hover:bg-destructive/10 transition-colors"
+                                aria-label="Delete all documents"
+                            >
+                                <Trash2 className="w-4 h-4" aria-hidden="true" />
+                                <span>Delete All</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={() => refetch()}
+                            className="p-2 hover:bg-muted rounded-md transition-colors"
+                            aria-label="Refresh document list"
+                        >
+                            <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                    </div>
                 </div>
 
                 {isLoading ? (
@@ -146,6 +212,7 @@ export default function DocumentLibrary() {
                                         </td>
                                         <td className="p-4 text-right">
                                             <button
+                                                onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
                                                 className="p-2 text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                                                 aria-label={`Delete ${doc.title}`}
                                             >
@@ -172,6 +239,54 @@ export default function DocumentLibrary() {
                 onClose={() => setIsSampleOpen(false)}
                 onComplete={handleSampleComplete}
             />
+
+            {/* Delete Confirmation Modal */}
+            {confirmAction && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true">
+                    <div className="bg-card border rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-destructive/10 rounded-full">
+                                <AlertTriangle className="w-6 h-6 text-destructive" aria-hidden="true" />
+                            </div>
+                            <h2 className="text-lg font-semibold">
+                                {confirmAction.type === 'delete-single'
+                                    ? 'Delete Document?'
+                                    : 'Delete All Documents?'
+                                }
+                            </h2>
+                        </div>
+                        <p className="text-muted-foreground mb-6">
+                            {confirmAction.type === 'delete-single'
+                                ? `Are you sure you want to delete "${confirmAction.documentTitle}"? This action cannot be undone.`
+                                : `Are you sure you want to delete all ${documents?.length || 0} documents? This action cannot be undone.`
+                            }
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setConfirmAction(null)}
+                                disabled={isDeleting}
+                                className="px-4 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmDelete}
+                                disabled={isDeleting}
+                                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isDeleting ? (
+                                    <>
+                                        <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>Delete</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

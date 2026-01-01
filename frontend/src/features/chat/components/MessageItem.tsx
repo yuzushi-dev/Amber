@@ -47,9 +47,9 @@ export default function MessageItem({ message }: MessageItemProps) {
                     <div className="mt-4 pt-4 border-t flex flex-wrap gap-2">
                         {message.sources.map((source, idx) => (
                             <button
-                                key={source.id}
+                                key={source.chunk_id}
                                 className="text-xs px-2 py-1 rounded bg-muted hover:bg-accent transition-colors border"
-                                title={source.snippet}
+                                title={source.content_preview}
                             >
                                 [{idx + 1}] {source.title}
                             </button>

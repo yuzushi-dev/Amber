@@ -27,7 +27,7 @@ export default function ChunkViewer({ source, onClose }: ChunkViewerProps) {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-8 leading-relaxed text-lg">
-                    <p>{source.snippet}</p>
+                    <p>{source.content_preview}</p>
                 </div>
 
                 <footer className="p-4 border-t bg-muted/30 flex justify-between items-center text-xs text-muted-foreground">

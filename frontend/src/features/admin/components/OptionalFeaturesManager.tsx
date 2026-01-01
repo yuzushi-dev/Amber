@@ -70,11 +70,18 @@ export default function OptionalFeaturesManager() {
     const handleInstall = async (featureId: string) => {
         try {
             setInstalling(featureId)
+            // 30 minute timeout for large downloads
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000)
+
             const response = await fetch('/api/setup/install', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ feature_ids: [featureId] })
+                body: JSON.stringify({ feature_ids: [featureId] }),
+                signal: controller.signal
             })
+
+            clearTimeout(timeoutId)
 
             if (!response.ok) {
                 const data = await response.json()
@@ -82,8 +89,12 @@ export default function OptionalFeaturesManager() {
             }
 
             await fetchStatus()
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Installation failed')
+        } catch (err: any) {
+            const errorMessage = err.name === 'AbortError'
+                ? 'Installation timed out. It may still be running in the background.'
+                : (err instanceof Error ? err.message : 'Installation failed')
+
+            setError(errorMessage)
             setInstalling(null)
         }
     }

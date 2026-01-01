@@ -229,6 +229,62 @@ class IngestionService:
                 self.session.add(chunk)
                 chunks_to_process.append(chunk)
             
+            # 8. Generate Embeddings and Store in Milvus
+            # This is the critical step for RAG retrieval!
+            try:
+                from src.api.config import settings
+                from src.core.services.embeddings import EmbeddingService
+                from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+                from src.core.models.chunk import EmbeddingStatus
+                
+                logger.info(f"Generating embeddings for {len(chunks_to_process)} chunks")
+                
+                # Initialize services
+                embedding_service = EmbeddingService(
+                    openai_api_key=settings.openai_api_key or None,
+                )
+                
+                milvus_config = MilvusConfig(
+                    host=settings.db.milvus_host,
+                    port=settings.db.milvus_port,
+                    collection_name=f"amber_{document.tenant_id}",  # Tenant-specific collection
+                )
+                vector_store = MilvusVectorStore(milvus_config)
+                
+                # Extract content for embedding
+                chunk_contents = [c.content for c in chunks_to_process]
+                
+                # Generate embeddings in batch
+                embeddings, embed_stats = await embedding_service.embed_texts(chunk_contents)
+                
+                # Prepare data for Milvus upsert
+                milvus_data = [
+                    {
+                        "chunk_id": chunk.id,
+                        "document_id": chunk.document_id,
+                        "tenant_id": document.tenant_id,
+                        "content": chunk.content[:65530],  # Truncate for Milvus VARCHAR limit
+                        "embedding": emb,
+                    }
+                    for chunk, emb in zip(chunks_to_process, embeddings)
+                ]
+                
+                # Upsert to Milvus
+                await vector_store.upsert_chunks(milvus_data)
+                await vector_store.disconnect()
+                
+                # Update embedding status for all chunks
+                for chunk in chunks_to_process:
+                    chunk.embedding_status = EmbeddingStatus.COMPLETED
+                
+                logger.info(f"Stored {len(milvus_data)} embeddings in Milvus")
+                
+            except Exception as e:
+                logger.error(f"Embedding generation/storage failed for document {document_id}: {e}")
+                # Mark chunks as failed but don't fail the document entirely
+                for chunk in chunks_to_process:
+                    chunk.embedding_status = EmbeddingStatus.FAILED
+            
             # 9. Build Knowledge Graph (Phase 3)
             # We process chunks to extract entities and build graph before marking document as READY.
             try:

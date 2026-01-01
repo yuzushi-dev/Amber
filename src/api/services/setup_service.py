@@ -71,7 +71,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="document_processing",
         name="Document Processing",
         description="Parse PDFs, DOCX, HTML, and other document formats",
-        packages=["unstructured>=0.11.0", "python-magic>=0.4.27"],
+        packages=["unstructured>=0.11.0", "python-magic>=0.4.27", "pymupdf4llm>=0.0.1"],
         size_mb=800,
         check_import="unstructured",
     ),
@@ -142,6 +142,7 @@ class SetupService:
                 "size_mb": feature.size_mb,
                 "status": feature.status.value,
                 "error_message": feature.error_message,
+                "packages": feature.packages,
             })
         
         # Calculate totals
@@ -194,10 +195,18 @@ class SetupService:
                 ]
                 
                 # Run pip install
+                # Set TMPDIR to a subdir of packages to ensure same-device for move operations
+                import os
+                env = os.environ.copy()
+                tmp_dir = os.path.join(self.PACKAGES_DIR, ".tmp")
+                os.makedirs(tmp_dir, exist_ok=True)
+                env["TMPDIR"] = tmp_dir
+                
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=env
                 )
                 
                 stdout, stderr = await process.communicate()

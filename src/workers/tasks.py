@@ -7,7 +7,12 @@ Celery tasks for background document processing.
 
 import logging
 import asyncio
+import sys
 from typing import Any
+
+# Ensure custom packages are loadable
+if "/app/.packages" not in sys.path:
+    sys.path.insert(0, "/app/.packages")
 
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError

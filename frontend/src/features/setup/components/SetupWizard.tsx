@@ -18,6 +18,7 @@ interface Feature {
     size_mb: number;
     status: 'not_installed' | 'installing' | 'installed' | 'failed';
     error_message?: string;
+    packages?: string[];
 }
 
 interface SetupStatus {
@@ -108,11 +109,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         setError(null);
 
         try {
+            // 30 minute timeout for large downloads (2GB @ 10Mbps ~= 27 mins)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000);
+
             const response = await fetch(`${apiBaseUrl}/api/setup/install`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ feature_ids: Array.from(selectedFeatures) }),
+                signal: controller.signal,
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const data = await response.json();
@@ -121,8 +129,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
             // Start polling
             await fetchStatus();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Installation failed');
+        } catch (err: any) {
+            const errorMessage = err.name === 'AbortError'
+                ? 'Installation timed out. It may still be running in the background.'
+                : (err instanceof Error ? err.message : 'Installation failed');
+
+            setError(errorMessage);
             setIsInstalling(false);
         }
     };
@@ -307,6 +319,17 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                         </div>
                     )}
 
+                    {/* Restart Warning Banner */}
+                    <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="font-medium">System Restart Required</p>
+                            <p className="opacity-90 mt-1">
+                                After installing new features, you must restart the system for them to take effect.
+                            </p>
+                        </div>
+                    </div>
+
                     <div className="space-y-3">
                         {status.features.map(feature => {
                             const isSelected = selectedFeatures.has(feature.id);
@@ -356,6 +379,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                         <p className="text-sm text-muted-foreground mt-0.5">
                                             {feature.description}
                                         </p>
+                                        {feature.packages && feature.packages.length > 0 && (
+                                            <div className="mt-2 text-xs text-muted-foreground/80">
+                                                <span className="font-medium text-muted-foreground">Packages: </span>
+                                                {feature.packages.join(', ')}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Size indicator */}

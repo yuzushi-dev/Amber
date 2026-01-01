@@ -113,13 +113,16 @@ class RetrievalService:
             provider=factory.get_embedding_provider(),
         )
 
-        # Initialize vector store
+        # Initialize vector store with tenant-specific collection pattern
+        # The collection name will be dynamically set per-query using _get_tenant_vector_store
         milvus_config = MilvusConfig(
             host=self.config.milvus_host,
             port=self.config.milvus_port,
             dimensions=self.config.embedding_dimensions,
+            collection_name="amber_default",  # Default tenant collection
         )
         self.vector_store = MilvusVectorStore(milvus_config)
+        self._milvus_config = milvus_config  # Store for dynamic tenant-specific use
 
         # Initialize caches
         self.embedding_cache = SemanticCache(
