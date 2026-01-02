@@ -21,7 +21,6 @@ import {
     FolderOpen,
     Trash2,
     MessageSquarePlus,
-    History,
     MessageCircle,
 
 } from 'lucide-react'
@@ -90,6 +89,12 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             items: [
                 { label: 'RAG Tuning', icon: Sliders, to: '/admin/ops/tuning' },
                 { label: 'Curation', icon: Flag, to: '/admin/ops/curation' },
+            ]
+        },
+        {
+            title: 'Analytics',
+            items: [
+                { label: 'Token Metrics', icon: Activity, to: '/admin/ops/metrics' },
             ]
         }
     ]
@@ -231,7 +236,8 @@ export default function ContextSidebar() {
                                     return (
                                         <li key={conversation.request_id}>
                                             <Link
-                                                to={`/admin/chat?request_id=${conversation.request_id}`}
+                                                to="/admin/chat"
+                                                search={{ request_id: conversation.request_id }}
                                                 className={cn(
                                                     "flex items-start gap-3 px-3 py-2 rounded-md transition-colors",
                                                     "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1",

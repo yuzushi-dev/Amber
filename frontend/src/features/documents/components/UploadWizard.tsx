@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Upload, Loader2, CheckCircle2 } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
+import { AnimatedProgress } from '@/components/ui/animated-progress'
 
 interface UploadWizardProps {
     onClose: () => void
@@ -107,17 +108,17 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
                     {status === 'uploading' && (
                         <div className="w-full max-w-xs mx-auto mt-4">
-                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-primary transition-all duration-300 ease-out"
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
-                            <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                                <span>{progress}%</span>
-                                <span>
-                                    {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
-                                </span>
+                            <AnimatedProgress
+                                value={progress}
+                                stages={[
+                                    { label: 'Starting upload...', threshold: 0 },
+                                    { label: 'Uploading...', threshold: 10 },
+                                    { label: 'Almost done...', threshold: 90 },
+                                ]}
+                                size="md"
+                            />
+                            <div className="text-center text-xs text-muted-foreground mt-2">
+                                {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
                             </div>
                         </div>
                     )}

@@ -28,6 +28,7 @@ import CurationPage from './features/admin/pages/CurationPage'
 import DatabasePage from './features/admin/pages/DatabasePage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
+import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 
 // =============================================================================
 // Root Route
@@ -189,6 +190,12 @@ const opsCurationRoute = createRoute({
     component: () => <CurationPage />,
 })
 
+const opsMetricsRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/metrics',
+    component: () => <TokenMetricsPage />,
+})
+
 // =============================================================================
 // Legacy route redirects (for backwards compatibility)
 // =============================================================================
@@ -264,6 +271,7 @@ const routeTree = rootRoute.addChildren([
         opsQueuesRoute,
         opsTuningRoute,
         opsCurationRoute,
+        opsMetricsRoute,
         // Legacy redirects
         legacyDocumentsRoute,
         legacyDatabaseRoute,

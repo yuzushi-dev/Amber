@@ -5,7 +5,7 @@
  * Vector database statistics and collection management.
  */
 
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Layers, Box, HardDrive, RefreshCw, Database } from 'lucide-react'
 import { vectorStoreApi, VectorCollectionInfo } from '@/lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
@@ -75,7 +75,7 @@ export default function VectorStorePage() {
     }
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
+        <div className="p-6 pb-20 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Vector Store</h1>
