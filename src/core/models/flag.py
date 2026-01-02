@@ -44,8 +44,9 @@ class Flag(Base, TimestampMixin):
     tenant_id = Column(String, index=True, nullable=False)
     
     # Flag metadata
-    type = Column(SQLEnum(FlagType), nullable=False, index=True)
-    status = Column(SQLEnum(FlagStatus), default=FlagStatus.PENDING, index=True)
+    # Use values_callable to ensure lowercase values match PostgreSQL enum
+    type = Column(SQLEnum(FlagType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    status = Column(SQLEnum(FlagStatus, values_callable=lambda x: [e.value for e in x]), default=FlagStatus.PENDING, index=True)
     
     # Reporter info
     reported_by = Column(String, nullable=False)  # User ID or username

@@ -145,7 +145,7 @@ async def list_flags(
             flags = result.scalars().all()
             
             # Get counts
-            pending_query = select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING)
+            pending_query = select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING.value)
             pending_result = await session.execute(pending_query)
             pending_count = pending_result.scalar() or 0
             
@@ -337,22 +337,22 @@ async def get_curation_stats():
             
             # Counts by status
             pending_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING)
+                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING.value)
             )
             pending = pending_result.scalar() or 0
             
             accepted_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.ACCEPTED)
+                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.ACCEPTED.value)
             )
             accepted = accepted_result.scalar() or 0
             
             rejected_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.REJECTED)
+                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.REJECTED.value)
             )
             rejected = rejected_result.scalar() or 0
             
             merged_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.MERGED)
+                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.MERGED.value)
             )
             merged = merged_result.scalar() or 0
             
