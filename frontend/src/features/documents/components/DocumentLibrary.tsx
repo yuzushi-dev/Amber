@@ -8,6 +8,7 @@ import SampleDataModal from './SampleDataModal'
 import EmptyState from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/dialog'
+import { useFuzzySearch } from '@/hooks/useFuzzySearch'
 
 interface Document {
     id: string
@@ -28,6 +29,7 @@ export default function DocumentLibrary() {
     const [isSampleOpen, setIsSampleOpen] = useState(false)
     const [showDemoData, setShowDemoData] = useState(true)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
+    const [searchQuery, setSearchQuery] = useState('')
 
     const queryClient = useQueryClient()
 
@@ -37,6 +39,13 @@ export default function DocumentLibrary() {
             const response = await apiClient.get<Document[]>('/documents')
             return response.data
         }
+    })
+
+    // Apply demo filter first, then fuzzy search
+    const demoFiltered = documents?.filter(doc => showDemoData || doc.source_type !== 'sample') || []
+    const filteredDocuments = useFuzzySearch(demoFiltered, searchQuery, {
+        keys: ['title', 'filename', 'source_type'],
+        threshold: 0.4,
     })
 
     // Delete single document mutation
@@ -120,7 +129,7 @@ export default function DocumentLibrary() {
     )
 
     return (
-        <div className="p-8 max-w-6xl mx-auto space-y-8">
+        <div className="p-8 pb-20 max-w-6xl mx-auto space-y-8">
             <header className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold">Document Library</h1>
@@ -153,6 +162,8 @@ export default function DocumentLibrary() {
                         <input
                             type="text"
                             placeholder="Filter documents..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full bg-background border rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
                             aria-label="Filter documents"
                         />
@@ -205,7 +216,7 @@ export default function DocumentLibrary() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {documents?.filter(doc => showDemoData || doc.source_type !== 'sample').map((doc) => (
+                                {filteredDocuments.map((doc) => (
                                     <tr key={doc.id} className="border-b hover:bg-muted/5 transition-colors">
                                         <td className="p-4">
                                             <div className="flex items-center space-x-3">
