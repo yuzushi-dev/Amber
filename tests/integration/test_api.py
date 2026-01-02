@@ -142,23 +142,27 @@ class TestQueryEndpoint:
 class TestDocumentEndpoints:
     """Tests for document API endpoints."""
 
-    def test_upload_returns_501(self, client, api_key):
-        """Document upload should return 501 (not implemented) or 404 (route not registered)."""
+    def test_upload_document(self, client, api_key):
+        """Document upload should work with proper multipart form data."""
+        # The endpoint now requires a file upload (multipart/form-data)
+        # Without a file, it should return 422 (validation error)
         response = client.post(
             "/v1/documents",
             headers={"X-API-Key": api_key},
         )
-        # Accept 501 (stub) or 404 (not registered) or 405 (method not allowed)
-        assert response.status_code in (404, 405, 501)
+        # Accept 422 (missing file) or 400 (bad request)
+        assert response.status_code in (400, 422)
 
-    def test_list_returns_501(self, client, api_key):
-        """Document list should return 501 (not implemented) or 404 (route not registered)."""
+    def test_list_documents(self, client, api_key):
+        """Document list endpoint is now implemented."""
         response = client.get(
             "/v1/documents",
             headers={"X-API-Key": api_key},
         )
-        # Accept 501 (stub) or 404 (not registered)
-        assert response.status_code in (404, 501)
+        # The endpoint is now implemented, should return 200
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
 
 
 class TestRequestHeaders:

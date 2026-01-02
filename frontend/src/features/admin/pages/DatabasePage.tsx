@@ -13,13 +13,15 @@ import {
     Trash2,
     RefreshCw,
     AlertTriangle,
-    CheckCircle,
     FileText,
     Box,
     Share2,
     Users
 } from 'lucide-react'
 import { maintenanceApi, SystemStats, MaintenanceResult } from '@/lib/api-admin'
+import { StatCard } from '@/components/ui/StatCard'
+import { ConfirmDialog } from '@/components/ui/dialog'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function DatabasePage() {
     const [stats, setStats] = useState<SystemStats | null>(null)
@@ -111,28 +113,21 @@ export default function DatabasePage() {
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
-                </div>
+                <Alert variant="destructive" className="mb-6">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {actionResult && (
-                <div className={`border rounded-lg p-4 mb-6 flex items-center gap-3 ${actionResult.status === 'success'
-                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                    }`}>
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    <div>
-                        <div className="font-medium">{actionResult.operation}</div>
-                        <div className="text-sm text-muted-foreground">{actionResult.message}</div>
-                    </div>
-                    <button
-                        onClick={() => setActionResult(null)}
-                        className="ml-auto p-1 hover:bg-black/10 rounded"
-                    >
-                        ×
-                    </button>
-                </div>
+                <Alert
+                    variant={actionResult.status === 'success' ? 'success' : 'warning'}
+                    className="mb-6"
+                    dismissible
+                    onDismiss={() => setActionResult(null)}
+                >
+                    <div className="font-medium">{actionResult.operation}</div>
+                    <AlertDescription className="mt-1">{actionResult.message}</AlertDescription>
+                </Alert>
             )}
 
             {/* Database Stats */}
@@ -209,10 +204,10 @@ export default function DatabasePage() {
                         <div className="h-3 bg-muted rounded-full overflow-hidden">
                             <div
                                 className={`h-full transition-all ${(stats?.cache.memory_usage_percent ?? 0) > 90
-                                        ? 'bg-red-500'
-                                        : (stats?.cache.memory_usage_percent ?? 0) > 70
-                                            ? 'bg-yellow-500'
-                                            : 'bg-green-500'
+                                    ? 'bg-red-500'
+                                    : (stats?.cache.memory_usage_percent ?? 0) > 70
+                                        ? 'bg-yellow-500'
+                                        : 'bg-green-500'
                                     }`}
                                 style={{ width: `${stats?.cache.memory_usage_percent ?? 0}%` }}
                             />
@@ -275,47 +270,25 @@ export default function DatabasePage() {
                 </div>
             </div>
 
-            {/* Confirmation Modal */}
-            {showConfirm && (
-                <ConfirmModal
-                    title={showConfirm === 'cache' ? 'Clear Cache?' : 'Prune Orphans?'}
-                    message={
-                        showConfirm === 'cache'
-                            ? 'This will remove all cached data. Queries may be slower until the cache warms up.'
-                            : 'This will permanently remove orphan nodes from the graph. This cannot be undone.'
-                    }
-                    onConfirm={showConfirm === 'cache' ? handleClearCache : handlePruneOrphans}
-                    onCancel={() => setShowConfirm(null)}
-                />
-            )}
+            {/* Confirmation Dialog */}
+            <ConfirmDialog
+                open={showConfirm !== null}
+                onOpenChange={(open) => !open && setShowConfirm(null)}
+                title={showConfirm === 'cache' ? 'Clear Cache?' : 'Prune Orphans?'}
+                description={
+                    showConfirm === 'cache'
+                        ? 'This will remove all cached data. Queries may be slower until the cache warms up.'
+                        : 'This will permanently remove orphan nodes from the graph. This cannot be undone.'
+                }
+                onConfirm={showConfirm === 'cache' ? handleClearCache : handlePruneOrphans}
+                variant="destructive"
+                loading={executing !== null}
+            />
         </div>
     )
 }
 
-interface StatCardProps {
-    icon: React.ComponentType<{ className?: string }>
-    label: string
-    value: number | string
-    subLabel?: string
-    isString?: boolean
-}
-
-function StatCard({ icon: Icon, label, value, subLabel, isString }: StatCardProps) {
-    return (
-        <div className="bg-card border rounded-lg p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Icon className="w-4 h-4" />
-                <span className="text-sm">{label}</span>
-            </div>
-            <div className="text-2xl font-bold">
-                {isString ? value : typeof value === 'number' ? value.toLocaleString() : value}
-            </div>
-            {subLabel && (
-                <div className="text-sm text-muted-foreground">{subLabel}</div>
-            )}
-        </div>
-    )
-}
+// StatCard imported from components/ui/StatCard
 
 interface ActionCardProps {
     icon: React.ComponentType<{ className?: string }>
@@ -331,9 +304,13 @@ function ActionCard({ icon: Icon, title, description, buttonText, buttonVariant,
     return (
         <div className="bg-card border rounded-lg p-6">
             <div className="flex items-start gap-4">
-                <div className={`p-3 rounded-lg ${buttonVariant === 'danger' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-yellow-100 dark:bg-yellow-900/30'
+                <div className={`p-3 rounded-lg ${buttonVariant === 'danger'
+                    ? 'bg-[hsl(var(--destructive)_/_0.1)]'
+                    : 'bg-warning-muted'
                     }`}>
-                    <Icon className={`w-6 h-6 ${buttonVariant === 'danger' ? 'text-red-600' : 'text-yellow-600'
+                    <Icon className={`w-6 h-6 ${buttonVariant === 'danger'
+                        ? 'text-destructive'
+                        : 'text-warning'
                         }`} />
                 </div>
                 <div className="flex-1">
@@ -343,8 +320,8 @@ function ActionCard({ icon: Icon, title, description, buttonText, buttonVariant,
                         onClick={onClick}
                         disabled={loading}
                         className={`px-4 py-2 rounded-md text-white transition-colors disabled:opacity-50 ${buttonVariant === 'danger'
-                                ? 'bg-red-600 hover:bg-red-700'
-                                : 'bg-yellow-600 hover:bg-yellow-700'
+                            ? 'bg-destructive hover:bg-destructive/90'
+                            : 'bg-warning hover:bg-warning/90'
                             }`}
                     >
                         {loading ? 'Processing...' : buttonText}
@@ -355,35 +332,3 @@ function ActionCard({ icon: Icon, title, description, buttonText, buttonVariant,
     )
 }
 
-interface ConfirmModalProps {
-    title: string
-    message: string
-    onConfirm: () => void
-    onCancel: () => void
-}
-
-function ConfirmModal({ title, message, onConfirm, onCancel }: ConfirmModalProps) {
-    return (
-        <>
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
-            <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card border rounded-lg p-6 w-full max-w-md z-50">
-                <h3 className="text-lg font-semibold mb-2">{title}</h3>
-                <p className="text-muted-foreground mb-6">{message}</p>
-                <div className="flex gap-3 justify-end">
-                    <button
-                        onClick={onCancel}
-                        className="px-4 py-2 border rounded-md hover:bg-muted transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={onConfirm}
-                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                    >
-                        Confirm
-                    </button>
-                </div>
-            </div>
-        </>
-    )
-}

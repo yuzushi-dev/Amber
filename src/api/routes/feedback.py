@@ -95,29 +95,53 @@ async def create_feedback(
             detail="Failed to submit feedback"
         )
 
-@router.get("/{request_id}", response_model=ResponseSchema[List[FeedbackResponse]])
+@router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
     request_id: str,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get all feedback for a specific request.
+    Get feedback for a specific request with pagination.
+
+    Args:
+        request_id: Request UUID
+        limit: Maximum number of feedback items to return (default: 50)
+        offset: Number of feedback items to skip (default: 0)
+
+    Returns:
+        Paginated feedback response with items, total, limit, and offset
     """
-    from sqlalchemy import select
-    
+    from sqlalchemy import select, func
+
+    # Get total count
+    count_stmt = select(func.count(Feedback.id)).where(Feedback.request_id == request_id)
+    total = await db.scalar(count_stmt)
+
+    # Fetch feedback with pagination
     result = await db.execute(
-        select(Feedback).where(Feedback.request_id == request_id)
+        select(Feedback)
+        .where(Feedback.request_id == request_id)
+        .order_by(Feedback.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     feedbacks = result.scalars().all()
-    
+
     return ResponseSchema(
-        data=[
-            FeedbackResponse(
-                id=f.id,
-                request_id=f.request_id,
-                is_positive=f.is_positive,
-                comment=f.comment
-            )
-            for f in feedbacks
-        ]
+        data={
+            "items": [
+                FeedbackResponse(
+                    id=f.id,
+                    request_id=f.request_id,
+                    is_positive=f.is_positive,
+                    comment=f.comment
+                )
+                for f in feedbacks
+            ],
+            "total": total or 0,
+            "limit": limit,
+            "offset": offset
+        }
     )

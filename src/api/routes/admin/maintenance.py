@@ -258,22 +258,22 @@ async def get_reconciliation_status():
 async def trigger_reindex(collection: Optional[str] = None):
     """
     Trigger vector index rebuild.
-    
+
     - Without collection: Rebuilds all indexes
     - With collection: Rebuilds specific collection
-    
+
     This is an async operation - check task status via /admin/jobs.
     """
     try:
         from src.workers.celery_app import celery_app
-        
+
         # Dispatch reindex task
         # TODO: Create actual reindex task in workers
         # task = celery_app.send_task("src.workers.tasks.reindex", args=[collection])
-        
+
         message = f"Reindex triggered for {'all collections' if not collection else collection}"
         logger.info(message)
-        
+
         return MaintenanceResult(
             operation="reindex",
             status="queued",
@@ -281,10 +281,109 @@ async def trigger_reindex(collection: Optional[str] = None):
             items_affected=0,
             duration_seconds=0,
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to trigger reindex: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to trigger reindex: {str(e)}")
+
+
+class VectorCollectionInfo(BaseModel):
+    """Information about a single vector collection."""
+    name: str
+    count: int
+    dimensions: Optional[int] = None
+    index_type: Optional[str] = None
+    memory_mb: float = 0.0
+
+
+class VectorCollectionsResponse(BaseModel):
+    """Response with all vector collections info."""
+    collections: list[VectorCollectionInfo]
+
+
+@router.get("/vectors/collections", response_model=VectorCollectionsResponse)
+async def get_vector_collections():
+    """
+    Get detailed information about all Milvus collections.
+
+    Returns collection stats without loading collections into memory.
+    Used by the Vector Store admin page.
+    """
+    try:
+        from pymilvus import connections, Collection, utility, DataType
+
+        # Connect to Milvus
+        milvus_host = os.getenv("MILVUS_HOST", "localhost")
+        milvus_port = int(os.getenv("MILVUS_PORT", "19530"))
+
+        try:
+            connections.connect(alias="default", host=milvus_host, port=milvus_port)
+        except Exception:
+            pass  # May already be connected
+
+        # Get all collections
+        collection_names = utility.list_collections()
+        collections_info = []
+
+        for name in collection_names:
+            try:
+                col = Collection(name)
+
+                # Get vector count WITHOUT loading
+                count = col.num_entities
+
+                # Get schema to find dimensions
+                dimensions = None
+                for field in col.schema.fields:
+                    if field.dtype == DataType.FLOAT_VECTOR:
+                        dimensions = field.params.get("dim")
+                        break
+
+                # Get index type if available
+                index_type = None
+                try:
+                    indexes = col.indexes
+                    if indexes:
+                        index_type = indexes[0].params.get("index_type", "UNKNOWN")
+                except Exception:
+                    pass
+
+                # Estimate memory usage
+                try:
+                    stats = utility.get_collection_stats(name)
+                    memory_bytes = stats.get("index_file_size", 0)
+                    memory_mb = memory_bytes / (1024 * 1024) if memory_bytes else 0
+                except Exception:
+                    # Fallback estimation
+                    if dimensions:
+                        bytes_per_vector = dimensions * 4 + 100  # float32 + overhead
+                        memory_mb = (count * bytes_per_vector) / (1024 * 1024)
+                    else:
+                        memory_mb = 0
+
+                collections_info.append(VectorCollectionInfo(
+                    name=name,
+                    count=count,
+                    dimensions=dimensions,
+                    index_type=index_type,
+                    memory_mb=round(memory_mb, 2),
+                ))
+
+            except Exception as e:
+                logger.debug(f"Failed to get info for collection {name}: {e}")
+                # Include collection with minimal info
+                collections_info.append(VectorCollectionInfo(
+                    name=name,
+                    count=0,
+                ))
+
+        return VectorCollectionsResponse(collections=collections_info)
+
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Milvus client not installed")
+    except Exception as e:
+        logger.error(f"Failed to get vector collections: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get collections: {str(e)}")
 
 
 # =============================================================================
@@ -292,96 +391,112 @@ async def trigger_reindex(collection: Optional[str] = None):
 # =============================================================================
 
 async def _get_database_stats() -> DatabaseStats:
-    """Get PostgreSQL/Neo4j statistics."""
+    """Get PostgreSQL/Neo4j statistics with optimized queries and caching."""
     try:
+        from src.core.cache.decorators import get_from_cache, set_cache
+
+        # Check cache first
+        cache_key = "admin:stats:database"
+        cached = await get_from_cache(cache_key)
+        if cached:
+            return DatabaseStats(**cached)
+
         from src.core.database.session import async_session_maker
         from src.core.models.document import Document
         from src.core.models.chunk import Chunk
         from src.core.state.machine import DocumentStatus
         from sqlalchemy.future import select
-        from sqlalchemy import func, or_
-        
+        from sqlalchemy import func, case
+
         async with async_session_maker() as session:
-            # Document counts
-            total_docs = await session.execute(select(func.count(Document.id)))
-            ready_docs = await session.execute(
-                select(func.count(Document.id)).where(Document.status == DocumentStatus.READY)
+            # OPTIMIZED: Single query for all document counts using CASE
+            count_query = select(
+                func.count(Document.id).label('total'),
+                func.sum(case((Document.status == DocumentStatus.READY, 1), else_=0)).label('ready'),
+                func.sum(case(
+                    (Document.status.in_([
+                        DocumentStatus.EXTRACTING,
+                        DocumentStatus.CLASSIFYING,
+                        DocumentStatus.CHUNKING
+                    ]), 1),
+                    else_=0
+                )).label('processing'),
+                func.sum(case((Document.status == DocumentStatus.FAILED, 1), else_=0)).label('failed'),
             )
-            # Processing = extracting, classifying, or chunking
-            processing_docs = await session.execute(
-                select(func.count(Document.id)).where(
-                    or_(
-                        Document.status == DocumentStatus.EXTRACTING,
-                        Document.status == DocumentStatus.CLASSIFYING,
-                        Document.status == DocumentStatus.CHUNKING
-                    )
-                )
+            result = await session.execute(count_query)
+            row = result.one()
+
+            # Chunk count (separate query as it's a different table)
+            chunk_count = await session.scalar(select(func.count(Chunk.id)))
+
+            # OPTIMIZED: Get all Neo4j counts in a single query
+            neo4j_stats = await _get_neo4j_stats_consolidated()
+
+            stats = DatabaseStats(
+                documents_total=row.total or 0,
+                documents_ready=row.ready or 0,
+                documents_processing=row.processing or 0,
+                documents_failed=row.failed or 0,
+                chunks_total=chunk_count or 0,
+                **neo4j_stats
             )
-            failed_docs = await session.execute(
-                select(func.count(Document.id)).where(Document.status == DocumentStatus.FAILED)
-            )
-            
-            # Chunk count
-            total_chunks = await session.execute(select(func.count(Chunk.id)))
-            
-            return DatabaseStats(
-                documents_total=total_docs.scalar() or 0,
-                documents_ready=ready_docs.scalar() or 0,
-                documents_processing=processing_docs.scalar() or 0,
-                documents_failed=failed_docs.scalar() or 0,
-                chunks_total=total_chunks.scalar() or 0,
-                entities_total=await _get_neo4j_entity_count(),
-                relationships_total=await _get_neo4j_relationship_count(),
-                communities_total=await _get_neo4j_community_count(),
-            )
+
+            # Cache for 60 seconds
+            await set_cache(cache_key, stats.dict(), ttl=60)
+            return stats
+
     except Exception as e:
         logger.warning(f"Failed to get database stats: {e}")
         return DatabaseStats()
 
 
-async def _get_neo4j_entity_count() -> int:
-    """Get entity count from Neo4j."""
+async def _get_neo4j_stats_consolidated() -> dict:
+    """Get all Neo4j counts in a single optimized query."""
     try:
         from src.core.graph.neo4j_client import neo4j_client
-        result = await neo4j_client.execute_read(
-            "MATCH (e:Entity) RETURN count(e) as count"
-        )
-        if result:
-            return result[0].get("count", 0)
-        return 0
+
+        # OPTIMIZED: Single query returning all counts at once
+        cypher = """
+        MATCH (e:Entity)
+        WITH count(e) as entity_count
+        MATCH ()-[r]->()
+        WITH entity_count, count(r) as rel_count
+        MATCH (c:Community)
+        RETURN entity_count, rel_count, count(c) as community_count
+        """
+
+        result = await neo4j_client.execute_read(cypher)
+        if result and len(result) > 0:
+            row = result[0]
+            return {
+                "entities_total": row.get("entity_count", 0),
+                "relationships_total": row.get("rel_count", 0),
+                "communities_total": row.get("community_count", 0),
+            }
+        return {"entities_total": 0, "relationships_total": 0, "communities_total": 0}
+
     except Exception as e:
-        logger.debug(f"Failed to get Neo4j entity count: {e}")
-        return 0
+        logger.debug(f"Failed to get Neo4j stats: {e}")
+        return {"entities_total": 0, "relationships_total": 0, "communities_total": 0}
+
+
+# Legacy functions kept for backwards compatibility (now call consolidated function)
+async def _get_neo4j_entity_count() -> int:
+    """Get entity count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
+    stats = await _get_neo4j_stats_consolidated()
+    return stats.get("entities_total", 0)
 
 
 async def _get_neo4j_relationship_count() -> int:
-    """Get relationship count from Neo4j."""
-    try:
-        from src.core.graph.neo4j_client import neo4j_client
-        result = await neo4j_client.execute_read(
-            "MATCH ()-[r]->() RETURN count(r) as count"
-        )
-        if result:
-            return result[0].get("count", 0)
-        return 0
-    except Exception as e:
-        logger.debug(f"Failed to get Neo4j relationship count: {e}")
-        return 0
+    """Get relationship count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
+    stats = await _get_neo4j_stats_consolidated()
+    return stats.get("relationships_total", 0)
 
 
 async def _get_neo4j_community_count() -> int:
-    """Get community count from Neo4j."""
-    try:
-        from src.core.graph.neo4j_client import neo4j_client
-        result = await neo4j_client.execute_read(
-            "MATCH (c:Community) RETURN count(c) as count"
-        )
-        if result:
-            return result[0].get("count", 0)
-        return 0
-    except Exception as e:
-        logger.debug(f"Failed to get Neo4j community count: {e}")
-        return 0
+    """Get community count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
+    stats = await _get_neo4j_stats_consolidated()
+    return stats.get("communities_total", 0)
 
 
 async def _get_cache_stats() -> CacheStats:
@@ -416,51 +531,71 @@ async def _get_cache_stats() -> CacheStats:
 
 
 async def _get_vector_store_stats() -> VectorStoreStats:
-    """Get Milvus vector store statistics."""
+    """Get Milvus vector store statistics with caching (optimized - no col.load())."""
     try:
+        from src.core.cache.decorators import get_from_cache, set_cache
+
+        # Check cache first
+        cache_key = "admin:stats:vectors"
+        cached = await get_from_cache(cache_key)
+        if cached:
+            return VectorStoreStats(**cached)
+
         from pymilvus import connections, Collection, utility
         import os
-        
+
         # Connect to Milvus
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = int(os.getenv("MILVUS_PORT", "19530"))
-        
+
         # Check if already connected, if not connect
         try:
             connections.connect(alias="default", host=milvus_host, port=milvus_port)
         except Exception:
             pass  # May already be connected
-        
+
         # Get all collections
         collections = utility.list_collections()
         collections_count = len(collections)
-        
+
         # Count total vectors across all collections
         vectors_total = 0
         index_size_bytes = 0
-        
+
         for coll_name in collections:
             try:
                 col = Collection(coll_name)
-                col.load()
+                # CRITICAL FIX: Use num_entities WITHOUT loading collection into memory
+                # col.num_entities queries metadata only, doesn't load vectors
                 vectors_total += col.num_entities
-                
-                # Try to get index info for size estimation
-                # Milvus doesn't directly expose index size, so we estimate
-                # based on vector count and typical overhead
+
+                # Get collection stats (lightweight operation)
+                try:
+                    stats = utility.get_collection_stats(coll_name)
+                    # Try to get actual index size if available
+                    index_size_bytes += stats.get("index_file_size", 0)
+                except Exception:
+                    pass  # Stats not available, will use estimation below
+
             except Exception as e:
                 logger.debug(f"Failed to get stats for collection {coll_name}: {e}")
-        
-        # Rough estimate of index size (each vector ~1536 dims * 4 bytes + overhead)
-        # This is an approximation
-        estimated_bytes_per_vector = 1536 * 4 + 100  # 6244 bytes approx
-        index_size_bytes = vectors_total * estimated_bytes_per_vector
-        
-        return VectorStoreStats(
+
+        # If we couldn't get actual index size, estimate it
+        if index_size_bytes == 0 and vectors_total > 0:
+            # Rough estimate (each vector ~1536 dims * 4 bytes + overhead)
+            estimated_bytes_per_vector = 1536 * 4 + 100  # 6244 bytes approx
+            index_size_bytes = vectors_total * estimated_bytes_per_vector
+
+        stats = VectorStoreStats(
             collections_count=collections_count,
             vectors_total=vectors_total,
             index_size_bytes=index_size_bytes,
         )
+
+        # Cache for 60 seconds
+        await set_cache(cache_key, stats.dict(), ttl=60)
+        return stats
+
     except ImportError:
         logger.debug("pymilvus not installed, skipping vector store stats")
         return VectorStoreStats()

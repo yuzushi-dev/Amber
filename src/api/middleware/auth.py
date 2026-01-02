@@ -46,6 +46,25 @@ def _is_public_path(path: str) -> bool:
     return False
 
 
+def _cors_error_response(status_code: int, code: str, message: str, origin: str = "*") -> JSONResponse:
+    """Create a JSONResponse with CORS headers for error responses."""
+    response = JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+            }
+        },
+    )
+    # Add CORS headers so browser can read the error
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
     Middleware for API key authentication.
@@ -57,6 +76,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process the request through authentication."""
         path = request.url.path
+        origin = request.headers.get("Origin", "*")
 
         # Allow CORS preflight requests through without auth
         if request.method == "OPTIONS":
@@ -71,14 +91,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": "Missing API key. Provide X-API-Key header.",
-                    }
-                },
+            return _cors_error_response(
+                401,
+                "UNAUTHORIZED",
+                "Missing API key. Provide X-API-Key header.",
+                origin
             )
 
         # Look up the API key
@@ -86,14 +103,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         if not key_metadata:
             logger.warning(f"Invalid API key {mask_api_key(api_key)} for {request.method} {path}")
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": "Invalid API key.",
-                    }
-                },
+            return _cors_error_response(
+                401,
+                "UNAUTHORIZED",
+                "Invalid API key.",
+                origin
             )
 
         # Set context variables

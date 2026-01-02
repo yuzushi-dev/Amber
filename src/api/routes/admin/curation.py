@@ -15,7 +15,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, DateTime
 
 from src.core.database.session import async_session_maker
 from src.core.models.flag import Flag, FlagType, FlagStatus
@@ -325,63 +325,56 @@ async def create_flag(request: FlagCreateRequest):
 @router.get("/stats", response_model=CurationStats)
 async def get_curation_stats():
     """
-    Get curation queue statistics.
-    
+    Get curation queue statistics with optimized queries and caching.
+
     Returns counts by status and type, plus resolution time metrics.
     """
     try:
+        from src.core.cache.decorators import get_from_cache, set_cache
+
+        # Check cache first
+        cache_key = "admin:stats:curation"
+        cached = await get_from_cache(cache_key)
+        if cached:
+            return CurationStats(**cached)
+
         async with async_session_maker() as session:
-            # Total count
-            total_result = await session.execute(select(func.count()).select_from(Flag))
-            total = total_result.scalar() or 0
-            
-            # Counts by status
-            pending_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING.value)
-            )
-            pending = pending_result.scalar() or 0
-            
-            accepted_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.ACCEPTED.value)
-            )
-            accepted = accepted_result.scalar() or 0
-            
-            rejected_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.REJECTED.value)
-            )
-            rejected = rejected_result.scalar() or 0
-            
-            merged_result = await session.execute(
-                select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.MERGED.value)
-            )
-            merged = merged_result.scalar() or 0
-            
-            # Counts by type
+            # OPTIMIZED: Single query for counts by status using GROUP BY
+            status_query = select(
+                Flag.status,
+                func.count().label('count')
+            ).group_by(Flag.status)
+
+            status_result = await session.execute(status_query)
+            status_counts = {row.status: row.count for row in status_result}
+
+            # Total is sum of all status counts
+            total = sum(status_counts.values())
+
+            # Extract individual counts (default to 0 if status doesn't exist)
+            pending = status_counts.get(FlagStatus.PENDING.value, 0)
+            accepted = status_counts.get(FlagStatus.ACCEPTED.value, 0)
+            rejected = status_counts.get(FlagStatus.REJECTED.value, 0)
+            merged = status_counts.get(FlagStatus.MERGED.value, 0)
+
+            # Counts by type (already uses GROUP BY - keep as is)
             type_result = await session.execute(
                 select(Flag.type, func.count()).group_by(Flag.type)
             )
             by_type = {row[0].value if hasattr(row[0], 'value') else row[0]: row[1] for row in type_result}
-            
-            # Average resolution time (simplified - just get all resolved flags)
-            resolved_flags = await session.execute(
-                select(Flag).where(Flag.resolved_at.isnot(None))
-            )
-            flags = resolved_flags.scalars().all()
-            
-            resolution_times = []
-            for flag in flags:
-                if flag.resolved_at and flag.created_at:
-                    try:
-                        resolved = datetime.fromisoformat(flag.resolved_at.replace('Z', '+00:00'))
-                        created = flag.created_at
-                        hours = (resolved - created).total_seconds() / 3600
-                        resolution_times.append(hours)
-                    except Exception:
-                        pass
-            
-            avg_time = sum(resolution_times) / len(resolution_times) if resolution_times else None
-            
-            return CurationStats(
+
+            # OPTIMIZED: Calculate average resolution time in SQL
+            # Extract EPOCH from timestamp difference for resolution time calculation
+            resolution_query = select(
+                func.avg(
+                    func.extract('epoch', func.cast(Flag.resolved_at, DateTime) - Flag.created_at) / 3600
+                ).label('avg_hours')
+            ).where(Flag.resolved_at.isnot(None))
+
+            resolution_result = await session.execute(resolution_query)
+            avg_time = resolution_result.scalar()
+
+            stats = CurationStats(
                 total_flags=total,
                 pending_count=pending,
                 accepted_count=accepted,
@@ -390,7 +383,11 @@ async def get_curation_stats():
                 avg_resolution_time_hours=round(avg_time, 2) if avg_time else None,
                 flags_by_type=by_type,
             )
-            
+
+            # Cache for 30 seconds
+            await set_cache(cache_key, stats.dict(), ttl=30)
+            return stats
+
     except Exception as e:
         logger.error(f"Failed to get curation stats: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")

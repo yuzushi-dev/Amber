@@ -1,10 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { apiClient } from '@/lib/api-client'
-import { FileText, Plus, Search, RefreshCw, Trash2, BookOpen, AlertTriangle } from 'lucide-react'
+import { FileText, Plus, Search, RefreshCw, Trash2, BookOpen } from 'lucide-react'
 import { useState } from 'react'
 import UploadWizard from './UploadWizard'
 import SampleDataModal from './SampleDataModal'
 import EmptyState from '@/components/ui/EmptyState'
+import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/ui/dialog'
 
 interface Document {
     id: string
@@ -12,6 +15,7 @@ interface Document {
     title: string  // Alias for filename from backend
     status: string
     created_at: string
+    source_type?: string
 }
 
 type ConfirmAction =
@@ -22,6 +26,7 @@ type ConfirmAction =
 export default function DocumentLibrary() {
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [isSampleOpen, setIsSampleOpen] = useState(false)
+    const [showDemoData, setShowDemoData] = useState(true)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
 
     const queryClient = useQueryClient()
@@ -153,6 +158,15 @@ export default function DocumentLibrary() {
                         />
                     </div>
                     <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-2 text-sm text-muted-foreground mr-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={showDemoData}
+                                onChange={(e) => setShowDemoData(e.target.checked)}
+                                className="rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                            Show Demo Data
+                        </label>
                         {documents && documents.length > 0 && (
                             <button
                                 onClick={() => setConfirmAction({ type: 'delete-all' })}
@@ -191,21 +205,28 @@ export default function DocumentLibrary() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {documents?.map((doc) => (
+                                {documents?.filter(doc => showDemoData || doc.source_type !== 'sample').map((doc) => (
                                     <tr key={doc.id} className="border-b hover:bg-muted/5 transition-colors">
                                         <td className="p-4">
                                             <div className="flex items-center space-x-3">
                                                 <FileText className="w-4 h-4 text-primary" aria-hidden="true" />
-                                                <span className="font-medium">{doc.title}</span>
+                                                <Link
+                                                    to="/admin/data/documents/$documentId"
+                                                    params={{ documentId: doc.id }}
+                                                    className="font-medium hover:underline text-foreground"
+                                                >
+                                                    {doc.title}
+                                                </Link>
                                             </div>
                                         </td>
                                         <td className="p-4">
-                                            <span
-                                                className="px-2 py-1 rounded-full text-[10px] bg-green-100 text-green-700 font-bold uppercase tracking-wider"
+                                            <Badge
+                                                variant={doc.status === 'ready' ? 'success' : 'secondary'}
+                                                className="uppercase tracking-wider"
                                                 role="status"
                                             >
                                                 {doc.status}
-                                            </span>
+                                            </Badge>
                                         </td>
                                         <td className="p-4 text-muted-foreground">
                                             {new Date(doc.created_at).toLocaleDateString()}
@@ -240,53 +261,21 @@ export default function DocumentLibrary() {
                 onComplete={handleSampleComplete}
             />
 
-            {/* Delete Confirmation Modal */}
-            {confirmAction && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true">
-                    <div className="bg-card border rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-destructive/10 rounded-full">
-                                <AlertTriangle className="w-6 h-6 text-destructive" aria-hidden="true" />
-                            </div>
-                            <h2 className="text-lg font-semibold">
-                                {confirmAction.type === 'delete-single'
-                                    ? 'Delete Document?'
-                                    : 'Delete All Documents?'
-                                }
-                            </h2>
-                        </div>
-                        <p className="text-muted-foreground mb-6">
-                            {confirmAction.type === 'delete-single'
-                                ? `Are you sure you want to delete "${confirmAction.documentTitle}"? This action cannot be undone.`
-                                : `Are you sure you want to delete all ${documents?.length || 0} documents? This action cannot be undone.`
-                            }
-                        </p>
-                        <div className="flex justify-end gap-3">
-                            <button
-                                onClick={() => setConfirmAction(null)}
-                                disabled={isDeleting}
-                                className="px-4 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleConfirmDelete}
-                                disabled={isDeleting}
-                                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {isDeleting ? (
-                                    <>
-                                        <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
-                                        Deleting...
-                                    </>
-                                ) : (
-                                    <>Delete</>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Delete Confirmation Dialog */}
+            <ConfirmDialog
+                open={confirmAction !== null}
+                onOpenChange={(open) => !open && setConfirmAction(null)}
+                title={confirmAction?.type === 'delete-single' ? 'Delete Document?' : 'Delete All Documents?'}
+                description={
+                    confirmAction?.type === 'delete-single'
+                        ? `Are you sure you want to delete "${confirmAction.documentTitle}"? This action cannot be undone.`
+                        : `Are you sure you want to delete all ${documents?.length || 0} documents? This action cannot be undone.`
+                }
+                onConfirm={handleConfirmDelete}
+                confirmText="Delete"
+                variant="destructive"
+                loading={isDeleting}
+            />
         </div>
     )
 }

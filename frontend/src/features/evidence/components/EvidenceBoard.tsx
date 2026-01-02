@@ -6,10 +6,15 @@ import { Search, Network, List } from 'lucide-react'
 import EntityGraph from './EntityGraph'
 import ChunkViewer from './ChunkViewer'
 
+import { X } from 'lucide-react'
+import { useEvidenceStore } from '../stores/useEvidenceStore'
+
 export default function EvidenceBoard() {
     const { messages } = useChatStore()
+    const { isOpen, close, selectedSourceId, selectSource } = useEvidenceStore()
     const [view, setView] = useState<'list' | 'graph'>('list')
-    const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+
+    if (!isOpen) return null
 
     // Get sources from the last assistant message
     const assistantMessages = messages.filter(m => m.role === 'assistant')
@@ -28,6 +33,13 @@ export default function EvidenceBoard() {
                     </h3>
                     <p className="text-[10px] text-muted-foreground">Sources & Reasoning</p>
                 </div>
+                <button
+                    onClick={close}
+                    className="p-1 hover:bg-muted rounded-md transition-colors"
+                    aria-label="Close Evidence Board"
+                >
+                    <X className="w-4 h-4" />
+                </button>
                 <div className="flex bg-muted rounded-md p-1">
                     <button
                         onClick={() => setView('list')}
@@ -64,7 +76,7 @@ export default function EvidenceBoard() {
                                 key={source.chunk_id}
                                 source={source}
                                 isActive={selectedSourceId === source.chunk_id}
-                                onClick={() => setSelectedSourceId(source.chunk_id)}
+                                onClick={() => selectSource(source.chunk_id)}
                             />
                         ))
                     ) : (
@@ -78,7 +90,7 @@ export default function EvidenceBoard() {
             {selectedSource && (
                 <ChunkViewer
                     source={selectedSource}
-                    onClose={() => setSelectedSourceId(null)}
+                    onClose={() => selectSource(null)}
                 />
             )}
         </div>

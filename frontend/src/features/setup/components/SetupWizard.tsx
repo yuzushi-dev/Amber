@@ -10,6 +10,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Download, Check, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface Feature {
     id: string;
@@ -73,8 +75,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     }, [apiBaseUrl]);
 
     useEffect(() => {
-        fetchStatus();
-    }, [fetchStatus]);
+        const init = async () => {
+            const data = await fetchStatus();
+
+            // Auto-skip if all features installed
+            if (data && data.features.every(f => f.status === 'installed')) {
+                onComplete();
+            }
+        };
+        init();
+    }, [fetchStatus, onComplete]);
 
     // Poll during installation
     useEffect(() => {
@@ -183,24 +193,24 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         switch (feature.status) {
             case 'installed':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    <Badge variant="success" className="gap-1">
                         <Check className="w-3 h-3" />
                         Installed
-                    </span>
+                    </Badge>
                 );
             case 'installing':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                    <Badge variant="info" className="gap-1">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Installing...
-                    </span>
+                    </Badge>
                 );
             case 'failed':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" title={feature.error_message}>
+                    <Badge variant="destructive" className="gap-1" title={feature.error_message}>
                         <AlertCircle className="w-3 h-3" />
                         Failed
-                    </span>
+                    </Badge>
                 );
             default:
                 return (
@@ -307,28 +317,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 {/* Content */}
                 <div className="p-6 space-y-4 overflow-y-auto flex-1">
                     {error && (
-                        <div className="flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
-                            <AlertCircle className="w-4 h-4 shrink-0" />
-                            <span>{error}</span>
-                            <button
-                                onClick={() => setError(null)}
-                                className="ml-auto text-xs hover:underline"
-                            >
-                                Dismiss
-                            </button>
-                        </div>
+                        <Alert variant="destructive" dismissible onDismiss={() => setError(null)}>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
                     )}
 
                     {/* Restart Warning Banner */}
-                    <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-200">
-                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                        <div>
-                            <p className="font-medium">System Restart Required</p>
-                            <p className="opacity-90 mt-1">
-                                After installing new features, you must restart the system for them to take effect.
-                            </p>
-                        </div>
-                    </div>
+                    <Alert variant="warning">
+                        <div className="font-medium">System Restart Required</div>
+                        <AlertDescription className="mt-1">
+                            After installing new features, you must restart the system for them to take effect.
+                        </AlertDescription>
+                    </Alert>
 
                     <div className="space-y-3">
                         {status.features.map(feature => {

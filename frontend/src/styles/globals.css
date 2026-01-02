@@ -179,3 +179,83 @@
     animation: none;
   }
 }
+
+/* =============================================================================
+   Command Dock Styles
+   ============================================================================= */
+
+.dock {
+  @apply fixed bottom-4 left-1/2 -translate-x-1/2 z-50;
+  @apply bg-surface-900/80 backdrop-blur-xl;
+  @apply border border-surface-700/50 rounded-2xl;
+  @apply px-2 py-1.5;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dock-item {
+  @apply relative p-2.5 rounded-xl transition-all duration-200;
+  @apply text-muted-foreground hover:text-foreground;
+  @apply hover:bg-surface-700/50;
+}
+
+.dock-item.active {
+  @apply text-primary;
+}
+
+.dock-item.active::after {
+  content: '';
+  @apply absolute -bottom-0.5 left-1/2 -translate-x-1/2;
+  @apply w-1.5 h-1.5 rounded-full bg-primary;
+  box-shadow: 0 0 8px hsl(var(--primary));
+}
+
+/* =============================================================================
+   Context Sidebar Styles
+   ============================================================================= */
+
+.context-sidebar {
+  @apply bg-card border-r border-border;
+}
+
+.context-sidebar.collapsed {
+  @apply w-14;
+}
+
+/* =============================================================================
+   Semantic Glow Utilities
+   ============================================================================= */
+
+/* Primary glow - used for buttons and key CTAs */
+.shadow-glow-sm {
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.2);
+}
+
+.shadow-glow {
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.25);
+}
+
+.shadow-glow-lg {
+  box-shadow: 0 0 40px hsl(var(--primary) / 0.35);
+}
+
+/* Success glow - used for success alerts and confirmations */
+.shadow-glow-success {
+  box-shadow: 0 0 20px hsl(var(--success) / 0.3);
+}
+
+/* Warning glow - used for warning alerts */
+.shadow-glow-warning {
+  box-shadow: 0 0 20px hsl(var(--warning) / 0.3);
+}
+
+/* Destructive/Error glow - used for error alerts */
+.shadow-glow-destructive {
+  box-shadow: 0 0 20px hsl(var(--destructive) / 0.3);
+}
+
+/* Info glow - used for info alerts */
+.shadow-glow-info {
+  box-shadow: 0 0 20px hsl(var(--info) / 0.3);
+}

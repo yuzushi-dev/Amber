@@ -47,6 +47,15 @@ def _get_category(path: str, method: str) -> RateLimitCategory | None:
         return RateLimitCategory.GENERAL
 
 
+def _add_cors_headers(response: JSONResponse, origin: str = "*") -> JSONResponse:
+    """Add CORS headers to a response."""
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Middleware for enforcing rate limits.
@@ -59,6 +68,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Process the request through rate limiting."""
         path = request.url.path
         method = request.method
+        origin = request.headers.get("Origin", "*")
 
         # Determine rate limit category
         category = _get_category(path, method)
@@ -79,7 +89,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 f"Rate limit exceeded: tenant={tenant_id}, category={category.value}, "
                 f"path={method} {path}"
             )
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=429,
                 content={
                     "error": {
@@ -95,6 +105,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Reset": str(result.reset_at),
                 },
             )
+            return _add_cors_headers(response, origin)
 
         # Proceed with request
         response = await call_next(request)
@@ -117,6 +128,8 @@ class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process the request through size limiting."""
+        origin = request.headers.get("Origin", "*")
+        
         # Only check POST/PUT requests
         if request.method not in ("POST", "PUT", "PATCH"):
             return await call_next(request)
@@ -132,7 +145,7 @@ class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
                         f"Upload too large: {size_bytes} bytes > {max_bytes} bytes "
                         f"(path={request.method} {request.url.path})"
                     )
-                    return JSONResponse(
+                    response = JSONResponse(
                         status_code=413,
                         content={
                             "error": {
@@ -143,7 +156,9 @@ class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
                             }
                         },
                     )
+                    return _add_cors_headers(response, origin)
             except ValueError:
                 pass  # Invalid content-length, let FastAPI handle it
 
         return await call_next(request)
+

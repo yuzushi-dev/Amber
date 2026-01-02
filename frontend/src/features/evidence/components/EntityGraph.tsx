@@ -1,51 +1,77 @@
-import { useCallback } from 'react'
-import {
-    ReactFlow,
-    MiniMap,
-    Controls,
-    Background,
-    BackgroundVariant,
-    useNodesState,
-    useEdgesState,
-    addEdge,
-    Connection,
-    Edge,
-    Node,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
 
-const initialNodes: Node[] = [
-    { id: '1', position: { x: 0, y: 0 }, data: { label: 'Query Context' }, type: 'input' },
-    { id: '2', position: { x: 0, y: 100 }, data: { label: 'Entity A' } },
-]
+import React, { useState, useEffect } from 'react';
+import ForceGraphView from '../../graph/components/ForceGraphView';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Box, Layers } from 'lucide-react';
 
-const initialEdges: Edge[] = [
-    { id: 'e1-2', source: '1', target: '2' },
-]
+// Mock data generator for demonstration
+const generateMockData = (count = 20) => {
+    const nodes = [];
+    const links = [];
 
-export default function EntityGraph() {
-    const [nodes, , onNodesChange] = useNodesState(initialNodes)
-    const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+    // Query Node
+    nodes.push({ id: '0', group: 'document', val: 20, name: 'Query Context' });
 
-    const onConnect = useCallback(
-        (params: Connection | Edge) => setEdges((eds) => addEdge(params, eds)),
-        [setEdges]
-    )
+    for (let i = 1; i <= count; i++) {
+        const group = Math.random() > 0.7 ? 'document' : 'entity';
+        nodes.push({
+            id: String(i),
+            group: group,
+            val: group === 'document' ? 10 : 5,
+            name: `${group === 'document' ? 'Doc' : 'Entity'} ${i}`
+        });
+
+        // Link to query
+        if (Math.random() > 0.5) {
+            links.push({ source: '0', target: String(i) });
+        }
+
+        // Random link
+        if (i > 1 && Math.random() > 0.7) {
+            links.push({ source: String(i), target: String(Math.floor(Math.random() * i)) });
+        }
+    }
+    return { nodes, links };
+};
+
+const EntityGraph: React.FC = () => {
+    const [mode, setMode] = useState<'2d' | '3d'>('3d');
+    const [data, setData] = useState({ nodes: [], links: [] });
+    // TODO: Fetch real data
+
+    useEffect(() => {
+        // Load mock data on mount
+        setData(generateMockData(30) as any);
+    }, []);
+
+    const toggleMode = () => {
+        setMode(prev => prev === '2d' ? '3d' : '2d');
+    };
 
     return (
-        <div className="h-full w-full bg-secondary/5 border rounded-lg overflow-hidden">
-            <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                fitView
-            >
-                <Controls />
-                <MiniMap zoomable pannable />
-                <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-            </ReactFlow>
-        </div>
-    )
-}
+        <Card className="h-full w-full overflow-hidden relative border-0 shadow-none bg-[hsl(var(--surface-950))]">
+            <div className="absolute top-4 right-4 z-10 flex gap-2">
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={toggleMode}
+                    className="bg-background/80 backdrop-blur-sm shadow-sm"
+                >
+                    {mode === '2d' ? <Box className="w-4 h-4 mr-2" /> : <Layers className="w-4 h-4 mr-2" />}
+                    {mode === '2d' ? 'Switch to 3D' : 'Switch to 2D'}
+                </Button>
+            </div>
+
+            <div className="h-full w-full">
+                <ForceGraphView
+                    data={data}
+                    mode={mode}
+                    onNodeClick={(node: any) => console.log('Clicked:', node)}
+                />
+            </div>
+        </Card>
+    );
+};
+
+export default EntityGraph;

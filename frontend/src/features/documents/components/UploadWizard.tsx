@@ -10,6 +10,8 @@ interface UploadWizardProps {
 export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
     const [file, setFile] = useState<File | null>(null)
     const [status, setStatus] = useState<'idle' | 'uploading' | 'processing' | 'done'>('idle')
+    const [progress, setProgress] = useState(0)
+    const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0 })
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -26,7 +28,15 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
         try {
             await apiClient.post('/documents', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (progressEvent) => {
+                    const { loaded, total } = progressEvent
+                    if (total) {
+                        const percent = Math.round((loaded * 100) / total)
+                        setProgress(percent)
+                        setUploadStats({ loaded, total })
+                    }
+                }
             })
             setStatus('processing')
             // Simulated processing time for UX demonstration
@@ -92,6 +102,23 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                                 {status === 'processing' && 'Chunking, vectorizing, and building knowledge graph.'}
                                 {status === 'done' && 'Knowledge successfully integrated!'}
                             </p>
+                        </div>
+                    )}
+
+                    {status === 'uploading' && (
+                        <div className="w-full max-w-xs mx-auto mt-4">
+                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-primary transition-all duration-300 ease-out"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                                <span>{progress}%</span>
+                                <span>
+                                    {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
+                                </span>
+                            </div>
                         </div>
                     )}
                 </div>
