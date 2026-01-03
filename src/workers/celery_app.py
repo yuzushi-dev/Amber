@@ -52,7 +52,9 @@ celery_app.conf.update(
 celery_app.conf.task_routes = {
     "src.workers.tasks.ingestion.*": {"queue": "ingestion"},
     "src.workers.tasks.extraction.*": {"queue": "extraction"},
+    "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
 }
+
 
 
 @worker_process_init.connect

@@ -29,6 +29,7 @@ import DatabasePage from './features/admin/pages/DatabasePage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
+import RagasSubPanel from './features/admin/components/RagasSubPanel'
 
 // =============================================================================
 // Root Route
@@ -196,6 +197,12 @@ const opsMetricsRoute = createRoute({
     component: () => <TokenMetricsPage />,
 })
 
+const opsRagasRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/ragas',
+    component: () => <div className="p-6"><RagasSubPanel /></div>,
+})
+
 // =============================================================================
 // Legacy route redirects (for backwards compatibility)
 // =============================================================================
@@ -272,6 +279,7 @@ const routeTree = rootRoute.addChildren([
         opsTuningRoute,
         opsCurationRoute,
         opsMetricsRoute,
+        opsRagasRoute,
         // Legacy redirects
         legacyDocumentsRoute,
         legacyDatabaseRoute,

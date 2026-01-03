@@ -285,3 +285,203 @@ def _publish_status(document_id: str, status: str, progress: int, error: str = N
         r.close()
     except Exception as e:
         logger.warning(f"Failed to publish status: {e}")
+
+
+def _publish_benchmark_status(benchmark_id: str, status: str, progress: int, error: str = None):
+    """Publish benchmark status update to Redis Pub/Sub."""
+    import json
+    try:
+        import redis
+        from src.api.config import settings
+        
+        r = redis.Redis.from_url(settings.db.redis_url)
+        channel = f"benchmark:{benchmark_id}:status"
+        message = {
+            "benchmark_id": benchmark_id,
+            "status": status,
+            "progress": progress
+        }
+        if error:
+            message["error"] = error
+            
+        r.publish(channel, json.dumps(message))
+        r.close()
+    except Exception as e:
+        logger.warning(f"Failed to publish benchmark status: {e}")
+
+
+@celery_app.task(
+    bind=True,
+    name="src.workers.tasks.run_ragas_benchmark",
+    base=BaseTask,
+    max_retries=1
+)
+def run_ragas_benchmark(self, benchmark_run_id: str, tenant_id: str) -> dict:
+    """
+    Execute a Ragas benchmark run.
+
+    Steps:
+    1. Fetch BenchmarkRun from DB
+    2. Update status to RUNNING
+    3. Load the golden dataset
+    4. For each sample, run the RAG pipeline and evaluate with RagasService
+    5. Aggregate results and store in DB
+    6. Update status to COMPLETED
+
+    Args:
+        benchmark_run_id: ID of the BenchmarkRun to execute
+        tenant_id: Tenant context
+
+    Returns:
+        dict: Benchmark result summary
+    """
+    logger.info(f"[Task {self.request.id}] Starting benchmark run {benchmark_run_id}")
+    
+    try:
+        result = run_async(_run_ragas_benchmark_async(benchmark_run_id, tenant_id, self.request.id))
+        logger.info(f"[Task {self.request.id}] Completed benchmark run {benchmark_run_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[Task {self.request.id}] Failed benchmark run {benchmark_run_id}: {e}")
+        
+        # Update benchmark status to FAILED
+        try:
+            run_async(_mark_benchmark_failed(benchmark_run_id, str(e)))
+        except Exception as fail_err:
+            logger.error(f"Failed to mark benchmark as failed: {fail_err}")
+        
+        raise
+
+
+async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task_id: str) -> dict:
+    """Async implementation of Ragas benchmark execution."""
+    import json
+    from datetime import datetime
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import select
+    
+    from src.api.config import settings
+    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+    from src.core.evaluation.ragas_service import RagasService
+    
+    # Create async session
+    engine = create_async_engine(settings.db.database_url)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    async with async_session() as session:
+        # Fetch benchmark run
+        result = await session.execute(
+            select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
+        )
+        benchmark = result.scalars().first()
+        
+        if not benchmark:
+            raise ValueError(f"BenchmarkRun {benchmark_run_id} not found")
+        
+        # Update status to RUNNING
+        benchmark.status = BenchmarkStatus.RUNNING
+        benchmark.started_at = datetime.utcnow()
+        await session.commit()
+        _publish_benchmark_status(benchmark_run_id, "running", 0)
+        
+        # Load golden dataset
+        dataset_path = f"src/core/evaluation/{benchmark.dataset_name}"
+        try:
+            with open(dataset_path, "r") as f:
+                dataset = json.load(f)
+        except FileNotFoundError:
+            # Try in tests/data
+            dataset_path = f"tests/data/{benchmark.dataset_name}"
+            with open(dataset_path, "r") as f:
+                dataset = json.load(f)
+        
+        # Initialize RagasService
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.providers.openai_api_key)
+            ragas_service = RagasService(llm_client=client)
+        except Exception as e:
+            logger.warning(f"Could not initialize with OpenAI client: {e}")
+            ragas_service = RagasService()
+        
+        # Run evaluation on each sample
+        details = []
+        total_samples = len(dataset)
+        
+        for i, sample in enumerate(dataset):
+            query = sample.get("query", sample.get("question", ""))
+            ideal_context = sample.get("ideal_context", sample.get("context", ""))
+            ideal_answer = sample.get("ideal_answer", sample.get("answer", ""))
+            
+            # Evaluate using RagasService
+            eval_result = await ragas_service.evaluate_sample(
+                query=query,
+                context=ideal_context,
+                response=ideal_answer
+            )
+            
+            details.append({
+                "query": query,
+                "faithfulness": eval_result.faithfulness,
+                "response_relevancy": eval_result.response_relevancy,
+                "context_precision": eval_result.context_precision,
+                "context_recall": eval_result.context_recall
+            })
+            
+            # Publish progress
+            progress = int((i + 1) / total_samples * 100)
+            _publish_benchmark_status(benchmark_run_id, "running", progress)
+        
+        # Aggregate metrics
+        metrics = {
+            "faithfulness": sum(d["faithfulness"] or 0 for d in details) / len(details) if details else 0,
+            "response_relevancy": sum(d["response_relevancy"] or 0 for d in details) / len(details) if details else 0,
+            "samples_evaluated": len(details)
+        }
+        
+        # Update benchmark with results
+        benchmark.status = BenchmarkStatus.COMPLETED
+        benchmark.completed_at = datetime.utcnow()
+        benchmark.metrics = metrics
+        benchmark.details = details
+        await session.commit()
+        
+        _publish_benchmark_status(benchmark_run_id, "completed", 100)
+        
+        return {
+            "benchmark_run_id": benchmark_run_id,
+            "status": "completed",
+            "metrics": metrics,
+            "samples_evaluated": len(details),
+            "task_id": task_id
+        }
+
+
+async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
+    """Mark benchmark as failed in DB."""
+    from datetime import datetime
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import select
+    
+    from src.api.config import settings
+    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+    
+    engine = create_async_engine(settings.db.database_url)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    async with async_session() as session:
+        result = await session.execute(
+            select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
+        )
+        benchmark = result.scalars().first()
+        
+        if benchmark:
+            benchmark.status = BenchmarkStatus.FAILED
+            benchmark.completed_at = datetime.utcnow()
+            benchmark.error_message = error
+            await session.commit()
+            _publish_benchmark_status(benchmark_run_id, "failed", 100, error=error)
+

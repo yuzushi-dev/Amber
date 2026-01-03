@@ -95,8 +95,10 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             title: 'Analytics',
             items: [
                 { label: 'Token Metrics', icon: Activity, to: '/admin/ops/metrics' },
+                { label: 'RAGAS Evaluation', icon: Gauge, to: '/admin/ops/ragas' },
             ]
         }
+
     ]
 }
 

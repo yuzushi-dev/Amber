@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from datetime import datetime
 
-from src.core.database.session import get_db_session
+from src.api.deps import get_db_session
 from src.core.models.usage import UsageLog
 from src.core.models.feedback import Feedback
 

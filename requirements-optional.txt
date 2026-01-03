@@ -47,6 +47,15 @@
 #   python-magic>=0.4.27
 
 # -----------------------------------------------------------------------------
+# [ragas] - Official RAG Evaluation Framework (~150 MB)
+# For systematic evaluation of RAG pipelines with industry-standard metrics
+# -----------------------------------------------------------------------------
+# Install with: pip install ragas>=0.2.0
+#
+# Packages:
+#   ragas>=0.2.0
+
+# -----------------------------------------------------------------------------
 # Feature Definitions (for setup_service.py reference)
 # -----------------------------------------------------------------------------
 # FEATURES = {
@@ -77,5 +86,13 @@
 #         "packages": ["unstructured>=0.11.0", "python-magic>=0.4.27"],
 #         "size_mb": 800,
 #         "pip_extra_args": []
+#     },
+#     "ragas": {
+#         "name": "RAGAS Evaluation",
+#         "description": "Systematic RAG evaluation with Faithfulness, Relevancy, and more",
+#         "packages": ["ragas>=0.2.0"],
+#         "size_mb": 150,
+#         "pip_extra_args": []
 #     }
 # }
+

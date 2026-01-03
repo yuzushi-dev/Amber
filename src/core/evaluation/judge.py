@@ -3,7 +3,14 @@ Judge Service
 =============
 
 Implements LLM-as-a-Judge for automated evaluation of RAG outputs.
+
+.. deprecated::
+    This service is deprecated and maintained only as a fallback. 
+    For new code, use :class:`src.core.evaluation.ragas_service.RagasService`
+    which wraps the official Ragas library and falls back to this service
+    when Ragas is not installed.
 """
+
 
 import logging
 from typing import Dict, Any, Optional

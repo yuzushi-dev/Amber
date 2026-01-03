@@ -18,9 +18,12 @@ from src.api.routes.admin import config
 from src.api.routes.admin import curation
 from src.api.routes.admin import maintenance
 from src.api.routes.admin import chat_history
+from src.api.routes.admin import ragas
 
 router.include_router(jobs.router)
 router.include_router(config.router)
 router.include_router(curation.router)
 router.include_router(maintenance.router)
 router.include_router(chat_history.router)
+router.include_router(ragas.router)
+
