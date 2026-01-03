@@ -198,3 +198,7 @@ Thumbs.db
 # Local testing
 *.local
 *.local.*
+
+# Claude
+.claude/
+
