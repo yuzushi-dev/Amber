@@ -15,6 +15,9 @@ def test_hybrid_search_orchestration(mock_rc, mock_sc, mock_nc, mock_v, mock_f):
     
     # Mock searchers
     service.vector_searcher.search = AsyncMock(return_value=[])
+    # Fix: Also mock the underlying vector_store.search since the fallback mechanism calls it directly
+    service.vector_store.search = AsyncMock(return_value=[])
+    
     service.entity_searcher.search = AsyncMock(return_value=[])
     service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
     service.graph_traversal.beam_search = AsyncMock(return_value=[])

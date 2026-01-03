@@ -18,8 +18,8 @@ class PIIScrubber:
         # SSN: 000-00-0000
         "SSN": r'\b(?!000|666|9\d{2})\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b',
         
-        # Credit Card: 16 digits, with potential separators (simple check)
-        "CREDIT_CARD": r'\b(?:\d[ -]*?){13,16}\b' 
+        # Credit Card: 16 digits with optional separators (refined to reduce false positives)
+        "CREDIT_CARD": r'\b(?:\d{4}[- ]?){3}\d{4}\b'
     }
 
     def __init__(self):
@@ -57,17 +57,8 @@ class PIIScrubber:
         # SSN
         scrubbed = self.compiled_patterns["SSN"].sub("[SSN REDACTED]", scrubbed)
         
-        # Credit Card (Need to be careful not to match random long numbers, but regex is greedy)
-        # Ideally should use Luhn algorithm validation, but for simple scrubbing pattern matching is start.
-        # To avoid false positives on random IDs, we might want to restrict context or just use a simpler marker.
-        # For MVP we'll redact matches.
-        # But wait, regex `(?:\d[ -]*?){13,16}` matches timestamps or any number.
-        # Let's make it more strict for groups of 4: \d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}
-        # Updating the pattern in logic below for safer replacement.
-        
-        # Refined CC pattern locally
-        cc_pattern = re.compile(r'\b(?:\d{4}[- ]?){3}\d{4}\b')
-        scrubbed = cc_pattern.sub("[CREDIT CARD REDACTED]", scrubbed)
+        # Credit Card (refined pattern to reduce false positives)
+        scrubbed = self.compiled_patterns["CREDIT_CARD"].sub("[CREDIT CARD REDACTED]", scrubbed)
         
         return scrubbed
 

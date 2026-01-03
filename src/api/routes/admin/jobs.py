@@ -274,17 +274,19 @@ async def get_queue_status():
             import os
             redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
             r = redis.from_url(redis_url)
-            
-            for queue_name in ["celery", "ingestion", "extraction"]:
-                try:
-                    count = r.llen(queue_name)
-                    queues.append(QueueInfo(
-                        queue_name=queue_name,
-                        message_count=count,
-                        consumer_count=len([w for w in workers if queue_name in w.queues]),
-                    ))
-                except Exception:
-                    pass
+            try:
+                for queue_name in ["celery", "ingestion", "extraction"]:
+                    try:
+                        count = r.llen(queue_name)
+                        queues.append(QueueInfo(
+                            queue_name=queue_name,
+                            message_count=count,
+                            consumer_count=len([w for w in workers if queue_name in w.queues]),
+                        ))
+                    except Exception:
+                        pass
+            finally:
+                r.close()
         except ImportError:
             logger.warning("Redis not available for queue inspection")
         

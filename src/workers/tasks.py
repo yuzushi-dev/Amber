@@ -200,46 +200,50 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     
     # Create async session
     engine = create_async_engine(settings.db.database_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    async with async_session() as session:
-        # Fetch document
-        result = await session.execute(select(Document).where(Document.id == document_id))
-        document = result.scalars().first()
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
-        if not document:
-            raise ValueError(f"Document {document_id} not found")
+        async with async_session() as session:
+            # Fetch document
+            result = await session.execute(select(Document).where(Document.id == document_id))
+            document = result.scalars().first()
             
-        # Initialize services
-        storage = MinIOClient()
-        service = IngestionService(session, storage)
-        
-        # Publish starting event
-        _publish_status(document_id, DocumentStatus.EXTRACTING.value, 10)
-        
-        # Process document (this does extraction, classification, chunking)
-        await service.process_document(document_id)
-        
-        # Refresh to get final state
-        await session.refresh(document)
-        
-        # Publish completion
-        _publish_status(document_id, document.status.value, 100)
-        
-        # Get chunk count for stats
-        from src.core.models.chunk import Chunk
-        chunk_result = await session.execute(
-            select(Chunk).where(Chunk.document_id == document_id)
-        )
-        chunks = chunk_result.scalars().all()
-        
-        return {
-            "document_id": document_id,
-            "status": document.status.value,
-            "domain": document.domain,
-            "chunk_count": len(chunks),
-            "task_id": task_id
-        }
+            if not document:
+                raise ValueError(f"Document {document_id} not found")
+                
+            # Initialize services
+            storage = MinIOClient()
+            service = IngestionService(session, storage)
+            
+            # Publish starting event
+            _publish_status(document_id, DocumentStatus.EXTRACTING.value, 10)
+            
+            # Process document (this does extraction, classification, chunking)
+            await service.process_document(document_id)
+            
+            # Refresh to get final state
+            await session.refresh(document)
+            
+            # Publish completion
+            _publish_status(document_id, document.status.value, 100)
+            
+            # Get chunk count for stats
+            from src.core.models.chunk import Chunk
+            chunk_result = await session.execute(
+                select(Chunk).where(Chunk.document_id == document_id)
+            )
+            chunks = chunk_result.scalars().all()
+            
+            return {
+                "document_id": document_id,
+                "status": document.status.value,
+                "domain": document.domain,
+                "chunk_count": len(chunks),
+                "task_id": task_id
+            }
+    finally:
+        await engine.dispose()
 
 
 async def _mark_document_failed(document_id: str, error: str):
@@ -252,16 +256,20 @@ async def _mark_document_failed(document_id: str, error: str):
     from src.core.models.document import Document
     
     engine = create_async_engine(settings.db.database_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    async with async_session() as session:
-        result = await session.execute(select(Document).where(Document.id == document_id))
-        document = result.scalars().first()
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
-        if document:
-            document.status = DocumentStatus.FAILED
-            await session.commit()
-            _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)
+        async with async_session() as session:
+            result = await session.execute(select(Document).where(Document.id == document_id))
+            document = result.scalars().first()
+            
+            if document:
+                document.status = DocumentStatus.FAILED
+                await session.commit()
+                _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)
+    finally:
+        await engine.dispose()
 
 
 def _publish_status(document_id: str, status: str, progress: int, error: str = None):
@@ -272,17 +280,19 @@ def _publish_status(document_id: str, status: str, progress: int, error: str = N
         from src.api.config import settings
         
         r = redis.Redis.from_url(settings.db.redis_url)
-        channel = f"document:{document_id}:status"
-        message = {
-            "document_id": document_id,
-            "status": status,
-            "progress": progress
-        }
-        if error:
-            message["error"] = error
-            
-        r.publish(channel, json.dumps(message))
-        r.close()
+        try:
+            channel = f"document:{document_id}:status"
+            message = {
+                "document_id": document_id,
+                "status": status,
+                "progress": progress
+            }
+            if error:
+                message["error"] = error
+                
+            r.publish(channel, json.dumps(message))
+        finally:
+            r.close()
     except Exception as e:
         logger.warning(f"Failed to publish status: {e}")
 
@@ -368,95 +378,99 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
     
     # Create async session
     engine = create_async_engine(settings.db.database_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    async with async_session() as session:
-        # Fetch benchmark run
-        result = await session.execute(
-            select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
-        )
-        benchmark = result.scalars().first()
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
-        if not benchmark:
-            raise ValueError(f"BenchmarkRun {benchmark_run_id} not found")
-        
-        # Update status to RUNNING
-        benchmark.status = BenchmarkStatus.RUNNING
-        benchmark.started_at = datetime.utcnow()
-        await session.commit()
-        _publish_benchmark_status(benchmark_run_id, "running", 0)
-        
-        # Load golden dataset
-        dataset_path = f"src/core/evaluation/{benchmark.dataset_name}"
-        try:
-            with open(dataset_path, "r") as f:
-                dataset = json.load(f)
-        except FileNotFoundError:
-            # Try in tests/data
-            dataset_path = f"tests/data/{benchmark.dataset_name}"
-            with open(dataset_path, "r") as f:
-                dataset = json.load(f)
-        
-        # Initialize RagasService
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.providers.openai_api_key)
-            ragas_service = RagasService(llm_client=client)
-        except Exception as e:
-            logger.warning(f"Could not initialize with OpenAI client: {e}")
-            ragas_service = RagasService()
-        
-        # Run evaluation on each sample
-        details = []
-        total_samples = len(dataset)
-        
-        for i, sample in enumerate(dataset):
-            query = sample.get("query", sample.get("question", ""))
-            ideal_context = sample.get("ideal_context", sample.get("context", ""))
-            ideal_answer = sample.get("ideal_answer", sample.get("answer", ""))
-            
-            # Evaluate using RagasService
-            eval_result = await ragas_service.evaluate_sample(
-                query=query,
-                context=ideal_context,
-                response=ideal_answer
+        async with async_session() as session:
+            # Fetch benchmark run
+            result = await session.execute(
+                select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
+            benchmark = result.scalars().first()
             
-            details.append({
-                "query": query,
-                "faithfulness": eval_result.faithfulness,
-                "response_relevancy": eval_result.response_relevancy,
-                "context_precision": eval_result.context_precision,
-                "context_recall": eval_result.context_recall
-            })
+            if not benchmark:
+                raise ValueError(f"BenchmarkRun {benchmark_run_id} not found")
             
-            # Publish progress
-            progress = int((i + 1) / total_samples * 100)
-            _publish_benchmark_status(benchmark_run_id, "running", progress)
-        
-        # Aggregate metrics
-        metrics = {
-            "faithfulness": sum(d["faithfulness"] or 0 for d in details) / len(details) if details else 0,
-            "response_relevancy": sum(d["response_relevancy"] or 0 for d in details) / len(details) if details else 0,
-            "samples_evaluated": len(details)
-        }
-        
-        # Update benchmark with results
-        benchmark.status = BenchmarkStatus.COMPLETED
-        benchmark.completed_at = datetime.utcnow()
-        benchmark.metrics = metrics
-        benchmark.details = details
-        await session.commit()
-        
-        _publish_benchmark_status(benchmark_run_id, "completed", 100)
-        
-        return {
-            "benchmark_run_id": benchmark_run_id,
-            "status": "completed",
-            "metrics": metrics,
-            "samples_evaluated": len(details),
-            "task_id": task_id
-        }
+            # Update status to RUNNING
+            benchmark.status = BenchmarkStatus.RUNNING
+            benchmark.started_at = datetime.utcnow()
+            await session.commit()
+            _publish_benchmark_status(benchmark_run_id, "running", 0)
+            
+            # Load golden dataset
+            dataset_path = f"src/core/evaluation/{benchmark.dataset_name}"
+            try:
+                with open(dataset_path, "r") as f:
+                    dataset = json.load(f)
+            except FileNotFoundError:
+                # Try in tests/data
+                dataset_path = f"tests/data/{benchmark.dataset_name}"
+                with open(dataset_path, "r") as f:
+                    dataset = json.load(f)
+            
+            # Initialize RagasService
+            try:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=settings.providers.openai_api_key)
+                ragas_service = RagasService(llm_client=client)
+            except Exception as e:
+                logger.warning(f"Could not initialize with OpenAI client: {e}")
+                ragas_service = RagasService()
+            
+            # Run evaluation on each sample
+            details = []
+            total_samples = len(dataset)
+            
+            for i, sample in enumerate(dataset):
+                query = sample.get("query", sample.get("question", ""))
+                ideal_context = sample.get("ideal_context", sample.get("context", ""))
+                ideal_answer = sample.get("ideal_answer", sample.get("answer", ""))
+                
+                # Evaluate using RagasService
+                eval_result = await ragas_service.evaluate_sample(
+                    query=query,
+                    context=ideal_context,
+                    response=ideal_answer
+                )
+                
+                details.append({
+                    "query": query,
+                    "faithfulness": eval_result.faithfulness,
+                    "response_relevancy": eval_result.response_relevancy,
+                    "context_precision": eval_result.context_precision,
+                    "context_recall": eval_result.context_recall
+                })
+                
+                # Publish progress
+                progress = int((i + 1) / total_samples * 100)
+                _publish_benchmark_status(benchmark_run_id, "running", progress)
+            
+            # Aggregate metrics
+            metrics = {
+                "faithfulness": sum(d["faithfulness"] or 0 for d in details) / len(details) if details else 0,
+                "response_relevancy": sum(d["response_relevancy"] or 0 for d in details) / len(details) if details else 0,
+                "samples_evaluated": len(details)
+            }
+            
+            # Update benchmark with results
+            benchmark.status = BenchmarkStatus.COMPLETED
+            benchmark.completed_at = datetime.utcnow()
+            benchmark.metrics = metrics
+            benchmark.details = details
+            await session.commit()
+            
+            _publish_benchmark_status(benchmark_run_id, "completed", 100)
+            
+            return {
+                "benchmark_run_id": benchmark_run_id,
+                "status": "completed",
+                "metrics": metrics,
+                "samples_evaluated": len(details),
+                "task_id": task_id
+            }
+    finally:
+        await engine.dispose()
 
 
 async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
@@ -470,18 +484,21 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
     
     engine = create_async_engine(settings.db.database_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    async with async_session() as session:
-        result = await session.execute(
-            select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
-        )
-        benchmark = result.scalars().first()
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
-        if benchmark:
-            benchmark.status = BenchmarkStatus.FAILED
-            benchmark.completed_at = datetime.utcnow()
-            benchmark.error_message = error
-            await session.commit()
-            _publish_benchmark_status(benchmark_run_id, "failed", 100, error=error)
-
+        async with async_session() as session:
+            result = await session.execute(
+                select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
+            )
+            benchmark = result.scalars().first()
+            
+            if benchmark:
+                benchmark.status = BenchmarkStatus.FAILED
+                benchmark.completed_at = datetime.utcnow()
+                benchmark.error_message = error
+                await session.commit()
+                _publish_benchmark_status(benchmark_run_id, "failed", 100, error=error)
+    finally:
+        await engine.dispose()

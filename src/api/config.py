@@ -31,7 +31,7 @@ class DatabaseSettings(BaseSettings):
     # Neo4j
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI", description="Neo4j connection URI")
     neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER", description="Neo4j username")
-    neo4j_password: str = Field(default="changeme", alias="NEO4J_PASSWORD", description="Neo4j password")
+    neo4j_password: str = Field(default="", alias="NEO4J_PASSWORD", description="Neo4j password")
 
     # Milvus
     milvus_host: str = Field(default="localhost", alias="MILVUS_HOST", description="Milvus host")
@@ -79,8 +79,8 @@ class MinIOSettings(BaseSettings):
     
     host: str = Field(default="localhost", description="MinIO host")
     port: int = Field(default=9000, description="MinIO API port")
-    root_user: str = Field(default="minioadmin", description="MinIO access key")
-    root_password: str = Field(default="minioadmin", description="MinIO secret key")
+    root_user: str = Field(default="", description="MinIO access key")
+    root_password: str = Field(default="", description="MinIO secret key")
     secure: bool = Field(default=False, description="Use HTTPS")
     bucket_name: str = Field(default="documents", description="Document storage bucket")
 
@@ -111,10 +111,11 @@ class Settings(BaseSettings):
     # API
     api_host: str = Field(default="0.0.0.0", description="API host")
     api_port: int = Field(default=8000, description="API port")
+    cors_origins: list[str] = Field(default_factory=list, description="Allowed CORS origins")
 
     # Security
     secret_key: str = Field(
-        default="change-me-in-production",
+        default="",
         description="Secret key for hashing",
     )
 
@@ -141,6 +142,16 @@ class Settings(BaseSettings):
         if v_upper not in valid_levels:
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v_upper
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def normalize_cors_origins(cls, v: Any) -> list[str]:
+        """Allow comma-separated or list-based CORS origin configuration."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return list(v)
 
     @classmethod
     def load_yaml_config(cls, config_path: Path | None = None) -> dict[str, Any]:
@@ -178,6 +189,11 @@ def get_settings() -> Settings:
                 settings.db.pool_size = db_config["pool_size"]
             if "max_overflow" in db_config:
                 settings.db.max_overflow = db_config["max_overflow"]
+
+        # Apply API settings from YAML
+        api_config = yaml_config.get("api", {})
+        if "cors_origins" in api_config:
+            settings.cors_origins = Settings.normalize_cors_origins(api_config["cors_origins"])
                 
     except Exception as e:
         # Fallback to defaults/env if YAML fails

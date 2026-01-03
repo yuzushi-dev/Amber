@@ -15,9 +15,16 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from src.api.deps import verify_admin
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/maintenance", tags=["admin-maintenance"])
+# Fix: Protect maintenance routes with admin check
+router = APIRouter(
+    prefix="/maintenance", 
+    tags=["admin-maintenance"],
+    dependencies=[Depends(verify_admin)]
+)
 
 
 # =============================================================================

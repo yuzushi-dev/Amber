@@ -78,8 +78,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Get tenant ID (set by auth middleware)
         tenant_id = get_current_tenant()
         if tenant_id is None:
-            # If no tenant (before auth), use a default
-            tenant_id = "anonymous"
+            # If no tenant (before auth), use IP address as identifier
+            tenant_id = request.client.host or "anonymous"
 
         # Check rate limit
         result = await rate_limiter.check(str(tenant_id), category)

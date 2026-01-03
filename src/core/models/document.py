@@ -7,7 +7,7 @@ Database model for stored documents.
 
 from typing import Optional
 
-from sqlalchemy import String, Enum as SQLEnum
+from sqlalchemy import String, Enum as SQLEnum, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,9 @@ class Document(Base, TimestampMixin):
     
     # Metadata includes: page_count, custom tags, source info, processing_stats
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+
+    # Error tracking for failed processing
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationship to chunks
     # Relationship to chunks

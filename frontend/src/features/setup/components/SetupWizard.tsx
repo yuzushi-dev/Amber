@@ -139,8 +139,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
             // Start polling
             await fetchStatus();
-        } catch (err: any) {
-            const errorMessage = err.name === 'AbortError'
+        } catch (err: unknown) {
+            const isAbort = err instanceof Error && err.name === 'AbortError';
+            const errorMessage = isAbort
                 ? 'Installation timed out. It may still be running in the background.'
                 : (err instanceof Error ? err.message : 'Installation failed');
 

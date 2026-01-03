@@ -40,9 +40,9 @@ async def recover_stale_documents() -> dict[str, Any]:
     
     # Processing states that indicate incomplete work
     STALE_STATES = [
-        DocumentStatus.EXTRACTING.value,
-        DocumentStatus.CLASSIFYING.value,
-        DocumentStatus.CHUNKING.value,
+        DocumentStatus.EXTRACTING,
+        DocumentStatus.CLASSIFYING,
+        DocumentStatus.CHUNKING,
     ]
     
     logger.info("Starting stale document recovery check...")
@@ -50,74 +50,80 @@ async def recover_stale_documents() -> dict[str, Any]:
     try:
         # Create async session
         engine = create_async_engine(settings.db.database_url)
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
-        recovered = 0
-        failed = 0
-        total = 0
-        
-        async with async_session() as session:
-            # Find all documents in stale states
-            result = await session.execute(
-                select(Document).where(Document.status.in_(STALE_STATES))
-            )
-            stale_documents = result.scalars().all()
-            total = len(stale_documents)
+        try:
+            async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
             
-            if total == 0:
-                logger.info("No stale documents found")
-                return {"recovered": 0, "failed": 0, "total": 0}
+            recovered = 0
+            failed = 0
+            total = 0
             
-            logger.info(f"Found {total} stale document(s) to process")
-            
-            for document in stale_documents:
-                try:
-                    # Check if document has chunks
-                    chunk_result = await session.execute(
-                        select(Chunk).where(Chunk.document_id == document.id).limit(1)
-                    )
-                    has_chunks = chunk_result.scalars().first() is not None
-                    
-                    if document.status == DocumentStatus.CHUNKING.value and has_chunks:
-                        # Document was in final stage with chunks - likely completed
-                        document.status = DocumentStatus.READY
-                        document.updated_at = datetime.now(timezone.utc)
-                        recovered += 1
-                        logger.info(
-                            f"Recovered document {document.id} ({document.filename}) -> READY"
+            async with async_session() as session:
+                # Find all documents in stale states
+                # Fix: Use SKIP LOCKED to prevent race conditions between multiple workers
+                result = await session.execute(
+                    select(Document)
+                    .where(Document.status.in_(STALE_STATES))
+                    .with_for_update(skip_locked=True)
+                )
+                stale_documents = result.scalars().all()
+                total = len(stale_documents)
+                
+                if total == 0:
+                    logger.info("No stale documents found")
+                    return {"recovered": 0, "failed": 0, "total": 0}
+                
+                logger.info(f"Found {total} stale document(s) to process")
+                
+                for document in stale_documents:
+                    try:
+                        # Check if document has chunks
+                        chunk_result = await session.execute(
+                            select(Chunk).where(Chunk.document_id == document.id).limit(1)
                         )
-                    else:
-                        # Document was interrupted before completion - mark as failed
-                        document.status = DocumentStatus.FAILED
-                        document.updated_at = datetime.now(timezone.utc)
-                        # Store error info if model supports it
-                        if hasattr(document, 'error_message'):
-                            document.error_message = (
-                                f"Processing interrupted by worker restart. "
-                                f"Previous state: {document.status}. "
-                                f"Please retry document upload."
+                        has_chunks = chunk_result.scalars().first() is not None
+                        
+                        original_status = document.status
+
+                        if document.status == DocumentStatus.CHUNKING and has_chunks:
+                            # Document was in final stage with chunks - likely completed
+                            document.status = DocumentStatus.READY
+                            document.updated_at = datetime.now(timezone.utc)
+                            recovered += 1
+                            logger.info(
+                                f"Recovered document {document.id} ({document.filename}) -> READY"
                             )
-                        failed += 1
-                        logger.warning(
-                            f"Marked document {document.id} ({document.filename}) as FAILED "
-                            f"(was in {document.status} state)"
+                        else:
+                            # Document was interrupted before completion - mark as failed
+                            document.status = DocumentStatus.FAILED
+                            document.updated_at = datetime.now(timezone.utc)
+                            document.error_message = (
+                                "Processing interrupted by worker restart. "
+                                f"Previous state: {getattr(original_status, 'value', original_status)}. "
+                                "Please retry document upload."
+                            )
+                            failed += 1
+                            logger.warning(
+                                f"Marked document {document.id} ({document.filename}) as FAILED "
+                                f"(was in {getattr(original_status, 'value', original_status)} state)"
+                            )
+                        
+                        # Publish status update via Redis
+                        _publish_recovery_status(
+                            document.id, 
+                            document.status.value
                         )
-                    
-                    # Publish status update via Redis
-                    _publish_recovery_status(
-                        document.id, 
-                        document.status.value if hasattr(document.status, 'value') else document.status
-                    )
-                    
-                except Exception as e:
-                    logger.error(f"Error processing stale document {document.id}: {e}")
-                    failed += 1
-            
-            # Commit all changes
-            await session.commit()
-        
-        # Close engine
-        await engine.dispose()
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing stale document {document.id}: {e}")
+                        failed += 1
+                
+                # Commit all changes
+                await session.commit()
+                
+        finally:
+            # Fix: Ensure engine is disposed to prevent resource leaks
+            await engine.dispose()
         
         logger.info(
             f"Stale document recovery complete: "

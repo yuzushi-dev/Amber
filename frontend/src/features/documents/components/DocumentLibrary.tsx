@@ -9,6 +9,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface Document {
     id: string
@@ -30,6 +31,7 @@ export default function DocumentLibrary() {
     const [showDemoData, setShowDemoData] = useState(true)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
     const [searchQuery, setSearchQuery] = useState('')
+    const [deleteError, setDeleteError] = useState<string | null>(null)
 
     const queryClient = useQueryClient()
 
@@ -48,6 +50,17 @@ export default function DocumentLibrary() {
         threshold: 0.4,
     })
 
+    const getDeleteErrorMessage = (error: unknown, fallback: string) => {
+        if (error && typeof error === 'object') {
+            const responseDetail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+            if (responseDetail) return responseDetail
+
+            const message = (error as { message?: string }).message
+            if (message) return message
+        }
+        return fallback
+    }
+
     // Delete single document mutation
     const deleteDocumentMutation = useMutation({
         mutationFn: async (documentId: string) => {
@@ -56,10 +69,12 @@ export default function DocumentLibrary() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['documents'] })
             setConfirmAction(null)
+            setDeleteError(null)
         },
         onError: (error) => {
             console.error('Failed to delete document:', error)
             setConfirmAction(null)
+            setDeleteError(getDeleteErrorMessage(error, 'Failed to delete document. Please try again.'))
         }
     })
 
@@ -67,18 +82,26 @@ export default function DocumentLibrary() {
     const deleteAllDocumentsMutation = useMutation({
         mutationFn: async () => {
             if (!documents) return
-            // Delete all documents sequentially
-            for (const doc of documents) {
-                await apiClient.delete(`/documents/${doc.id}`)
+            const deletePromises = documents.map(doc =>
+                apiClient.delete(`/documents/${doc.id}`)
+            )
+
+            const results = await Promise.allSettled(deletePromises)
+            const failed = results.filter(result => result.status === 'rejected')
+
+            if (failed.length > 0) {
+                throw new Error(`Failed to delete ${failed.length} of ${documents.length} documents.`)
             }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['documents'] })
             setConfirmAction(null)
+            setDeleteError(null)
         },
         onError: (error) => {
             console.error('Failed to delete all documents:', error)
             setConfirmAction(null)
+            setDeleteError(getDeleteErrorMessage(error, 'Failed to delete all documents. Please try again.'))
         }
     })
 
@@ -154,6 +177,17 @@ export default function DocumentLibrary() {
                     </button>
                 </div>
             </header>
+
+            {deleteError && (
+                <Alert
+                    variant="destructive"
+                    dismissible
+                    onDismiss={() => setDeleteError(null)}
+                >
+                    <AlertTitle>Delete failed</AlertTitle>
+                    <AlertDescription>{deleteError}</AlertDescription>
+                </Alert>
+            )}
 
             <div className="bg-card border rounded-lg overflow-hidden">
                 <div className="p-4 border-b flex justify-between items-center bg-muted/20">
@@ -290,4 +324,3 @@ export default function DocumentLibrary() {
         </div>
     )
 }
-

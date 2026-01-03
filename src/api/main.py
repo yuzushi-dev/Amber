@@ -111,10 +111,12 @@ app = FastAPI(
 # =============================================================================
 
 # CORS middleware (outermost)
+cors_origins = settings.cors_origins or ["*"]
+allow_credentials = "*" not in cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -128,11 +130,14 @@ app.add_middleware(RequestIdMiddleware)
 # Upload size limit middleware
 app.add_middleware(UploadSizeLimitMiddleware)
 
+# Authentication middleware (innermost - runs after rate limiting)
+# Middleware is applied in reverse order of addition.
+# We want: Request -> RateLimit -> Auth -> Routes
+# So we must add Auth first (inner), them RateLimit (outer).
+app.add_middleware(AuthenticationMiddleware)
+
 # Rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
-
-# Authentication middleware (innermost - runs after rate limiting)
-app.add_middleware(AuthenticationMiddleware)
 
 # =============================================================================
 # Register Exception Handlers

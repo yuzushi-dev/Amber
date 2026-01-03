@@ -7,6 +7,7 @@ FastAPI dependency injection utilities.
 
 from typing import AsyncGenerator
 
+from fastapi import Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from src.api.config import settings
@@ -41,3 +42,18 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def verify_admin(request: Request):
+    """
+    Dependency to verify admin privileges.
+    """
+    # Check permissions from request state (set by AuthMiddleware)
+    permissions = getattr(request.state, "permissions", [])
+    
+    # In Phase 1/MVP, we might use a simple check or specific permission string
+    if "admin" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )

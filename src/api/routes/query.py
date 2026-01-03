@@ -6,8 +6,6 @@ Endpoints for querying the knowledge base.
 Phase 2: Baseline RAG implementation with vector retrieval and LLM generation.
 """
 
-import logging
-import time
 import json
 import logging
 import time
@@ -50,8 +48,12 @@ def _get_services():
             from src.core.services.generation import GenerationService, GenerationConfig
             from src.core.metrics.collector import MetricsCollector
 
+            providers = getattr(settings, "providers", None)
+            openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
+            anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
+
             # Check if API keys are configured
-            if not settings.openai_api_key and not settings.anthropic_api_key:
+            if not openai_key and not anthropic_key:
                 logger.warning("No LLM API keys configured - RAG pipeline will fail")
 
             retrieval_config = RetrievalConfig(
@@ -60,15 +62,15 @@ def _get_services():
             )
 
             _retrieval_service = RetrievalService(
-                openai_api_key=settings.openai_api_key or None,
-                anthropic_api_key=settings.anthropic_api_key or None,
+                openai_api_key=openai_key or None,
+                anthropic_api_key=anthropic_key or None,
                 redis_url=settings.db.redis_url,
                 config=retrieval_config,
             )
 
             _generation_service = GenerationService(
-                openai_api_key=settings.openai_api_key or None,
-                anthropic_api_key=settings.anthropic_api_key or None,
+                openai_api_key=openai_key or None,
+                anthropic_api_key=anthropic_key or None,
             )
 
             _metrics_collector = MetricsCollector(
@@ -402,12 +404,6 @@ async def query_stream(
          # If dependency failed or wasn't provided (shouldn't happen for POST if validated)
          raise HTTPException(status_code=400, detail="Invalid request")
 
-    tenant_id = _get_tenant_id(http_request)
-    """
-    Stream the query response.
-
-    Uses SSE to stream LLM tokens as they're generated.
-    """
     tenant_id = _get_tenant_id(http_request)
 
     try:

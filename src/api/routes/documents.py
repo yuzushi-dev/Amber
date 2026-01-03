@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -57,6 +57,13 @@ def _get_content_type(document: Document) -> Optional[str]:
         return 'text/csv'
     else:
         return 'text/plain'  # Default fallback
+
+
+def _get_tenant_id(request: Request) -> str:
+    """Resolve tenant ID from request context or default settings."""
+    if hasattr(request.state, "tenant_id"):
+        return str(request.state.tenant_id)
+    return settings.tenant_id
 
 
 class DocumentUploadResponse(BaseModel):
@@ -132,8 +139,14 @@ async def upload_document(
     )
     
     # Dispatch async processing task
-    from src.workers.tasks import process_document
-    process_document.delay(document.id, tenant)
+    # Fix: Only dispatch if this is a new document to avoid duplicate processing
+    if document.status == DocumentStatus.INGESTED:
+        from src.workers.tasks import process_document
+        process_document.delay(document.id, tenant)
+        message = "Document accepted for processing"
+    else:
+        # Document was deduplicated (existing), so don't re-process
+        message = f"Document already exists with status: {document.status.value}"
     
     # Build events URL
     events_url = f"/v1/documents/{document.id}/events"
@@ -194,12 +207,17 @@ async def list_documents(
 )
 async def get_document(
     document_id: str,
+    http_request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentResponse:
     """
     Get document details.
     """
-    query = select(Document).where(Document.id == document_id)
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
     result = await session.execute(query)
     document = result.scalars().first()
     
@@ -229,6 +247,7 @@ async def get_document(
 )
 async def get_document_file(
     document_id: str,
+    http_request: Request,
     session: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -237,7 +256,11 @@ async def get_document_file(
     Returns a streaming response with the file content and appropriate content-type header.
     """
     # Get document metadata
-    query = select(Document).where(Document.id == document_id)
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -280,12 +303,17 @@ async def get_document_file(
 )
 async def delete_document(
     document_id: str,
+    http_request: Request,
     session: AsyncSession = Depends(get_db_session),
 ):
     """
     Delete a document.
     """
-    query = select(Document).where(Document.id == document_id)
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
     result = await session.execute(query)
     document = result.scalars().first()
     
@@ -295,6 +323,43 @@ async def delete_document(
             detail=f"Document {document_id} not found"
         )
     
+    # Delete from Neo4j graph
+    try:
+        cypher = """
+        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
+        OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+        OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
+        WITH d, c, collect(DISTINCT e) AS entities
+        DETACH DELETE d, c
+        WITH entities
+        UNWIND entities AS entity
+        WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
+        DETACH DELETE entity
+        """
+        await neo4j_client.execute_write(
+            cypher,
+            {"document_id": document_id, "tenant_id": document.tenant_id},
+        )
+    except Exception as e:
+        logger.warning(f"Failed to delete graph data for document {document_id}: {e}")
+
+    # Delete from Milvus vector store
+    try:
+        from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+
+        milvus_config = MilvusConfig(
+            host=settings.db.milvus_host,
+            port=settings.db.milvus_port,
+            collection_name=f"amber_{document.tenant_id}",
+        )
+        vector_store = MilvusVectorStore(milvus_config)
+        try:
+            await vector_store.delete_by_document(document_id, document.tenant_id)
+        finally:
+            await vector_store.disconnect()
+    except Exception as e:
+        logger.warning(f"Failed to delete vectors for document {document_id}: {e}")
+
     # Delete from MinIO
     try:
         storage = MinIOClient()

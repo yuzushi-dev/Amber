@@ -20,9 +20,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Create benchmark_status enum
-    benchmark_status = sa.Enum('pending', 'running', 'completed', 'failed', name='benchmarkstatus')
-    benchmark_status.create(op.get_bind(), checkfirst=True)
+    # We use postgresql.ENUM directly to control creation behavior more strictly
+    benchmark_status = postgresql.ENUM('pending', 'running', 'completed', 'failed', name='benchmarkstatus', create_type=False)
     
+    # Try to create the type if it doesn't exist
+    try:
+        # We need a separate instance with create_type=True (default) to create it, 
+        # or just call create on the one we have but force checkfirst=True? 
+        # Actually safer to just try creating a temporary one or catching the error.
+        # But let's just use raw SQL to be 100% sure or use the pythonic way with error handling.
+        enums = postgresql.ENUM('pending', 'running', 'completed', 'failed', name='benchmarkstatus')
+        enums.create(op.get_bind(), checkfirst=True)
+    except Exception:
+        pass 
+
     # Create benchmark_runs table
     op.create_table(
         'benchmark_runs',

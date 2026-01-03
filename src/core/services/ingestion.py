@@ -5,6 +5,7 @@ Ingestion Service
 Service for handling document ingestion, registration, and file management.
 """
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -91,11 +92,12 @@ class IngestionService:
             # Ideally we should use run_in_executor, but for now direct call or specific async wrapper.
             # The MinIOClient wrapper is synchronous. We should acknowledge this block.
             # For high throughput we would offload this.
-            self.storage.upload_file(
+            await asyncio.to_thread(
+                self.storage.upload_file,
                 object_name=storage_path,
                 data=file_io,
                 length=len(file_content),
-                content_type=content_type
+                content_type=content_type,
             )
         except Exception as e:
             logger.error(f"Failed to upload file to storage: {e}")
@@ -128,7 +130,6 @@ class IngestionService:
         
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
-        return new_doc
 
     async def process_document(self, document_id: str):
         """
@@ -142,15 +143,35 @@ class IngestionService:
         if not document:
             raise ValueError(f"Document {document_id} not found")
             
+        from sqlalchemy import update
+        
         # 2. Check State & Transition (INGESTED -> EXTRACTING)
-        # In a real app we might use transition manager explicitly or implicit here
-        if document.status != DocumentStatus.INGESTED:
-            # Maybe it's already processed or failed?
-            pass
+        # Fix: Atomic update to prevent TOCTOU race conditions
+        # We try to update the status only if it is currently INGESTED
+        result = await self.session.execute(
+            update(Document)
+            .where(
+                Document.id == document_id, 
+                Document.status == DocumentStatus.INGESTED
+            )
+            .values(status=DocumentStatus.EXTRACTING)
+        )
+        
+        if result.rowcount == 0:
+            # Update failed, meaning document was not in INGESTED state
+            # It might be already processing, or failed, or deleted
+            await self.session.refresh(document)
+            logger.warning(
+                f"Skipping processing for {document_id}: "
+                f"Status is {document.status} (expected INGESTED)"
+            )
+            return
 
-        # Update status to EXTRACTING
-        document.status = DocumentStatus.EXTRACTING
+        # Commit directly to release lock/visible state
         await self.session.commit()
+        
+        # Refresh local object to match DB
+        await self.session.refresh(document)
         
         try:
             # 3. Get File from Storage
@@ -231,11 +252,11 @@ class IngestionService:
             
             # 8. Generate Embeddings and Store in Milvus
             # This is the critical step for RAG retrieval!
+            vector_store = None
             try:
                 from src.api.config import settings
                 from src.core.services.embeddings import EmbeddingService
                 from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
-                from src.core.models.chunk import EmbeddingStatus
                 
                 logger.info(f"Generating embeddings for {len(chunks_to_process)} chunks")
                 
@@ -271,7 +292,6 @@ class IngestionService:
                 
                 # Upsert to Milvus
                 await vector_store.upsert_chunks(milvus_data)
-                await vector_store.disconnect()
                 
                 # Update embedding status for all chunks
                 for chunk in chunks_to_process:
@@ -284,6 +304,12 @@ class IngestionService:
                 # Mark chunks as failed but don't fail the document entirely
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.FAILED
+            finally:
+                if vector_store is not None:
+                    try:
+                        await vector_store.disconnect()
+                    except Exception as disconnect_error:
+                        logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
             
             # 9. Build Knowledge Graph (Phase 3)
             # We process chunks to extract entities and build graph before marking document as READY.
@@ -304,6 +330,6 @@ class IngestionService:
         except Exception as e:
             logger.error(f"Failed to process document {document_id}: {e}")
             document.status = DocumentStatus.FAILED
-            # document.error_message = str(e) # If we had that field
+            document.error_message = str(e)
             await self.session.commit()
             raise

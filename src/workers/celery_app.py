@@ -69,10 +69,14 @@ def init_worker_process(**kwargs):
         from src.api.config import settings
         from src.core.providers.factory import init_providers
         
+        providers = getattr(settings, "providers", None)
+        openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
+        anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
+
         # Initialize providers with API keys from settings
         init_providers(
-            openai_api_key=settings.openai_api_key,
-            anthropic_api_key=settings.anthropic_api_key,
+            openai_api_key=openai_key,
+            anthropic_api_key=anthropic_key,
         )
         logger.info("Worker process providers initialized successfully")
     except Exception as e:
@@ -104,4 +108,3 @@ def on_worker_ready(**kwargs):
     except Exception as e:
         logger.error(f"Stale document recovery failed: {e}")
         # Don't fail worker startup - recovery is best-effort
-

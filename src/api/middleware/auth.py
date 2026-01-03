@@ -86,8 +86,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if _is_public_path(path):
             return await call_next(request)
 
-        # Extract API key from header or query params (for SSE)
-        api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        # Extract API key from header only (query params removed for security)
+        api_key = request.headers.get("X-API-Key")
 
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
