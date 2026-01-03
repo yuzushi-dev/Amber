@@ -22,10 +22,11 @@ from src.shared.identifiers import DocumentId
 class SearchMode(str, Enum):
     """Available search strategies."""
 
-    BASIC = "basic"    # Vector search only
-    LOCAL = "local"    # Entity-focused graph traversal
-    GLOBAL = "global"  # Map-reduce over community summaries
-    DRIFT = "drift"    # Dynamic reasoning and exploration
+    BASIC = "basic"         # Vector search only
+    LOCAL = "local"         # Entity-focused graph traversal
+    GLOBAL = "global"       # Map-reduce over community summaries
+    DRIFT = "drift"         # Dynamic reasoning and exploration
+    STRUCTURED = "structured"  # Direct Cypher for list/count queries
 
 
 # =============================================================================
@@ -200,3 +201,31 @@ class QueryResponse(BaseModel):
         ],
         "timing": {"total_ms": 1250.5, "retrieval_ms": 200.3, "generation_ms": 1000.2},
     }}}
+
+
+class StructuredQueryResponse(BaseModel):
+    """Response for structured queries (list, count, aggregates)."""
+
+    query_type: str = Field(..., description="Type of structured query executed")
+    data: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Tabular result data",
+    )
+    count: int = Field(..., description="Number of results")
+    timing: TimingInfo = Field(..., description="Timing information")
+    message: str | None = Field(
+        None,
+        description="Human-readable summary of results",
+    )
+
+    model_config = {"json_schema_extra": {"example": {
+        "query_type": "list_documents",
+        "data": [
+            {"id": "doc_123", "filename": "report.pdf", "status": "ready"},
+            {"id": "doc_456", "filename": "analysis.docx", "status": "ready"},
+        ],
+        "count": 2,
+        "timing": {"total_ms": 45.2},
+        "message": "Found 2 documents",
+    }}}
+

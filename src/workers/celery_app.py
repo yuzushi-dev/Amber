@@ -9,7 +9,7 @@ import os
 import logging
 
 from celery import Celery
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_ready
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +76,30 @@ def init_worker_process(**kwargs):
     except Exception as e:
         logger.error(f"Failed to initialize worker providers: {e}")
         # Don't fail worker startup - some tasks may not need providers
+
+
+@worker_ready.connect
+def on_worker_ready(**kwargs):
+    """Run stale document recovery when worker is fully ready.
+    
+    This signal fires after all worker initialization is complete,
+    making it safe to access databases and other resources.
+    """
+    logger.info("Worker ready - checking for stale documents...")
+    try:
+        from src.workers.recovery import run_recovery_sync
+        
+        result = run_recovery_sync()
+        
+        if result.get("total", 0) > 0:
+            logger.info(
+                f"Stale document recovery: {result.get('recovered', 0)} recovered, "
+                f"{result.get('failed', 0)} failed out of {result.get('total', 0)}"
+            )
+        else:
+            logger.info("No stale documents found")
+            
+    except Exception as e:
+        logger.error(f"Stale document recovery failed: {e}")
+        # Don't fail worker startup - recovery is best-effort
+

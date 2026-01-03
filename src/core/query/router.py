@@ -24,6 +24,16 @@ class QueryRouter:
     # Heuristic keywords
     GLOBAL_KEYWORDS = {"all", "main", "themes", "summarize", "trends", "overall", "summary", "everything"}
     DRIFT_KEYWORDS = {"compare", "relation", "differences", "between", "how does", "impact", "influence"}
+    
+    # Structured query patterns (for list/count operations)
+    STRUCTURED_STARTERS = {
+        "list", "show", "get", "display", "count", "how many"
+    }
+    STRUCTURED_TARGETS = {
+        "documents", "document", "files", "file",
+        "entities", "entity", "relationships", "relationship",
+        "chunks", "chunk", "stats", "statistics"
+    }
 
     def __init__(
         self,
@@ -62,6 +72,11 @@ class QueryRouter:
         # 1. Rule-based heuristics
         query_lower = query.lower()
         
+        # Check for STRUCTURED queries first (list, count, etc.)
+        if self._is_structured_query(query_lower):
+            logger.debug("Routing to STRUCTURED mode via heuristics")
+            return SearchMode.STRUCTURED
+        
         # Check for GLOBAL keywords
         if any(kw in query_lower for kw in self.GLOBAL_KEYWORDS):
             logger.debug("Routing to GLOBAL mode via heuristics")
@@ -90,3 +105,32 @@ class QueryRouter:
         # 3. Default
         logger.debug("Falling back to BASIC search mode")
         return SearchMode.BASIC
+
+    def _is_structured_query(self, query_lower: str) -> bool:
+        """
+        Check if query matches structured query patterns.
+        
+        Structured queries are list/count operations on database entities
+        that can be answered directly with Cypher, without RAG.
+        """
+        words = query_lower.split()
+        if not words:
+            return False
+        
+        # Check if starts with a structured starter
+        first_word = words[0]
+        starts_with_starter = first_word in self.STRUCTURED_STARTERS
+        
+        # Special case: "how many" is two words
+        starts_with_how_many = (
+            len(words) >= 2 and 
+            words[0] == "how" and 
+            words[1] == "many"
+        )
+        
+        if not (starts_with_starter or starts_with_how_many):
+            return False
+        
+        # Check if any word matches a structured target
+        return any(word in self.STRUCTURED_TARGETS for word in words)
+

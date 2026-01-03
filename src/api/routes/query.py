@@ -21,6 +21,7 @@ from src.api.schemas.query import (
     QueryRequest,
     QueryResponse,
     Source,
+    StructuredQueryResponse,
     TimingInfo,
     TraceStep,
 )
@@ -102,7 +103,6 @@ def _get_tenant_id(request: Request) -> str:
 
 @router.post(
     "",
-    response_model=QueryResponse,
     status_code=status.HTTP_200_OK,
     summary="Query the Knowledge Base",
     description="""
@@ -113,9 +113,31 @@ def _get_tenant_id(request: Request) -> str:
     - Embeds query and searches Milvus for relevant chunks
     - Reranks results using FlashRank
     - Generates answer with citations using LLM
+    
+    **Structured Queries**: List/count queries are executed directly via Cypher
+    for instant responses without LLM generation.
     """,
+    responses={
+        200: {
+            "description": "Query response (can be QueryResponse or StructuredQueryResponse)",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "rag_response": {
+                            "summary": "RAG Response",
+                            "value": {"answer": "...", "sources": [], "timing": {}}
+                        },
+                        "structured_response": {
+                            "summary": "Structured Query Response",
+                            "value": {"query_type": "list_documents", "data": [], "count": 0}
+                        }
+                    }
+                }
+            }
+        }
+    },
 )
-async def query(request: QueryRequest, http_request: Request) -> QueryResponse:
+async def query(request: QueryRequest, http_request: Request) -> QueryResponse | StructuredQueryResponse:
     """
     Query the knowledge base.
 
@@ -139,6 +161,48 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse:
     max_chunks = request.options.max_chunks if request.options else 10
 
     trace_steps: list[TraceStep] = []
+
+    # =========================================================================
+    # STRUCTURED QUERY CHECK - Bypass RAG for list/count queries
+    # =========================================================================
+    try:
+        from src.core.query.structured_query import structured_executor
+        
+        structured_result = await structured_executor.try_execute(
+            query=request.query,
+            tenant_id=tenant_id,
+        )
+        
+        if structured_result and structured_result.success:
+            # Return structured response (no LLM, no RAG)
+            logger.info(
+                f"Structured query executed: {structured_result.query_type.value} "
+                f"in {structured_result.execution_time_ms:.1f}ms"
+            )
+            
+            # Generate human-readable message
+            count = structured_result.count
+            query_type = structured_result.query_type.value
+            if "count" in query_type:
+                message = f"Found {count} {query_type.replace('count_', '').replace('_', ' ')}"
+            else:
+                message = f"Retrieved {count} {query_type.replace('list_', '').replace('_', ' ')}"
+            
+            return StructuredQueryResponse(
+                query_type=query_type,
+                data=structured_result.data,
+                count=count,
+                timing=TimingInfo(
+                    total_ms=round(structured_result.execution_time_ms, 2),
+                    retrieval_ms=round(structured_result.execution_time_ms, 2),
+                    generation_ms=0,
+                ),
+                message=message,
+            )
+            
+    except Exception as e:
+        # If structured query fails, fall through to RAG pipeline
+        logger.debug(f"Structured query check failed, using RAG: {e}")
 
     try:
         retrieval_service, generation_service, metrics = _get_services()
