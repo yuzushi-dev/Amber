@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Loader2, AlertCircle } from 'lucide-react'
 import { SSEManager } from '@/lib/sse'
 
 interface LiveStatusBadgeProps {
@@ -12,7 +12,6 @@ interface LiveStatusBadgeProps {
 
 export default function LiveStatusBadge({ documentId, initialStatus, onComplete }: LiveStatusBadgeProps) {
     const [status, setStatus] = useState(initialStatus)
-    const [progress, setProgress] = useState(0)
 
     useEffect(() => {
         // Only connect if not effectively terminal state
@@ -34,9 +33,6 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete 
                     const data = JSON.parse(event.data)
                     if (data.status) {
                         setStatus(data.status)
-                        if (data.details?.progress) {
-                            setProgress(data.details.progress)
-                        }
 
                         if (['ready', 'completed', 'failed'].includes(data.status.toLowerCase())) {
                             manager.disconnect()
