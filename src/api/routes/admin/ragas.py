@@ -11,7 +11,12 @@ import os
 from typing import Optional, List
 from uuid import uuid4
 from datetime import datetime
-
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+from src.workers.tasks import run_ragas_benchmark
 from src.api.deps import get_db_session, verify_admin
 
 logger = logging.getLogger(__name__)
@@ -47,17 +52,7 @@ def validate_safe_filename(filename: str) -> str:
 # Endpoints
 # =============================================================================
 
-# ... (get_ragas_stats unchanged) ...
 
-@router.get("/datasets", response_model=List[DatasetInfo])
-async def list_datasets():
-    # ... (unchanged) ...
-    pass # Implementation details omitted for brevity in tool call, will rely on file context if needed but we are replacing router definition above 
-    # Actually I need to be careful not to replace too much. 
-    # The replacement chunk should only be the router definition and imports?
-    # No, I need to inject validation logic inside the endpoints.
-    # It's better to use multi_replace for this.
-    pass
 
 
 class BenchmarkRunSummary(BaseModel):
@@ -120,53 +115,74 @@ async def get_ragas_stats(
     """
     Get overall Ragas benchmark statistics.
     """
-    # Total runs
-    total_result = await session.execute(select(func.count(BenchmarkRun.id)))
-    total_runs = total_result.scalar() or 0
-    
-    # Completed runs
-    completed_result = await session.execute(
-        select(func.count(BenchmarkRun.id)).where(
-            BenchmarkRun.status == BenchmarkStatus.COMPLETED
-        )
-    )
-    completed_runs = completed_result.scalar() or 0
-    
-    # Failed runs
-    failed_result = await session.execute(
-        select(func.count(BenchmarkRun.id)).where(
-            BenchmarkRun.status == BenchmarkStatus.FAILED
-        )
-    )
-    failed_runs = failed_result.scalar() or 0
-    
-    # Average metrics from completed runs
-    completed_runs_result = await session.execute(
-        select(BenchmarkRun).where(
-            BenchmarkRun.status == BenchmarkStatus.COMPLETED
-        )
-    )
-    completed_benchmarks = completed_runs_result.scalars().all()
-    
-    avg_faithfulness = None
-    avg_relevancy = None
-    
-    if completed_benchmarks:
-        faith_scores = [b.metrics.get("faithfulness", 0) for b in completed_benchmarks if b.metrics]
-        rel_scores = [b.metrics.get("response_relevancy", 0) for b in completed_benchmarks if b.metrics]
+    try:
+        # Total runs
+        total_result = await session.execute(select(func.count(BenchmarkRun.id)))
+        total_runs = total_result.scalar() or 0
         
-        if faith_scores:
-            avg_faithfulness = sum(faith_scores) / len(faith_scores)
-        if rel_scores:
-            avg_relevancy = sum(rel_scores) / len(rel_scores)
-    
-    return BenchmarkStatsResponse(
-        total_runs=total_runs,
-        completed_runs=completed_runs,
-        failed_runs=failed_runs,
-        avg_faithfulness=avg_faithfulness,
-        avg_relevancy=avg_relevancy
-    )
+        # Completed runs
+        completed_result = await session.execute(
+            select(func.count(BenchmarkRun.id)).where(
+                BenchmarkRun.status == BenchmarkStatus.COMPLETED
+            )
+        )
+        completed_runs = completed_result.scalar() or 0
+        
+        # Failed runs
+        failed_result = await session.execute(
+            select(func.count(BenchmarkRun.id)).where(
+                BenchmarkRun.status == BenchmarkStatus.FAILED
+            )
+        )
+        failed_runs = failed_result.scalar() or 0
+        
+        # Average metrics from completed runs
+        completed_runs_result = await session.execute(
+            select(BenchmarkRun).where(
+                BenchmarkRun.status == BenchmarkStatus.COMPLETED
+            )
+        )
+        completed_benchmarks = completed_runs_result.scalars().all()
+        
+        avg_faithfulness = None
+        avg_relevancy = None
+        
+        if completed_benchmarks:
+            # Safe access ensuring metrics is a dict
+            faith_scores = [
+                b.metrics.get("faithfulness", 0) 
+                for b in completed_benchmarks 
+                if b.metrics and isinstance(b.metrics, dict)
+            ]
+            rel_scores = [
+                b.metrics.get("response_relevancy", 0) 
+                for b in completed_benchmarks 
+                if b.metrics and isinstance(b.metrics, dict)
+            ]
+            
+            if faith_scores:
+                avg_faithfulness = sum(faith_scores) / len(faith_scores)
+            if rel_scores:
+                avg_relevancy = sum(rel_scores) / len(rel_scores)
+        
+        return BenchmarkStatsResponse(
+            total_runs=total_runs,
+            completed_runs=completed_runs,
+            failed_runs=failed_runs,
+            avg_faithfulness=avg_faithfulness,
+            avg_relevancy=avg_relevancy
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Ragas stats: {e}")
+        # Return zero stats instead of 500
+        return BenchmarkStatsResponse(
+            total_runs=0,
+            completed_runs=0,
+            failed_runs=0,
+            avg_faithfulness=0.0,
+            avg_relevancy=0.0
+        )
 
 
 @router.get("/datasets", response_model=List[DatasetInfo])

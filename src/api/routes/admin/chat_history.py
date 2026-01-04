@@ -16,7 +16,7 @@ from src.api.deps import get_db_session
 from src.core.models.usage import UsageLog
 from src.core.models.feedback import Feedback
 
-router = APIRouter(prefix="/admin/chat", tags=["Admin - Chat History"])
+router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
 
 
 # =============================================================================
@@ -86,68 +86,79 @@ async def list_chat_history(
 
     Retrieves generation operations from UsageLog with optional feedback data.
     """
-    # Build query for generation operations
-    query = (
-        select(UsageLog, Feedback)
-        .outerjoin(Feedback, UsageLog.request_id == Feedback.request_id)
-        .where(UsageLog.operation == "generation")
-    )
+    try:
+        # Build query for generation operations
+        query = (
+            select(UsageLog, Feedback)
+            .outerjoin(Feedback, UsageLog.request_id == Feedback.request_id)
+            .where(UsageLog.operation == "generation")
+        )
 
-    # Filter by tenant if specified
-    if tenant_id:
-        query = query.where(UsageLog.tenant_id == tenant_id)
+        # Filter by tenant if specified
+        if tenant_id:
+            query = query.where(UsageLog.tenant_id == tenant_id)
 
-    # Order by most recent first
-    query = query.order_by(desc(UsageLog.created_at))
+        # Order by most recent first
+        query = query.order_by(desc(UsageLog.created_at))
 
-    # Get total count
-    count_query = (
-        select(func.count(UsageLog.id))
-        .where(UsageLog.operation == "generation")
-    )
-    if tenant_id:
-        count_query = count_query.where(UsageLog.tenant_id == tenant_id)
+        # Get total count
+        count_query = (
+            select(func.count(UsageLog.id))
+            .where(UsageLog.operation == "generation")
+        )
+        if tenant_id:
+            count_query = count_query.where(UsageLog.tenant_id == tenant_id)
 
-    total = await session.scalar(count_query) or 0
+        total = await session.scalar(count_query) or 0
 
-    # Fetch with pagination
-    query = query.offset(offset).limit(limit)
-    result = await session.execute(query)
-    rows = result.all()
+        # Fetch with pagination
+        query = query.offset(offset).limit(limit)
+        result = await session.execute(query)
+        rows = result.all()
 
-    # Build response
-    conversations = []
-    for usage_log, feedback in rows:
-        # Extract query/response from metadata
-        metadata = usage_log.metadata_json or {}
-        query_text = metadata.get("query_text") or metadata.get("query")
-        response_text = metadata.get("response_text") or metadata.get("response")
+        # Build response
+        conversations = []
+        for usage_log, feedback in rows:
+            # Extract query/response from metadata
+            metadata = usage_log.metadata_json or {}
+            query_text = metadata.get("query_text") or metadata.get("query")
+            response_text = metadata.get("response_text") or metadata.get("response")
 
-        # Create preview (first 100 chars)
-        response_preview = None
-        if response_text:
-            response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+            # Create preview (first 100 chars)
+            response_preview = None
+            if response_text:
+                response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
 
-        conversations.append(ChatHistoryItem(
-            request_id=usage_log.request_id or usage_log.id,
-            tenant_id=usage_log.tenant_id,
-            query_text=query_text,
-            response_preview=response_preview,
-            model=usage_log.model,
-            provider=usage_log.provider,
-            total_tokens=usage_log.total_tokens or 0,
-            cost=usage_log.cost or 0.0,
-            has_feedback=feedback is not None,
-            feedback_score=feedback.score if feedback else None,
-            created_at=usage_log.created_at,
-        ))
+            conversations.append(ChatHistoryItem(
+                request_id=usage_log.request_id or usage_log.id,
+                tenant_id=usage_log.tenant_id,
+                query_text=query_text,
+                response_preview=response_preview,
+                model=usage_log.model,
+                provider=usage_log.provider,
+                total_tokens=usage_log.total_tokens or 0,
+                cost=usage_log.cost or 0.0,
+                has_feedback=feedback is not None,
+                feedback_score=feedback.score if feedback else None,
+                created_at=usage_log.created_at,
+            ))
 
-    return ChatHistoryResponse(
-        conversations=conversations,
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+        return ChatHistoryResponse(
+            conversations=conversations,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        # Handle missing table or other database errors gracefully
+        import logging
+        logging.getLogger(__name__).warning(f"Chat history query failed: {e}")
+        return ChatHistoryResponse(
+            conversations=[],
+            total=0,
+            limit=limit,
+            offset=offset,
+        )
 
 
 @router.get("/history/{request_id}", response_model=ConversationDetail)

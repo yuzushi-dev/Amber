@@ -1901,6 +1901,55 @@ if document.status == DocumentStatus.CHUNKING.value:
 
 ---
 
+---
+
+### BUG #33: Missing Chunks Endpoint
+**Location**: `src/api/routes/documents.py`
+**Severity**: **HIGH**
+**Category**: API / Missing Functionality
+
+**Description**: The frontend `ChunksTab` expects `GET /documents/{id}/chunks` but the endpoint was missing in the backend, causing 404s and frontend crashes (due to missing data).
+
+**Impact**:
+- **Frontend Crash**: `chunks.reduce is not a function` error
+- **Feature Broken**: Chunks tab unusable
+
+**Suggested Fix**:
+Implement the endpoint in `documents.py` to return chunks from PostgreSQL.
+
+---
+
+### BUG #34: Double Prefix in Chat History
+**Location**: `src/api/routes/admin/chat_history.py`
+**Severity**: **MEDIUM**
+**Category**: API / Routing
+
+**Description**: `chat_history.py` defined router with prefix `/admin/chat` but was included under `/admin` router, resulting in `/admin/admin/chat/history`.
+
+**Impact**:
+- **404 Not Found**: Frontend calls `/v1/admin/chat/history` which fails.
+
+**Suggested Fix**:
+Change prefix in `chat_history.py` to `/chat`.
+
+---
+
+### BUG #35: Ragas Stats 500 Error
+**Location**: `src/api/routes/admin/ragas.py`
+**Severity**: **HIGH**
+**Category**: API / Runtime Error
+
+**Description**: The `ragas/stats` endpoint crashed with 500 Internal Server Error, likely due to unhandled exceptions when querying missing tables or processing invalid data.
+
+**Impact**:
+- **500 Error**: Dashboard widget fails to load
+
+**Suggested Fix**:
+Wrap stats logic in try/except block to return zero-stats on failure rather than crashing.
+
+---
+
+
 ## CATEGORY 5: FRONTEND ISSUES
 
 ### BUG #26: Delete All Documents Executes Sequentially

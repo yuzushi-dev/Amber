@@ -44,11 +44,14 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - MINIO_HOST=${MINIO_HOST:-minio}
       - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
       - pip-packages:/app/.packages
     depends_on:
       postgres:
@@ -95,9 +98,12 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - MINIO_HOST=${MINIO_HOST:-minio}
       - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
     depends_on:

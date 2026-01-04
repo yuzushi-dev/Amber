@@ -5,11 +5,11 @@
  * Database statistics, cache management, and maintenance actions.
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
     Database,
     HardDrive,
-    Layers,
     Trash2,
     RefreshCw,
     AlertTriangle,
@@ -24,58 +24,45 @@ import { ConfirmDialog } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function DatabasePage() {
-    const [stats, setStats] = useState<SystemStats | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const queryClient = useQueryClient()
     const [actionResult, setActionResult] = useState<MaintenanceResult | null>(null)
     const [showConfirm, setShowConfirm] = useState<string | null>(null)
-    const [executing, setExecuting] = useState<string | null>(null)
 
-    useEffect(() => {
-        loadStats()
-    }, [])
+    // Use React Query with caching
+    const { data: stats, isLoading: loading, error, refetch } = useQuery({
+        queryKey: ['maintenance-stats'],
+        queryFn: () => maintenanceApi.getStats(),
+        staleTime: 30000, // Cache for 30 seconds
+        refetchInterval: 60000, // Auto-refetch every minute
+    })
 
-    const loadStats = async () => {
-        try {
-            setLoading(true)
-            const data = await maintenanceApi.getStats()
-            setStats(data)
-            setError(null)
-        } catch (err) {
-            setError('Failed to load system statistics')
-            console.error(err)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const handleClearCache = async () => {
-        try {
-            setExecuting('cache')
-            setShowConfirm(null)
-            const result = await maintenanceApi.clearCache()
+    const clearCacheMutation = useMutation({
+        mutationFn: () => maintenanceApi.clearCache(),
+        onSuccess: (result) => {
             setActionResult(result)
-            await loadStats()
-        } catch (err) {
-            console.error('Clear cache failed:', err)
-        } finally {
-            setExecuting(null)
-        }
+            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
+            setShowConfirm(null)
+        },
+    })
+
+    const pruneOrphansMutation = useMutation({
+        mutationFn: () => maintenanceApi.pruneOrphans(),
+        onSuccess: (result) => {
+            setActionResult(result)
+            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
+            setShowConfirm(null)
+        },
+    })
+
+    const handleClearCache = () => {
+        clearCacheMutation.mutate()
     }
 
-    const handlePruneOrphans = async () => {
-        try {
-            setExecuting('prune')
-            setShowConfirm(null)
-            const result = await maintenanceApi.pruneOrphans()
-            setActionResult(result)
-            await loadStats()
-        } catch (err) {
-            console.error('Prune orphans failed:', err)
-        } finally {
-            setExecuting(null)
-        }
+    const handlePruneOrphans = () => {
+        pruneOrphansMutation.mutate()
     }
+
+    const executing = clearCacheMutation.isPending ? 'cache' : pruneOrphansMutation.isPending ? 'prune' : null
 
     const formatBytes = (bytes: number) => {
         if (bytes === 0) return '0 B'
@@ -94,7 +81,7 @@ export default function DatabasePage() {
     }
 
     return (
-        <div className="p-6 pb-20 max-w-7xl mx-auto">
+        <div className="p-6 pb-32 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Database Administration</h1>
@@ -103,7 +90,7 @@ export default function DatabasePage() {
                     </p>
                 </div>
                 <button
-                    onClick={loadStats}
+                    onClick={() => refetch()}
                     disabled={loading}
                     className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                 >
@@ -114,7 +101,7 @@ export default function DatabasePage() {
 
             {error && (
                 <Alert variant="destructive" className="mb-6">
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertDescription>{error instanceof Error ? error.message : 'Failed to load statistics'}</AlertDescription>
                 </Alert>
             )}
 
@@ -213,32 +200,6 @@ export default function DatabasePage() {
                             />
                         </div>
                     </div>
-                </div>
-            </div>
-
-            {/* Vector Store */}
-            <div className="mb-8">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <Layers className="w-5 h-5" />
-                    Vector Store
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <StatCard
-                        icon={Layers}
-                        label="Collections"
-                        value={stats?.vector_store.collections_count ?? 0}
-                    />
-                    <StatCard
-                        icon={Box}
-                        label="Total Vectors"
-                        value={stats?.vector_store.vectors_total ?? 0}
-                    />
-                    <StatCard
-                        icon={HardDrive}
-                        label="Index Size"
-                        value={formatBytes(stats?.vector_store.index_size_bytes ?? 0)}
-                        isString
-                    />
                 </div>
             </div>
 

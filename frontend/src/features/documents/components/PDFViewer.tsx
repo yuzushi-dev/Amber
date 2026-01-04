@@ -1,31 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Configure PDF.js worker - use local worker file from public directory
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 interface PDFViewerProps {
-  url: string;
+  file: string | { url: string; httpHeaders?: Record<string, string> };
 }
 
-export function PDFViewer({ url }: PDFViewerProps) {
+export function PDFViewer({ file }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
+  // Reset state when URL changes
+  useEffect(() => {
+    console.log('PDFViewer: File changed:', file);
+    setNumPages(null);
+    setPageNumber(1);
+    setIsLoading(true);
+    setError(null);
+    pdfDocumentRef.current = null;
+  }, [file]);
+
+  function onDocumentLoadSuccess(pdf: PDFDocumentProxy) {
+    console.log('PDF loaded successfully:', { numPages: pdf.numPages });
+    pdfDocumentRef.current = pdf;
+    setNumPages(pdf.numPages);
     setIsLoading(false);
     setError(null);
   }
 
   function onDocumentLoadError(error: Error) {
+    console.error('PDF load error:', error);
     setError(`Failed to load PDF: ${error.message}`);
     setIsLoading(false);
   }
@@ -35,6 +50,11 @@ export function PDFViewer({ url }: PDFViewerProps) {
     setPageNumber((prev) => Math.min(prev + 1, numPages || prev));
   const zoomIn = () => setScale((prev) => Math.min(prev + 0.2, 3.0));
   const zoomOut = () => setScale((prev) => Math.max(prev - 0.2, 0.5));
+
+  // Memoize file object to prevent unnecessary re-renders in Document
+  const memoizedFile = useMemo(() => {
+    return file;
+  }, [JSON.stringify(file)]);
 
   return (
     <div className="flex flex-col h-full">
@@ -96,7 +116,8 @@ export function PDFViewer({ url }: PDFViewerProps) {
           </div>
         ) : (
           <Document
-            file={url}
+            key={typeof memoizedFile === 'string' ? memoizedFile : memoizedFile.url}
+            file={memoizedFile}
             onLoadSuccess={onDocumentLoadSuccess}
             onLoadError={onDocumentLoadError}
             loading={
@@ -106,16 +127,23 @@ export function PDFViewer({ url }: PDFViewerProps) {
               </div>
             }
           >
-            <Page
-              pageNumber={pageNumber}
-              scale={scale}
-              className="shadow-lg"
-              loading={
-                <div className="flex items-center justify-center min-h-[400px]">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
-              }
-            />
+            {numPages && (
+              <Page
+                pageNumber={pageNumber}
+                scale={scale}
+                className="shadow-lg"
+                loading={
+                  <div className="flex items-center justify-center min-h-[400px]">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  </div>
+                }
+                error={
+                  <div className="flex items-center justify-center min-h-[400px] text-destructive">
+                    <p>Failed to load page {pageNumber}</p>
+                  </div>
+                }
+              />
+            )}
           </Document>
         )}
       </div>

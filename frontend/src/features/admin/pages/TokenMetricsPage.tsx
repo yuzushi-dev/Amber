@@ -37,7 +37,7 @@ export default function TokenMetricsPage() {
     const fetchData = useCallback(async () => {
         try {
             setLoading(true)
-            const data = await chatHistoryApi.list({ limit: 500 })
+            const data = await chatHistoryApi.list({ limit: 100 })
             setConversations(data.conversations)
             setError(null)
         } catch (err) {
@@ -109,7 +109,7 @@ export default function TokenMetricsPage() {
 
     if (loading && conversations.length === 0) {
         return (
-            <div className="p-6 pb-20 max-w-7xl mx-auto">
+            <div className="p-6 pb-32 max-w-7xl mx-auto">
                 <div className="animate-pulse space-y-6">
                     <div className="h-8 w-48 bg-muted rounded"></div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -123,7 +123,7 @@ export default function TokenMetricsPage() {
     }
 
     return (
-        <div className="p-6 pb-20 max-w-7xl mx-auto">
+        <div className="p-6 pb-32 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Token Usage & Costs</h1>

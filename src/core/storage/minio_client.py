@@ -88,6 +88,20 @@ class MinIOClient:
             if 'response' in locals():
                 response.close()
                 
-    def delete_file(self, object_name: str) -> None:
+    def get_file_stream(self, object_name: str):
+        """
+        Get a file stream from MinIO.
+        
+        Args:
+            object_name: The path/name of the object
+            
+        Returns:
+            urllib3.response.HTTPResponse: The file stream
+        """
+        try:
+            return self.client.get_object(self.bucket_name, object_name)
+        except S3Error as e:
+            raise FileNotFoundError(f"File not found in storage: {object_name}") from e
+
         """Delete a file from storage."""
         self.client.remove_object(self.bucket_name, object_name)
