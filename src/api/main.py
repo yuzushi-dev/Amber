@@ -151,6 +151,8 @@ register_exception_handlers(app)
 
 # Health endpoints (no prefix, no auth required)
 app.include_router(health.router)
+# Also mount under /api for frontend proxies that prefix everything
+app.include_router(health.router, prefix="/api")
 
 # API v1 routes
 from fastapi import APIRouter

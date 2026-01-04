@@ -49,7 +49,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         packages=["torch", "sentence-transformers>=2.7.0"],
         size_mb=2100,
         check_import="sentence_transformers",
-        pip_extra_args=["--index-url", "https://download.pytorch.org/whl/cpu"],
+        pip_extra_args=["--extra-index-url", "https://download.pytorch.org/whl/cpu"],
     ),
     "reranking": Feature(
         id="reranking",
@@ -98,10 +98,11 @@ class SetupService:
     - Persists setup completion state
     """
     
-    # Package installation target directory
-    PACKAGES_DIR = "/app/.packages"
+    # Package installation target directory - initialized in __init__
+    PACKAGES_DIR: str = "/app/.packages"
     
     def __init__(self, redis_url: Optional[str] = None):
+        self._init_packages_dir()
         self._features = {k: Feature(**{**v.__dict__}) for k, v in OPTIONAL_FEATURES.items()}
         self._setup_complete = False
         self._redis_url = redis_url
@@ -113,6 +114,29 @@ class SetupService:
         # Detect already installed features on init
         self._detect_installed_features()
     
+    def _init_packages_dir(self) -> None:
+        """Determine proper packages directory based on environment."""
+        import os
+        from pathlib import Path
+        
+        env_path = os.environ.get("PACKAGES_DIR")
+        if env_path:
+            self.PACKAGES_DIR = env_path
+        elif os.path.exists("/app") and os.access("/app", os.W_OK):
+             self.PACKAGES_DIR = "/app/.packages"
+        else:
+             # Fallback to project root .packages
+             # src/api/services/setup_service.py -> src/api/services -> src/api -> src -> root
+             project_root = Path(__file__).parent.parent.parent.parent
+             self.PACKAGES_DIR = str(project_root / ".packages")
+             
+        # Ensure directory exists
+        try:
+            os.makedirs(self.PACKAGES_DIR, exist_ok=True)
+            logger.info(f"Using packages directory: {self.PACKAGES_DIR}")
+        except Exception as e:
+            logger.error(f"Failed to create packages directory {self.PACKAGES_DIR}: {e}")
+
     def _setup_package_path(self) -> None:
         """Add custom packages directory to Python path."""
         import os

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import LiveStatusBadge from './LiveStatusBadge'
 
 interface Document {
     id: string
@@ -152,7 +153,7 @@ export default function DocumentLibrary() {
     )
 
     return (
-        <div className="p-8 pb-20 max-w-6xl mx-auto space-y-8">
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
             <header className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold">Document Library</h1>
@@ -265,13 +266,11 @@ export default function DocumentLibrary() {
                                             </div>
                                         </td>
                                         <td className="p-4">
-                                            <Badge
-                                                variant={doc.status === 'ready' ? 'success' : 'secondary'}
-                                                className="uppercase tracking-wider"
-                                                role="status"
-                                            >
-                                                {doc.status}
-                                            </Badge>
+                                            <LiveStatusBadge
+                                                documentId={doc.id}
+                                                initialStatus={doc.status}
+                                                onComplete={() => refetch()}
+                                            />
                                         </td>
                                         <td className="p-4 text-muted-foreground">
                                             {new Date(doc.created_at).toLocaleDateString()}

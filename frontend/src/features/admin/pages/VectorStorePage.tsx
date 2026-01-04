@@ -5,9 +5,9 @@
  * Vector database statistics and collection management.
  */
 
-import { useState, useEffect, useCallback } from 'react'
 import { Layers, Box, HardDrive, RefreshCw, Database } from 'lucide-react'
-import { vectorStoreApi, VectorCollectionInfo } from '@/lib/api-admin'
+import { useQuery } from '@tanstack/react-query'
+import { vectorStoreApi } from '@/lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -20,34 +20,15 @@ import {
 } from '@/components/ui/table'
 
 export default function VectorStorePage() {
-    const [collections, setCollections] = useState<VectorCollectionInfo[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    // Use React Query with caching and auto-refresh
+    const { data, isLoading: loading, error, refetch } = useQuery({
+        queryKey: ['vector-collections'],
+        queryFn: () => vectorStoreApi.getCollections(),
+        staleTime: 30000, // Cache for 30 seconds
+        refetchInterval: 30000, // Auto-refresh every 30 seconds
+    })
 
-    const loadCollections = useCallback(async () => {
-        try {
-            setLoading(true)
-            const data = await vectorStoreApi.getCollections()
-            setCollections(data.collections)
-            setError(null)
-        } catch (err) {
-            setError('Failed to load vector store statistics')
-            console.error(err)
-        } finally {
-            setLoading(false)
-        }
-    }, [])
-
-    useEffect(() => {
-        loadCollections()
-
-        // Auto-refresh every 30 seconds
-        const interval = setInterval(() => {
-            loadCollections()
-        }, 30000)
-
-        return () => clearInterval(interval)
-    }, [loadCollections])
+    const collections = data?.collections ?? []
 
     const formatBytes = (bytes: number) => {
         if (bytes === 0) return '0 B'
@@ -75,7 +56,7 @@ export default function VectorStorePage() {
     }
 
     return (
-        <div className="p-6 pb-20 max-w-7xl mx-auto">
+        <div className="p-6 pb-32 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Vector Store</h1>
@@ -84,7 +65,7 @@ export default function VectorStorePage() {
                     </p>
                 </div>
                 <button
-                    onClick={loadCollections}
+                    onClick={() => refetch()}
                     disabled={loading}
                     className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                 >
@@ -95,7 +76,7 @@ export default function VectorStorePage() {
 
             {error && (
                 <Alert variant="destructive" className="mb-6">
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertDescription>{error instanceof Error ? error.message : 'Failed to load vector store'}</AlertDescription>
                 </Alert>
             )}
 

@@ -5,40 +5,34 @@
  * Queue for reviewing analyst-reported flags and data quality issues.
  */
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Flag, Check, X, GitMerge, RefreshCw, Eye } from 'lucide-react'
-import { curationApi, FlagSummary, FlagDetail, CurationStats } from '@/lib/api-admin'
+import { curationApi, FlagDetail } from '@/lib/api-admin'
 
 export default function CurationPage() {
-    const [flags, setFlags] = useState<FlagSummary[]>([])
-    const [stats, setStats] = useState<CurationStats | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const queryClient = useQueryClient()
     const [selectedFlag, setSelectedFlag] = useState<FlagDetail | null>(null)
     const [statusFilter, setStatusFilter] = useState<string>('pending')
     const [resolvingId, setResolvingId] = useState<string | null>(null)
 
-    useEffect(() => {
-        loadData()
-    }, [statusFilter])
+    // Use React Query with caching for flags
+    const { data: flagsData, isLoading: loadingFlags, error: flagsError, refetch: refetchFlags } = useQuery({
+        queryKey: ['curation-flags', statusFilter],
+        queryFn: () => curationApi.listFlags({ status: statusFilter, limit: 50 }),
+        staleTime: 30000,
+    })
 
-    const loadData = async () => {
-        try {
-            setLoading(true)
-            const [flagsData, statsData] = await Promise.all([
-                curationApi.listFlags({ status: statusFilter, limit: 50 }),
-                curationApi.getStats()
-            ])
-            setFlags(flagsData.flags)
-            setStats(statsData)
-            setError(null)
-        } catch (err) {
-            setError('Failed to load curation queue')
-            console.error(err)
-        } finally {
-            setLoading(false)
-        }
-    }
+    // Use React Query with caching for stats
+    const { data: stats, isLoading: loadingStats } = useQuery({
+        queryKey: ['curation-stats'],
+        queryFn: () => curationApi.getStats(),
+        staleTime: 30000,
+    })
+
+    const flags = flagsData?.flags ?? []
+    const loading = loadingFlags || loadingStats
+    const error = flagsError ? 'Failed to load curation queue' : null
 
     const handleViewFlag = async (flagId: string) => {
         try {
@@ -49,17 +43,24 @@ export default function CurationPage() {
         }
     }
 
-    const handleResolve = async (flagId: string, action: 'accept' | 'reject' | 'merge') => {
-        try {
-            setResolvingId(flagId)
-            await curationApi.resolveFlag(flagId, { action })
-            await loadData()
+    const resolveMutation = useMutation({
+        mutationFn: ({ flagId, action }: { flagId: string; action: 'accept' | 'reject' | 'merge' }) =>
+            curationApi.resolveFlag(flagId, { action }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['curation-flags'] })
+            queryClient.invalidateQueries({ queryKey: ['curation-stats'] })
             setSelectedFlag(null)
-        } catch (err) {
-            console.error('Failed to resolve flag:', err)
-        } finally {
             setResolvingId(null)
-        }
+        },
+        onError: (err) => {
+            console.error('Failed to resolve flag:', err)
+            setResolvingId(null)
+        },
+    })
+
+    const handleResolve = (flagId: string, action: 'accept' | 'reject' | 'merge') => {
+        setResolvingId(flagId)
+        resolveMutation.mutate({ flagId, action })
     }
 
     const getTypeColor = (type: string) => {
@@ -80,7 +81,7 @@ export default function CurationPage() {
     }
 
     return (
-        <div className="p-6 pb-20 max-w-7xl mx-auto">
+        <div className="p-6 pb-32 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Curation Queue</h1>
@@ -89,7 +90,7 @@ export default function CurationPage() {
                     </p>
                 </div>
                 <button
-                    onClick={loadData}
+                    onClick={() => refetchFlags()}
                     disabled={loading}
                     className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                 >

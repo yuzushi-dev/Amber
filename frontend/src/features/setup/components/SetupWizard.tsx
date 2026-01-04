@@ -174,7 +174,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         }
     };
 
-    const handleContinue = () => {
+    const handleContinue = async () => {
+        try {
+            // Ensure backend knows setup is complete
+            await fetch(`${apiBaseUrl}/api/setup/skip`, {
+                method: 'POST',
+            });
+        } catch (err) {
+            console.error('Failed to mark setup complete', err);
+        }
         onComplete();
     };
 
@@ -344,7 +352,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                         flex items-center gap-4 p-4 border rounded-lg transition-all
                                         ${isClickable ? 'cursor-pointer hover:border-primary/50' : ''}
                                         ${isSelected ? 'border-primary bg-primary/5' : 'border-border'}
-                                        ${feature.status === 'installed' ? 'bg-green-50/50 dark:bg-green-900/10' : ''}
+                                        ${feature.status === 'installed'
+                                            ? 'bg-green-100/10 dark:bg-green-900/20 border-green-200/50 dark:border-green-800/50 opacity-100'
+                                            : ''
+                                        }
                                         ${feature.status === 'installing' ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}
                                     `}
                                 >

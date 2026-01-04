@@ -5,6 +5,7 @@ Retrieval Service
 Unified retrieval pipeline combining vector search, caching, and reranking.
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -268,8 +269,9 @@ class RetrievalService:
                     latency_ms=0,
                 )
             else:
-                # Hybrid search for BASIC/LOCAL
-                result = await self._execute_hybrid_search(
+                # Use simple vector search for BASIC/LOCAL
+                # (Hybrid search disabled until entity_embeddings collection is set up)
+                result = await self._execute_vector_search(
                     structured_query=structured_query,
                     tenant_id=tenant_id,
                     document_ids=all_document_ids,
@@ -338,8 +340,23 @@ class RetrievalService:
             limit=5
         )
         
-        # Run vector and entity search in parallel
-        vector_results, entity_results = await asyncio.gather(vector_task, entity_task)
+        # Run vector and entity search in parallel with timeout
+        try:
+            vector_results, entity_results = await asyncio.wait_for(
+                asyncio.gather(vector_task, entity_task, return_exceptions=True),
+                timeout=10.0
+            )
+            # Handle individual task failures
+            if isinstance(vector_results, Exception):
+                logger.warning(f"Vector search failed: {vector_results}")
+                vector_results = []
+            if isinstance(entity_results, Exception):
+                logger.warning(f"Entity search failed: {entity_results}")
+                entity_results = []
+        except asyncio.TimeoutError:
+            logger.warning("Hybrid search timed out, falling back to empty results")
+            vector_results = []
+            entity_results = []
         
         graph_results = []
         if entity_results:

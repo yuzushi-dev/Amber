@@ -19,6 +19,29 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // SSE/events endpoint - needs special handling for streaming
+      '/v1/documents': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          // Disable response body buffering for SSE
+          proxy.on('proxyRes', (proxyRes) => {
+            // Prevent buffering for text/event-stream
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache'
+              proxyRes.headers['connection'] = 'keep-alive'
+            }
+          })
+          // Handle proxy errors gracefully
+          proxy.on('error', (err, _req, res) => {
+            console.error('Proxy error:', err)
+            if (res && 'writeHead' in res) {
+              res.writeHead(502, { 'Content-Type': 'text/plain' })
+              res.end('Proxy error')
+            }
+          })
+        },
+      },
       '/v1': {
         target: 'http://localhost:8000',
         changeOrigin: true,
