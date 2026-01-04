@@ -146,12 +146,6 @@ const dataVectorsRoute = createRoute({
     component: () => <VectorStorePage />,
 })
 
-const dataMaintenanceRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/data/maintenance',
-    component: () => <DatabasePage />, // Reuse DatabasePage for maintenance actions
-})
-
 // =============================================================================
 // Operations Section (/admin/ops/*)
 // =============================================================================
@@ -268,7 +262,6 @@ const routeTree = rootRoute.addChildren([
         dataDocumentDetailRoute,
         dataDatabaseRoute,
         dataVectorsRoute,
-        dataMaintenanceRoute,
         // Operations section
         opsIndexRoute,
         opsJobsRoute,
