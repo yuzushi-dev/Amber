@@ -18,7 +18,7 @@ import {
     Share2,
     Users
 } from 'lucide-react'
-import { maintenanceApi, SystemStats, MaintenanceResult } from '@/lib/api-admin'
+import { maintenanceApi, MaintenanceResult } from '@/lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
