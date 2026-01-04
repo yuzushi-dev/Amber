@@ -15,6 +15,8 @@ class DocumentStatus(str, Enum):
     EXTRACTING = "extracting"
     CLASSIFYING = "classifying"
     CHUNKING = "chunking"
+    EMBEDDING = "embedding"
+    GRAPH_SYNC = "graph_sync"
     READY = "ready"
     FAILED = "failed"
     NEEDS_REVIEW = "needs_review"  # Added for quality gate logic
@@ -52,6 +54,15 @@ class TransitionManager:
             DocumentStatus.FAILED,
         },
         DocumentStatus.CHUNKING: {
+            DocumentStatus.EMBEDDING,
+            DocumentStatus.FAILED,
+        },
+        DocumentStatus.EMBEDDING: {
+            DocumentStatus.GRAPH_SYNC,
+            DocumentStatus.FAILED,
+            DocumentStatus.READY, # Allow skipping graph sync if disabled
+        },
+        DocumentStatus.GRAPH_SYNC: {
             DocumentStatus.READY,
             DocumentStatus.FAILED,
         },

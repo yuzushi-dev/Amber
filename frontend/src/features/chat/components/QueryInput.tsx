@@ -40,7 +40,7 @@ export default function QueryInput({ onSend, disabled }: QueryInputProps) {
             role="search"
             aria-label="Ask a question"
         >
-            <div className="max-w-4xl mx-auto relative flex items-end space-x-2">
+            <div className="relative flex items-end space-x-2 px-4">
                 <label htmlFor="query-input" className="sr-only">
                     Enter your question
                 </label>

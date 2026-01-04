@@ -1,22 +1,38 @@
-import { useState } from 'react'
-import { X, Upload, Loader2, CheckCircle2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 import { AnimatedProgress } from '@/components/ui/animated-progress'
+import { SSEManager } from '@/lib/sse'
 
 interface UploadWizardProps {
     onClose: () => void
     onComplete: () => void
 }
 
+type ProcessingStatus = 'idle' | 'uploading' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'failed'
+
 export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
     const [file, setFile] = useState<File | null>(null)
-    const [status, setStatus] = useState<'idle' | 'uploading' | 'processing' | 'done'>('idle')
+    const [status, setStatus] = useState<ProcessingStatus>('idle')
     const [progress, setProgress] = useState(0)
     const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0 })
+    const [_statusMessage, setStatusMessage] = useState('')
+    const [errorMessage, setErrorMessage] = useState<string | null>(null)
+    const [sseManager, setSseManager] = useState<SSEManager | null>(null)
+
+    // Cleanup SSE on unmount
+    useEffect(() => {
+        return () => {
+            if (sseManager) {
+                sseManager.disconnect()
+            }
+        }
+    }, [sseManager])
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             setFile(e.target.files[0])
+            setErrorMessage(null)
         }
     }
 
@@ -24,11 +40,13 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         if (!file) return
 
         setStatus('uploading')
+        setErrorMessage(null)
+
         const formData = new FormData()
         formData.append('file', file)
 
         try {
-            await apiClient.post('/documents', formData, {
+            const response = await apiClient.post<{ document_id: string, events_url: string }>('/documents', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
                 onUploadProgress: (progressEvent) => {
                     const { loaded, total } = progressEvent
@@ -39,15 +57,114 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                     }
                 }
             })
-            setStatus('processing')
-            // Simulated processing time for UX demonstration
-            setTimeout(() => {
-                setStatus('done')
-                setTimeout(onComplete, 1500)
-            }, 2000)
-        } catch (err) {
+
+            const { document_id, events_url } = response.data
+
+            // Start listening for processing events
+            startMonitoring(document_id, events_url)
+
+        } catch (err: any) {
             console.error('Upload failed', err)
             setStatus('idle')
+            setErrorMessage(err.response?.data?.detail || 'Upload failed. Please try again.')
+        }
+    }
+
+    const startMonitoring = (documentId: string, eventsUrl?: string) => {
+        // Initial state after upload
+        setStatus('extracting')
+        setStatusMessage('Extracting content...')
+
+        // Get API key for SSE auth
+        const apiKey = localStorage.getItem('api_key')
+
+        if (!apiKey) {
+            console.error('SSE: No API key found in localStorage')
+            setStatus('failed')
+            setErrorMessage('Authentication required. Please refresh and log in again.')
+            return
+        }
+
+        // Construct absolute URL for EventSource (doesn't use Vite proxy)
+        // In development, use the backend URL directly; in production, use relative URL
+        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
+        const baseUrl = eventsUrl || `${apiBaseUrl}/documents/${documentId}/events`
+
+        // Append API key preserving existing query params if any
+        const monitorUrl = baseUrl.includes('?')
+            ? `${baseUrl}&api_key=${encodeURIComponent(apiKey)}`
+            : `${baseUrl}?api_key=${encodeURIComponent(apiKey)}`
+
+        console.log('Connecting to SSE:', monitorUrl)
+        console.log('SSE Debug: API key present:', apiKey ? `${apiKey.substring(0, 10)}...` : 'NONE')
+
+        let retryCount = 0
+        const maxRetries = 3
+
+        const createManager = () => {
+            const manager = new SSEManager(
+                monitorUrl,
+                (event) => {
+                    try {
+                        const data = JSON.parse(event.data)
+                        console.log('SSE Event:', data)
+
+                        if (data.status) {
+                            const s = data.status.toLowerCase()
+                            if (['extracting', 'classifying', 'chunking', 'embedding', 'graph_sync', 'ready', 'failed'].includes(s)) {
+                                setStatus(s as ProcessingStatus)
+                            }
+
+                            if (s === 'ready' || s === 'completed') {
+                                setStatus('ready')
+                                setStatusMessage('Knowledge successfully integrated!')
+                                manager.disconnect()
+                                setTimeout(onComplete, 1500)
+                            } else if (s === 'failed') {
+                                setStatus('failed')
+                                setErrorMessage(data.error || 'Processing failed.')
+                                manager.disconnect()
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse SSE event:', e)
+                    }
+                },
+                (error) => {
+                    console.error('SSE Error:', error)
+                    retryCount++
+                    if (retryCount < maxRetries) {
+                        console.log(`SSE retry ${retryCount}/${maxRetries}...`)
+                        manager.disconnect()
+                        setTimeout(() => {
+                            createManager()
+                        }, 1000 * retryCount)
+                    } else {
+                        console.error('SSE: Max retries exceeded')
+                        setStatus('failed')
+                        setErrorMessage('Lost connection to server. Please refresh and try again.')
+                    }
+                }
+            )
+
+            manager.connect()
+            setSseManager(manager)
+        }
+
+        createManager()
+    }
+
+    const getStatusLabel = (s: ProcessingStatus) => {
+        switch (s) {
+            case 'uploading': return 'Uploading to secure vault...'
+            case 'extracting': return 'Extracting text and metadata...'
+            case 'classifying': return 'Classifying document domain...'
+            case 'chunking': return 'Splitting into semantic chunks...'
+            case 'embedding': return 'Generating vector embeddings...'
+            case 'graph_sync': return 'Building knowledge graph...'
+            case 'ready': return 'Knowledge successfully integrated!'
+            case 'failed': return 'Processing failed.'
+            default: return 'Processing...'
         }
     }
 
@@ -78,6 +195,12 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                                     onChange={handleFileChange}
                                 />
                             </div>
+                            {errorMessage && (
+                                <div className="text-destructive text-sm flex items-center justify-center gap-2">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {errorMessage}
+                                </div>
+                            )}
                             {file && (
                                 <div className="bg-muted p-4 rounded-lg flex items-center justify-between">
                                     <span className="text-sm font-medium truncate max-w-xs">{file.name}</span>
@@ -92,17 +215,25 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                         </>
                     ) : (
                         <div className="space-y-4 py-8">
-                            {status === 'done' ? (
+                            {status === 'ready' ? (
                                 <CheckCircle2 className="w-16 h-16 mx-auto text-green-500 animate-in zoom-in duration-300" />
+                            ) : status === 'failed' ? (
+                                <div className="text-destructive">
+                                    <AlertCircle className="w-16 h-16 mx-auto mb-4" />
+                                    <p className="font-medium">{errorMessage || 'Processing failed'}</p>
+                                </div>
                             ) : (
                                 <Loader2 className="w-16 h-16 mx-auto text-primary animate-spin" />
                             )}
-                            <h4 className="text-xl font-bold capitalize">{status}...</h4>
-                            <p className="text-sm text-muted-foreground">
-                                {status === 'uploading' && 'Transferring file to secure vault.'}
-                                {status === 'processing' && 'Chunking, vectorizing, and building knowledge graph.'}
-                                {status === 'done' && 'Knowledge successfully integrated!'}
-                            </p>
+
+                            {status !== 'failed' && (
+                                <>
+                                    <h4 className="text-xl font-bold capitalize">{status}...</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        {getStatusLabel(status)}
+                                    </p>
+                                </>
+                            )}
                         </div>
                     )}
 

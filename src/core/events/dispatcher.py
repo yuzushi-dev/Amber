@@ -45,5 +45,28 @@ class EventDispatcher:
         if event.details:
             logger.debug(f"Event details: {event.details}")
 
-        # Future: publish to Redis message bus
-        # redis_client.publish("events", event.json())
+        # Publish to Redis
+        try:
+            import redis
+            import json
+            from src.api.config import settings
+            
+            # Use sync Redis client for now as this might be called from sync context
+            # or we create a new connection each time. For high throughput, use a pool.
+            r = redis.Redis.from_url(settings.db.redis_url)
+            
+            channel = f"document:{event.document_id}:status"
+            message = {
+                "document_id": event.document_id,
+                "status": event.new_status.value,
+                "progress": event.details.get("progress", 0) if event.details else 0,
+                "tenant_id": event.tenant_id
+            }
+            if event.details:
+                message["details"] = event.details
+                
+            r.publish(channel, json.dumps(message))
+            r.close()
+            
+        except Exception as e:
+            logger.warning(f"Failed to publish event to Redis: {e}")

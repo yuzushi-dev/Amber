@@ -140,48 +140,55 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.services.embeddings import EmbeddingService
     from src.api.config import settings
 
-    # 1. Detection
-    detector = CommunityDetector(neo4j_client)
-    detect_res = await detector.detect_communities(tenant_id)
-    
-    if detect_res["status"] == "skipped":
-        return detect_res
+    try:
+        # 1. Detection
+        detector = CommunityDetector(neo4j_client)
+        detect_res = await detector.detect_communities(tenant_id)
 
-    # 2. Summarization
-    factory = ProviderFactory(
-        openai_api_key=settings.providers.openai_api_key,
-        anthropic_api_key=settings.providers.anthropic_api_key
-    )
-    summarizer = CommunitySummarizer(neo4j_client, factory)
-    
-    # We summarize all that are now stale or new
-    await summarizer.summarize_all_stale(tenant_id)
-    
-    # 3. Embeddings
-    embedding_svc = EmbeddingService(
-        openai_api_key=settings.providers.openai_api_key,
-        model=settings.embeddings.default_model
-    )
-    comm_embedding_svc = CommunityEmbeddingService(embedding_svc)
-    
-    # Fetch all communities that need embedding (just summarized)
-    # Actually, we can just fetch all 'ready' communities for this tenant for now
-    # or track which ones were just updated.
-    # For MVP, we'll re-sync all 'ready' communities to Milvus.
-    query = """
-    MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
-    RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title, c.summary as summary
-    """
-    ready_comms = await neo4j_client.execute_read(query, {"tenant_id": tenant_id})
-    
-    for comm in ready_comms:
-        await comm_embedding_svc.embed_and_store_community(comm)
+        if detect_res["status"] == "skipped":
+            return detect_res
 
-    return {
-        "status": "success",
-        "communities_detected": detect_res.get("community_count", 0),
-        "communities_embedded": len(ready_comms)
-    }
+        # 2. Summarization
+        factory = ProviderFactory(
+            openai_api_key=settings.providers.openai_api_key,
+            anthropic_api_key=settings.providers.anthropic_api_key
+        )
+        summarizer = CommunitySummarizer(neo4j_client, factory)
+
+        # We summarize all that are now stale or new
+        await summarizer.summarize_all_stale(tenant_id)
+
+        # 3. Embeddings
+        embedding_svc = EmbeddingService(
+            openai_api_key=settings.providers.openai_api_key,
+            model=settings.embeddings.default_model
+        )
+        comm_embedding_svc = CommunityEmbeddingService(embedding_svc)
+
+        # Fetch all communities that need embedding (just summarized)
+        # Actually, we can just fetch all 'ready' communities for this tenant for now
+        # or track which ones were just updated.
+        # For MVP, we'll re-sync all 'ready' communities to Milvus.
+        query = """
+        MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
+        RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title, c.summary as summary
+        """
+        ready_comms = await neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+
+        for comm in ready_comms:
+            await comm_embedding_svc.embed_and_store_community(comm)
+
+        return {
+            "status": "success",
+            "communities_detected": detect_res.get("community_count", 0),
+            "communities_embedded": len(ready_comms)
+        }
+    finally:
+        # Close Neo4j connection to prevent event loop conflicts
+        try:
+            await neo4j_client.close()
+        except Exception as e:
+            logger.warning(f"Failed to close Neo4j client: {e}")
 
 
 async def _process_document_async(document_id: str, tenant_id: str, task_id: str) -> dict:
@@ -191,50 +198,51 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select
-    
+
     from src.api.config import settings
     from src.core.models.document import Document
     from src.core.storage.minio_client import MinIOClient
     from src.core.services.ingestion import IngestionService
     from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
-    
+    from src.core.graph.neo4j_client import neo4j_client
+
     # Create async session
     engine = create_async_engine(settings.db.database_url)
-    
+
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        
+
         async with async_session() as session:
             # Fetch document
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
-            
+
             if not document:
                 raise ValueError(f"Document {document_id} not found")
-                
+
             # Initialize services
             storage = MinIOClient()
             service = IngestionService(session, storage)
-            
+
             # Publish starting event
             _publish_status(document_id, DocumentStatus.EXTRACTING.value, 10)
-            
+
             # Process document (this does extraction, classification, chunking)
             await service.process_document(document_id)
-            
+
             # Refresh to get final state
             await session.refresh(document)
-            
+
             # Publish completion
             _publish_status(document_id, document.status.value, 100)
-            
+
             # Get chunk count for stats
             from src.core.models.chunk import Chunk
             chunk_result = await session.execute(
                 select(Chunk).where(Chunk.document_id == document_id)
             )
             chunks = chunk_result.scalars().all()
-            
+
             return {
                 "document_id": document_id,
                 "status": document.status.value,
@@ -243,6 +251,13 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
                 "task_id": task_id
             }
     finally:
+        # Close Neo4j connection before disposing engine
+        # This prevents "attached to a different loop" errors
+        try:
+            await neo4j_client.close()
+        except Exception as e:
+            logger.warning(f"Failed to close Neo4j client: {e}")
+
         await engine.dispose()
 
 

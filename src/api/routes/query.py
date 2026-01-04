@@ -405,9 +405,11 @@ async def query_stream(
          raise HTTPException(status_code=400, detail="Invalid request")
 
     tenant_id = _get_tenant_id(http_request)
+    logger.info(f"SSE stream request: query={request.query[:50]}..., tenant={tenant_id}")
 
     try:
         retrieval_service, generation_service, _ = _get_services()
+        logger.info("SSE: Services loaded successfully")
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -416,17 +418,31 @@ async def query_stream(
 
     async def generate_stream():
         """Generate SSE stream."""
+        logger.info("SSE: Generator started")
+        # Yield immediately so client knows connection is alive
+        yield "event: status\ndata: Searching documents...\n\n"
+        
         try:
             # First, retrieve relevant chunks
             document_ids = request.filters.document_ids if request.filters else None
             max_chunks = request.options.max_chunks if request.options else 10
 
-            retrieval_result = await retrieval_service.retrieve(
-                query=request.query,
-                tenant_id=tenant_id,
-                document_ids=document_ids,
-                top_k=max_chunks,
-            )
+            # Add timeout to prevent hangs
+            import asyncio
+            try:
+                retrieval_result = await asyncio.wait_for(
+                    retrieval_service.retrieve(
+                        query=request.query,
+                        tenant_id=tenant_id,
+                        document_ids=document_ids,
+                        top_k=max_chunks,
+                    ),
+                    timeout=35.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Retrieval timed out after 15 seconds")
+                yield "event: error\ndata: Document retrieval timed out. Please try again.\n\n"
+                return
 
             if not retrieval_result.chunks:
                 yield "data: No relevant documents found.\n\n"

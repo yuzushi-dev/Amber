@@ -199,6 +199,17 @@ class IngestionService:
             )
             
             # 5. Classify Domain (Stage 1.4)
+            # Update Status -> CLASSIFYING
+            document.status = DocumentStatus.CLASSIFYING
+            await self.session.commit()
+            EventDispatcher.emit_state_change(StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.EXTRACTING, # Approximate
+                new_status=DocumentStatus.CLASSIFYING,
+                tenant_id=document.tenant_id,
+                details={"progress": 20}
+            ))
+
             from src.core.intelligence.classifier import DomainClassifier
             from src.core.intelligence.strategies import get_strategy
             
@@ -217,6 +228,17 @@ class IngestionService:
             document.domain = domain.value
             
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
+            # Update Status -> CHUNKING
+            document.status = DocumentStatus.CHUNKING
+            await self.session.commit()
+            EventDispatcher.emit_state_change(StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.CLASSIFYING,
+                new_status=DocumentStatus.CHUNKING,
+                tenant_id=document.tenant_id,
+                details={"progress": 40}
+            ))
+
             from src.core.chunking.semantic import SemanticChunker
             from src.core.models.chunk import Chunk, EmbeddingStatus
             from src.shared.identifiers import generate_chunk_id
@@ -251,6 +273,17 @@ class IngestionService:
                 chunks_to_process.append(chunk)
             
             # 8. Generate Embeddings and Store in Milvus
+            # Update Status -> EMBEDDING
+            document.status = DocumentStatus.EMBEDDING
+            await self.session.commit()
+            EventDispatcher.emit_state_change(StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.CHUNKING,
+                new_status=DocumentStatus.EMBEDDING,
+                tenant_id=document.tenant_id,
+                details={"progress": 60, "chunk_count": len(chunks_to_process)}
+            ))
+
             # This is the critical step for RAG retrieval!
             vector_store = None
             try:
@@ -312,6 +345,17 @@ class IngestionService:
                         logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
             
             # 9. Build Knowledge Graph (Phase 3)
+            # Update Status -> GRAPH_SYNC
+            document.status = DocumentStatus.GRAPH_SYNC
+            await self.session.commit()
+            EventDispatcher.emit_state_change(StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.EMBEDDING,
+                new_status=DocumentStatus.GRAPH_SYNC,
+                tenant_id=document.tenant_id,
+                details={"progress": 80}
+            ))
+
             # We process chunks to extract entities and build graph before marking document as READY.
             try:
                 from src.core.graph.processor import graph_processor
@@ -324,6 +368,13 @@ class IngestionService:
             # 8. Update Document Status -> READY
             document.status = DocumentStatus.READY 
             await self.session.commit()
+            EventDispatcher.emit_state_change(StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.GRAPH_SYNC,
+                new_status=DocumentStatus.READY,
+                tenant_id=document.tenant_id,
+                details={"progress": 100}
+            ))
             
             logger.info(f"Processed document {document_id} using {extraction_result.extractor_used}")
             

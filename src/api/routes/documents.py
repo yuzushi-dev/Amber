@@ -6,6 +6,7 @@ Endpoints for document management.
 Phase 1: Full implementation with async processing.
 """
 
+import io
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -23,6 +24,10 @@ from src.core.state.machine import DocumentStatus
 from src.core.storage.minio_client import MinIOClient
 from src.core.services.ingestion import IngestionService
 from src.core.graph.neo4j_client import neo4j_client
+from sse_starlette.sse import EventSourceResponse
+import redis.asyncio as redis
+import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +167,121 @@ async def upload_document(
 
 
 @router.get(
+    "/{document_id}/events",
+    summary="Document Processing Events",
+    description="""
+    Server-Sent Events (SSE) endpoint for monitoring document processing status in real-time.
+
+    Subscribe to this endpoint to receive status updates as the document moves through
+    the ingestion pipeline (extracting, classifying, chunking, embedding, graph_sync, ready).
+    """,
+)
+async def document_events(
+    document_id: str,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Stream document processing events via SSE.
+
+    This endpoint subscribes to Redis pub/sub for real-time status updates.
+    """
+    # Verify document exists and get tenant_id
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
+    result = await session.execute(query)
+    document = result.scalars().first()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+
+    async def event_generator():
+        """Generate SSE events from Redis pub/sub."""
+        redis_client = None
+        pubsub = None
+
+        try:
+            # Connect to Redis
+            redis_client = redis.from_url(settings.db.redis_url, decode_responses=True)
+            pubsub = redis_client.pubsub()
+
+            # Subscribe to document status channel
+            channel = f"document:{document_id}:status"
+            await pubsub.subscribe(channel)
+
+            logger.info(f"SSE client connected for document {document_id}")
+
+            # Send initial status
+            yield {
+                "event": "status",
+                "data": json.dumps({
+                    "document_id": document_id,
+                    "status": document.status.value,
+                    "message": f"Monitoring document {document_id}"
+                })
+            }
+
+            # Listen for Redis pub/sub messages
+            while True:
+                try:
+                    # Use timeout to allow periodic checks
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True),
+                        timeout=1.0
+                    )
+
+                    if message and message['type'] == 'message':
+                        # Forward the Redis message as SSE event
+                        data = message['data']
+
+                        # Parse and re-serialize to ensure valid JSON
+                        if isinstance(data, str):
+                            event_data = json.loads(data)
+                        else:
+                            event_data = data
+
+                        yield {
+                            "event": "status",
+                            "data": json.dumps(event_data)
+                        }
+
+                        # Close connection if document reached terminal state
+                        if event_data.get('status') in ['ready', 'failed', 'completed']:
+                            logger.info(f"Document {document_id} reached terminal state: {event_data.get('status')}")
+                            break
+
+                except asyncio.TimeoutError:
+                    # Send keepalive comment to prevent connection timeout
+                    yield {
+                        "comment": "keepalive"
+                    }
+                    continue
+
+        except Exception as e:
+            logger.error(f"SSE error for document {document_id}: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)})
+            }
+        finally:
+            # Cleanup
+            if pubsub:
+                await pubsub.unsubscribe(channel)
+                await pubsub.close()
+            if redis_client:
+                await redis_client.close()
+            logger.info(f"SSE client disconnected for document {document_id}")
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get(
     "",
     summary="List Documents",
     description="List all documents in the knowledge base.",
@@ -273,14 +393,16 @@ async def get_document_file(
     # Get file from MinIO
     try:
         storage = MinIOClient()
-        file_data = storage.get_file(document.storage_path)
+        # Get the raw stream from MinIO (urllib3 response)
+        file_stream = storage.get_file_stream(document.storage_path)
 
         # Determine content type
         content_type = _get_content_type(document)
 
         # Stream the file back to the client
+        # We pass the stream directly to StreamingResponse
         return StreamingResponse(
-            file_data,
+            file_stream,
             media_type=content_type,
             headers={
                 "Content-Disposition": f'inline; filename="{document.filename}"'
@@ -501,3 +623,54 @@ async def get_document_relationships(
     except Exception as e:
         logger.error(f"Failed to fetch relationships for document {document_id}: {e}")
         return []
+
+
+from src.core.models.chunk import Chunk
+
+@router.get(
+    "/{document_id}/chunks",
+    summary="Get Document Chunks",
+    description="Get chunks for a specific document.",
+)
+async def get_document_chunks(
+    document_id: str,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> List[Dict[str, Any]]:
+    """
+    Get chunks for a document from PostgreSQL.
+    """
+    tenant_id = _get_tenant_id(http_request)
+    
+    # 1. Verify existence
+    # We can join with chunks directly or check doc first.
+    # Checking doc first gives better error message.
+    query = select(Document).where(Document.id == document_id)
+    result = await session.execute(query)
+    doc = result.scalars().first()
+    
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+    
+    # 2. Fetch chunks from Postgres
+    chunks_query = (
+        select(Chunk)
+        .where(Chunk.document_id == document_id)
+        .order_by(Chunk.index.asc())
+    )
+    result = await session.execute(chunks_query)
+    chunks = result.scalars().all()
+    
+    return [
+        {
+            "id": chunk.id,
+            "index": chunk.index,
+            "content": chunk.content,
+            "tokens": chunk.tokens,
+            "embedding_status": chunk.embedding_status.value
+        }
+        for chunk in chunks
+    ]

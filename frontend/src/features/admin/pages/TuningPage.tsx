@@ -137,7 +137,7 @@ export default function TuningPage() {
     }
 
     return (
-        <div className="p-6 pb-20 max-w-4xl mx-auto">
+        <div className="p-6 pb-32 max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">RAG Tuning</h1>

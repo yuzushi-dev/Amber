@@ -13,7 +13,7 @@ interface ContentTabProps {
 const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
     const [content, setContent] = useState<string>('');
     const [contentType, setContentType] = useState<string | null>(null);
-    const [fileUrl, setFileUrl] = useState<string | null>(null);
+    const [fileUrl, setFileUrl] = useState<string | { url: string; httpHeaders?: Record<string, string> } | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -27,9 +27,26 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
 
                 setContentType(type);
 
-                // For PDFs, set file URL
+                // For PDFs, pass direct URL with auth headers for streaming
                 if (type === 'application/pdf') {
-                    setFileUrl(`/api/v1/documents/${documentId}/file`);
+                    // Construct absolute URL (apiClient baseURL might be relative or absolute)
+                    const baseUrl = apiClient.defaults.baseURL || '/v1';
+                    // Clean trailing slash if present
+                    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+
+                    // Construct URL: we need full path if base is relative
+                    // If baseURL is '/v1', result is '/v1/documents/...'
+                    const url = `${cleanBase}/documents/${documentId}/file`;
+
+                    // Get token for auth
+                    const token = localStorage.getItem('api_key');
+
+                    // Use 'file' object format for PDFViewer
+                    setFileUrl({
+                        url: url,
+                        httpHeaders: token ? { 'X-API-Key': token } : undefined
+                    } as any); // Cast to any because state is typed as string | null currently
+
                     setLoading(false);
                     return;
                 }
@@ -46,7 +63,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
 
                 setContent(fullText || 'No text content available.');
             } catch (err) {
-                console.error(err);
+                console.error('Error loading document content:', err);
                 setError('Failed to load content');
             } finally {
                 setLoading(false);
@@ -56,6 +73,17 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
         if (documentId) {
             fetchContent();
         }
+
+        // Cleanup function
+        return () => {
+            setFileUrl((prevUrl) => {
+                if (typeof prevUrl === 'string' && prevUrl.startsWith('blob:')) {
+                    console.log('Cleaning up blob URL:', prevUrl);
+                    URL.revokeObjectURL(prevUrl);
+                }
+                return null;
+            });
+        };
     }, [documentId]);
 
     if (!documentId) return <div className="p-4 text-center text-yellow-500">No document ID provided</div>;
@@ -67,7 +95,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
         return (
             <Card className="border-0 shadow-none h-full flex flex-col">
                 <CardContent className="flex-1 overflow-hidden p-0">
-                    <PDFViewer url={fileUrl} />
+                    <PDFViewer file={fileUrl} />
                 </CardContent>
             </Card>
         );

@@ -4,53 +4,56 @@
 
 @layer base {
   :root {
-    /* === Brand: Amber Scale === */
-    --amber-50: 43 100% 95%;
-    --amber-100: 43 100% 87%;
-    --amber-200: 43 100% 76%;
-    --amber-300: 43 100% 66%;
-    --amber-400: 43 100% 56%;
-    --amber-500: 40 100% 50%;
-    --amber-600: 39 100% 45%;
-    --amber-700: 36 100% 40%;
-    --amber-800: 36 100% 30%;
-    --amber-900: 36 100% 20%;
+    /* === Brand: Amber Scale (Enhanced with varied hues & saturations) === */
+    --amber-50: 45 100% 96%;        /* Lightest - pale honey */
+    --amber-100: 44 100% 90%;       /* Light cream */
+    --amber-200: 43 95% 78%;        /* Soft amber */
+    --amber-300: 42 92% 68%;        /* Medium amber */
+    --amber-400: 41 96% 58%;        /* Rich amber */
+    --amber-500: 38 100% 50%;       /* Primary - vibrant golden */
+    --amber-600: 36 98% 44%;        /* Deep golden */
+    --amber-700: 33 95% 38%;        /* Dark amber */
+    --amber-800: 30 90% 28%;        /* Bronze */
+    --amber-900: 28 85% 18%;        /* Deep bronze */
 
-    /* === Brand: Surface Scale === */
-    --surface-950: 240 8% 5%;
-    --surface-900: 240 8% 7%;
-    --surface-850: 240 9% 11%;
-    --surface-800: 240 9% 14%;
-    --surface-700: 240 9% 18%;
-    --surface-600: 240 9% 23%;
-    --surface-500: 240 7% 29%;
-    --surface-400: 240 5% 40%;
+    /* === Brand: Surface Scale (Warmer tones) === */
+    --surface-950: 30 12% 5%;       /* Warmest dark */
+    --surface-900: 32 10% 7%;       /* Very dark warm gray */
+    --surface-850: 34 8% 11%;       /* Dark warm gray */
+    --surface-800: 35 7% 14%;       /* Medium-dark warm gray */
+    --surface-700: 36 6% 18%;       /* Medium warm gray */
+    --surface-600: 37 5% 23%;       /* Light warm gray */
+    --surface-500: 38 4% 29%;       /* Lighter warm gray */
+    --surface-400: 39 3% 40%;       /* Light warm accent */
 
-    /* === Brand: Accent (Orange) === */
-    --accent-orange-400: 18 100% 64%;
-    --accent-orange-500: 14 100% 57%;
-    --accent-orange-600: 14 85% 46%;
+    /* === Brand: Accent Palette (Extended amber family) === */
+    --accent-honey: 48 100% 62%;     /* Warm honey gold */
+    --accent-bronze: 30 75% 42%;     /* Rich bronze */
+    --accent-copper: 22 88% 54%;     /* Bright copper */
+    --accent-flame: 18 100% 58%;     /* Flame orange */
+    --accent-rust: 14 85% 48%;       /* Deep rust */
+    --accent-sienna: 12 78% 42%;     /* Burnt sienna */
 
-    /* === Shadcn Core Tokens (Dark Default for Amber) === */
-    --background: 240 8% 7%;
-    --foreground: 240 5% 96%;
-    --card: 240 9% 11%;
-    --card-foreground: 240 5% 96%;
-    --popover: 240 9% 14%;
-    --popover-foreground: 240 5% 96%;
-    --primary: 40 100% 50%;
-    --primary-foreground: 240 8% 7%;
-    --secondary: 240 9% 18%;
-    --secondary-foreground: 240 5% 90%;
-    --muted: 240 9% 18%;
-    --muted-foreground: 240 5% 45%;
-    --accent: 240 9% 18%;
-    --accent-foreground: 43 100% 56%;
-    --destructive: 0 84% 60%;
+    /* === Shadcn Core Tokens (Warm Amber-tinted Dark Theme) === */
+    --background: 32 10% 7%;          /* Warm dark background */
+    --foreground: 45 8% 96%;          /* Warm light text */
+    --card: 34 8% 11%;                /* Warm card background */
+    --card-foreground: 45 6% 96%;     /* Warm card text */
+    --popover: 35 7% 14%;             /* Warm popover */
+    --popover-foreground: 45 6% 96%;  /* Warm popover text */
+    --primary: 38 100% 50%;           /* Vibrant amber gold */
+    --primary-foreground: 30 12% 5%;  /* Dark warm text on primary */
+    --secondary: 36 6% 18%;           /* Warm secondary */
+    --secondary-foreground: 44 8% 90%;/* Warm secondary text */
+    --muted: 36 6% 18%;               /* Warm muted */
+    --muted-foreground: 39 4% 48%;    /* Warm muted text */
+    --accent: 48 100% 62%;            /* Honey gold accent */
+    --accent-foreground: 30 12% 8%;   /* Dark text on accent */
+    --destructive: 0 84% 60%;         /* Keep red for errors */
     --destructive-foreground: 0 0% 100%;
-    --border: 240 9% 23%;
-    --input: 240 9% 23%;
-    --ring: 40 100% 50%;
+    --border: 37 5% 23%;              /* Warm borders */
+    --input: 37 5% 23%;               /* Warm input borders */
+    --ring: 38 100% 50%;              /* Golden focus ring */
     --radius: 0.5rem;
 
     /* === Extended Semantic === */
@@ -95,27 +98,27 @@
     --font-display: 'Plus Jakarta Sans', 'Inter', sans-serif;
   }
 
-  /* Keeping .dark block just in case, but Amber uses dark by default as per palette */
-  .dark {
-    --background: 240 8% 7%;
-    --foreground: 240 5% 96%;
-    --card: 240 9% 11%;
-    --card-foreground: 240 5% 96%;
-    --popover: 240 9% 14%;
-    --popover-foreground: 240 5% 96%;
-    --primary: 40 100% 50%;
-    --primary-foreground: 240 8% 7%;
-    --secondary: 240 9% 18%;
-    --secondary-foreground: 240 5% 90%;
-    --muted: 240 9% 18%;
-    --muted-foreground: 240 5% 45%;
-    --accent: 240 9% 18%;
-    --accent-foreground: 43 100% 56%;
+  /* Light mode - warm amber light theme */
+  .light {
+    --background: 45 40% 98%;
+    --foreground: 30 15% 12%;
+    --card: 44 35% 95%;
+    --card-foreground: 30 15% 12%;
+    --popover: 43 30% 92%;
+    --popover-foreground: 30 15% 12%;
+    --primary: 38 100% 50%;
+    --primary-foreground: 45 40% 98%;
+    --secondary: 42 20% 85%;
+    --secondary-foreground: 30 15% 12%;
+    --muted: 41 15% 88%;
+    --muted-foreground: 36 8% 40%;
+    --accent: 48 100% 62%;
+    --accent-foreground: 30 15% 12%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 9% 23%;
-    --input: 240 9% 23%;
-    --ring: 40 100% 50%;
+    --border: 40 25% 85%;
+    --input: 40 25% 85%;
+    --ring: 38 100% 50%;
   }
 }
 

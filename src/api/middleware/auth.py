@@ -43,6 +43,9 @@ def _is_public_path(path: str) -> bool:
     # Setup paths are public
     if path.startswith("/api/setup"):
         return True
+    # Health checks under /api
+    if path.startswith("/api/health"):
+        return True
     return False
 
 
@@ -86,8 +89,13 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if _is_public_path(path):
             return await call_next(request)
 
-        # Extract API key from header only (query params removed for security)
+        # Extract API key from header
         api_key = request.headers.get("X-API-Key")
+        
+        # Fallback: For SSE endpoints, check query params since EventSource can't set headers
+        is_sse_path = any(p in path for p in ["/stream", "/events"])
+        if not api_key and is_sse_path:
+            api_key = request.query_params.get("api_key")
 
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")

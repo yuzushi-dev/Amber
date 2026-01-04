@@ -9,7 +9,7 @@ export default function ChatContainer() {
 
     return (
         <main
-            className="flex flex-col h-full w-full max-w-5xl mx-auto border-x bg-card/10"
+            className="flex flex-col h-full w-full border-x bg-card/10"
             aria-label="Chat with Amber"
         >
             <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm">

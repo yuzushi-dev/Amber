@@ -1,5 +1,8 @@
 import sys
+import pytest
 from unittest.mock import MagicMock
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.core.database.session import get_session_maker
 
 # Mock dependencies that might be missing in the host environment
 # NOTE: Do NOT mock packages that are actually installed (pydantic, fastapi, etc.)
@@ -89,3 +92,24 @@ import neo4j
 neo4j.AsyncGraphDatabase = MagicMock()
 neo4j.AsyncDriver = MagicMock()
 neo4j.AsyncSession = MagicMock()
+
+
+# ============================================================================
+# Database Fixtures
+# ============================================================================
+@pytest.fixture
+async def db_session() -> AsyncSession:
+    """
+    Yields an async database session for testing.
+    Rolls back transaction after test.
+    """
+    # Create session
+    async_session = get_session_maker()
+    
+    async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.rollback()
+            await session.close()
+

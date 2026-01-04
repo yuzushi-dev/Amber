@@ -103,8 +103,10 @@ class MilvusVectorStore:
             return
 
         milvus = _get_milvus()
+        import asyncio
 
-        try:
+        def _sync_connect():
+            """Synchronous connection and loading logic."""
             # Connect using the connections module
             alias = "default"
             milvus["connections"].connect(
@@ -115,16 +117,30 @@ class MilvusVectorStore:
                 password=self.config.password if self.config.password else None,
             )
 
-            # Check if collection exists, create if not
+            # Check if collection exists
             if not milvus["utility"].has_collection(self.config.collection_name):
-                await self._create_collection(milvus)
+                return None  # Need to create collection
             else:
-                self._collection = milvus["Collection"](self.config.collection_name)
-                self._collection.load()
+                collection = milvus["Collection"](self.config.collection_name)
+                collection.load()
+                return collection
+
+        try:
+            # Run blocking operations in thread pool
+            self._collection = await asyncio.wait_for(
+                asyncio.to_thread(_sync_connect),
+                timeout=30.0  # 30 second timeout for connection
+            )
+            
+            if self._collection is None:
+                await self._create_collection(milvus)
 
             self._connected = True
             logger.info(f"Connected to Milvus at {self.config.host}:{self.config.port}")
 
+        except asyncio.TimeoutError:
+            logger.error("Milvus connection timed out after 30 seconds")
+            raise RuntimeError("Milvus connection timed out")
         except Exception as e:
             logger.error(f"Failed to connect to Milvus: {e}")
             raise
@@ -294,8 +310,11 @@ class MilvusVectorStore:
             "params": {"ef": 128},  # HNSW search param
         }
 
-        try:
-            results = self._collection.search(
+        import asyncio
+        
+        def _sync_search():
+            """Synchronous search call."""
+            return self._collection.search(
                 data=[query_vector],
                 anns_field=self.FIELD_VECTOR,
                 param=search_params,
@@ -307,6 +326,13 @@ class MilvusVectorStore:
                     self.FIELD_TENANT_ID,
                     self.FIELD_CONTENT,
                 ],
+            )
+
+        try:
+            # Run blocking search in thread pool with timeout
+            results = await asyncio.wait_for(
+                asyncio.to_thread(_sync_search),
+                timeout=30.0
             )
 
             # Convert to SearchResult objects
@@ -330,6 +356,9 @@ class MilvusVectorStore:
             logger.debug(f"Found {len(search_results)} results for search query")
             return search_results
 
+        except asyncio.TimeoutError:
+            logger.error("Milvus search timed out after 30 seconds")
+            return []
         except Exception as e:
             logger.error(f"Search failed: {e}")
             raise

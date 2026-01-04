@@ -15,7 +15,7 @@ export default function MetricsDashboard() {
             try {
                 const [statsData, healthRes] = await Promise.all([
                     maintenanceApi.getStats(),
-                    fetch('/api/v1/health/ready').then(r => r.json())
+                    fetch('/api/health/ready').then(r => r.json())
                 ]);
                 setStats(statsData);
                 setHealth(healthRes);
