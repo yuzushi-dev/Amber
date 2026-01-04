@@ -9,7 +9,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import {
-    LayoutDashboard,
     MessageSquare,
     Database,
     Settings2,
@@ -28,7 +27,6 @@ interface DockItem {
 }
 
 const dockItems: DockItem[] = [
-    { label: 'Dashboard', icon: LayoutDashboard, to: '/admin', matchPrefix: '/admin' },
     { label: 'Chat', icon: MessageSquare, to: '/admin/chat', matchPrefix: '/admin/chat' },
     { label: 'Data', icon: Database, to: '/admin/data', matchPrefix: '/admin/data' },
     { label: 'Operations', icon: Settings2, to: '/admin/ops', matchPrefix: '/admin/ops' },
@@ -55,10 +53,10 @@ export default function CommandDock() {
         return () => window.removeEventListener('resize', checkMobile)
     }, [])
 
-    // Keyboard shortcuts: Cmd/Ctrl + 1-5
+    // Keyboard shortcuts: Cmd/Ctrl + 1-4
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '5') {
+            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '4') {
                 e.preventDefault()
                 const index = parseInt(e.key) - 1
                 const allItems = [...dockItems, clientChatItem]
@@ -72,12 +70,7 @@ export default function CommandDock() {
     }, [])
 
     const isActive = (item: DockItem, _index: number) => {
-        // Dashboard is only active when exactly at /admin (not at any child routes)
-        if (item.to === '/admin') {
-            return currentPath === '/admin'
-        }
-
-        // For all other items, check if current path starts with their prefix
+        // Check if current path starts with their prefix
         return currentPath.startsWith(item.matchPrefix || item.to)
     }
 
@@ -230,7 +223,7 @@ export default function CommandDock() {
                         "pointer-events-none"
                     )}>
                         {clientChatItem.label}
-                        <span className="ml-1.5 text-muted-foreground">⌘5</span>
+                        <span className="ml-1.5 text-muted-foreground">⌘4</span>
                     </span>
 
                     <clientChatItem.icon className="w-6 h-6" />
