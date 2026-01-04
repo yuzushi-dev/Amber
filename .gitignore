@@ -203,3 +203,4 @@ Thumbs.db
 .claude/
 
 /.agent
+/.packages
