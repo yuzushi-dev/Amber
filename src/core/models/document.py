@@ -47,6 +47,12 @@ class Document(Base, TimestampMixin):
     # Error tracking for failed processing
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Document enrichment fields (populated during ingestion)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # LLM-generated summary
+    document_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # e.g., user_manual, report
+    keywords: Mapped[list] = mapped_column("keywords", JSONB, server_default="[]", nullable=False)  # Extracted keywords
+    hashtags: Mapped[list] = mapped_column("hashtags", JSONB, server_default="[]", nullable=False)  # Generated hashtags
+
     # Relationship to chunks
     # Relationship to chunks
     chunks: Mapped[list["Chunk"]] = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")

@@ -8,9 +8,10 @@ interface LiveStatusBadgeProps {
     documentId: string
     initialStatus: string
     onComplete?: () => void
+    compact?: boolean
 }
 
-export default function LiveStatusBadge({ documentId, initialStatus, onComplete }: LiveStatusBadgeProps) {
+export default function LiveStatusBadge({ documentId, initialStatus, onComplete, compact = false }: LiveStatusBadgeProps) {
     const [status, setStatus] = useState(initialStatus)
 
     useEffect(() => {
@@ -24,7 +25,8 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete 
         }
 
         const apiKey = localStorage.getItem('api_key')
-        const monitorUrl = `/v1/documents/${documentId}/events?api_key=${apiKey || ''}`
+        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
+        const monitorUrl = `${apiBaseUrl}/documents/${documentId}/events?api_key=${encodeURIComponent(apiKey || '')}`
 
         const manager = new SSEManager(
             monitorUrl,
@@ -58,6 +60,21 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete 
 
     // Render logic
     const s = status.toLowerCase()
+
+    // Compact mode for sidebar - just show colored dot
+    if (compact) {
+        if (s === 'ready' || s === 'completed') {
+            return <span className="w-2 h-2 rounded-full bg-green-500" title="Ready" />
+        }
+        if (s === 'failed') {
+            return <span className="w-2 h-2 rounded-full bg-destructive" title="Failed" />
+        }
+        return (
+            <span title={s}>
+                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+            </span>
+        )
+    }
 
     if (s === 'ready' || s === 'completed') {
         return (

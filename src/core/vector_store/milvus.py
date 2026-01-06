@@ -182,6 +182,7 @@ class MilvusVectorStore:
         schema = milvus["CollectionSchema"](
             fields=fields,
             description="Document chunk embeddings for semantic search",
+            enable_dynamic_field=True
         )
 
         # Create collection
@@ -214,7 +215,7 @@ class MilvusVectorStore:
         # Load collection into memory
         self._collection.load()
 
-        logger.info(f"Collection {self.config.collection_name} created with HNSW index")
+        logger.info(f"Collection {self.config.collection_name} created with HNSW index and Dynamic Fields")
 
     async def disconnect(self) -> None:
         """Disconnect from Milvus."""
@@ -238,6 +239,7 @@ class MilvusVectorStore:
                 - tenant_id: Tenant for isolation
                 - content: Chunk text content
                 - embedding: Vector embedding
+                - ... any other metadata keys (will be stored as dynamic fields)
                 
         Returns:
             Number of chunks upserted
@@ -248,16 +250,28 @@ class MilvusVectorStore:
         await self.connect()
 
         # Prepare data for insertion
-        data = [
-            {
+        # With enable_dynamic_field=True, we can pass extra keys in the dict.
+        data = []
+        for c in chunks:
+            # Base required fields
+            row = {
                 self.FIELD_CHUNK_ID: c["chunk_id"],
                 self.FIELD_DOCUMENT_ID: c["document_id"],
                 self.FIELD_TENANT_ID: c["tenant_id"],
-                self.FIELD_CONTENT: c.get("content", "")[:65530],  # Truncate to max length
+                self.FIELD_CONTENT: c.get("content", "")[:65530],
                 self.FIELD_VECTOR: c["embedding"],
             }
-            for c in chunks
-        ]
+            # Merge extra metadata (everything in c that isn't a reserved field)
+            reserved = {
+                self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, 
+                self.FIELD_TENANT_ID, self.FIELD_CONTENT, self.FIELD_VECTOR,
+                "metadata" # avoid nesting if passed explicitly
+            }
+            for k, v in c.items():
+                if k not in reserved:
+                    row[k] = v
+                    
+            data.append(row)
 
         try:
             # Upsert (insert with replace semantics)
@@ -278,6 +292,7 @@ class MilvusVectorStore:
         document_ids: list[str] | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
         """
         Search for similar chunks.
@@ -288,6 +303,7 @@ class MilvusVectorStore:
             document_ids: Optional filter to specific documents
             limit: Maximum results to return
             score_threshold: Minimum similarity score
+            filters: Optional dictionary of metadata filters (e.g. {"quality_score >": 0.5})
             
         Returns:
             List of SearchResult ordered by similarity
@@ -295,14 +311,32 @@ class MilvusVectorStore:
         await self.connect()
 
         # Build filter expression
-        filters = [f'{self.FIELD_TENANT_ID} == "{tenant_id}"']
+        filter_list = [f'{self.FIELD_TENANT_ID} == "{tenant_id}"']
         if document_ids:
             doc_filter = " || ".join(
                 f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
             )
-            filters.append(f"({doc_filter})")
+            filter_list.append(f"({doc_filter})")
+            
+        # Add dynamic filters
+        if filters:
+            for key, val in filters.items():
+                # Simple handling for now: 'key': value -> key == value
+                # or 'key >': value -> key > value
+                # We can assume strict logical expression or simple equality
+                # Let's support simple equality and basic operators if key contains space
+                if isinstance(val, str):
+                    val_str = f'"{val}"'
+                else:
+                    val_str = str(val).lower() if isinstance(val, bool) else str(val)
 
-        filter_expr = " && ".join(filters)
+                if " " in key: # e.g. "quality_score >"
+                    field, op = key.split(" ", 1)
+                    filter_list.append(f"{field} {op} {val_str}")
+                else:
+                    filter_list.append(f"{key} == {val_str}")
+
+        filter_expr = " && ".join(filter_list)
 
         # Search parameters
         search_params = {
@@ -320,12 +354,7 @@ class MilvusVectorStore:
                 param=search_params,
                 limit=limit,
                 expr=filter_expr,
-                output_fields=[
-                    self.FIELD_CHUNK_ID,
-                    self.FIELD_DOCUMENT_ID,
-                    self.FIELD_TENANT_ID,
-                    self.FIELD_CONTENT,
-                ],
+                output_fields=["*"], # Retrieve all dynamic fields
             )
 
         try:
@@ -343,13 +372,20 @@ class MilvusVectorStore:
                     if score_threshold and hit.score < score_threshold:
                         continue
 
+                    # Extract all fields into metadata
+                    meta = {}
+                    reserved = {self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, self.FIELD_TENANT_ID, self.FIELD_VECTOR}
+                    for k, v in hit.entity.items():
+                        if k not in reserved:
+                            meta[k] = v
+
                     search_results.append(
                         SearchResult(
                             chunk_id=hit.entity.get(self.FIELD_CHUNK_ID),
                             document_id=hit.entity.get(self.FIELD_DOCUMENT_ID),
                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
                             score=hit.score,
-                            metadata={"content": hit.entity.get(self.FIELD_CONTENT, "")},
+                            metadata=meta,
                         )
                     )
 

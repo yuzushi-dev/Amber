@@ -1,37 +1,23 @@
 /**
  * Ragas Benchmark Dashboard
  * =========================
- * 
+ *
  * Sub-panel for viewing and running Ragas evaluation benchmarks.
  */
 
 import { useState, useEffect, useCallback } from 'react'
 import { BarChart3, Play, RefreshCw, Upload, CheckCircle, XCircle, Clock, FileJson } from 'lucide-react'
 import { ragasApi, RagasStats, RagasDataset, BenchmarkRunSummary } from '../../../lib/api-admin'
-
-interface StatCardProps {
-    label: string
-    value: string | number
-    icon: React.ReactNode
-    trend?: 'up' | 'down' | 'neutral'
-    color?: string
-}
-
-function StatCard({ label, value, icon, color = 'text-amber-400' }: StatCardProps) {
-    return (
-        <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-                <div>
-                    <p className="text-gray-400 text-sm">{label}</p>
-                    <p className={`text-2xl font-semibold mt-1 ${color}`}>{value}</p>
-                </div>
-                <div className={`p-3 rounded-lg bg-gray-700/50 ${color}`}>
-                    {icon}
-                </div>
-            </div>
-        </div>
-    )
-}
+import { StatCard } from '@/components/ui/StatCard'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table'
 
 export function RagasSubPanel() {
     const [stats, setStats] = useState<RagasStats | null>(null)
@@ -123,86 +109,87 @@ export function RagasSubPanel() {
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'completed':
-                return <CheckCircle className="w-4 h-4 text-green-400" />
+                return <CheckCircle className="w-4 h-4 text-success" />
             case 'failed':
-                return <XCircle className="w-4 h-4 text-red-400" />
+                return <XCircle className="w-4 h-4 text-destructive" />
             case 'running':
-                return <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                return <RefreshCw className="w-4 h-4 text-primary animate-spin" />
             default:
-                return <Clock className="w-4 h-4 text-gray-400" />
+                return <Clock className="w-4 h-4 text-muted-foreground" />
         }
     }
 
     if (loading && !stats) {
         return (
             <div className="flex items-center justify-center h-64">
-                <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
+                <RefreshCw className="w-8 h-8 text-primary animate-spin" />
             </div>
         )
     }
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 pb-32 max-w-7xl mx-auto space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h2 className="text-xl font-semibold text-white">RAGAS Evaluation</h2>
-                    <p className="text-gray-400 text-sm mt-1">
+                    <h1 className="text-2xl font-bold">RAGAS Evaluation</h1>
+                    <p className="text-muted-foreground">
                         Systematic RAG quality benchmarking with Faithfulness and Relevancy metrics
                     </p>
                 </div>
                 <button
                     onClick={() => fetchData()}
-                    className="p-2 rounded-lg bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                 >
-                    <RefreshCw className="w-5 h-5 text-gray-400" />
+                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                    Refresh
                 </button>
             </div>
 
             {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
-                    {error}
-                </div>
+                <Alert variant="destructive" className="mb-6">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
+                    icon={BarChart3}
                     label="Total Runs"
                     value={stats?.total_runs ?? 0}
-                    icon={<BarChart3 className="w-5 h-5" />}
                 />
                 <StatCard
+                    icon={CheckCircle}
                     label="Completed"
                     value={stats?.completed_runs ?? 0}
-                    icon={<CheckCircle className="w-5 h-5" />}
-                    color="text-green-400"
                 />
                 <StatCard
+                    icon={FileJson}
                     label="Avg Faithfulness"
                     value={formatScore(stats?.avg_faithfulness ?? null)}
-                    icon={<FileJson className="w-5 h-5" />}
-                    color="text-blue-400"
+                    isString
                 />
                 <StatCard
+                    icon={FileJson}
                     label="Avg Relevancy"
                     value={formatScore(stats?.avg_relevancy ?? null)}
-                    icon={<FileJson className="w-5 h-5" />}
-                    color="text-purple-400"
+                    isString
                 />
             </div>
 
             {/* Run Benchmark Section */}
-            <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-6">
-                <h3 className="text-lg font-medium text-white mb-4">Run Benchmark</h3>
+            <div className="bg-card border rounded-lg p-6">
+                <h3 className="text-lg font-semibold mb-4">Run Benchmark</h3>
 
                 <div className="flex flex-wrap gap-4 items-end">
                     <div className="flex-1 min-w-[200px]">
-                        <label className="block text-sm text-gray-400 mb-2">Dataset</label>
+                        <label className="block text-sm text-muted-foreground mb-2">Dataset</label>
                         <select
                             value={selectedDataset}
                             onChange={(e) => setSelectedDataset(e.target.value)}
-                            className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            className="w-full bg-background border border-input rounded-md px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             disabled={isRunning}
                         >
                             {datasets.length === 0 && (
@@ -219,7 +206,7 @@ export function RagasSubPanel() {
                     <button
                         onClick={handleRunBenchmark}
                         disabled={!selectedDataset || isRunning}
-                        className="flex items-center gap-2 px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors"
+                        className="flex items-center gap-2 px-6 py-2 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed rounded-md text-primary-foreground font-medium transition-colors"
                     >
                         {isRunning ? (
                             <>
@@ -234,9 +221,9 @@ export function RagasSubPanel() {
                         )}
                     </button>
 
-                    <label className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 rounded-lg cursor-pointer transition-colors">
-                        <Upload className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-300 text-sm">Upload Dataset</span>
+                    <label className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md cursor-pointer transition-colors">
+                        <Upload className="w-4 h-4" />
+                        <span className="text-sm">Upload Dataset</span>
                         <input
                             type="file"
                             accept=".json"
@@ -248,54 +235,52 @@ export function RagasSubPanel() {
             </div>
 
             {/* Recent Runs Table */}
-            <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-700/50">
-                    <h3 className="text-lg font-medium text-white">Recent Benchmark Runs</h3>
+            <div className="bg-card border rounded-lg overflow-hidden">
+                <div className="px-6 py-4 border-b">
+                    <h2 className="text-lg font-semibold">Recent Benchmark Runs</h2>
                 </div>
 
                 {runs.length === 0 ? (
-                    <div className="p-8 text-center text-gray-400">
+                    <div className="p-8 text-center text-muted-foreground">
                         <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
                         <p>No benchmark runs yet. Upload a dataset and run your first benchmark!</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead className="bg-gray-700/30">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Dataset</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Faithfulness</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Relevancy</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-700/30">
-                                {runs.map((run) => (
-                                    <tr key={run.id} className="hover:bg-gray-700/20 transition-colors">
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="flex items-center gap-2">
-                                                {getStatusIcon(run.status)}
-                                                <span className="text-sm text-gray-300 capitalize">{run.status}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                            {run.dataset_name}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-400">
-                                            {formatScore(run.metrics?.faithfulness ?? null)}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-purple-400">
-                                            {formatScore(run.metrics?.response_relevancy ?? null)}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                                            {new Date(run.created_at).toLocaleString()}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Dataset</TableHead>
+                                <TableHead>Faithfulness</TableHead>
+                                <TableHead>Relevancy</TableHead>
+                                <TableHead>Created</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {runs.map((run) => (
+                                <TableRow key={run.id}>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            {getStatusIcon(run.status)}
+                                            <span className="text-sm capitalize">{run.status}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="font-medium">
+                                        {run.dataset_name}
+                                    </TableCell>
+                                    <TableCell className="font-mono">
+                                        {formatScore(run.metrics?.faithfulness ?? null)}
+                                    </TableCell>
+                                    <TableCell className="font-mono">
+                                        {formatScore(run.metrics?.response_relevancy ?? null)}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                        {new Date(run.created_at).toLocaleString()}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
                 )}
             </div>
         </div>

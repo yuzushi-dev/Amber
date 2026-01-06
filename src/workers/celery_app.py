@@ -6,12 +6,36 @@ Configures Celery for background task processing.
 """
 
 import os
+import sys
 import logging
+
+# =============================================================================
+# SAFETY GUARDRAIL
+# =============================================================================
+# Prevent accidental host execution of worker implementation
+try:
+    _is_worker = "worker" in sys.argv
+    _is_docker = os.getenv("AMBER_RUNTIME") == "docker"
+    _force_local = os.getenv("AMBER_FORCE_LOCAL") == "true"
+    
+    if _is_worker and not _is_docker and not _force_local:
+        print("\n" + "!" * 80)
+        print("CRITICAL SAFETY ERROR: HOST EXECUTION BLOCKED")
+        print("!" * 80)
+        print("You are attempting to run the Celery worker directly on the host machine.")
+        print("This causes STALE CODE execution, race conditions, and debugging nightmares.")
+        print("\nSolution:")
+        print("  1. USE DOCKER: docker compose up worker")
+        print("  2. BYPASS (Debug only): AMBER_FORCE_LOCAL=true celery -A ... worker")
+        print("!" * 80 + "\n")
+        sys.exit(1)
+except Exception:
+    pass  # Fallback for weird edge cases, though sys.exit should happen
+
+logger = logging.getLogger(__name__)
 
 from celery import Celery
 from celery.signals import worker_process_init, worker_ready
-
-logger = logging.getLogger(__name__)
 
 # Celery configuration
 broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")

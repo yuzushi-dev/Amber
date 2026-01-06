@@ -1,107 +1,197 @@
 import logging
 import json
-from typing import List, Optional
-from pydantic import ValidationError
+import asyncio
+from typing import List, Optional, Dict, Any, Tuple
+from pathlib import Path
 
 from src.core.providers.factory import get_llm_provider
 from src.core.providers.base import ProviderTier
 from src.core.prompts.entity_extraction import (
-    EXTRACTION_SYSTEM_PROMPT, 
-    GLEANING_SYSTEM_PROMPT, 
-    ExtractionResult
+    get_tuple_extraction_prompt, 
+    get_gleaning_prompt,
+    ExtractionResult # We keep this for external compat types if needed
 )
+from src.core.extraction.tuple_parser import TupleParser
+from src.core.models.kg import Entity, Relationship
+from src.core.quality_scorer import quality_scorer, QualityScorer
 
 logger = logging.getLogger(__name__)
 
 class GraphExtractor:
     """
-    Service to extract Knowledge Graph elements (Entities, Relationships) from text.
-    Uses 'Gleaning' (Iterative Extraction) to maximize recall.
+    Service to extract Knowledge Graph elements (Entities, Relationships) from text
+    using robust Tuple Parser and Dynamic Ontology injection.
     """
     
     def __init__(self, use_gleaning: bool = True, max_gleaning_steps: int = 1):
         self.use_gleaning = use_gleaning
         self.max_gleaning_steps = max_gleaning_steps
+        self.entity_types, self.relationship_suggestions = self._load_config()
+        self.parser = TupleParser()
 
-    async def extract(self, text: str) -> ExtractionResult:
+    def _load_config(self) -> Tuple[List[str], List[str]]:
+        """Load entity and relationship types from JSON config."""
+        try:
+            config_path = Path("src/config/classification_config.json")
+            if not config_path.exists():
+                # Fallback to defaults if file missing
+                return (["CONCEPT", "ENTITY"], ["RELATED_TO"])
+                
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return (
+                    data.get("entity_types", ["CONCEPT"]), 
+                    data.get("relationship_suggestions", ["RELATED_TO"])
+                )
+        except Exception as e:
+            logger.error(f"Failed to load classification config: {e}")
+            return (["CONCEPT"], ["RELATED_TO"])
+
+    async def extract(self, text: str, chunk_id: str = "UNKNOWN") -> ExtractionResult:
         """
-        Extract entities and relationships from the text.
-        
-        Args:
-            text: Input text chunk.
-            
-        Returns:
-            ExtractionResult containing list of entities and relationships.
+        Extract entities/relationships using tuple format + quality scoring.
         """
-        # Enforce Economy Tier for cost savings as per user requirement
+        # 1. Prepare Provider
         provider = get_llm_provider(tier=ProviderTier.ECONOMY)
         
-        # 1. Initial Extraction
+        # 2. Initial Pass (Pass 1)
+        # We use a standard prompt instead of system_prompt for tuple format to avoid strict JSON mode constraints on some providers
+        initial_prompt = get_tuple_extraction_prompt(
+            self.entity_types, 
+            self.relationship_suggestions,
+            text_unit_id=chunk_id
+        )
+        
+        full_text_prompt = f"{initial_prompt}\n\n**Text to analyze**:\n{text}\n\n**Output (tuple format only)**:"
+        
+        all_entities: List[Entity] = []
+        all_relationships: List[Relationship] = []
+        
         try:
-             result_json = await provider.generate(
-                 prompt=f"Text to extract from:\n\n{text}",
-                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
-                 temperature=0.0 # Deterministic
-             )
-             base_result = self._parse_result(result_json.text)
-        except Exception as e:
-             logger.error(f"Initial extraction failed: {e}")
-             return ExtractionResult()
-
-        if not self.use_gleaning:
-            return base_result
+            response = await provider.generate(
+                prompt=full_text_prompt,
+                temperature=0.1 # Low temp for stability
+            )
             
-        # 2. Gleaning Loop
-        current_result = base_result
-        for i in range(self.max_gleaning_steps):
-            try:
-                # Construct list of existing entities for context to avoid duplicates
-                existing_names = [e.name for e in current_result.entities]
-                prompt = f"Text:\n{text}\n\nExisting Entities: {', '.join(existing_names)}"
-                
-                glean_output = await provider.generate(
-                    prompt=prompt,
-                    system_prompt=GLEANING_SYSTEM_PROMPT,
-                    temperature=0.2 # Slightly higher for creativity in finding missed items
-                )
-                
-                new_items = self._parse_result(glean_output.text)
-                
-                # If no new entities, stop gleaning
-                if not new_items.entities:
-                    break
+            # Parse result
+            parse_result = self.parser.parse(response.text)
+            all_entities.extend(parse_result.entities)
+            all_relationships.extend(parse_result.relationships)
+            
+        except Exception as e:
+            logger.error(f"Extraction pass 1 failed: {e}")
+
+        # 3. Gleaning Pass (Pass 2+)
+        if self.use_gleaning and self.max_gleaning_steps > 0:
+            for step in range(self.max_gleaning_steps):
+                try:
+                    existing_names = [e.name for e in all_entities]
+                    if not existing_names: break # Nothing found, maybe empty text?
                     
-                # Merge results
-                # In a real implementation we might want to dedupe here, but we'll trust the LLM 
-                # respects the "Existing Entities" list for now, and handle dedupe at DB write time.
-                current_result.entities.extend(new_items.entities)
-                current_result.relationships.extend(new_items.relationships)
-                
-            except Exception as e:
-                logger.warning(f"Gleaning step {i+1} failed: {e}")
-                break
-                
-        return current_result
+                    glean_prompt = get_gleaning_prompt(existing_names, self.entity_types)
+                    full_glean_prompt = f"{full_text_prompt}\n{response.text}\n\n{glean_prompt}"
+                    
+                    glean_response = await provider.generate(
+                        prompt=full_glean_prompt,
+                        temperature=0.3 # Slightly higher for recall
+                    )
+                    
+                    glean_result = self.parser.parse(glean_response.text)
+                    if not glean_result.entities:
+                        break # Stop if no new entities found
+                        
+                    all_entities.extend(glean_result.entities)
+                    all_relationships.extend(glean_result.relationships)
+                    
+                except Exception as e:
+                    logger.warning(f"Gleaning step {step} failed: {e}")
+                    break
 
-    def _parse_result(self, json_text: str) -> ExtractionResult:
-        """Parse JSON response into Pydantic model."""
-        # Clean markdown code blocks if present
-        cleaned_text = json_text.strip()
-        if cleaned_text.startswith("```json"):
-            cleaned_text = cleaned_text[7:]
-        if cleaned_text.startswith("```"):
-            cleaned_text = cleaned_text[3:]
-        if cleaned_text.endswith("```"):
-            cleaned_text = cleaned_text[:-3]
-        cleaned_text = cleaned_text.strip()
+        # 4. Quality Filtering (Intrinsic & QualityScorer)
+        final_entities = []
+        for ent in all_entities:
+            # Intrinsic filter
+            if ent.importance_score < 0.5:
+                continue
+                
+            final_entities.append(ent)
+            
+        # Deduplication (Basic implementation) -> Merging same names
+        deduped_entities = self._deduplicate_entities(final_entities)
+        deduped_relationships = self._deduplicate_relationships(all_relationships)
+        
+        # --- POST-EXTRACTION QUALITY FILTER (New) ---
+        # If the chunk had low initial quality AND yielded zero entities/relationships,
+        # we flag it as noise. This doesn't stop return here, but callers 
+        # (like the ingestion pipeline) can check for empty results.
+        #
+        # Note: In a full pipeline, we would return a signal to discard the chunk.
+        # Here, returning empty lists is the equivalent of "no knowledge extracted".
+        
+        # Check extraction yield
+        has_content = len(deduped_entities) > 0 or len(deduped_relationships) > 0
+        
+        # We don't have access to the raw chunk quality score here easily unless passed in.
+        # However, the GraphExtractor's job is just extraction. 
+        # If we extract nothing, we return nothing. 
+        # The calling service (IngestionService) should use the chunk's quality_score metadata
+        # combined with this empty result to decide whether to index the chunk vector or not.
+        
+        # For now, we proceed to return what we found (or didn't find).
+        
+        # Convert to Pydantic ExtractionResult for backward compatibility
+        # We need to map our semantic Entity model to the Pydantic one expected by callers
+        # Note: prompts.entity_extraction.ExtractedEntity matches our schema mostly
+        from src.core.prompts.entity_extraction import ExtractedEntity, ExtractedRelationship, ExtractionResult as PydanticResult
+        
+        # Filter relationships to ensure they connect to valid entities
+        valid_names = {e.name for e in deduped_entities}
+        
+        pydantic_entities = [
+            ExtractedEntity(
+                name=e.name, 
+                type=e.type, 
+                description=e.description
+            ) for e in deduped_entities
+        ]
+        
+        pydantic_rels = [
+            ExtractedRelationship(
+                source=r.source_entity, 
+                target=r.target_entity, 
+                type=r.relationship_type,
+                description=r.description,
+                weight=int(r.strength * 10)
+            ) for r in deduped_relationships if r.source_entity in valid_names and r.target_entity in valid_names
+        ]
+        
+        return PydanticResult(entities=pydantic_entities, relationships=pydantic_rels)
 
-        try:
-            # Parse JSON first
-            data = json.loads(cleaned_text)
-            return ExtractionResult(**data)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON generated: {json_text[:100]}...")
-            return ExtractionResult()
-        except ValidationError as e:
-             logger.error(f"Validation Error: {e}")
-             return ExtractionResult()
+    def _deduplicate_entities(self, entities: List[Entity]) -> List[Entity]:
+        """Simple deduplication by name."""
+        unique = {}
+        for e in entities:
+            key = (e.name.upper(), e.type.upper())
+            if key not in unique:
+                unique[key] = e
+            else:
+                # Merge descriptions or scores? For now just keep first (or max score)
+                if e.importance_score > unique[key].importance_score:
+                    unique[key] = e
+        return list(unique.values())
+
+    def _deduplicate_relationships(self, relationships: List[Relationship]) -> List[Relationship]:
+        """Deduplicate relationships by source-target-type."""
+        unique = {}
+        for r in relationships:
+            # Key: Source -> Target (Type)
+            key = (r.source_entity.upper(), r.target_entity.upper(), r.relationship_type.upper())
+            if key not in unique:
+                unique[key] = r
+            else:
+                # Keep higher strength
+                if r.strength > unique[key].strength:
+                    unique[key] = r
+        return list(unique.values())
+
+

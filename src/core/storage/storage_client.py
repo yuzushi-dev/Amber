@@ -10,6 +10,9 @@ from typing import BinaryIO
 
 from minio import Minio
 from minio.error import S3Error
+import logging
+
+logger = logging.getLogger(__name__)
 
 from src.api.config import settings
 
@@ -40,6 +43,7 @@ class MinIOClient:
             secure=settings.minio.secure,
         )
         self.bucket_name = settings.minio.bucket_name
+        print(f"DEBUG: MinIO Client initialized. Endpoint: {settings.minio.host}:{settings.minio.port}, Bucket: {self.bucket_name}")
 
     def ensure_bucket_exists(self) -> None:
         """Create the bucket if it doesn't exist."""
@@ -79,11 +83,14 @@ class MinIOClient:
         Returns:
             bytes: The file content
         """
+        logger.info(f"DEBUG: MinIO Fetching {object_name} from {self.bucket_name}")
         try:
             response = self.client.get_object(self.bucket_name, object_name)
             return response.read()
         except S3Error as e:
-            raise FileNotFoundError(f"File not found in storage: {object_name}") from e
+            msg = f"Storage Error: {e.code} - {e.message}. Resource: {object_name}"
+            # Preserve original traceback
+            raise FileNotFoundError(msg) from e
         finally:
             if 'response' in locals():
                 response.close()
@@ -98,10 +105,13 @@ class MinIOClient:
         Returns:
             urllib3.response.HTTPResponse: The file stream
         """
+        logger.info(f"DEBUG: MinIO Stream Fetching {object_name} from {self.bucket_name}")
         try:
             return self.client.get_object(self.bucket_name, object_name)
         except S3Error as e:
-            raise FileNotFoundError(f"File not found in storage: {object_name}") from e
+            msg = f"Storage Error: {e.code} - {e.message}. Resource: {object_name}"
+            # Preserve original traceback
+            raise FileNotFoundError(msg) from e
 
         """Delete a file from storage."""
         self.client.remove_object(self.bucket_name, object_name)

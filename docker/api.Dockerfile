@@ -28,8 +28,9 @@ COPY config/ /app/config/
 COPY alembic/ /app/alembic/
 COPY alembic.ini /app/
 
-# Create non-root user
+# Create non-root user and packages directory
 RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /app/.packages && \
     chown -R appuser:appuser /app
 USER appuser
 

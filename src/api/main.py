@@ -6,6 +6,7 @@ FastAPI application entry point.
 Configures middleware, routes, and exception handlers.
 """
 
+import os
 import logging
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.config import settings
+
 from src.api.middleware.auth import AuthenticationMiddleware
 from src.api.middleware.exceptions import register_exception_handlers
 from src.api.middleware.rate_limit import RateLimitMiddleware, UploadSizeLimitMiddleware
@@ -42,6 +44,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
+    
+    # SAFETY WARNING
+    if os.getenv("AMBER_RUNTIME") != "docker":
+        logger.warning("! " * 40)
+        logger.warning("HOST EXECUTION DETECTED")
+        logger.warning(f"You are running {settings.app_name} on the HOST machine.")
+        logger.warning("Ensure your local environment matches Docker (DBs, config, etc).")
+        logger.warning("! " * 40)
 
     # Initialize Tracing
     # setup_tracer(service_name=settings.app_name)

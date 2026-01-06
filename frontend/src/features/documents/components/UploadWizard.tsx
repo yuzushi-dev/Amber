@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 import { AnimatedProgress } from '@/components/ui/animated-progress'
@@ -9,7 +9,7 @@ interface UploadWizardProps {
     onComplete: () => void
 }
 
-type ProcessingStatus = 'idle' | 'uploading' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'failed'
+type ProcessingStatus = 'idle' | 'uploading' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'completed' | 'failed'
 
 export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
     const [file, setFile] = useState<File | null>(null)
@@ -19,12 +19,16 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
     const [_statusMessage, setStatusMessage] = useState('')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [sseManager, setSseManager] = useState<SSEManager | null>(null)
+    const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
-    // Cleanup SSE on unmount
+    // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (sseManager) {
                 sseManager.disconnect()
+            }
+            if (pollingRef.current) {
+                clearInterval(pollingRef.current)
             }
         }
     }, [sseManager])
@@ -86,18 +90,54 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         }
 
         // Construct absolute URL for EventSource (doesn't use Vite proxy)
-        // In development, use the backend URL directly; in production, use relative URL
         const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
         const baseUrl = eventsUrl || `${apiBaseUrl}/documents/${documentId}/events`
 
+        // Use absolute URL for SSE to bypass Vite proxy
+        const finalUrl = (baseUrl.startsWith('/') && apiBaseUrl.startsWith('http'))
+            ? new URL(apiBaseUrl).origin + baseUrl
+            : baseUrl
+
         // Append API key preserving existing query params if any
-        const monitorUrl = baseUrl.includes('?')
-            ? `${baseUrl}&api_key=${encodeURIComponent(apiKey)}`
-            : `${baseUrl}?api_key=${encodeURIComponent(apiKey)}`
+        const monitorUrl = finalUrl.includes('?')
+            ? `${finalUrl}&api_key=${encodeURIComponent(apiKey)}`
+            : `${finalUrl}?api_key=${encodeURIComponent(apiKey)}`
 
         console.log('Connecting to SSE:', monitorUrl)
-        console.log('SSE Debug: API key present:', apiKey ? `${apiKey.substring(0, 10)}...` : 'NONE')
 
+        // Status precedence for aggregation (SSE + Polling)
+        const STATUS_ORDER = ['idle', 'uploading', 'ingested', 'extracting', 'classifying', 'chunking', 'embedding', 'graph_sync', 'ready', 'completed', 'failed']
+
+        const updateStatus = (newStatus: string, error?: string) => {
+            const s = newStatus.toLowerCase() as ProcessingStatus
+
+            setStatus(prev => {
+                const prevIndex = STATUS_ORDER.indexOf(prev)
+                const newIndex = STATUS_ORDER.indexOf(s)
+
+                // Always jump to failed or ready. For progress, only move forward.
+                if (s === 'failed' || s === 'ready' || s === 'completed' || newIndex > prevIndex) {
+                    return s
+                }
+                return prev
+            })
+
+            if (s === 'ready' || s === 'completed') {
+                setStatusMessage('Knowledge successfully integrated!')
+                cleanup()
+                setTimeout(onComplete, 1500)
+            } else if (s === 'failed') {
+                setErrorMessage(error || 'Processing failed.')
+                cleanup()
+            }
+        }
+
+        const cleanup = () => {
+            if (pollingRef.current) clearInterval(pollingRef.current)
+            manager.disconnect()
+        }
+
+        // SSE Setup
         let retryCount = 0
         const maxRetries = 3
 
@@ -107,51 +147,46 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                 (event) => {
                     try {
                         const data = JSON.parse(event.data)
-                        console.log('SSE Event:', data)
-
+                        // console.log('SSE Event:', data)
                         if (data.status) {
-                            const s = data.status.toLowerCase()
-                            if (['extracting', 'classifying', 'chunking', 'embedding', 'graph_sync', 'ready', 'failed'].includes(s)) {
-                                setStatus(s as ProcessingStatus)
-                            }
-
-                            if (s === 'ready' || s === 'completed') {
-                                setStatus('ready')
-                                setStatusMessage('Knowledge successfully integrated!')
-                                manager.disconnect()
-                                setTimeout(onComplete, 1500)
-                            } else if (s === 'failed') {
-                                setStatus('failed')
-                                setErrorMessage(data.error || 'Processing failed.')
-                                manager.disconnect()
-                            }
+                            updateStatus(data.status, data.error)
                         }
                     } catch (e) {
                         console.error('Failed to parse SSE event:', e)
                     }
                 },
                 (error) => {
-                    console.error('SSE Error:', error)
+                    console.warn('SSE warning:', error)
                     retryCount++
                     if (retryCount < maxRetries) {
-                        console.log(`SSE retry ${retryCount}/${maxRetries}...`)
                         manager.disconnect()
-                        setTimeout(() => {
-                            createManager()
-                        }, 1000 * retryCount)
+                        setTimeout(createManager, 1000 * retryCount)
                     } else {
-                        console.error('SSE: Max retries exceeded')
-                        setStatus('failed')
-                        setErrorMessage('Lost connection to server. Please refresh and try again.')
+                        // SSE failed, rely on polling
+                        console.warn('SSE connection lost, switching to polling only.')
                     }
                 }
             )
-
             manager.connect()
             setSseManager(manager)
+            return manager
         }
 
-        createManager()
+        const manager = createManager()
+
+        // Polling Fallback (every 3s)
+        pollingRef.current = setInterval(async () => {
+            try {
+                // apiClient base is /v1, so request /documents/{id}
+                const res = await apiClient.get<any>(`/documents/${documentId}`)
+                if (res.data && res.data.status) {
+                    // console.log('Poll Status:', res.data.status)
+                    updateStatus(res.data.status, res.data.error_message)
+                }
+            } catch (err) {
+                console.warn('Poll failed', err)
+            }
+        }, 3000)
     }
 
     const getStatusLabel = (s: ProcessingStatus) => {

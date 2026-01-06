@@ -32,7 +32,8 @@ class TestCommunitySummarizer:
         mock_neo4j.execute_read.side_effect = [
             [{"name": "Entity A", "type": "Person", "description": "Desc A"}], # entities
             [{"source": "Entity A", "target": "Entity B", "type": "WORKS_WITH", "description": "Rel Desc"}], # relationships
-            [] # child summaries
+            [],  # child summaries
+            [{"id": "chunk_1", "content": "Sample text unit content"}]  # text_units
         ]
         
         # Mock LLM response

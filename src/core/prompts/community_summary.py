@@ -31,5 +31,8 @@ ENTITIES:
 RELATIONSHIPS:
 {relationships}
 
+TEXT_UNITS / SOURCES:
+{text_units}
+
 Generate the community summary report in JSON format:
 """

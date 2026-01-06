@@ -17,6 +17,7 @@ except ImportError:
     HAS_TIKTOKEN = False
 
 from src.core.intelligence.strategies import ChunkingStrategy
+from src.core.chunking.quality import ChunkQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class SemanticChunker:
         """
         self.chunk_size = strategy.chunk_size
         self.chunk_overlap = strategy.chunk_overlap
+        self.quality_scorer = ChunkQualityScorer()
         
         if HAS_TIKTOKEN:
             self.encoder = tiktoken.get_encoding(encoding_name)
@@ -116,10 +118,14 @@ class SemanticChunker:
         # Step 4: Assign indices and add overlap
         final_chunks = self._apply_overlap(chunks)
         
-        # Step 5: Enrich metadata
+        # Step 5: Enrich metadata and Quality Scoring
         for chunk in final_chunks:
             chunk.metadata["document_title"] = document_title
             chunk.token_count = self.count_tokens(chunk.content)
+            
+            # Apply Quality Scoring
+            quality_data = self.quality_scorer.grade_chunk(chunk.content)
+            chunk.metadata.update(quality_data)
 
         return final_chunks
 

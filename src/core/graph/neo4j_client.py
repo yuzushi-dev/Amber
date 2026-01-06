@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, List, Optional
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
+from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, basic_auth
 
 from src.api.config import settings
 from src.core.observability.tracer import trace_span
@@ -27,7 +27,7 @@ class Neo4jClient:
             try:
                 self._driver = AsyncGraphDatabase.driver(
                     self.uri, 
-                    auth=(self.user, self.password)
+                    auth=basic_auth(self.user, self.password)
                 )
                 # Verify connection
                 await self._driver.verify_connectivity()
