@@ -25,11 +25,12 @@ import JobsPage from './features/admin/pages/JobsPage'
 import QueuesPage from './features/admin/pages/QueuesPage'
 import TuningPage from './features/admin/pages/TuningPage'
 import CurationPage from './features/admin/pages/CurationPage'
-import DatabasePage from './features/admin/pages/DatabasePage'
+import MaintenancePage from './features/admin/pages/MaintenancePage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 import RagasSubPanel from './features/admin/components/RagasSubPanel'
+import DatabaseOverviewPage from './features/documents/pages/DatabaseOverviewPage'
 
 // =============================================================================
 // Root Route
@@ -118,8 +119,14 @@ const dataIndexRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/data',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/data/documents' })
+        throw redirect({ to: '/admin/data/overview' })
     },
+})
+
+const dataOverviewRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/data/overview',
+    component: () => <DatabaseOverviewPage />,
 })
 
 const dataDocumentsRoute = createRoute({
@@ -134,10 +141,10 @@ const dataDocumentDetailRoute = createRoute({
     component: () => <DocumentDetailPage />,
 })
 
-const dataDatabaseRoute = createRoute({
+const dataMaintenanceRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/data/database',
-    component: () => <DatabasePage />,
+    path: '/data/maintenance',
+    component: () => <MaintenancePage />,
 })
 
 const dataVectorsRoute = createRoute({
@@ -258,9 +265,10 @@ const routeTree = rootRoute.addChildren([
         adminChatRoute,
         // Data section
         dataIndexRoute,
+        dataOverviewRoute,
         dataDocumentsRoute,
         dataDocumentDetailRoute,
-        dataDatabaseRoute,
+        dataMaintenanceRoute,
         dataVectorsRoute,
         // Operations section
         opsIndexRoute,

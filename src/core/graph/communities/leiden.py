@@ -57,14 +57,15 @@ class CommunityDetector:
             nodes: List of entity IDs (elementId or distinct ID property)
             edges: List of (source_id, target_id, weight)
         """
-        # We use the 'id' property of Entity which is 'ent_...'
+        # We use the 'name' property of Entity as the unique identifier (along with tenant_id)
+        # Note: Entity nodes use (name, tenant_id) as their unique key, they don't have an 'id' property
         query = """
         MATCH (s:Entity)
         WHERE s.tenant_id = $tenant_id
         OPTIONAL MATCH (s)-[r]->(t:Entity)
         WHERE t.tenant_id = $tenant_id 
           AND NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
-        RETURN s.id as source, t.id as target, type(r) as rel_type, properties(r) as props
+        RETURN s.name as source, t.name as target, type(r) as rel_type, properties(r) as props
         """
         results = await self.neo4j.execute_read(query, {"tenant_id": tenant_id})
         
@@ -73,7 +74,9 @@ class CommunityDetector:
         
         for record in results:
             src = record["source"]
-            nodes.add(src)
+            if src:
+                nodes.add(src)
+            
             tgt = record["target"]
             if tgt:
                 nodes.add(tgt)
@@ -246,9 +249,9 @@ class CommunityDetector:
         WITH comm, c
         
         // Link Entities (Level 0)
-        // Note: 'members' is list of Entity IDs
-        FOREACH (member_id IN c.members | 
-            MERGE (e:Entity {id: member_id})
+        // Note: 'members' is list of Entity names (using name as unique identifier within tenant)
+        FOREACH (member_name IN [m IN c.members WHERE m IS NOT NULL] | 
+            MERGE (e:Entity {name: member_name, tenant_id: $tenant_id})
             MERGE (e)-[:BELONGS_TO]->(comm)
         )
         

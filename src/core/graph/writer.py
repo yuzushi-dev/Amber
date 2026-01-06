@@ -1,10 +1,12 @@
 import logging
+import re
 from typing import List, Dict, Any
 from src.core.graph.neo4j_client import neo4j_client
 from src.core.graph.schema import NodeLabel, RelationshipType
 from src.core.prompts.entity_extraction import ExtractionResult
 
 logger = logging.getLogger(__name__)
+
 
 class GraphWriter:
     """
@@ -55,6 +57,7 @@ class GraphWriter:
         MERGE (d)-[:{RelationshipType.HAS_CHUNK.value}]->(c)
         """
         
+
         # 2. Merge Entities
         if entities_param:
             query += f"""
@@ -69,33 +72,53 @@ class GraphWriter:
             MERGE (c)-[:{RelationshipType.MENTIONS.value}]->(e)
             """
 
-        # 3. Merge Relationships
-        if relationships_param:
-            query += f"""
-            WITH c
-            UNWIND $relationships as rel
-            MATCH (s:{NodeLabel.Entity.value} {{name: rel.source, tenant_id: $tenant_id}})
-            MATCH (t:{NodeLabel.Entity.value} {{name: rel.target, tenant_id: $tenant_id}})
-            MERGE (s)-[r:{RelationshipType.RELATED_TO.value} {{type: rel.type}}]->(t)
-            ON CREATE SET 
-                r.description = rel.description, 
-                r.weight = rel.weight, 
-                r.tenant_id = $tenant_id
-            """
-
+        # Execute the base query (Doc, Chunk, Entities)
         params = {
             "document_id": document_id,
             "chunk_id": chunk_id,
             "tenant_id": tenant_id,
-            "entities": entities_param,
-            "relationships": relationships_param
+            "entities": entities_param
         }
 
         try:
             await neo4j_client.execute_write(query, params)
+            
+            # 3. Native Relationship Merges (Batched by Type)
+            if result.relationships:
+                # Group relationships by sanitized type
+                rels_by_type = {}
+                for rel in result.relationships:
+                    # Sanitize: UPPER_CASE only, replace special chars with _
+                    safe_type = re.sub(r'[^A-Z0-9_]', '_', rel.type.upper())
+                    if not safe_type: safe_type = "RELATED_TO"
+                    
+                    if safe_type not in rels_by_type:
+                        rels_by_type[safe_type] = []
+                    rels_by_type[safe_type].append(rel.model_dump())
+                
+                # Execute one batch per type
+                for r_type, rel_batch in rels_by_type.items():
+                    rel_query = f"""
+                    UNWIND $batch as rel
+                    MATCH (s:{NodeLabel.Entity.value} {{name: rel.source, tenant_id: $tenant_id}})
+                    MATCH (t:{NodeLabel.Entity.value} {{name: rel.target, tenant_id: $tenant_id}})
+                    MERGE (s)-[r:`{r_type}`]->(t)
+                    ON CREATE SET 
+                        r.description = rel.description, 
+                        r.weight = rel.weight, 
+                        r.tenant_id = $tenant_id,
+                        r.created_at = timestamp()
+                    ON MATCH SET
+                        r.weight = rel.weight
+                    """
+                    await neo4j_client.execute_write(rel_query, {
+                        "batch": rel_batch,
+                        "tenant_id": tenant_id
+                    })
+
             logger.info(
                 f"Graph write complete for chunk {chunk_id}: "
-                f"{len(entities_param)} entities, {len(relationships_param)} relationships"
+                f"{len(entities_param)} entities, {len(result.relationships)} relationships"
             )
 
             # Trigger community staleness (Phase 4.3)

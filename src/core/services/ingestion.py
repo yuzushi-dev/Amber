@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.models.document import Document
 from src.core.state.machine import DocumentStatus
-from src.core.storage.minio_client import MinIOClient
+from src.core.storage.storage_client import MinIOClient
 from src.shared.identifiers import generate_document_id
 
 logger = logging.getLogger(__name__)
@@ -226,6 +226,14 @@ class IngestionService:
             
             # Update Document with domain (and maybe strategy name if we added a column)
             document.domain = domain.value
+            document.domain = domain.value
+            document.metadata_ = {
+                **(extraction_result.metadata or {}),
+                "processing_method": "ocr" if extraction_result.extractor_used == "ocr" else "extraction",
+                "conversion_pipeline": "amber_v2_standard",
+                "file_extension": f".{document.filename.split('.')[-1]}" if '.' in document.filename else "",
+                "content_primary_type": "pdf" if document.filename.lower().endswith(".pdf") else "text"
+            }
             
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
             # Update Status -> CHUNKING
@@ -312,16 +320,21 @@ class IngestionService:
                 embeddings, embed_stats = await embedding_service.embed_texts(chunk_contents)
                 
                 # Prepare data for Milvus upsert
-                milvus_data = [
-                    {
+                milvus_data = []
+                for chunk, emb in zip(chunks_to_process, embeddings):
+                    # Base data
+                    data = {
                         "chunk_id": chunk.id,
                         "document_id": chunk.document_id,
                         "tenant_id": document.tenant_id,
-                        "content": chunk.content[:65530],  # Truncate for Milvus VARCHAR limit
+                        "content": chunk.content[:65530],
                         "embedding": emb,
                     }
-                    for chunk, emb in zip(chunks_to_process, embeddings)
-                ]
+                    # Add metadata from chunk (handling potential None)
+                    if chunk.metadata_:
+                        data.update(chunk.metadata_)
+                    
+                    milvus_data.append(data)
                 
                 # Upsert to Milvus
                 await vector_store.upsert_chunks(milvus_data)
@@ -365,7 +378,48 @@ class IngestionService:
                 # We do NOT fail the document, as we still have chunks for RAG.
                 # But we should note this failure.
             
-            # 8. Update Document Status -> READY
+            # 10. Document Enrichment (Summary, Keywords, Hashtags)
+            # This step uses LLM to generate document-level metadata
+            try:
+                from src.core.intelligence.document_summarizer import get_document_summarizer
+                
+                logger.info(f"Generating document enrichment for {document_id}")
+                summarizer = get_document_summarizer()
+                
+                # Extract first 10 chunks for summary generation
+                chunk_contents = [c.content for c in chunks_to_process[:10]]
+                enrichment = await summarizer.extract_summary(
+                    chunks=chunk_contents,
+                    document_title=document.filename
+                )
+                
+                # Update document with enrichment data
+                document.summary = enrichment.get("summary", "")
+                document.document_type = enrichment.get("document_type", "other")
+                document.hashtags = enrichment.get("hashtags", [])
+                
+                # Keywords directly from LLM enrichment
+                document.keywords = enrichment.get("keywords", [])
+                
+                # Add domain as a keyword if not present
+                if domain and domain.value and domain.value not in document.keywords:
+                    document.keywords.append(domain.value)
+                
+                # Merge AI-generated values into metadata when PDF fields are empty
+                if document.metadata_:
+                    # Replace empty PDF metadata fields with AI-generated values
+                    if not document.metadata_.get("keywords"):
+                        document.metadata_["keywords"] = ", ".join(document.keywords) if document.keywords else ""
+                
+                logger.info(
+                    f"Document enriched: type={document.document_type}, "
+                    f"summary_len={len(document.summary)}, hashtags={len(document.hashtags)}"
+                )
+            except Exception as e:
+                logger.error(f"Document enrichment failed for {document_id}: {e}")
+                # Non-fatal - document is still usable without enrichment
+            
+            # 11. Update Document Status -> READY
             document.status = DocumentStatus.READY 
             await self.session.commit()
             EventDispatcher.emit_state_change(StateChangeEvent(
@@ -379,8 +433,9 @@ class IngestionService:
             logger.info(f"Processed document {document_id} using {extraction_result.extractor_used}")
             
         except Exception as e:
-            logger.error(f"Failed to process document {document_id}: {e}")
+            logger.exception(f"Failed to process document {document_id}")
             document.status = DocumentStatus.FAILED
-            document.error_message = str(e)
+            document.error_message = f"{type(e).__name__}: {str(e)}"
             await self.session.commit()
             raise
+

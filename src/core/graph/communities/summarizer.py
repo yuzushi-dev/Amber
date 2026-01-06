@@ -1,12 +1,12 @@
 import json
 import logging
 import asyncio
+import re
 from typing import List, Dict, Any, Optional
 
 from src.core.graph.neo4j_client import Neo4jClient
 from src.core.providers.factory import ProviderFactory
 from src.core.providers.base import ProviderTier
-from src.shared.identifiers import CommunityId
 from src.core.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT, COMMUNITY_SUMMARY_USER_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ class CommunitySummarizer:
         # 2. Format for LLM
         entities_str = self._format_entities(data["entities"])
         relationships_str = self._format_relationships(data["relationships"])
+        text_units_str = self._format_text_units(data.get("text_units", []))
         
         # If it's a higher level community, we might want to include summaries of child communities
         if data["child_summaries"]:
@@ -52,7 +53,8 @@ class CommunitySummarizer:
 
         prompt = COMMUNITY_SUMMARY_USER_PROMPT.format(
             entities=entities_str,
-            relationships=relationships_str
+            relationships=relationships_str,
+            text_units=text_units_str
         )
 
         # 3. Call LLM
@@ -106,7 +108,7 @@ class CommunitySummarizer:
 
     async def _fetch_community_data(self, community_id: str, tenant_id: str) -> Dict[str, Any]:
         """
-        Fetches entities, relationships, and child community summaries.
+        Fetches entities, relationships, child community summaries, and exemplar text units.
         """
         # Fetch entities directly belonging to this community
         entity_query = """
@@ -129,16 +131,28 @@ class CommunitySummarizer:
         WHERE child.summary IS NOT NULL
         RETURN child.title as title, child.summary as summary
         """
+
+        # Fetch Exemplar TextUnits (Chunks)
+        # We find chunks that MENTION entities in this community.
+        # We limit to top 10 distinct chunks to avoid blowing up context window.
+        chunk_query = """
+        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
+        MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
+        WITH DISTINCT c_chunk LIMIT 10
+        RETURN c_chunk.id as id, c_chunk.content as content
+        """
         
         entities = await self.neo4j.execute_read(entity_query, {"id": community_id})
         relationships = await self.neo4j.execute_read(rel_query, {"id": community_id})
         child_summaries = await self.neo4j.execute_read(child_query, {"id": community_id})
+        text_units = await self.neo4j.execute_read(chunk_query, {"id": community_id})
         
         return {
             "entities": entities,
             "relationships": relationships,
             "child_summaries": child_summaries,
-            "child_communities": [] # Placeholder if needed
+            "text_units": text_units,
+            "child_communities": [] 
         }
 
     def _format_entities(self, entities: List[Dict[str, Any]]) -> str:
@@ -146,6 +160,14 @@ class CommunitySummarizer:
 
     def _format_relationships(self, relationships: List[Dict[str, Any]]) -> str:
         return "\n".join([f"- {r['source']} -> {r['type']} -> {r['target']}: {r['description']}" for r in relationships])
+
+    def _format_text_units(self, text_units: List[Dict[str, Any]]) -> str:
+        if not text_units:
+            return "(No exemplar text units available)"
+        return "\n".join([
+            f"--- TextUnit ID: {tu['id']} ---\n{tu['content']}" 
+            for tu in text_units
+        ])
 
     def _parse_json(self, text: str) -> Dict[str, Any]:
         """Clean and parse JSON from LLM response."""
@@ -163,7 +185,6 @@ class CommunitySummarizer:
             return json.loads(text)
         except json.JSONDecodeError:
             # Try to find JSON block with regex
-            import re
             match = re.search(r"(\{.*\})", text, re.DOTALL)
             if match:
                 return json.loads(match.group(1))

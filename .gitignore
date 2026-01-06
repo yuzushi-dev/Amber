@@ -204,3 +204,7 @@ Thumbs.db
 
 /.agent
 /.packages
+project_brain.json
+PROJECT_BRAIN_GUIDE.md
+amber/
+changelog.md

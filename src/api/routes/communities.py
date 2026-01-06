@@ -2,10 +2,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.api.middleware.auth import get_tenant_id
+from src.shared.context import get_current_tenant as get_tenant_id
 from src.core.graph.neo4j_client import neo4j_client
 
-router = APIRouter(prefix="/v1/communities", tags=["Communities"])
+router = APIRouter(prefix="/communities", tags=["Communities"])
 
 class CommunityResponse(BaseModel):
     id: str

@@ -21,7 +21,7 @@ from src.api.deps import get_db_session
 from src.api.config import settings
 from src.core.models.document import Document
 from src.core.state.machine import DocumentStatus
-from src.core.storage.minio_client import MinIOClient
+from src.core.storage.storage_client import MinIOClient
 from src.core.services.ingestion import IngestionService
 from src.core.graph.neo4j_client import neo4j_client
 from sse_starlette.sse import EventSourceResponse
@@ -90,6 +90,16 @@ class DocumentResponse(BaseModel):
     source_type: Optional[str] = "upload"
     content_type: Optional[str] = None  # MIME type of the document
     created_at: datetime
+    
+    # Enrichment fields
+    summary: Optional[str] = None
+    document_type: Optional[str] = None
+    keywords: List[str] = []
+    hashtags: List[str] = []
+    metadata: Optional[Dict[str, Any]] = None
+    
+    # Stats (computed from chunks/entities/relationships)
+    stats: Optional[Dict[str, int]] = None
 
 
 @router.post(
@@ -323,7 +333,7 @@ async def list_documents(
 @router.get(
     "/{document_id}",
     summary="Get Document",
-    description="Get details of a specific document.",
+    description="Get details of a specific document including enrichment data and stats.",
 )
 async def get_document(
     document_id: str,
@@ -331,7 +341,7 @@ async def get_document(
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentResponse:
     """
-    Get document details.
+    Get document details with enrichment data and statistics.
     """
     tenant_id = _get_tenant_id(http_request)
     query = select(Document).where(
@@ -347,6 +357,9 @@ async def get_document(
             detail=f"Document {document_id} not found"
         )
     
+    # Compute stats from chunks and graph
+    stats = await _compute_document_stats(document_id, document.tenant_id, session)
+    
     return DocumentResponse(
         id=document.id,
         filename=document.filename,
@@ -356,8 +369,162 @@ async def get_document(
         tenant_id=document.tenant_id,
         source_type=document.source_type,
         content_type=_get_content_type(document),
-        created_at=document.created_at
+        created_at=document.created_at,
+        # Enrichment fields
+        summary=document.summary,
+        document_type=document.document_type,
+        keywords=document.keywords or [],
+        hashtags=document.hashtags or [],
+        metadata=document.metadata_,
+        stats=stats,
     )
+
+
+async def _compute_document_stats(
+    document_id: str, 
+    tenant_id: str,
+    session: AsyncSession
+) -> Dict[str, int]:
+    """
+    Compute document statistics: chunk count, entity count, relationship count.
+    """
+    from src.core.models.chunk import Chunk
+    from sqlalchemy import func
+    
+    # Chunk count from PostgreSQL
+    chunk_result = await session.execute(
+        select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)
+    )
+    chunk_count = chunk_result.scalar() or 0
+    
+    # Entity and relationship counts from Neo4j
+    entity_count = 0
+    relationship_count = 0
+    community_count = 0
+    
+    try:
+        # Entity count query
+        entity_cypher = """
+            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (c)-[:MENTIONS]->(e:Entity)
+            RETURN count(DISTINCT e) as entity_count
+        """
+        entity_records = await neo4j_client.execute_read(
+            entity_cypher,
+            {"document_id": document_id, "tenant_id": tenant_id}
+        )
+        if entity_records:
+            entity_count = entity_records[0].get("entity_count", 0)
+        
+        # Relationship count query
+        rel_cypher = """
+            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (c)-[:MENTIONS]->(s:Entity)-[r:RELATED_TO]->(t:Entity)
+            WHERE exists {
+                MATCH (d)-[:HAS_CHUNK]->(:Chunk)-[:MENTIONS]->(t)
+            }
+            RETURN count(DISTINCT r) as rel_count
+        """
+        rel_records = await neo4j_client.execute_read(
+            rel_cypher,
+            {"document_id": document_id, "tenant_id": tenant_id}
+        )
+        if rel_records:
+            relationship_count = rel_records[0].get("rel_count", 0)
+            
+        # Community count (via BELONGS_TO relationship)
+        comm_cypher = """
+            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
+            RETURN count(DISTINCT comm) as community_count
+        """
+        comm_records = await neo4j_client.execute_read(
+            comm_cypher,
+            {"document_id": document_id, "tenant_id": tenant_id}
+        )
+        if comm_records:
+            community_count = comm_records[0].get("community_count", 0)
+            
+    except Exception as e:
+        logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
+    
+    return {
+        "chunks": chunk_count,
+        "entities": entity_count,
+        "relationships": relationship_count,
+        "communities": community_count,
+    }
+
+
+@router.get(
+    "/{document_id}/communities",
+    summary="Get Document Communities",
+    description="Get communities (entity clusters) associated with this document.",
+)
+async def get_document_communities(
+    document_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    http_request: Request = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> List[Dict[str, Any]]:
+    """
+    Get communities (entity clusters) for a document from Neo4j.
+    
+    Returns communities with their entities, sorted by entity count.
+    """
+    # Verify document exists
+    query = select(Document).where(Document.id == document_id)
+    result = await session.execute(query)
+    document = result.scalars().first()
+    
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+    
+    # Query Neo4j for communities via BELONGS_TO relationship
+    cypher = """
+        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
+        WITH comm, collect(DISTINCT {
+            name: e.name,
+            type: e.type,
+            description: e.description
+        }) AS entities
+        RETURN comm.id AS community_id, comm.title AS title, comm.summary AS summary, 
+               comm.level AS level, entities, size(entities) AS entity_count
+        ORDER BY entity_count DESC
+        SKIP $offset
+        LIMIT $limit
+    """
+    
+    try:
+        records = await neo4j_client.execute_read(
+            cypher,
+            {
+                "document_id": document_id,
+                "tenant_id": document.tenant_id,
+                "offset": offset,
+                "limit": limit,
+            }
+        )
+        
+        return [
+            {
+                "community_id": record.get("community_id"),
+                "title": record.get("title"),
+                "summary": record.get("summary"),
+                "level": record.get("level"),
+                "entity_count": record.get("entity_count", 0),
+                "entities": record.get("entities", []),
+            }
+            for record in records
+        ]
+    except Exception as e:
+        logger.warning(f"Failed to fetch communities for document {document_id}: {e}")
+        return []
 
 
 @router.get(
@@ -455,6 +622,7 @@ async def delete_document(
         DETACH DELETE d, c
         WITH entities
         UNWIND entities AS entity
+        WITH entity
         WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
         DETACH DELETE entity
         """

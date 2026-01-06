@@ -52,7 +52,8 @@ export function useChatStream() {
 
         const apiKey = localStorage.getItem('api_key')
         // Build URL for proxy (configured in vite.config.ts)
-        const url = new URL('/v1/query/stream', window.location.origin)
+        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
+        const url = new URL(`${apiBaseUrl}/query/stream`)
         url.searchParams.set('query', query)
         url.searchParams.set('api_key', apiKey || '')
 

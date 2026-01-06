@@ -20,9 +20,18 @@ from src.core.models.base import Base
 from src.core.models.document import Document
 from src.core.models.chunk import Chunk
 from src.core.models.flag import Flag
+from src.core.models.memory import UserFact, ConversationSummary
 
 # Alembic Config object
 config = context.config
+
+# SAFETY WARNING
+if os.getenv("AMBER_RUNTIME") != "docker":
+    import sys
+    sys.stderr.write("\n" + "!" * 40 + "\n")
+    sys.stderr.write("WARNING: Running migrations from HOST.\n")
+    sys.stderr.write("Ensure your local DB config matches Docker.\n")
+    sys.stderr.write("!" * 40 + "\n\n")
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:

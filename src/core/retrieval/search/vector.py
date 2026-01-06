@@ -34,7 +34,7 @@ class VectorSearcher:
                 document_ids=document_ids,
                 limit=limit,
                 score_threshold=score_threshold,
-                # Additional filtering logic can be expanded here
+                filters=filters,
             )
             
             return [

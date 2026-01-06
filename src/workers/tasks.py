@@ -92,6 +92,14 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     try:
         result = run_async(_process_document_async(document_id, tenant_id, self.request.id))
         logger.info(f"[Task {self.request.id}] Completed processing for document {document_id}")
+        
+        # Trigger community detection asynchronously
+        try:
+            logger.info(f"[Task {self.request.id}] Triggering community detection for tenant {tenant_id}")
+            process_communities.delay(tenant_id)
+        except Exception as e:
+            logger.warning(f"Failed to trigger community detection: {e}")
+            
         return result
         
     except Exception as e:
@@ -150,8 +158,8 @@ async def _process_communities_async(tenant_id: str) -> dict:
 
         # 2. Summarization
         factory = ProviderFactory(
-            openai_api_key=settings.providers.openai_api_key,
-            anthropic_api_key=settings.providers.anthropic_api_key
+            openai_api_key=settings.openai_api_key,
+            anthropic_api_key=settings.anthropic_api_key
         )
         summarizer = CommunitySummarizer(neo4j_client, factory)
 
@@ -160,8 +168,8 @@ async def _process_communities_async(tenant_id: str) -> dict:
 
         # 3. Embeddings
         embedding_svc = EmbeddingService(
-            openai_api_key=settings.providers.openai_api_key,
-            model=settings.embeddings.default_model
+            openai_api_key=settings.openai_api_key,
+            model=settings.embeddings.default_model if hasattr(settings, 'embeddings') else "text-embedding-3-small"
         )
         comm_embedding_svc = CommunityEmbeddingService(embedding_svc)
 
@@ -201,7 +209,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     from src.api.config import settings
     from src.core.models.document import Document
-    from src.core.storage.minio_client import MinIOClient
+    from src.core.storage.storage_client import MinIOClient
     from src.core.services.ingestion import IngestionService
     from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
     from src.core.graph.neo4j_client import neo4j_client

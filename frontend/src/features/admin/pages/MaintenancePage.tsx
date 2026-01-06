@@ -1,8 +1,8 @@
 /**
- * Database Page
- * =============
+ * Maintenance Page
+ * ================
  * 
- * Database statistics, cache management, and maintenance actions.
+ * System maintenance, statistics, cache management, and maintenance actions.
  */
 
 import React, { useState } from 'react'
@@ -23,7 +23,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
-export default function DatabasePage() {
+export default function MaintenancePage() {
     const queryClient = useQueryClient()
     const [actionResult, setActionResult] = useState<MaintenanceResult | null>(null)
     const [showConfirm, setShowConfirm] = useState<string | null>(null)
@@ -84,7 +84,7 @@ export default function DatabasePage() {
         <div className="p-6 pb-32 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold">Database Administration</h1>
+                    <h1 className="text-2xl font-bold">System Maintenance</h1>
                     <p className="text-muted-foreground">
                         System statistics and maintenance tools
                     </p>
