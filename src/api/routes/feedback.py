@@ -6,38 +6,39 @@ Endpoints for capturing user feedback on RAG responses.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from typing import Any
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db
 from src.api.schemas.base import ResponseSchema
-from src.core.models.feedback import Feedback
-from src.shared.context import get_current_tenant
-from src.core.rate_limiter import rate_limiter, RateLimitCategory
-from src.core.services.tuning import TuningService
 from src.core.database.session import async_session_maker
+from src.core.models.feedback import Feedback
+from src.core.rate_limiter import RateLimitCategory, rate_limiter
+from src.core.services.tuning import TuningService
+from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 logger = logging.getLogger(__name__)
 
-from pydantic import BaseModel
+# from pydantic import BaseModel # Moved to top
+
 
 class FeedbackCreate(BaseModel):
     request_id: str
     is_positive: bool
-    score: Optional[float] = None
-    comment: Optional[str] = None
-    correction: Optional[str] = None
-    metadata: Dict[str, Any] = {}
+    score: float | None = None
+    comment: str | None = None
+    correction: str | None = None
+    metadata: dict[str, Any] = {}
 
 class FeedbackResponse(BaseModel):
     id: str
     request_id: str
     is_positive: bool
-    comment: Optional[str] = None
+    comment: str | None = None
 
 @router.post("/", response_model=ResponseSchema[FeedbackResponse])
 async def create_feedback(
@@ -48,7 +49,7 @@ async def create_feedback(
     Submit feedback for a RAG response.
     """
     tenant_id = get_current_tenant() or "default"
-    
+
     # Safety Check: Rate Limit for Feedback
     rl_result = await rate_limiter.check(str(tenant_id), RateLimitCategory.GENERAL)
     if not rl_result.allowed:
@@ -56,7 +57,7 @@ async def create_feedback(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many feedback submissions. Please try again later."
         )
-    
+
     try:
         feedback = Feedback(
             tenant_id=tenant_id,
@@ -70,7 +71,7 @@ async def create_feedback(
         db.add(feedback)
         await db.commit()
         await db.refresh(feedback)
-        
+
         # Stage 8.5.2: Wire feedback to weight adjustments (Analysis)
         tuning = TuningService(session_factory=async_session_maker)
         await tuning.analyze_feedback_for_tuning(
@@ -78,7 +79,7 @@ async def create_feedback(
             request_id=data.request_id,
             is_positive=data.is_positive
         )
-        
+
         return ResponseSchema(
             data=FeedbackResponse(
                 id=feedback.id,
@@ -93,7 +94,7 @@ async def create_feedback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to submit feedback"
-        )
+        ) from e
 
 @router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
@@ -113,7 +114,7 @@ async def get_feedback(
     Returns:
         Paginated feedback response with items, total, limit, and offset
     """
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
 
     # Get total count
     count_stmt = select(func.count(Feedback.id)).where(Feedback.request_id == request_id)

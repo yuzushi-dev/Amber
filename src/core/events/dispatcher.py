@@ -5,9 +5,9 @@ Event Dispatcher
 Simple event dispatching for state changes.
 """
 
-from typing import Any
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from src.core.state.machine import DocumentStatus
 
@@ -34,7 +34,7 @@ class EventDispatcher:
     def emit_state_change(event: StateChangeEvent) -> None:
         """
         Emit a state change event.
-        
+
         Args:
             event: The state change event payload
         """
@@ -47,14 +47,16 @@ class EventDispatcher:
 
         # Publish to Redis
         try:
-            import redis
             import json
+
+            import redis
+
             from src.api.config import settings
-            
+
             # Use sync Redis client for now as this might be called from sync context
             # or we create a new connection each time. For high throughput, use a pool.
             r = redis.Redis.from_url(settings.db.redis_url)
-            
+
             channel = f"document:{event.document_id}:status"
             message = {
                 "document_id": event.document_id,
@@ -64,9 +66,9 @@ class EventDispatcher:
             }
             if event.details:
                 message["details"] = event.details
-                
+
             r.publish(channel, json.dumps(message))
             r.close()
-            
+
         except Exception as e:
             logger.warning(f"Failed to publish event to Redis: {e}")

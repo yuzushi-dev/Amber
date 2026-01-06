@@ -3,16 +3,13 @@ Unit Tests for Identifier Generation and Validation
 ====================================================
 """
 
-import pytest
 
 from src.shared.identifiers import (
     ChunkId,
     DocumentId,
-    EntityId,
     extract_document_id_from_chunk,
     generate_chunk_id,
     generate_community_id,
-    generate_conversation_id,
     generate_document_id,
     generate_entity_id,
     generate_request_id,

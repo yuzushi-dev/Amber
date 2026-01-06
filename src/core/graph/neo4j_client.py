@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Dict, List, Optional
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, basic_auth
+from typing import Any
+
+from neo4j import AsyncDriver, AsyncGraphDatabase, basic_auth
 
 from src.api.config import settings
 from src.core.observability.tracer import trace_span
@@ -12,9 +13,9 @@ class Neo4jClient:
     Async client for Neo4j Graph Database.
     Handles connection pooling and transaction management.
     """
-    
-    _driver: Optional[AsyncDriver] = None
-    
+
+    _driver: AsyncDriver | None = None
+
     def __init__(self):
         self.uri = settings.db.neo4j_uri
         self.user = settings.db.neo4j_user
@@ -26,7 +27,7 @@ class Neo4jClient:
         if not self._driver:
             try:
                 self._driver = AsyncGraphDatabase.driver(
-                    self.uri, 
+                    self.uri,
                     auth=basic_auth(self.user, self.password)
                 )
                 # Verify connection
@@ -50,19 +51,19 @@ class Neo4jClient:
         return self._driver
 
     @trace_span("Neo4j.execute_read")
-    async def execute_read(self, query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    async def execute_read(self, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
         """
         Execute a read-only transaction.
-        
+
         Args:
             query: Cypher query string
             parameters: Query parameters
-            
+
         Returns:
             List of records as dictionaries
         """
         driver = await self.get_driver()
-        
+
         async with driver.session() as session:
             try:
                 result = await session.execute_read(self._execute_tx, query, parameters)
@@ -72,19 +73,19 @@ class Neo4jClient:
                 raise
 
     @trace_span("Neo4j.execute_write")
-    async def execute_write(self, query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    async def execute_write(self, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
         """
         Execute a write transaction.
-        
+
         Args:
             query: Cypher query string
             parameters: Query parameters
-            
+
         Returns:
             List of records as dictionaries (if any)
         """
         driver = await self.get_driver()
-        
+
         async with driver.session() as session:
             try:
                 result = await session.execute_write(self._execute_tx, query, parameters)
@@ -93,11 +94,11 @@ class Neo4jClient:
                 logger.error("Write transaction failed: %s", str(e))
                 raise
 
-    async def _execute_tx(self, tx, query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    async def _execute_tx(self, tx, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
         """Helper to run transaction and collect results."""
         if parameters is None:
             parameters = {}
-            
+
         result = await tx.run(query, parameters)
         records = [record.data() async for record in result]
         return records

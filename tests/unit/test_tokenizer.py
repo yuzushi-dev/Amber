@@ -1,12 +1,12 @@
-import pytest
 from src.core.utils.tokenizer import Tokenizer
+
 
 def test_count_tokens():
     text = "Hello, world!"
     # Basic check, exact count depends on tiktoken version/model
     count = Tokenizer.count_tokens(text)
     assert count > 0
-    
+
     # Empty string
     assert Tokenizer.count_tokens("") == 0
     assert Tokenizer.count_tokens(None) == 0

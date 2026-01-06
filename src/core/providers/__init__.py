@@ -6,16 +6,17 @@ Unified interface for LLM and Embedding providers with failover support.
 """
 
 from src.core.providers.base import (
-    BaseLLMProvider,
     BaseEmbeddingProvider,
+    BaseLLMProvider,
     BaseRerankerProvider,
-    GenerationResult,
     EmbeddingResult,
-    RerankResult,
+    GenerationResult,
     ProviderError,
     ProviderUnavailableError,
     RateLimitError,
+    RerankResult,
 )
+
 # from src.core.providers.factory import (
 #     ProviderFactory,
 #     get_llm_provider,

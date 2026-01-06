@@ -8,10 +8,10 @@ Ported from reference Amber project.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from src.core.providers.factory import ProviderFactory
 from src.core.providers.base import ProviderTier
+from src.core.providers.factory import ProviderFactory
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ DOCUMENT_TYPES = [
 class DocumentSummarizer:
     """
     LLM-based document summarizer.
-    
+
     Generates:
     - summary: Markdown-formatted document summary
     - document_type: Classification into one of DOCUMENT_TYPES
@@ -83,10 +83,10 @@ class DocumentSummarizer:
 
     async def extract_summary(
         self,
-        chunks: List[str],
+        chunks: list[str],
         document_title: str = "",
         max_summary_length: int = 1000
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Extract summary, document type, and hashtags from document chunks.
 
@@ -133,7 +133,7 @@ class DocumentSummarizer:
 
             # Parse JSON response
             parsed = self._parse_response(result.text)
-            
+
             # Validate and clean
             summary = parsed.get("summary", "")[:int(max_summary_length * 1.5)]
             document_type = parsed.get("document_type", "other").lower().strip()
@@ -205,10 +205,10 @@ Content to analyze:
 
 Provide a concise summary (max {max_length} chars), document type, and hashtags as JSON."""
 
-    def _parse_response(self, response_text: str) -> Dict[str, Any]:
+    def _parse_response(self, response_text: str) -> dict[str, Any]:
         """Parse JSON from LLM response."""
         import json
-        
+
         # Extract JSON from response (handle markdown code blocks)
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
@@ -216,11 +216,11 @@ Provide a concise summary (max {max_length} chars), document type, and hashtags 
                 return json.loads(json_match.group())
             except json.JSONDecodeError:
                 pass
-        
+
         logger.warning("Failed to parse JSON from LLM response")
         return {}
 
-    def _clean_hashtags(self, hashtags: List[Any]) -> List[str]:
+    def _clean_hashtags(self, hashtags: list[Any]) -> list[str]:
         """Clean and normalize hashtags."""
         cleaned = []
         for tag in hashtags:
@@ -231,7 +231,7 @@ Provide a concise summary (max {max_length} chars), document type, and hashtags 
                 cleaned.append(tag)
         return cleaned[:8]  # Limit to 8
 
-    def _empty_result(self) -> Dict[str, Any]:
+    def _empty_result(self) -> dict[str, Any]:
         """Return empty result structure."""
         return {
             "summary": "",
@@ -241,7 +241,7 @@ Provide a concise summary (max {max_length} chars), document type, and hashtags 
 
 
 # Module-level singleton
-_summarizer_instance: Optional[DocumentSummarizer] = None
+_summarizer_instance: DocumentSummarizer | None = None
 
 
 def get_document_summarizer() -> DocumentSummarizer:

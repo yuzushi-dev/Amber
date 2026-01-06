@@ -5,16 +5,16 @@ Chat History Admin Router
 Endpoints for viewing chat conversation history.
 """
 
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
 from datetime import datetime
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.deps import get_db_session
-from src.core.models.usage import UsageLog
 from src.core.models.feedback import Feedback
+from src.core.models.usage import UsageLog
 
 router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
 
@@ -27,14 +27,14 @@ class ChatHistoryItem(BaseModel):
     """Single chat history entry."""
     request_id: str
     tenant_id: str
-    query_text: Optional[str] = None
-    response_preview: Optional[str] = None
+    query_text: str | None = None
+    response_preview: str | None = None
     model: str
     provider: str
     total_tokens: int
     cost: float
     has_feedback: bool
-    feedback_score: Optional[float] = None
+    feedback_score: float | None = None
     created_at: datetime
 
     class Config:
@@ -53,16 +53,16 @@ class ConversationDetail(BaseModel):
     """Full conversation details."""
     request_id: str
     tenant_id: str
-    trace_id: Optional[str] = None
-    query_text: Optional[str] = None
-    response_text: Optional[str] = None
+    trace_id: str | None = None
+    query_text: str | None = None
+    response_text: str | None = None
     model: str
     provider: str
     input_tokens: int
     output_tokens: int
     total_tokens: int
     cost: float
-    feedback: Optional[dict] = None
+    feedback: dict | None = None
     metadata: dict
     created_at: datetime
 
@@ -78,7 +78,7 @@ class ConversationDetail(BaseModel):
 async def list_chat_history(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    tenant_id: Optional[str] = Query(None),
+    tenant_id: str | None = Query(None),
     session: AsyncSession = Depends(get_db_session),
 ):
     """

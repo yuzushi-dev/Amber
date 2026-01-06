@@ -20,8 +20,8 @@ def _get_redis():
         import redis.asyncio as redis
 
         return redis
-    except ImportError:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0")
+    except ImportError as e:
+        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
 
 
 @dataclass
@@ -37,13 +37,13 @@ class CacheConfig:
 class SemanticCache:
     """
     Cache for query embeddings.
-    
+
     Stores embeddings keyed by query hash to avoid re-embedding
     identical or near-identical queries.
-    
+
     Usage:
         cache = SemanticCache(config)
-        
+
         # Check cache
         embedding = await cache.get("What is GraphRAG?")
         if embedding is None:
@@ -78,10 +78,10 @@ class SemanticCache:
     async def get(self, query: str) -> list[float] | None:
         """
         Get cached embedding for a query.
-        
+
         Args:
             query: The query string
-            
+
         Returns:
             Cached embedding or None if not found
         """
@@ -114,12 +114,12 @@ class SemanticCache:
     ) -> bool:
         """
         Cache an embedding for a query.
-        
+
         Args:
             query: The query string
             embedding: The embedding vector
             ttl: Optional TTL override
-            
+
         Returns:
             True if cached successfully
         """

@@ -5,12 +5,11 @@ Marker Extractor
 High-fidelity PDF extraction using the marker-pdf library.
 """
 
-import time
 import logging
-from typing import Any
+import time
 
 try:
-    # marker-pdf exposes main functions. 
+    # marker-pdf exposes main functions.
     # Usually `from marker.convert import convert_single_pdf`
     # We'll assume the library is installed or handle import error.
     from marker.convert import convert_single_pdf
@@ -20,7 +19,6 @@ except ImportError:
     HAS_MARKER = False
 
 from src.core.extraction.base import BaseExtractor, ExtractionResult
-from src.core.extraction.config import extraction_settings
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +42,18 @@ class MarkerExtractor(BaseExtractor):
         """
         if not HAS_MARKER:
             raise ImportError("marker-pdf is not installed.")
-            
+
         start_time = time.time()
-        
+
         # Marker requires a file path usually.
         # We'll write to a temp file.
-        import tempfile
         import os
-        
+        import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
-            
+
         try:
             # Lazy load models
             if self._model_lst is None:
@@ -66,14 +64,14 @@ class MarkerExtractor(BaseExtractor):
             # convert_single_pdf is sync/blocking.
             # returns (full_text, images, out_meta)
             full_text, images, out_meta = convert_single_pdf(
-                tmp_path, 
+                tmp_path,
                 self._model_lst,
                 max_pages=None, # Extract all
                 parallel_factor=1 # Single threaded within this process
             )
-            
+
             elapsed = (time.time() - start_time) * 1000
-            
+
             return ExtractionResult(
                 content=full_text,
                 tables=[], # Marker integrates tables into text (markdown tables)
@@ -86,7 +84,7 @@ class MarkerExtractor(BaseExtractor):
 
         except Exception as e:
             logger.error(f"Marker extraction failed: {e}")
-            raise RuntimeError(f"Marker extraction failed: {e}")
+            raise RuntimeError(f"Marker extraction failed: {e}") from e
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)

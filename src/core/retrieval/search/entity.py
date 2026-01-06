@@ -1,7 +1,7 @@
 import logging
-from typing import Optional, Any
-from src.core.models.candidate import Candidate
-from src.core.vector_store.milvus import MilvusVectorStore, SearchResult
+from typing import Any
+
+from src.core.vector_store.milvus import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ class EntitySearcher:
     This helps in finding entities related to the query, which can then be used
     as seeds for graph traversal.
     """
-    
+
     def __init__(self, vector_store: MilvusVectorStore):
         # Note: We assume MilvusVectorStore is configured for the 'entities' collection
         # or we pass a specifically configured instance.
@@ -22,7 +22,7 @@ class EntitySearcher:
         query_vector: list[float],
         tenant_id: str,
         limit: int = 10,
-        score_threshold: Optional[float] = None
+        score_threshold: float | None = None
     ) -> list[dict[str, Any]]:
         """
         Execute semantic search over entities and return them.
@@ -36,7 +36,7 @@ class EntitySearcher:
                 score_threshold=score_threshold,
                 collection_name="entity_embeddings" # Assumes this is the collection name
             )
-            
+
             return [
                 {
                     "entity_id": r.chunk_id, # In entity collection, chunk_id is used for entity_id
@@ -47,7 +47,7 @@ class EntitySearcher:
                 }
                 for r in results
             ]
-            
+
         except Exception as e:
             logger.error(f"Entity search failed: {e}")
             return []

@@ -1,11 +1,11 @@
 import time
-import random
-import json
-from locust import HttpUser, task, between, events
+
+from locust import HttpUser, between, events, task
+
 
 class ChatUser(HttpUser):
     wait_time = between(1, 5)
-    
+
     def on_start(self):
         """Authenticate and set headers."""
         self.headers = {
@@ -23,7 +23,7 @@ class ChatUser(HttpUser):
                 "include_trace": False
             }
         }
-        
+
         start_time = time.time()
         # Note: server-sent events might need special handling, but basic POST to /stream works
         with self.client.post("/v1/query/stream", json=payload, headers=self.headers, catch_response=True, stream=True) as response:
@@ -62,7 +62,7 @@ class ChatUser(HttpUser):
 
 class IngestionUser(HttpUser):
     wait_time = between(10, 30)
-    
+
     def on_start(self):
         self.headers = {"X-API-Key": "amber-dev-key-2024"}
 
@@ -71,7 +71,7 @@ class IngestionUser(HttpUser):
         """Simulate document upload."""
         # Create a dummy PDF or text file content
         files = {'file': ('test_doc.txt', 'This is a load test document content.', 'text/plain')}
-        
+
         with self.client.post("/v1/documents", files=files, headers=self.headers, catch_response=True) as response:
              if response.status_code in [200, 201, 202]:
                  response.success()

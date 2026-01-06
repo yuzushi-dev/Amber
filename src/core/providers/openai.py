@@ -23,6 +23,7 @@ from src.core.providers.base import (
     TokenUsage,
 )
 from src.shared.context import get_current_tenant, get_request_id
+
 try:
     from opentelemetry import trace
 except ImportError:
@@ -38,7 +39,7 @@ except ImportError:
     class MockTrace:
         def get_current_span(self):
             return MockSpan()
-            
+
     trace = MockTrace()
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,8 @@ def _get_openai_client(api_key: str, base_url: str | None = None):
         from openai import AsyncOpenAI
 
         return AsyncOpenAI(api_key=api_key, base_url=base_url)
-    except ImportError:
-        raise ImportError("openai package is required. Install with: pip install openai>=1.10.0")
+    except ImportError as e:
+        raise ImportError("openai package is required. Install with: pip install openai>=1.10.0") from e
 
 
 class OpenAILLMProvider(BaseLLMProvider):
@@ -178,7 +179,7 @@ class OpenAILLMProvider(BaseLLMProvider):
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-                
+
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
                     operation="generation",
@@ -367,7 +368,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-                
+
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
                     operation="embedding",

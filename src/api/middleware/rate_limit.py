@@ -6,7 +6,7 @@ Enforces rate limits per tenant using Redis.
 """
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -129,7 +129,7 @@ class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process the request through size limiting."""
         origin = request.headers.get("Origin", "*")
-        
+
         # Only check POST/PUT requests
         if request.method not in ("POST", "PUT", "PATCH"):
             return await call_next(request)

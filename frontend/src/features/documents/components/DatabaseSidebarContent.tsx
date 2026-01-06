@@ -18,10 +18,7 @@ import {
     FileText,
     Plus,
     Search,
-    ChevronLeft,
     Folder,
-    MoreHorizontal,
-    Trash2,
     Database
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -167,7 +164,7 @@ export default function DatabaseSidebarContent({
                                     className="h-7 text-xs pl-7 bg-background"
                                     placeholder="Search..."
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                                 />
                             </div>
 

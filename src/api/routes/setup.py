@@ -6,7 +6,6 @@ Endpoints for managing optional dependency installation.
 """
 
 import logging
-from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel
@@ -45,13 +44,13 @@ class SetupStatusResponse(BaseModel):
     """Response for setup status endpoint."""
     initialized: bool
     setup_complete: bool
-    features: List[FeatureStatus]
+    features: list[FeatureStatus]
     summary: SetupSummary
 
 
 class InstallRequest(BaseModel):
     """Request to install features."""
-    feature_ids: List[str]
+    feature_ids: list[str]
 
 
 class InstallResponse(BaseModel):
@@ -88,7 +87,7 @@ async def get_setup_status() -> SetupStatusResponse:
     """Get current setup status."""
     service = get_setup_service()
     status_data = service.get_setup_status()
-    
+
     return SetupStatusResponse(
         initialized=status_data["initialized"],
         setup_complete=status_data["setup_complete"],
@@ -109,17 +108,17 @@ async def install_features(
 ) -> InstallResponse:
     """
     Start installation of selected features.
-    
+
     Installation runs in background. Poll /status to track progress.
     """
     service = get_setup_service()
-    
+
     if not request.feature_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No features specified",
         )
-    
+
     # Validate feature IDs
     valid_ids = set(service._features.keys())
     invalid_ids = [fid for fid in request.feature_ids if fid not in valid_ids]
@@ -128,13 +127,13 @@ async def install_features(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown feature IDs: {invalid_ids}",
         )
-    
+
     # Start installation in background
     async def do_install():
         await service.install_features_batch(request.feature_ids)
-    
+
     background_tasks.add_task(do_install)
-    
+
     return InstallResponse(
         success=True,
         message=f"Started installation of {len(request.feature_ids)} feature(s). Poll /status to track progress.",
@@ -151,7 +150,7 @@ async def skip_setup() -> InstallResponse:
     """Skip optional feature installation."""
     service = get_setup_service()
     service.mark_setup_complete()
-    
+
     return InstallResponse(
         success=True,
         message="Setup skipped. You can install optional features later from Settings.",
@@ -168,7 +167,7 @@ async def check_required_services() -> RequiredServicesResponse:
     """Check if required database drivers are available."""
     service = get_setup_service()
     result = await service.check_required_services()
-    
+
     return RequiredServicesResponse(
         all_available=result["all_available"],
         services={k: ServiceStatus(**v) for k, v in result["services"].items()},

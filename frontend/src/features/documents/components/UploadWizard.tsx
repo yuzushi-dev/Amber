@@ -11,12 +11,17 @@ interface UploadWizardProps {
 
 type ProcessingStatus = 'idle' | 'uploading' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'completed' | 'failed'
 
+interface ProcessingStatusResponse {
+    status: string
+    error_message?: string
+}
+
 export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
     const [file, setFile] = useState<File | null>(null)
     const [status, setStatus] = useState<ProcessingStatus>('idle')
     const [progress, setProgress] = useState(0)
     const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0 })
-    const [_statusMessage, setStatusMessage] = useState('')
+    const [, setStatusMessage] = useState('')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [sseManager, setSseManager] = useState<SSEManager | null>(null)
     const pollingRef = useRef<NodeJS.Timeout | null>(null)
@@ -67,10 +72,12 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             // Start listening for processing events
             startMonitoring(document_id, events_url)
 
-        } catch (err: any) {
-            console.error('Upload failed', err)
-            setStatus('idle')
-            setErrorMessage(err.response?.data?.detail || 'Upload failed. Please try again.')
+        } catch (err: unknown) {
+            const error = err as { message?: string; response?: { data?: { detail?: string } } }
+            const message = error.message || 'Upload failed'
+            setStatus('failed')
+            setStatusMessage(`Upload failed: ${message}`)
+            setErrorMessage(error.response?.data?.detail || 'Upload failed. Please try again.')
         }
     }
 
@@ -178,7 +185,7 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         pollingRef.current = setInterval(async () => {
             try {
                 // apiClient base is /v1, so request /documents/{id}
-                const res = await apiClient.get<any>(`/documents/${documentId}`)
+                const res = await apiClient.get<ProcessingStatusResponse>(`/documents/${documentId}`)
                 if (res.data && res.data.status) {
                     // console.log('Poll Status:', res.data.status)
                     updateStatus(res.data.status, res.data.error_message)

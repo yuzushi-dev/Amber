@@ -1,9 +1,9 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from src.core.retrieval.search.graph_traversal import GraphTraversalService
-from src.core.graph.neo4j_client import Neo4jClient
-
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+from src.core.graph.neo4j_client import Neo4jClient
+from src.core.retrieval.search.graph_traversal import GraphTraversalService
+
 
 def test_beam_search_basic():
     """Verify that beam search executes cypher and returns candidates."""
@@ -12,7 +12,7 @@ def test_beam_search_basic():
         {"chunk_id": "c1", "content": "Content 1", "document_id": "d1"},
         {"chunk_id": "c2", "content": "Content 2", "document_id": "d1"}
     ])
-    
+
     service = GraphTraversalService(mock_neo4j)
     results = asyncio.run(service.beam_search(
         seed_entity_ids=["e1"],
@@ -20,11 +20,11 @@ def test_beam_search_basic():
         depth=1,
         beam_width=2
     ))
-    
+
     assert len(results) == 2
     assert results[0].chunk_id == "c1"
     assert results[0].source == "graph"
-    
+
     # Verify the call to neo4j
     mock_neo4j.execute_read.assert_called_once()
     args, kwargs = mock_neo4j.execute_read.call_args

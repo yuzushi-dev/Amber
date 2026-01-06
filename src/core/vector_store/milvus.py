@@ -27,7 +27,7 @@ def _get_milvus():
             connections,
             utility,
         )
-        
+
         # Try importing Hybrid Search components
         try:
             from pymilvus import AnnSearchRequest, RRFRanker
@@ -46,8 +46,8 @@ def _get_milvus():
             "AnnSearchRequest": AnnSearchRequest,
             "RRFRanker": RRFRanker,
         }
-    except ImportError:
-        raise ImportError("pymilvus package is required. Install with: pip install pymilvus>=2.3.0")
+    except ImportError as e:
+        raise ImportError("pymilvus package is required. Install with: pip install pymilvus>=2.3.0") from e
 
 
 @dataclass
@@ -78,13 +78,13 @@ class MilvusConfig:
 class MilvusVectorStore:
     """
     Milvus vector store for semantic search.
-    
+
     Features:
     - Auto-creates collection with proper schema
     - HNSW indexing for fast search
     - Tenant isolation via filtering
     - Hybrid search support (vector + metadata filters)
-    
+
     Usage:
         store = MilvusVectorStore(config)
         await store.connect()
@@ -141,16 +141,16 @@ class MilvusVectorStore:
                 asyncio.to_thread(_sync_connect),
                 timeout=30.0  # 30 second timeout for connection
             )
-            
+
             if self._collection is None:
                 await self._create_collection(milvus)
 
             self._connected = True
             logger.info(f"Connected to Milvus at {self.config.host}:{self.config.port}")
 
-        except asyncio.TimeoutError:
+        except TimeoutError as e:
             logger.error("Milvus connection timed out after 30 seconds")
-            raise RuntimeError("Milvus connection timed out")
+            raise RuntimeError("Milvus connection timed out") from e
         except Exception as e:
             logger.error(f"Failed to connect to Milvus: {e}")
             raise
@@ -189,7 +189,7 @@ class MilvusVectorStore:
                 dim=self.config.dimensions,
             ),
         ]
-        
+
         # Add Sparse Vector field if supported (Milvus 2.4+)
         if hasattr(milvus["DataType"], "SPARSE_FLOAT_VECTOR"):
             fields.append(
@@ -221,7 +221,7 @@ class MilvusVectorStore:
             field_name=self.FIELD_VECTOR,
             index_params=index_params,
         )
-        
+
         # Create index for sparse vector if supported
         if hasattr(milvus["DataType"], "SPARSE_FLOAT_VECTOR"):
             sparse_index_params = {
@@ -266,7 +266,7 @@ class MilvusVectorStore:
     ) -> int:
         """
         Insert or update chunks with their embeddings.
-        
+
         Args:
             chunks: List of dicts with keys:
                 - chunk_id: Unique chunk identifier
@@ -275,7 +275,7 @@ class MilvusVectorStore:
                 - content: Chunk text content
                 - embedding: Vector embedding
                 - ... any other metadata keys (will be stored as dynamic fields)
-                
+
         Returns:
             Number of chunks upserted
         """
@@ -296,14 +296,14 @@ class MilvusVectorStore:
                 self.FIELD_CONTENT: c.get("content", "")[:65530],
                 self.FIELD_VECTOR: c["embedding"],
             }
-            
+
             # Add sparse vector if present
             if self.FIELD_SPARSE_VECTOR in c and c[self.FIELD_SPARSE_VECTOR]:
                 row[self.FIELD_SPARSE_VECTOR] = c[self.FIELD_SPARSE_VECTOR]
 
             # Merge extra metadata (everything in c that isn't a reserved field)
             reserved = {
-                self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, 
+                self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID,
                 self.FIELD_TENANT_ID, self.FIELD_CONTENT, self.FIELD_VECTOR,
                 self.FIELD_SPARSE_VECTOR,
                 "metadata" # avoid nesting if passed explicitly
@@ -311,7 +311,7 @@ class MilvusVectorStore:
             for k, v in c.items():
                 if k not in reserved:
                     row[k] = v
-                    
+
             data.append(row)
 
         try:
@@ -337,7 +337,7 @@ class MilvusVectorStore:
     ) -> list[SearchResult]:
         """
         Search for similar chunks.
-        
+
         Args:
             query_vector: Query embedding
             tenant_id: Tenant ID for isolation
@@ -345,7 +345,7 @@ class MilvusVectorStore:
             limit: Maximum results to return
             score_threshold: Minimum similarity score
             filters: Optional dictionary of metadata filters (e.g. {"quality_score >": 0.5})
-            
+
         Returns:
             List of SearchResult ordered by similarity
         """
@@ -358,7 +358,7 @@ class MilvusVectorStore:
                 f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
             )
             filter_list.append(f"({doc_filter})")
-            
+
         # Add dynamic filters
         if filters:
             for key, val in filters.items():
@@ -386,7 +386,7 @@ class MilvusVectorStore:
         }
 
         import asyncio
-        
+
         def _sync_search():
             """Synchronous search call."""
             return self._collection.search(
@@ -433,7 +433,7 @@ class MilvusVectorStore:
             logger.debug(f"Found {len(search_results)} results for search query")
             return search_results
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("Milvus search timed out after 30 seconds")
             return []
         except Exception as e:
@@ -549,7 +549,7 @@ class MilvusVectorStore:
         """
         await self.connect()
         milvus = _get_milvus()
-        
+
         # Check if hybrid search components are available
         if not milvus.get("AnnSearchRequest") or not milvus.get("RRFRanker"):
              logger.warning("Hybrid search components not found (pymilvus too old?), falling back to Dense search")
@@ -562,7 +562,7 @@ class MilvusVectorStore:
                 f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
             )
             filter_list.append(f"({doc_filter})")
-            
+
         if filters:
             for key, val in filters.items():
                 if isinstance(val, str):
@@ -581,11 +581,11 @@ class MilvusVectorStore:
             limit=limit,
             expr=filter_expr
         )
-        
+
         # Sparse
         # Check if sparse vector is valid and collection has the field
         has_sparse_field = next((f for f in self._collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None)
-        
+
         if not sparse_vector or not has_sparse_field:
             return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
 
@@ -617,7 +617,7 @@ class MilvusVectorStore:
                 asyncio.to_thread(_sync_hybrid),
                 timeout=30.0
             )
-            
+
             # Map results
             search_results = []
             for hits in results:
@@ -625,13 +625,13 @@ class MilvusVectorStore:
                      # Extract all fields into metadata
                      meta = {}
                      reserved = {
-                         self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, 
+                         self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID,
                          self.FIELD_TENANT_ID, self.FIELD_VECTOR, self.FIELD_SPARSE_VECTOR
                      }
                      for k, v in hit.entity.items():
                          if k not in reserved:
                              meta[k] = v
-                     
+
                      search_results.append(
                          SearchResult(
                              chunk_id=hit.entity.get(self.FIELD_CHUNK_ID),

@@ -173,6 +173,7 @@ class BaseLLMProvider(ABC):
         self.config = config or ProviderConfig()
         self._validate_config()
 
+    @abstractmethod
     def _validate_config(self) -> None:
         """Validate provider configuration. Override in subclasses."""
         pass
@@ -273,6 +274,7 @@ class BaseEmbeddingProvider(ABC):
         self.config = config or ProviderConfig()
         self._validate_config()
 
+    @abstractmethod
     def _validate_config(self) -> None:
         """Validate provider configuration. Override in subclasses."""
         pass

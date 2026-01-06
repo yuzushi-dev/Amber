@@ -93,7 +93,7 @@ class HealthChecker:
                 status=HealthStatus.UP,
                 latency_ms=round(latency, 2),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return DependencyHealth(
                 name="postgres",
                 status=HealthStatus.DOWN,
@@ -123,7 +123,7 @@ class HealthChecker:
                 status=HealthStatus.UP,
                 latency_ms=round(latency, 2),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return DependencyHealth(
                 name="redis",
                 status=HealthStatus.DOWN,
@@ -161,7 +161,7 @@ class HealthChecker:
                 status=HealthStatus.UP,
                 latency_ms=round(latency, 2),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return DependencyHealth(
                 name="neo4j",
                 status=HealthStatus.DOWN,
@@ -197,7 +197,7 @@ class HealthChecker:
                     status=HealthStatus.DOWN,
                     error=f"HTTP {response.status_code}",
                 )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return DependencyHealth(
                 name="milvus",
                 status=HealthStatus.DOWN,

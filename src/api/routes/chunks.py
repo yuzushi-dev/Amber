@@ -5,22 +5,21 @@ Chunk Retrieval Endpoint
 API routes for retrieving document chunks.
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.shared.context import get_current_tenant
 from src.core.database.session import get_db
 from src.core.models.chunk import Chunk
 from src.core.models.document import Document
-from src.shared.identifiers import DocumentId
+from src.shared.context import get_current_tenant
 
 router = APIRouter(tags=["documents"])
 
 
-@router.get("/documents/{document_id}/chunks", response_model=Dict[str, Any])
+@router.get("/documents/{document_id}/chunks", response_model=dict[str, Any])
 async def get_document_chunks(
     document_id: str,
     limit: int = 50,

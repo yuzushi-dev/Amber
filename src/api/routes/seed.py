@@ -7,12 +7,10 @@ Uses Wikipedia public domain content.
 """
 
 import logging
-from typing import Optional
-from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db
 from src.api.schemas.base import ResponseSchema
@@ -203,7 +201,7 @@ async def seed_sample_data(
 ):
     """
     Seed sample data for onboarding and demos.
-    
+
     Available datasets:
     - solar_system: Educational content about planets
     - technology: Technical documentation about AI/ML
@@ -213,25 +211,26 @@ async def seed_sample_data(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown dataset '{request.dataset}'. Available: {list(SAMPLE_DATASETS.keys())}"
         )
-    
+
     tenant_id = get_current_tenant() or "default"
     dataset = SAMPLE_DATASETS[request.dataset]
-    
+
     try:
+        import hashlib
+
+        from src.core.models.chunk import Chunk
         from src.core.models.document import Document
         from src.core.state.machine import DocumentStatus
-        from src.core.models.chunk import Chunk
-        from src.shared.identifiers import generate_document_id, generate_chunk_id
-        import hashlib
-        
+        from src.shared.identifiers import generate_chunk_id, generate_document_id
+
         documents_created = 0
-        
+
         for doc_data in dataset["documents"]:
             # Generate document ID and hash
             doc_id = generate_document_id()
             content_bytes = doc_data["content"].encode("utf-8")
             content_hash = hashlib.sha256(content_bytes).hexdigest()
-            
+
             # Create document
             document = Document(
                 id=doc_id,
@@ -245,7 +244,7 @@ async def seed_sample_data(
                 metadata_={"sample_dataset": request.dataset, "title": doc_data["title"]}
             )
             db.add(document)
-            
+
             # Create a single chunk for simplicity
             chunk = Chunk(
                 id=generate_chunk_id(doc_id, 0),
@@ -256,16 +255,16 @@ async def seed_sample_data(
                 metadata_={"title": doc_data["title"]}
             )
             db.add(chunk)
-            
+
             documents_created += 1
-        
+
         await db.commit()
-        
+
         logger.info(f"Seeded {documents_created} documents from '{request.dataset}' for tenant {tenant_id}")
-        
+
         # TODO: Trigger embedding generation in background
         # background_tasks.add_task(generate_embeddings_for_tenant, tenant_id)
-        
+
         return ResponseSchema(
             data=SeedResponse(
                 documents_created=documents_created,
@@ -274,13 +273,13 @@ async def seed_sample_data(
             ),
             message="Sample data seeded successfully"
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to seed sample data: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to seed sample data: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/sample-datasets", response_model=ResponseSchema[dict])
@@ -294,7 +293,7 @@ async def list_sample_datasets():
         }
         for name, data in SAMPLE_DATASETS.items()
     }
-    
+
     return ResponseSchema(
         data=datasets,
         message="Available sample datasets"

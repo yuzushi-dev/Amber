@@ -1,9 +1,9 @@
-import logging
 import asyncio
-from typing import List, Dict, Any, Optional
-from src.core.models.candidate import Candidate
-from src.core.vector_store.milvus import MilvusVectorStore
+import logging
+from typing import Any
+
 from src.core.providers.base import BaseLLMProvider
+from src.core.vector_store.milvus import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ class GlobalSearchService:
     """
     Implements Global Search using a Map-Reduce approach over community reports.
     """
-    
+
     def __init__(
         self,
         vector_store: MilvusVectorStore,
@@ -29,7 +29,7 @@ class GlobalSearchService:
         level: int = 1,
         max_reports: int = 10,
         relevance_threshold: float = 0.5
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute Global Search:
         1. Map: Score and summarize relevant community reports.
@@ -44,7 +44,7 @@ class GlobalSearchService:
             limit=max_reports,
             collection_name="community_embeddings"
         )
-        
+
         if not reports:
             return {"answer": "No relevant communities found for this query.", "sources": []}
 
@@ -54,26 +54,26 @@ class GlobalSearchService:
         for report in reports:
             content = report.metadata.get("content", "")
             map_tasks.append(self._map_report(query, content))
-            
+
         map_results = await asyncio.gather(*map_tasks)
-        
+
         # 3. Reduce Phase: Synthesize final answer
         all_points = "\n".join([r for r in map_results if r])
-        
+
         reduce_prompt = f"""
         You are an analyst synthesizing information from multiple community reports.
         User Query: {query}
-        
+
         Key points extracted from relevant communities:
         {all_points}
-        
+
         Based on the above points, provide a comprehensive, holistic answer to the user query.
         If the information is contradictory, highlight the different perspectives.
         Answer:
         """
-        
+
         final_answer = await self.llm.generate(reduce_prompt)
-        
+
         return {
             "answer": final_answer,
             "sources": [r.chunk_id for r in reports] # Community IDs
@@ -85,7 +85,7 @@ class GlobalSearchService:
         Extract key points relevant to the query from the following community report.
         Query: {query}
         Report: {report_content}
-        
+
         Return a concise list of findings or 'NONE' if no relevant info.
         Findings:
         """

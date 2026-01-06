@@ -89,8 +89,9 @@ export default function OptionalFeaturesManager() {
             }
 
             await fetchStatus()
-        } catch (err: any) {
-            const errorMessage = err.name === 'AbortError'
+        } catch (err: unknown) {
+            const error = err as { name?: string; message?: string }
+            const errorMessage = error.name === 'AbortError'
                 ? 'Installation timed out. It may still be running in the background.'
                 : (err instanceof Error ? err.message : 'Installation failed')
 

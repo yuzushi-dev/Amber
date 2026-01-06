@@ -9,9 +9,10 @@ interface LiveStatusBadgeProps {
     initialStatus: string
     onComplete?: () => void
     compact?: boolean
+    className?: string
 }
 
-export default function LiveStatusBadge({ documentId, initialStatus, onComplete, compact = false }: LiveStatusBadgeProps) {
+export default function LiveStatusBadge({ documentId, initialStatus, onComplete, compact = false, className }: LiveStatusBadgeProps) {
     const [status, setStatus] = useState(initialStatus)
 
     useEffect(() => {
@@ -64,13 +65,13 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete,
     // Compact mode for sidebar - just show colored dot
     if (compact) {
         if (s === 'ready' || s === 'completed') {
-            return <span className="w-2 h-2 rounded-full bg-green-500" title="Ready" />
+            return <span className={`w-2 h-2 rounded-full bg-green-500 ${className || ''}`} title="Ready" />
         }
         if (s === 'failed') {
-            return <span className="w-2 h-2 rounded-full bg-destructive" title="Failed" />
+            return <span className={`w-2 h-2 rounded-full bg-destructive ${className || ''}`} title="Failed" />
         }
         return (
-            <span title={s}>
+            <span title={s} className={className}>
                 <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
             </span>
         )

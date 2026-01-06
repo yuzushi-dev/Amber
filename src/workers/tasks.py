@@ -5,10 +5,9 @@ Background Tasks
 Celery tasks for background document processing.
 """
 
-import logging
 import asyncio
+import logging
 import sys
-from typing import Any
 
 # Ensure custom packages are loadable
 if "/app/.packages" not in sys.path:
@@ -17,10 +16,9 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
-from src.workers.celery_app import celery_app
-from src.core.state.machine import DocumentStatus
 from src.core.models.document import Document
-from src.core.models.chunk import Chunk
+from src.core.state.machine import DocumentStatus
+from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +34,7 @@ def run_async(coro):
 
 class BaseTask(Task):
     """Base task with common error handling."""
-    
+
     autoretry_for = (Exception,)
     retry_backoff = True
     retry_backoff_max = 300  # 5 minutes max
@@ -60,7 +58,7 @@ def health_check(self) -> dict:
 
 
 @celery_app.task(
-    bind=True, 
+    bind=True,
     name="src.workers.tasks.process_document",
     base=BaseTask,
     max_retries=3,
@@ -69,7 +67,7 @@ def health_check(self) -> dict:
 def process_document(self, document_id: str, tenant_id: str) -> dict:
     """
     Process a document through the full ingestion pipeline.
-    
+
     Steps:
     1. Fetch document from DB
     2. Update status to EXTRACTING
@@ -79,38 +77,38 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     6. Update status to CHUNKING
     7. Run semantic chunking
     8. Update status to READY
-    
+
     Args:
         document_id: ID of the document to process.
         tenant_id: Tenant for context.
-        
+
     Returns:
         dict: Processing result summary.
     """
     logger.info(f"[Task {self.request.id}] Starting processing for document {document_id}")
-    
+
     try:
         result = run_async(_process_document_async(document_id, tenant_id, self.request.id))
         logger.info(f"[Task {self.request.id}] Completed processing for document {document_id}")
-        
+
         # Trigger community detection asynchronously
         try:
             logger.info(f"[Task {self.request.id}] Triggering community detection for tenant {tenant_id}")
             process_communities.delay(tenant_id)
         except Exception as e:
             logger.warning(f"Failed to trigger community detection: {e}")
-            
+
         return result
-        
+
     except Exception as e:
         logger.error(f"[Task {self.request.id}] Failed processing document {document_id}: {e}")
-        
+
         # Update document status to FAILED
         try:
             run_async(_mark_document_failed(document_id, str(e)))
         except Exception as fail_err:
             logger.error(f"Failed to mark document as failed: {fail_err}")
-        
+
         # Retry if not exceeded
         try:
             raise self.retry(exc=e)
@@ -135,18 +133,18 @@ def process_communities(self, tenant_id: str) -> dict:
         return result
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
-        raise self.retry(exc=e)
+        raise self.retry(exc=e) from e
 
 
 async def _process_communities_async(tenant_id: str) -> dict:
     """Async implementation of community processing."""
-    from src.core.graph.neo4j_client import neo4j_client
+    from src.api.config import settings
+    from src.core.graph.communities.embeddings import CommunityEmbeddingService
     from src.core.graph.communities.leiden import CommunityDetector
     from src.core.graph.communities.summarizer import CommunitySummarizer
-    from src.core.graph.communities.embeddings import CommunityEmbeddingService
+    from src.core.graph.neo4j_client import neo4j_client
     from src.core.providers.factory import ProviderFactory
     from src.core.services.embeddings import EmbeddingService
-    from src.api.config import settings
 
     try:
         # 1. Detection
@@ -203,16 +201,14 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     """
     Async implementation of document processing.
     """
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
 
     from src.api.config import settings
-    from src.core.models.document import Document
-    from src.core.storage.storage_client import MinIOClient
-    from src.core.services.ingestion import IngestionService
-    from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
     from src.core.graph.neo4j_client import neo4j_client
+    from src.core.services.ingestion import IngestionService
+    from src.core.storage.storage_client import MinIOClient
 
     # Create async session
     engine = create_async_engine(settings.db.database_url)
@@ -271,22 +267,21 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
 async def _mark_document_failed(document_id: str, error: str):
     """Mark document as failed in DB."""
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select
-    
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
     from src.api.config import settings
-    from src.core.models.document import Document
-    
+
     engine = create_async_engine(settings.db.database_url)
-    
+
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        
+
         async with async_session() as session:
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
-            
+
             if document:
                 document.status = DocumentStatus.FAILED
                 await session.commit()
@@ -300,8 +295,9 @@ def _publish_status(document_id: str, status: str, progress: int, error: str = N
     import json
     try:
         import redis
+
         from src.api.config import settings
-        
+
         r = redis.Redis.from_url(settings.db.redis_url)
         try:
             channel = f"document:{document_id}:status"
@@ -312,7 +308,7 @@ def _publish_status(document_id: str, status: str, progress: int, error: str = N
             }
             if error:
                 message["error"] = error
-                
+
             r.publish(channel, json.dumps(message))
         finally:
             r.close()
@@ -325,8 +321,9 @@ def _publish_benchmark_status(benchmark_id: str, status: str, progress: int, err
     import json
     try:
         import redis
+
         from src.api.config import settings
-        
+
         r = redis.Redis.from_url(settings.db.redis_url)
         channel = f"benchmark:{benchmark_id}:status"
         message = {
@@ -336,7 +333,7 @@ def _publish_benchmark_status(benchmark_id: str, status: str, progress: int, err
         }
         if error:
             message["error"] = error
-            
+
         r.publish(channel, json.dumps(message))
         r.close()
     except Exception as e:
@@ -369,21 +366,21 @@ def run_ragas_benchmark(self, benchmark_run_id: str, tenant_id: str) -> dict:
         dict: Benchmark result summary
     """
     logger.info(f"[Task {self.request.id}] Starting benchmark run {benchmark_run_id}")
-    
+
     try:
         result = run_async(_run_ragas_benchmark_async(benchmark_run_id, tenant_id, self.request.id))
         logger.info(f"[Task {self.request.id}] Completed benchmark run {benchmark_run_id}")
         return result
-        
+
     except Exception as e:
         logger.error(f"[Task {self.request.id}] Failed benchmark run {benchmark_run_id}: {e}")
-        
+
         # Update benchmark status to FAILED
         try:
             run_async(_mark_benchmark_failed(benchmark_run_id, str(e)))
         except Exception as fail_err:
             logger.error(f"Failed to mark benchmark as failed: {fail_err}")
-        
+
         raise
 
 
@@ -391,47 +388,48 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
     """Async implementation of Ragas benchmark execution."""
     import json
     from datetime import datetime
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
+
     from sqlalchemy import select
-    
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
     from src.api.config import settings
-    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
     from src.core.evaluation.ragas_service import RagasService
-    
+    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+
     # Create async session
     engine = create_async_engine(settings.db.database_url)
-    
+
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        
+
         async with async_session() as session:
             # Fetch benchmark run
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
             benchmark = result.scalars().first()
-            
+
             if not benchmark:
                 raise ValueError(f"BenchmarkRun {benchmark_run_id} not found")
-            
+
             # Update status to RUNNING
             benchmark.status = BenchmarkStatus.RUNNING
             benchmark.started_at = datetime.utcnow()
             await session.commit()
             _publish_benchmark_status(benchmark_run_id, "running", 0)
-            
+
             # Load golden dataset
             dataset_path = f"src/core/evaluation/{benchmark.dataset_name}"
             try:
-                with open(dataset_path, "r") as f:
+                with open(dataset_path) as f:
                     dataset = json.load(f)
             except FileNotFoundError:
                 # Try in tests/data
                 dataset_path = f"tests/data/{benchmark.dataset_name}"
-                with open(dataset_path, "r") as f:
+                with open(dataset_path) as f:
                     dataset = json.load(f)
-            
+
             # Initialize RagasService
             try:
                 from openai import AsyncOpenAI
@@ -440,23 +438,23 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             except Exception as e:
                 logger.warning(f"Could not initialize with OpenAI client: {e}")
                 ragas_service = RagasService()
-            
+
             # Run evaluation on each sample
             details = []
             total_samples = len(dataset)
-            
+
             for i, sample in enumerate(dataset):
                 query = sample.get("query", sample.get("question", ""))
                 ideal_context = sample.get("ideal_context", sample.get("context", ""))
                 ideal_answer = sample.get("ideal_answer", sample.get("answer", ""))
-                
+
                 # Evaluate using RagasService
                 eval_result = await ragas_service.evaluate_sample(
                     query=query,
                     context=ideal_context,
                     response=ideal_answer
                 )
-                
+
                 details.append({
                     "query": query,
                     "faithfulness": eval_result.faithfulness,
@@ -464,27 +462,27 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
                     "context_precision": eval_result.context_precision,
                     "context_recall": eval_result.context_recall
                 })
-                
+
                 # Publish progress
                 progress = int((i + 1) / total_samples * 100)
                 _publish_benchmark_status(benchmark_run_id, "running", progress)
-            
+
             # Aggregate metrics
             metrics = {
                 "faithfulness": sum(d["faithfulness"] or 0 for d in details) / len(details) if details else 0,
                 "response_relevancy": sum(d["response_relevancy"] or 0 for d in details) / len(details) if details else 0,
                 "samples_evaluated": len(details)
             }
-            
+
             # Update benchmark with results
             benchmark.status = BenchmarkStatus.COMPLETED
             benchmark.completed_at = datetime.utcnow()
             benchmark.metrics = metrics
             benchmark.details = details
             await session.commit()
-            
+
             _publish_benchmark_status(benchmark_run_id, "completed", 100)
-            
+
             return {
                 "benchmark_run_id": benchmark_run_id,
                 "status": "completed",
@@ -499,24 +497,25 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     """Mark benchmark as failed in DB."""
     from datetime import datetime
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
+
     from sqlalchemy import select
-    
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
     from src.api.config import settings
     from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
-    
+
     engine = create_async_engine(settings.db.database_url)
-    
+
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        
+
         async with async_session() as session:
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
             benchmark = result.scalars().first()
-            
+
             if benchmark:
                 benchmark.status = BenchmarkStatus.FAILED
                 benchmark.completed_at = datetime.utcnow()

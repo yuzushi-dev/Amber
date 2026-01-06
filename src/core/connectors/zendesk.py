@@ -6,8 +6,9 @@ Connector for Zendesk Help Center articles.
 """
 
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator, Optional, Dict, Any
+from typing import Any
 
 import httpx
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ZendeskConnector(BaseConnector):
     """
     Connector for Zendesk Help Center.
-    
+
     Authenticates via API token and fetches articles.
     Supports incremental sync using updated_at filtering.
     """
@@ -27,7 +28,7 @@ class ZendeskConnector(BaseConnector):
     def __init__(self, subdomain: str, email: str = None, api_token: str = None):
         """
         Initialize Zendesk connector.
-        
+
         Args:
             subdomain: Zendesk subdomain (e.g., 'mycompany' for mycompany.zendesk.com)
             email: Admin email for API authentication
@@ -39,23 +40,23 @@ class ZendeskConnector(BaseConnector):
         self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
         self._authenticated = False
 
-    async def authenticate(self, credentials: Dict[str, Any]) -> bool:
+    async def authenticate(self, credentials: dict[str, Any]) -> bool:
         """
         Authenticate with Zendesk API.
-        
+
         Args:
             credentials: Optional override credentials with 'email' and 'api_token'.
         """
         email = credentials.get("email", self.email)
         api_token = credentials.get("api_token", self.api_token)
-        
+
         if not email or not api_token:
             logger.error("Zendesk credentials not provided")
             return False
-        
+
         self.email = email
         self.api_token = api_token
-        
+
         # Test authentication
         try:
             async with httpx.AsyncClient() as client:
@@ -71,22 +72,22 @@ class ZendeskConnector(BaseConnector):
             logger.error(f"Zendesk authentication failed: {e}")
             return False
 
-    async def fetch_items(self, since: Optional[datetime] = None) -> AsyncIterator[ConnectorItem]:
+    async def fetch_items(self, since: datetime | None = None) -> AsyncIterator[ConnectorItem]:
         """
         Fetch articles from Zendesk Help Center.
-        
+
         Args:
             since: Only fetch articles updated after this timestamp.
         """
         if not self._authenticated:
             raise RuntimeError("Not authenticated. Call authenticate() first.")
-        
+
         url = f"{self.base_url}/help_center/articles.json"
         params = {"per_page": 100}
-        
+
         if since:
             params["updated_after"] = since.isoformat()
-        
+
         async with httpx.AsyncClient() as client:
             while url:
                 response = await client.get(
@@ -96,7 +97,7 @@ class ZendeskConnector(BaseConnector):
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 for article in data.get("articles", []):
                     yield ConnectorItem(
                         id=str(article["id"]),
@@ -112,7 +113,7 @@ class ZendeskConnector(BaseConnector):
                             "vote_sum": article.get("vote_sum", 0),
                         }
                     )
-                
+
                 # Handle pagination
                 url = data.get("next_page")
                 params = {}  # Next page URL includes params
@@ -123,7 +124,7 @@ class ZendeskConnector(BaseConnector):
         """
         if not self._authenticated:
             raise RuntimeError("Not authenticated. Call authenticate() first.")
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.base_url}/help_center/articles/{item_id}.json",
@@ -131,7 +132,7 @@ class ZendeskConnector(BaseConnector):
             )
             response.raise_for_status()
             data = response.json()
-            
+
             body = data.get("article", {}).get("body", "")
             return body.encode("utf-8")
 

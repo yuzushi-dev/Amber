@@ -1,9 +1,7 @@
 import { renderHook, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useChatStream } from '@/features/chat/hooks/useChatStream'
-import { useChatStore } from '@/features/chat/store'
-
-// Mock the store
+// import { useChatStore } from '@/features/chat/store'
 vi.mock('@/features/chat/store', () => ({
     useChatStore: vi.fn(() => ({
         messages: [],

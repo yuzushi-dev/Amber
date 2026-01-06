@@ -5,15 +5,16 @@ Unit Tests for Structured Query Detection and Execution
 Tests the structured query detector, Cypher generator, and executor.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.query.structured_query import (
-    StructuredQueryType,
+    CypherGenerator,
     StructuredIntent,
     StructuredKGDetector,
-    CypherGenerator,
     StructuredQueryExecutor,
+    StructuredQueryType,
 )
 
 
@@ -128,7 +129,7 @@ class TestCypherGenerator:
             limit=10,
         )
         cypher, params = generator.generate(intent, "tenant_123")
-        
+
         assert "MATCH (d:Document)" in cypher
         assert "WHERE d.tenant_id = $tenant_id" in cypher
         assert "LIMIT $limit" in cypher
@@ -141,7 +142,7 @@ class TestCypherGenerator:
             query_type=StructuredQueryType.COUNT_ENTITIES,
         )
         cypher, params = generator.generate(intent, "tenant_abc")
-        
+
         assert "MATCH (e:Entity)" in cypher
         assert "count(e)" in cypher
         assert params["tenant_id"] == "tenant_abc"
@@ -151,7 +152,7 @@ class TestCypherGenerator:
         intent = StructuredIntent(
             query_type=StructuredQueryType.NOT_STRUCTURED,
         )
-        
+
         with pytest.raises(ValueError):
             generator.generate(intent, "tenant_123")
 
@@ -179,23 +180,23 @@ class TestStructuredQueryExecutor:
             {"id": "doc_1", "filename": "test.pdf", "status": "ready"},
             {"id": "doc_2", "filename": "report.docx", "status": "ready"},
         ]
-        
+
         with patch.object(executor.detector, "detect") as mock_detect, \
              patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
-            
+
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.LIST_DOCUMENTS,
                 original_query="list documents"
             )
-            
+
             mock_neo4j.connect = AsyncMock()
             mock_neo4j.execute_read = AsyncMock(return_value=mock_results)
-            
+
             result = await executor.try_execute(
                 query="list documents",
                 tenant_id="tenant_123"
             )
-            
+
             assert result is not None
             assert result.success is True
             assert result.query_type == StructuredQueryType.LIST_DOCUMENTS
@@ -206,23 +207,23 @@ class TestStructuredQueryExecutor:
     async def test_count_documents_execution(self, executor):
         """Test execution of count documents query."""
         mock_results = [{"count": 42}]
-        
+
         with patch.object(executor.detector, "detect") as mock_detect, \
              patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
-            
+
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.COUNT_DOCUMENTS,
                 original_query="how many documents"
             )
-            
+
             mock_neo4j.connect = AsyncMock()
             mock_neo4j.execute_read = AsyncMock(return_value=mock_results)
-            
+
             result = await executor.try_execute(
                 query="how many documents",
                 tenant_id="tenant_123"
             )
-            
+
             assert result is not None
             assert result.success is True
             assert result.query_type == StructuredQueryType.COUNT_DOCUMENTS
@@ -233,20 +234,20 @@ class TestStructuredQueryExecutor:
         """Test that execution errors return failure result."""
         with patch.object(executor.detector, "detect") as mock_detect, \
              patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
-            
+
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.LIST_DOCUMENTS,
                 original_query="list documents"
             )
-            
+
             mock_neo4j.connect = AsyncMock()
             mock_neo4j.execute_read = AsyncMock(side_effect=Exception("DB error"))
-            
+
             result = await executor.try_execute(
                 query="list documents",
                 tenant_id="tenant_123"
             )
-            
+
             assert result is not None
             assert result.success is False
             assert "DB error" in result.error

@@ -5,7 +5,7 @@ Community Summarization Prompts
 Prompts for generating structured reports for detected entity clusters.
 """
 
-COMMUNITY_SUMMARY_SYSTEM_PROMPT = """You are an expert analyst. Your task is to summarize a "community" of entities and relationships extracted from a Knowledge Graph. 
+COMMUNITY_SUMMARY_SYSTEM_PROMPT = """You are an expert analyst. Your task is to summarize a "community" of entities and relationships extracted from a Knowledge Graph.
 
 A community represents a semantically related cluster of information. You will be provided with:
 1. A list of ENTITIES (with their types and descriptions)

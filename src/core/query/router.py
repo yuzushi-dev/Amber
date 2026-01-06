@@ -6,12 +6,11 @@ Dynamically selects the best SearchMode for a given query.
 """
 
 import logging
-from typing import Optional
 
 from src.api.schemas.query import SearchMode
+from src.core.prompts.query_analysis import QUERY_MODE_PROMPT
 from src.core.providers.base import BaseLLMProvider
 from src.core.providers.factory import ProviderFactory
-from src.core.prompts.query_analysis import QUERY_MODE_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ class QueryRouter:
     # Heuristic keywords
     GLOBAL_KEYWORDS = {"all", "main", "themes", "summarize", "trends", "overall", "summary", "everything"}
     DRIFT_KEYWORDS = {"compare", "relation", "differences", "between", "how does", "impact", "influence"}
-    
+
     # Structured query patterns (for list/count operations)
     STRUCTURED_STARTERS = {
         "list", "show", "get", "display", "count", "how many"
@@ -37,9 +36,9 @@ class QueryRouter:
 
     def __init__(
         self,
-        provider: Optional[BaseLLMProvider] = None,
-        openai_api_key: Optional[str] = None,
-        anthropic_api_key: Optional[str] = None,
+        provider: BaseLLMProvider | None = None,
+        openai_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
     ):
         if provider:
             self.provider = provider
@@ -53,12 +52,12 @@ class QueryRouter:
     async def route(
         self,
         query: str,
-        explicit_mode: Optional[SearchMode] = None,
+        explicit_mode: SearchMode | None = None,
         use_llm: bool = True,
     ) -> SearchMode:
         """
         Determine the SearchMode for a query.
-        
+
         Order of precedence:
         1. Explicit override (from API request)
         2. Rule-based heuristics (Fast)
@@ -71,12 +70,12 @@ class QueryRouter:
 
         # 1. Rule-based heuristics
         query_lower = query.lower()
-        
+
         # Check for STRUCTURED queries first (list, count, etc.)
         if self._is_structured_query(query_lower):
             logger.debug("Routing to STRUCTURED mode via heuristics")
             return SearchMode.STRUCTURED
-        
+
         # Check for GLOBAL keywords
         if any(kw in query_lower for kw in self.GLOBAL_KEYWORDS):
             logger.debug("Routing to GLOBAL mode via heuristics")
@@ -93,11 +92,11 @@ class QueryRouter:
                 prompt = QUERY_MODE_PROMPT.format(query=query)
                 mode_str = await self.provider.generate(prompt)
                 mode_str = mode_str.strip().lower()
-                
+
                 if mode_str in [m.value for m in SearchMode]:
                     logger.debug(f"Routing to {mode_str} mode via LLM")
                     return SearchMode.from_str(mode_str) if hasattr(SearchMode, 'from_str') else SearchMode(mode_str)
-                
+
                 logger.warning(f"LLM returned invalid mode: {mode_str}")
             except Exception as e:
                 logger.error(f"LLM mode classification failed: {e}")
@@ -109,28 +108,28 @@ class QueryRouter:
     def _is_structured_query(self, query_lower: str) -> bool:
         """
         Check if query matches structured query patterns.
-        
+
         Structured queries are list/count operations on database entities
         that can be answered directly with Cypher, without RAG.
         """
         words = query_lower.split()
         if not words:
             return False
-        
+
         # Check if starts with a structured starter
         first_word = words[0]
         starts_with_starter = first_word in self.STRUCTURED_STARTERS
-        
+
         # Special case: "how many" is two words
         starts_with_how_many = (
-            len(words) >= 2 and 
-            words[0] == "how" and 
+            len(words) >= 2 and
+            words[0] == "how" and
             words[1] == "many"
         )
-        
+
         if not (starts_with_starter or starts_with_how_many):
             return False
-        
+
         # Check if any word matches a structured target
         return any(word in self.STRUCTURED_TARGETS for word in words)
 

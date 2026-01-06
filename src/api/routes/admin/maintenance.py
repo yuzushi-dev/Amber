@@ -9,10 +9,10 @@ Stage 10.4 - Database & Cache Admin Backend
 
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.api.deps import verify_admin
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Fix: Protect maintenance routes with admin check
 router = APIRouter(
-    prefix="/maintenance", 
+    prefix="/maintenance",
     tags=["admin-maintenance"],
     dependencies=[Depends(verify_admin)]
 )
@@ -49,8 +49,8 @@ class CacheStats(BaseModel):
     memory_max_bytes: int = 0
     memory_usage_percent: float = 0
     keys_total: int = 0
-    hit_rate: Optional[float] = None
-    miss_rate: Optional[float] = None
+    hit_rate: float | None = None
+    miss_rate: float | None = None
     evictions: int = 0
 
 
@@ -72,7 +72,7 @@ class SystemStats(BaseModel):
 class ReconciliationStatus(BaseModel):
     """Dual-write reconciliation status."""
     sync_status: str  # "healthy", "degraded", "error"
-    last_sync_at: Optional[datetime] = None
+    last_sync_at: datetime | None = None
     sync_lag_seconds: float = 0
     pending_writes: int = 0
     failed_writes: int = 0
@@ -93,46 +93,74 @@ class MaintenanceResult(BaseModel):
 # Endpoints
 # =============================================================================
 
+@router.get("/metrics/queries", response_model=list[Any])
+async def get_query_metrics(
+    limit: int = 100,
+    tenant_id: str | None = None
+):
+    """
+    Get recent query metrics for debugging.
+
+    Returns detailed logs of recent queries including latency, tokens, cost, and errors.
+    """
+    try:
+        from src.api.config import settings
+        from src.core.metrics.collector import MetricsCollector
+
+        # Instantiate collector on the fly (it's lightweight)
+        # In a real app we might want to inject this, but for now this is fine
+        collector = MetricsCollector(redis_url=settings.db.redis_url)
+        try:
+            metrics = await collector.get_recent(tenant_id=tenant_id, limit=limit)
+            return metrics
+        finally:
+            await collector.close()
+
+    except Exception as e:
+        logger.error(f"Failed to get query metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get query metrics: {str(e)}") from e
+
+
 @router.get("/stats", response_model=SystemStats)
 async def get_system_stats():
     """
     Get comprehensive system statistics.
-    
+
     Returns counts and metrics from database, cache, and vector store.
     """
     try:
         db_stats = await _get_database_stats()
         cache_stats = await _get_cache_stats()
         vector_stats = await _get_vector_store_stats()
-        
+
         return SystemStats(
             database=db_stats,
             cache=cache_stats,
             vector_store=vector_stats,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get system stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}") from e
 
 
 @router.post("/cache/clear", response_model=MaintenanceResult)
-async def clear_cache(pattern: Optional[str] = None):
+async def clear_cache(pattern: str | None = None):
     """
     Clear Redis cache.
-    
+
     - Without pattern: Clears all cache keys
     - With pattern: Clears matching keys (e.g., "query:*", "embed:*")
     """
     import time
     start = time.time()
-    
+
     try:
         import redis
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         r = redis.from_url(redis_url)
-        
+
         if pattern:
             # Clear matching keys
             keys = list(r.scan_iter(match=pattern))
@@ -145,10 +173,10 @@ async def clear_cache(pattern: Optional[str] = None):
             r.flushdb()
             count = -1  # Unknown
             message = "Flushed entire cache database"
-        
+
         duration = time.time() - start
         logger.info(f"Cache cleared: {message}")
-        
+
         return MaintenanceResult(
             operation="clear_cache",
             status="success",
@@ -156,19 +184,19 @@ async def clear_cache(pattern: Optional[str] = None):
             items_affected=count if count > 0 else 0,
             duration_seconds=round(duration, 3),
         )
-        
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Redis not available")
+
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail="Redis not available") from e
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}") from e
 
 
 @router.post("/prune/orphans", response_model=MaintenanceResult)
 async def prune_orphans():
     """
     Remove orphan nodes from the graph.
-    
+
     Finds and removes:
     - Entities not connected to any chunks
     - Chunks not connected to any documents
@@ -176,22 +204,22 @@ async def prune_orphans():
     """
     import time
     start = time.time()
-    
+
     try:
         # TODO: Implement actual orphan detection and removal with Neo4j
         # This is a placeholder implementation
-        
+
         orphans_removed = 0
-        
+
         # In production, this would run queries like:
         # MATCH (e:Entity) WHERE NOT (e)<-[:HAS_ENTITY]-() DELETE e
         # MATCH (c:Chunk) WHERE NOT (c)<-[:HAS_CHUNK]-() DELETE c
-        
+
         duration = time.time() - start
         message = f"Removed {orphans_removed} orphan nodes"
-        
+
         logger.info(f"Orphan pruning completed: {message}")
-        
+
         return MaintenanceResult(
             operation="prune_orphans",
             status="success",
@@ -199,29 +227,29 @@ async def prune_orphans():
             items_affected=orphans_removed,
             duration_seconds=round(duration, 3),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to prune orphans: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to prune orphans: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to prune orphans: {str(e)}") from e
 
 
 @router.post("/prune/stale-communities", response_model=MaintenanceResult)
 async def prune_stale_communities(max_age_days: int = 30):
     """
     Remove stale community summaries.
-    
+
     Removes community summaries older than the specified age that haven't been refreshed.
     """
     import time
     start = time.time()
-    
+
     try:
         # TODO: Implement with Neo4j
         communities_removed = 0
-        
+
         duration = time.time() - start
         message = f"Removed {communities_removed} stale community summaries"
-        
+
         return MaintenanceResult(
             operation="prune_stale_communities",
             status="success",
@@ -229,40 +257,40 @@ async def prune_stale_communities(max_age_days: int = 30):
             items_affected=communities_removed,
             duration_seconds=round(duration, 3),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to prune stale communities: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to prune: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to prune: {str(e)}") from e
 
 
 @router.get("/reconciliation", response_model=ReconciliationStatus)
 async def get_reconciliation_status():
     """
     Get dual-write reconciliation status.
-    
+
     Shows sync health between primary (Neo4j) and secondary (Milvus) stores.
     """
     try:
         # TODO: Implement actual reconciliation tracking
         # This would monitor the dual-write pipeline
-        
+
         return ReconciliationStatus(
             sync_status="healthy",
-            last_sync_at=datetime.now(timezone.utc),
+            last_sync_at=datetime.now(UTC),
             sync_lag_seconds=0.0,
             pending_writes=0,
             failed_writes=0,
             retry_queue_depth=0,
             errors=[],
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get reconciliation status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}") from e
 
 
 @router.post("/reindex", response_model=MaintenanceResult)
-async def trigger_reindex(collection: Optional[str] = None):
+async def trigger_reindex(collection: str | None = None):
     """
     Trigger vector index rebuild.
 
@@ -272,7 +300,6 @@ async def trigger_reindex(collection: Optional[str] = None):
     This is an async operation - check task status via /admin/jobs.
     """
     try:
-        from src.workers.celery_app import celery_app
 
         # Dispatch reindex task
         # TODO: Create actual reindex task in workers
@@ -291,15 +318,15 @@ async def trigger_reindex(collection: Optional[str] = None):
 
     except Exception as e:
         logger.error(f"Failed to trigger reindex: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to trigger reindex: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to trigger reindex: {str(e)}") from e
 
 
 class VectorCollectionInfo(BaseModel):
     """Information about a single vector collection."""
     name: str
     count: int
-    dimensions: Optional[int] = None
-    index_type: Optional[str] = None
+    dimensions: int | None = None
+    index_type: str | None = None
     memory_mb: float = 0.0
 
 
@@ -317,7 +344,7 @@ async def get_vector_collections():
     Used by the Vector Store admin page.
     """
     try:
-        from pymilvus import connections, Collection, utility, DataType
+        from pymilvus import Collection, DataType, connections, utility
 
         # Connect to Milvus
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
@@ -386,11 +413,11 @@ async def get_vector_collections():
 
         return VectorCollectionsResponse(collections=collections_info)
 
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Milvus client not installed")
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail="Milvus client not installed") from e
     except Exception as e:
         logger.error(f"Failed to get vector collections: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get collections: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get collections: {str(e)}") from e
 
 
 # =============================================================================
@@ -408,12 +435,13 @@ async def _get_database_stats() -> DatabaseStats:
         if cached:
             return DatabaseStats(**cached)
 
-        from src.core.database.session import async_session_maker
-        from src.core.models.document import Document
-        from src.core.models.chunk import Chunk
-        from src.core.state.machine import DocumentStatus
+        from sqlalchemy import case, func
         from sqlalchemy.future import select
-        from sqlalchemy import func, case
+
+        from src.core.database.session import async_session_maker
+        from src.core.models.chunk import Chunk
+        from src.core.models.document import Document
+        from src.core.state.machine import DocumentStatus
 
         async with async_session_maker() as session:
             # OPTIMIZED: Single query for all document counts using CASE
@@ -512,17 +540,17 @@ async def _get_cache_stats() -> CacheStats:
         import redis
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         r = redis.from_url(redis_url)
-        
+
         info = r.info("memory")
         stats = r.info("stats")
-        
+
         used = info.get("used_memory", 0)
         max_mem = info.get("maxmemory", 0) or used * 2  # Estimate if not set
-        
+
         hits = stats.get("keyspace_hits", 0)
         misses = stats.get("keyspace_misses", 0)
         total = hits + misses
-        
+
         return CacheStats(
             memory_used_bytes=used,
             memory_max_bytes=max_mem,
@@ -548,8 +576,9 @@ async def _get_vector_store_stats() -> VectorStoreStats:
         if cached:
             return VectorStoreStats(**cached)
 
-        from pymilvus import connections, Collection, utility
         import os
+
+        from pymilvus import Collection, connections, utility
 
         # Connect to Milvus
         milvus_host = os.getenv("MILVUS_HOST", "localhost")

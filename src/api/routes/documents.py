@@ -6,35 +6,34 @@ Endpoints for document management.
 Phase 1: Full implementation with async processing.
 """
 
-import io
+import asyncio
+import json
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Depends, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+import redis.asyncio as redis
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
-from src.api.deps import get_db_session
 from src.api.config import settings
+from src.api.deps import get_db_session
+from src.core.graph.neo4j_client import neo4j_client
 from src.core.models.document import Document
+from src.core.services.ingestion import IngestionService
 from src.core.state.machine import DocumentStatus
 from src.core.storage.storage_client import MinIOClient
-from src.core.services.ingestion import IngestionService
-from src.core.graph.neo4j_client import neo4j_client
-from sse_starlette.sse import EventSourceResponse
-import redis.asyncio as redis
-import asyncio
-import json
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-def _get_content_type(document: Document) -> Optional[str]:
+def _get_content_type(document: Document) -> str | None:
     """
     Get content type for a document.
 
@@ -85,21 +84,21 @@ class DocumentResponse(BaseModel):
     filename: str
     title: str  # Alias for filename (for frontend compatibility)
     status: str
-    domain: Optional[str] = None
+    domain: str | None = None
     tenant_id: str
-    source_type: Optional[str] = "upload"
-    content_type: Optional[str] = None  # MIME type of the document
+    source_type: str | None = "upload"
+    content_type: str | None = None  # MIME type of the document
     created_at: datetime
-    
+
     # Enrichment fields
-    summary: Optional[str] = None
-    document_type: Optional[str] = None
-    keywords: List[str] = []
-    hashtags: List[str] = []
-    metadata: Optional[Dict[str, Any]] = None
-    
+    summary: str | None = None
+    document_type: str | None = None
+    keywords: list[str] = []
+    hashtags: list[str] = []
+    metadata: dict[str, Any] | None = None
+
     # Stats (computed from chunks/entities/relationships)
-    stats: Optional[Dict[str, int]] = None
+    stats: dict[str, int] | None = None
 
 
 @router.post(
@@ -109,7 +108,7 @@ class DocumentResponse(BaseModel):
     summary="Upload Document",
     description="""
     Upload a document for ingestion into the knowledge base.
-    
+
     Returns 202 Accepted immediately with a document ID.
     Use the events_url to monitor processing progress via SSE.
     """,
@@ -124,16 +123,16 @@ async def upload_document(
     """
     # Use default tenant if not provided
     tenant = tenant_id or settings.tenant_id
-    
+
     # Read file content
     content = await file.read()
-    
+
     if len(content) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file uploaded"
         )
-    
+
     # Check file size
     max_size = settings.uploads.max_size_mb * 1024 * 1024
     if len(content) > max_size:
@@ -141,33 +140,32 @@ async def upload_document(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Max size: {settings.uploads.max_size_mb}MB"
         )
-    
+
     # Register document
     storage = MinIOClient()
     service = IngestionService(session, storage)
-    
+
     document = await service.register_document(
         tenant_id=tenant,
         filename=file.filename or "unnamed",
         file_content=content,
         content_type=file.content_type or "application/octet-stream"
     )
-    
+
     # Dispatch async processing task
     # Fix: Only dispatch if this is a new document to avoid duplicate processing
     if document.status == DocumentStatus.INGESTED:
         from src.workers.tasks import process_document
         process_document.delay(document.id, tenant)
-        message = "Document accepted for processing"
     else:
         # Document was deduplicated (existing), so don't re-process
-        message = f"Document already exists with status: {document.status.value}"
-    
+        pass
+
     # Build events URL
     events_url = f"/v1/documents/{document.id}/events"
-    
+
     logger.info(f"Document {document.id} uploaded, processing dispatched")
-    
+
     return DocumentUploadResponse(
         document_id=document.id,
         status=document.status.value,
@@ -266,7 +264,7 @@ async def document_events(
                             logger.info(f"Document {document_id} reached terminal state: {event_data.get('status')}")
                             break
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Send keepalive comment to prevent connection timeout
                     yield {
                         "comment": "keepalive"
@@ -306,14 +304,14 @@ async def list_documents(
     List documents in the knowledge base.
     """
     tenant = tenant_id or settings.tenant_id
-    
+
     query = select(Document).where(
         Document.tenant_id == tenant
     ).limit(limit).offset(offset)
-    
+
     result = await session.execute(query)
     documents = result.scalars().all()
-    
+
     return [
         DocumentResponse(
             id=doc.id,
@@ -350,16 +348,16 @@ async def get_document(
     )
     result = await session.execute(query)
     document = result.scalars().first()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document {document_id} not found"
         )
-    
+
     # Compute stats from chunks and graph
     stats = await _compute_document_stats(document_id, document.tenant_id, session)
-    
+
     return DocumentResponse(
         id=document.id,
         filename=document.filename,
@@ -381,27 +379,28 @@ async def get_document(
 
 
 async def _compute_document_stats(
-    document_id: str, 
+    document_id: str,
     tenant_id: str,
     session: AsyncSession
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Compute document statistics: chunk count, entity count, relationship count.
     """
-    from src.core.models.chunk import Chunk
     from sqlalchemy import func
-    
+
+    from src.core.models.chunk import Chunk
+
     # Chunk count from PostgreSQL
     chunk_result = await session.execute(
         select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)
     )
     chunk_count = chunk_result.scalar() or 0
-    
+
     # Entity and relationship counts from Neo4j
     entity_count = 0
     relationship_count = 0
     community_count = 0
-    
+
     try:
         # Entity count query
         entity_cypher = """
@@ -415,7 +414,7 @@ async def _compute_document_stats(
         )
         if entity_records:
             entity_count = entity_records[0].get("entity_count", 0)
-        
+
         # Relationship count query
         rel_cypher = """
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
@@ -431,7 +430,7 @@ async def _compute_document_stats(
         )
         if rel_records:
             relationship_count = rel_records[0].get("rel_count", 0)
-            
+
         # Community count (via BELONGS_TO relationship)
         comm_cypher = """
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
@@ -444,10 +443,10 @@ async def _compute_document_stats(
         )
         if comm_records:
             community_count = comm_records[0].get("community_count", 0)
-            
+
     except Exception as e:
         logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
-    
+
     return {
         "chunks": chunk_count,
         "entities": entity_count,
@@ -467,23 +466,23 @@ async def get_document_communities(
     offset: int = 0,
     http_request: Request = None,
     session: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get communities (entity clusters) for a document from Neo4j.
-    
+
     Returns communities with their entities, sorted by entity count.
     """
     # Verify document exists
     query = select(Document).where(Document.id == document_id)
     result = await session.execute(query)
     document = result.scalars().first()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document {document_id} not found"
         )
-    
+
     # Query Neo4j for communities via BELONGS_TO relationship
     cypher = """
         MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
@@ -493,13 +492,13 @@ async def get_document_communities(
             type: e.type,
             description: e.description
         }) AS entities
-        RETURN comm.id AS community_id, comm.title AS title, comm.summary AS summary, 
+        RETURN comm.id AS community_id, comm.title AS title, comm.summary AS summary,
                comm.level AS level, entities, size(entities) AS entity_count
         ORDER BY entity_count DESC
         SKIP $offset
         LIMIT $limit
     """
-    
+
     try:
         records = await neo4j_client.execute_read(
             cypher,
@@ -510,7 +509,7 @@ async def get_document_communities(
                 "limit": limit,
             }
         )
-        
+
         return [
             {
                 "community_id": record.get("community_id"),
@@ -581,7 +580,7 @@ async def get_document_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve file: {str(e)}"
-        )
+        ) from e
 
 
 @router.delete(
@@ -605,13 +604,13 @@ async def delete_document(
     )
     result = await session.execute(query)
     document = result.scalars().first()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document {document_id} not found"
         )
-    
+
     # Delete from Neo4j graph
     try:
         cypher = """
@@ -635,7 +634,7 @@ async def delete_document(
 
     # Delete from Milvus vector store
     try:
-        from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+        from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
 
         milvus_config = MilvusConfig(
             host=settings.db.milvus_host,
@@ -656,11 +655,11 @@ async def delete_document(
         storage.delete_file(document.storage_path)
     except Exception as e:
         logger.warning(f"Failed to delete file from storage: {e}")
-    
+
     # Delete from DB (cascades to chunks)
     await session.delete(document)
     await session.commit()
-    
+
     logger.info(f"Document {document_id} deleted")
 
 
@@ -674,7 +673,7 @@ async def get_document_entities(
     limit: int = 100,
     offset: int = 0,
     session: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get entities extracted from a specific document via Neo4j.
 
@@ -732,7 +731,7 @@ async def get_document_relationships(
     limit: int = 100,
     offset: int = 0,
     session: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get relationships between entities in this document via Neo4j.
 
@@ -793,7 +792,8 @@ async def get_document_relationships(
         return []
 
 
-from src.core.models.chunk import Chunk
+from src.core.models.chunk import Chunk  # noqa: E402
+
 
 @router.get(
     "/{document_id}/chunks",
@@ -804,25 +804,25 @@ async def get_document_chunks(
     document_id: str,
     http_request: Request,
     session: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get chunks for a document from PostgreSQL.
     """
-    tenant_id = _get_tenant_id(http_request)
-    
+    _get_tenant_id(http_request)
+
     # 1. Verify existence
     # We can join with chunks directly or check doc first.
     # Checking doc first gives better error message.
     query = select(Document).where(Document.id == document_id)
     result = await session.execute(query)
     doc = result.scalars().first()
-    
+
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document {document_id} not found"
         )
-    
+
     # 2. Fetch chunks from Postgres
     chunks_query = (
         select(Chunk)
@@ -831,7 +831,7 @@ async def get_document_chunks(
     )
     result = await session.execute(chunks_query)
     chunks = result.scalars().all()
-    
+
     return [
         {
             "id": chunk.id,

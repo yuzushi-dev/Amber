@@ -7,14 +7,14 @@ Extracts explicit filters and metadata from raw query strings using regex.
 
 import re
 from datetime import datetime
-from typing import Tuple
+
 from src.core.query.models import StructuredQuery
 
 
 class QueryParser:
     """
     Parses raw queries to extract explicit filters.
-    
+
     Supported syntax:
     - @filename: Filters to a specific document
     - #entity: Filters to a specific entity/tag
@@ -35,21 +35,21 @@ class QueryParser:
         """
         original_query = query
         cleaned_query = query
-        
+
         # Extract filters
         doc_ids = cls.DOC_PATTERN.findall(cleaned_query)
         tags = cls.TAG_PATTERN.findall(cleaned_query)
-        
+
         since_matches = cls.SINCE_PATTERN.findall(cleaned_query)
         until_matches = cls.UNTIL_PATTERN.findall(cleaned_query)
-        
+
         date_after = None
         if since_matches:
             try:
                 date_after = datetime.strptime(since_matches[0], "%Y-%m-%d")
             except ValueError:
                 pass
-                
+
         date_before = None
         if until_matches:
             try:
@@ -62,10 +62,10 @@ class QueryParser:
         cleaned_query = cls.TAG_PATTERN.sub("", cleaned_query)
         cleaned_query = cls.SINCE_PATTERN.sub("", cleaned_query)
         cleaned_query = cls.UNTIL_PATTERN.sub("", cleaned_query)
-        
+
         # Normalize whitespace
         cleaned_query = " ".join(cleaned_query.split()).strip()
-        
+
         # If query becomes empty after filter removal, revert to original_query for search
         # but keep filters. This handles queries like "@doc1 #tag1"
         if not cleaned_query:

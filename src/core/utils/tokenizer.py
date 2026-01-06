@@ -6,7 +6,7 @@ Utility for counting tokens using tiktoken (with fallback).
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,13 @@ class Tokenizer:
     """
 
     @staticmethod
-    def get_encoding(model: Optional[str] = None) -> Any:
+    def get_encoding(model: str | None = None) -> Any:
         """Get tiktoken encoding for a model."""
         if not TIKTOKEN_AVAILABLE:
             return None
 
         encoding_name = DEFAULT_ENCODING
-        
+
         if model:
             # Check direct mapping
             for m, e in MODEL_TO_ENCODING.items():
@@ -55,18 +55,18 @@ class Tokenizer:
                     return tiktoken.encoding_for_model(model)
                 except Exception:
                     logger.warning(f"Unknown model {model}, using default encoding {DEFAULT_ENCODING}")
-        
+
         try:
             return tiktoken.get_encoding(encoding_name)
         except Exception:
             return None
 
     @classmethod
-    def count_tokens(cls, text: str, model: Optional[str] = None) -> int:
+    def count_tokens(cls, text: str, model: str | None = None) -> int:
         """Count tokens in a string for a given model."""
         if not text:
             return 0
-            
+
         if TIKTOKEN_AVAILABLE:
             try:
                 encoding = cls.get_encoding(model)
@@ -74,22 +74,22 @@ class Tokenizer:
                     return len(encoding.encode(text))
             except Exception:
                 pass
-                
+
         # Fallback to rough estimate (4 chars per token)
         return max(1, len(text) // 4)
 
     @classmethod
     def truncate_to_budget(
-        cls, 
-        text: str, 
-        max_tokens: int, 
-        model: Optional[str] = None,
+        cls,
+        text: str,
+        max_tokens: int,
+        model: str | None = None,
         from_start: bool = True
     ) -> str:
         """Truncate text to fit within a token budget."""
         if not text or max_tokens <= 0:
             return ""
-        
+
         if TIKTOKEN_AVAILABLE:
             try:
                 encoding = cls.get_encoding(model)
@@ -97,12 +97,12 @@ class Tokenizer:
                     tokens = encoding.encode(text)
                     if len(tokens) <= max_tokens:
                         return text
-                        
+
                     if from_start:
                         truncated_tokens = tokens[:max_tokens]
                     else:
                         truncated_tokens = tokens[-max_tokens:]
-                        
+
                     return encoding.decode(truncated_tokens)
             except Exception:
                 pass

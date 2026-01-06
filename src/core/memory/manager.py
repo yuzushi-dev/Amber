@@ -8,21 +8,21 @@ Manages persistent user facts and conversation summaries for context-aware retri
 Enforces strict Tenant Isolation.
 """
 
-from typing import List, Optional, Dict, Any
-from uuid import uuid4
 import logging
+from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
+
 from src.core.database import get_session_maker
-from src.core.models.memory import UserFact, ConversationSummary
+from src.core.models.memory import ConversationSummary, UserFact
 
 logger = logging.getLogger(__name__)
 
 class ConversationMemoryManager:
     """
     Manages long-term (facts) and mid-term (summaries) memory for user sessions.
-    
+
     Layers:
     1. User Facts: Explicit facts learned about the user (e.g. "User is a python developer").
     2. Conversation Summaries: Summarized history of past interactions.
@@ -34,13 +34,13 @@ class ConversationMemoryManager:
         user_id: str,
         content: str,
         importance: float = 0.5,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> UserFact:
         """
         Add a new permanent fact about the user.
         """
         fact_id = f"fact_{uuid4().hex[:12]}"
-        
+
         async with get_session_maker()() as session:
             try:
                 fact = UserFact(
@@ -66,7 +66,7 @@ class ConversationMemoryManager:
         tenant_id: str,
         user_id: str,
         limit: int = 20
-    ) -> List[UserFact]:
+    ) -> list[UserFact]:
         """
         Retrieve top user facts, strictly filtered by tenant_id.
         """
@@ -88,7 +88,7 @@ class ConversationMemoryManager:
         conversation_id: str,
         title: str,
         summary: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> ConversationSummary:
         """
         Persist a summary of a completed conversation.
@@ -119,7 +119,7 @@ class ConversationMemoryManager:
         tenant_id: str,
         user_id: str,
         limit: int = 5
-    ) -> List[ConversationSummary]:
+    ) -> list[ConversationSummary]:
         """
         Retrieve user's recent conversation history summaries.
         """

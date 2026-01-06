@@ -42,7 +42,7 @@ export default function TuningPage() {
                 if (field.name.includes('weight')) {
                     values[field.name] = configData.weights?.[field.name as keyof typeof configData.weights] ?? field.default
                 } else {
-                    values[field.name] = (configData as any)[field.name] ?? field.default
+                    values[field.name] = (configData as unknown as Record<string, unknown>)[field.name] ?? field.default
                 }
             })
             setFormValues(values)
@@ -236,7 +236,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                         max={field.max ?? 100}
                         step={field.step ?? 1}
                         value={value as number ?? field.default as number}
-                        onChange={(e) => onChange(parseFloat(e.target.value))}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(parseFloat(e.target.value))}
                         className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                     />
                     <p className="text-sm text-muted-foreground">{field.description}</p>
@@ -272,7 +272,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                     <label className="font-medium">{field.label}</label>
                     <select
                         value={value as string ?? field.default as string}
-                        onChange={(e) => onChange(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange(e.target.value)}
                         className="w-full px-3 py-2 bg-background border rounded-md"
                     >
                         {field.options?.map(opt => (
@@ -289,7 +289,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                     <label className="font-medium">{field.label}</label>
                     <textarea
                         value={value as string ?? ''}
-                        onChange={(e) => onChange(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
                         rows={3}
                         className="w-full px-3 py-2 bg-background border rounded-md resize-y"
                         placeholder={field.description}

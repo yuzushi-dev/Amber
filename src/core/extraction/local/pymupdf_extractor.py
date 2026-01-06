@@ -5,9 +5,8 @@ PyMuPDF4LLM Extractor
 Fast-path extractor for clean PDFs using pymupdf4llm.
 """
 
-import time
 import logging
-from typing import Any
+import time
 
 # Ideally we import these, but for safety in case not installed, we can handle import error?
 # For now assume implementation plan requirement is met (packages installed or will be).
@@ -44,34 +43,34 @@ class PyMuPDFExtractor(BaseExtractor):
              pass
 
         start_time = time.time()
-        
+
         # pymupdf4llm.to_markdown accepts bytes or path
         # It's a synchronous blocking call, so we should offload to thread if possible.
         # But for this V1, direct call or simplistic async wrapper.
-        
+
         # We need to write bytes to temp file because pymupdf4llm might need path or handle bytes directly?
         # Checking docs: pymupdf4llm.to_markdown(doc) or path.
         # fitz.open("pdf", stream=file_content)
-        
+
         import fitz
-        
+
         try:
             # Open document from memory
             doc = fitz.open(stream=file_content, filetype="pdf")
-            
+
             # Extract markdown
             # pymupdf4llm.to_markdown(doc=doc)
             md_text = pymupdf4llm.to_markdown(doc)
-            
+
             # It returns a string.
             # Metadata:
             metadata = doc.metadata if doc.metadata else {}
             page_count = doc.page_count
-            
+
             metadata["page_count"] = page_count
-            
+
             elapsed = (time.time() - start_time) * 1000
-            
+
             return ExtractionResult(
                 content=md_text,
                 tables=[], # PyMuPDF4LLM integrates tables into markdown text usually
@@ -80,7 +79,7 @@ class PyMuPDFExtractor(BaseExtractor):
                 confidence=0.95, # High confidence for clean text
                 extraction_time_ms=elapsed
             )
-            
+
         except Exception as e:
             logger.error(f"PyMuPDF extraction failed: {e}")
-            raise RuntimeError(f"PyMuPDF extraction failed: {e}")
+            raise RuntimeError(f"PyMuPDF extraction failed: {e}") from e

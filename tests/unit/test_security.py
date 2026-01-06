@@ -3,7 +3,6 @@ Unit Tests for Security Utilities
 ==================================
 """
 
-import pytest
 
 from src.shared.security import (
     generate_api_key,

@@ -8,8 +8,7 @@ Stage 10.1 - Pipeline Control Dashboard Backend
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional, List
+from datetime import UTC, datetime
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Query
@@ -40,21 +39,21 @@ class JobStatus(str, Enum):
 class JobInfo(BaseModel):
     """Job information response."""
     task_id: str
-    task_name: Optional[str] = None
+    task_name: str | None = None
     status: str
-    progress: Optional[int] = Field(None, ge=0, le=100)
-    progress_message: Optional[str] = None
-    result: Optional[dict] = None
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    runtime_seconds: Optional[float] = None
+    progress: int | None = Field(None, ge=0, le=100)
+    progress_message: str | None = None
+    result: dict | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    runtime_seconds: float | None = None
     retries: int = 0
-    
+
 
 class JobListResponse(BaseModel):
     """List of jobs response."""
-    jobs: List[JobInfo]
+    jobs: list[JobInfo]
     total: int
     active_count: int
     reserved_count: int
@@ -74,13 +73,13 @@ class WorkerInfo(BaseModel):
     active_tasks: int
     processed_total: int
     concurrency: int
-    queues: List[str]
+    queues: list[str]
 
 
 class QueuesResponse(BaseModel):
     """Queue and worker status response."""
-    queues: List[QueueInfo]
-    workers: List[WorkerInfo]
+    queues: list[QueueInfo]
+    workers: list[WorkerInfo]
     total_active_tasks: int
 
 
@@ -97,78 +96,78 @@ class CancelResponse(BaseModel):
 
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
-    status: Optional[JobStatus] = Query(None, description="Filter by status"),
-    task_type: Optional[str] = Query(None, description="Filter by task type (e.g., 'process_document')"),
+    status: JobStatus | None = Query(None, description="Filter by status"),
+    task_type: str | None = Query(None, description="Filter by task type (e.g., 'process_document')"),
     limit: int = Query(50, ge=1, le=200, description="Maximum results"),
 ):
     """
     List active and recent Celery tasks.
-    
+
     Returns a list of tasks with their current status, progress, and metadata.
     """
     try:
         # Get active tasks from all workers
         inspect = celery_app.control.inspect()
-        
+
         active = inspect.active() or {}
         reserved = inspect.reserved() or {}
         scheduled = inspect.scheduled() or {}
-        
+
         jobs = []
         active_count = 0
         reserved_count = 0
-        
+
         # Process active tasks
-        for worker, tasks in active.items():
+        for _worker, tasks in active.items():
             active_count += len(tasks)
             for task in tasks:
                 job_info = _task_to_job_info(task, "STARTED")
                 if _matches_filters(job_info, status, task_type):
                     jobs.append(job_info)
-        
+
         # Process reserved (queued) tasks
-        for worker, tasks in reserved.items():
+        for _worker, tasks in reserved.items():
             reserved_count += len(tasks)
             for task in tasks:
                 job_info = _task_to_job_info(task, "PENDING")
                 if _matches_filters(job_info, status, task_type):
                     jobs.append(job_info)
-        
+
         # Process scheduled tasks
-        for worker, tasks in scheduled.items():
+        for _worker, tasks in scheduled.items():
             for task in tasks:
                 job_info = _task_to_job_info(task.get("request", task), "PENDING")
                 if _matches_filters(job_info, status, task_type):
                     jobs.append(job_info)
-        
+
         # Limit results
         jobs = jobs[:limit]
-        
+
         return JobListResponse(
             jobs=jobs,
             total=len(jobs),
             active_count=active_count,
             reserved_count=reserved_count,
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to list jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}") from e
 
 
 @router.get("/{task_id}", response_model=JobInfo)
 async def get_job(task_id: str):
     """
     Get detailed information about a specific task.
-    
+
     Returns the task's current status, progress, result, or error.
     """
     try:
         result = celery_app.AsyncResult(task_id)
-        
+
         # Get task info from meta
         info = result.info or {}
-        
+
         job_info = JobInfo(
             task_id=task_id,
             task_name=result.name,
@@ -181,83 +180,83 @@ async def get_job(task_id: str):
             completed_at=result.date_done,
             retries=info.get("retries", 0) if isinstance(info, dict) else 0,
         )
-        
+
         # Calculate runtime if we have start time
         if job_info.started_at:
-            end_time = job_info.completed_at or datetime.now(timezone.utc)
+            end_time = job_info.completed_at or datetime.now(UTC)
             if isinstance(job_info.started_at, str):
                 start = datetime.fromisoformat(job_info.started_at.replace('Z', '+00:00'))
             else:
                 start = job_info.started_at
             job_info.runtime_seconds = (end_time - start).total_seconds()
-        
+
         return job_info
-        
+
     except Exception as e:
         logger.error(f"Failed to get job {task_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get job: {str(e)}") from e
 
 
 @router.post("/{task_id}/cancel", response_model=CancelResponse)
 async def cancel_job(task_id: str, terminate: bool = Query(False, description="Force terminate if running")):
     """
     Cancel or revoke a task.
-    
+
     - For pending tasks: Removes from queue
     - For running tasks: Sends revoke signal (use terminate=True to force kill)
     """
     try:
         result = celery_app.AsyncResult(task_id)
         current_status = result.status
-        
+
         if current_status in ["SUCCESS", "FAILURE", "REVOKED"]:
             return CancelResponse(
                 task_id=task_id,
                 status=current_status,
                 message=f"Task already in terminal state: {current_status}"
             )
-        
+
         # Revoke the task
         celery_app.control.revoke(task_id, terminate=terminate, signal='SIGTERM')
-        
+
         message = "Task revoked"
         if terminate:
             message = "Task terminated (SIGTERM sent)"
-        
+
         logger.info(f"Cancelled task {task_id}, terminate={terminate}")
-        
+
         return CancelResponse(
             task_id=task_id,
             status="REVOKED",
             message=message
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to cancel job {task_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}") from e
 
 
 @router.get("/queues/status", response_model=QueuesResponse)
 async def get_queue_status():
     """
     Get queue depths and worker status.
-    
+
     Returns information about all registered queues and connected workers.
     """
     try:
         inspect = celery_app.control.inspect()
-        
+
         # Get worker stats
         stats = inspect.stats() or {}
         active = inspect.active() or {}
-        
+
         workers = []
         total_active = 0
-        
+
         for hostname, worker_stats in stats.items():
             active_tasks = len(active.get(hostname, []))
             total_active += active_tasks
-            
+
             workers.append(WorkerInfo(
                 hostname=hostname,
                 status="online",
@@ -266,12 +265,13 @@ async def get_queue_status():
                 concurrency=worker_stats.get("pool", {}).get("max-concurrency", 0),
                 queues=[q.get("name", "unknown") for q in worker_stats.get("queues", [])],
             ))
-        
+
         # Get queue info (from Redis)
         queues = []
         try:
-            import redis
             import os
+
+            import redis
             redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
             r = redis.from_url(redis_url)
             try:
@@ -289,16 +289,16 @@ async def get_queue_status():
                 r.close()
         except ImportError:
             logger.warning("Redis not available for queue inspection")
-        
+
         return QueuesResponse(
             queues=queues,
             workers=workers,
             total_active_tasks=total_active,
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get queue status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}") from e
 
 
 # =============================================================================
@@ -309,10 +309,10 @@ def _task_to_job_info(task: dict, default_status: str) -> JobInfo:
     """Convert Celery task dict to JobInfo."""
     task_id = task.get("id", "unknown")
     task_name = task.get("name", "unknown")
-    
+
     # Extract progress from kwargs or args if available
-    kwargs = task.get("kwargs", {})
-    
+    task.get("kwargs", {})
+
     return JobInfo(
         task_id=task_id,
         task_name=task_name,
@@ -324,7 +324,7 @@ def _task_to_job_info(task: dict, default_status: str) -> JobInfo:
     )
 
 
-def _matches_filters(job: JobInfo, status: Optional[JobStatus], task_type: Optional[str]) -> bool:
+def _matches_filters(job: JobInfo, status: JobStatus | None, task_type: str | None) -> bool:
     """Check if job matches filter criteria."""
     if status and job.status != status.value:
         return False

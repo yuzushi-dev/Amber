@@ -5,11 +5,10 @@ Docling Extractor
 Specialized extractor for complex table extraction.
 """
 
-import time
 import logging
-import tempfile
 import os
-from typing import Any
+import tempfile
+import time
 
 from src.core.extraction.base import BaseExtractor, ExtractionResult
 
@@ -47,22 +46,22 @@ class DoclingExtractor(BaseExtractor):
         """
         if not HAS_DOCLING:
             raise ImportError("docling is required for Docling extraction")
-        
+
         start_time = time.time()
-        
+
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
-        
+
         try:
             converter = self._get_converter()
-            
+
             # Convert document
             result = converter.convert(tmp_path)
-            
+
             # Export to markdown (preserves tables)
             markdown_content = result.document.export_to_markdown()
-            
+
             # Extract tables separately
             tables = []
             for item in result.document.tables:
@@ -70,9 +69,9 @@ class DoclingExtractor(BaseExtractor):
                     "content": item.export_to_markdown(),
                     "page": getattr(item, "page", None),
                 })
-            
+
             elapsed = (time.time() - start_time) * 1000
-            
+
             return ExtractionResult(
                 content=markdown_content,
                 tables=tables,
@@ -84,10 +83,10 @@ class DoclingExtractor(BaseExtractor):
                 confidence=0.9,  # Docling is generally high quality
                 extraction_time_ms=elapsed
             )
-            
+
         except Exception as e:
             logger.error(f"Docling extraction failed: {e}")
-            raise RuntimeError(f"Docling extraction failed: {e}")
+            raise RuntimeError(f"Docling extraction failed: {e}") from e
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)

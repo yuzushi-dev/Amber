@@ -6,15 +6,32 @@ import { Button } from '@/components/ui/button';
 import { Box, Layers } from 'lucide-react';
 
 // Mock data generator for demonstration
-const generateMockData = (count = 20) => {
-    const nodes = [];
-    const links = [];
+interface GraphNode {
+    id: string
+    group: 'document' | 'entity' | 'community'
+    val: number
+    name: string
+}
+
+interface GraphLink {
+    source: string
+    target: string
+}
+
+interface GraphData {
+    nodes: GraphNode[]
+    links: GraphLink[]
+}
+
+const generateMockData = (count = 20): GraphData => {
+    const nodes: GraphNode[] = [];
+    const links: GraphLink[] = [];
 
     // Query Node
     nodes.push({ id: '0', group: 'document', val: 20, name: 'Query Context' });
 
     for (let i = 1; i <= count; i++) {
-        const group = Math.random() > 0.7 ? 'document' : 'entity';
+        const group = (Math.random() > 0.7 ? 'document' : 'entity') as 'document' | 'entity';
         nodes.push({
             id: String(i),
             group: group,
@@ -37,12 +54,13 @@ const generateMockData = (count = 20) => {
 
 const EntityGraph: React.FC = () => {
     const [mode, setMode] = useState<'2d' | '3d'>('3d');
-    const [data, setData] = useState({ nodes: [], links: [] });
+    const [data, setData] = useState<GraphData>({ nodes: [], links: [] });
     // TODO: Fetch real data
 
     useEffect(() => {
         // Load mock data on mount
-        setData(generateMockData(30) as any);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setData(generateMockData(30));
     }, []);
 
     const toggleMode = () => {
@@ -67,7 +85,7 @@ const EntityGraph: React.FC = () => {
                 <ForceGraphView
                     data={data}
                     mode={mode}
-                    onNodeClick={(node: any) => console.log('Clicked:', node)}
+                    onNodeClick={(node: GraphNode) => console.log('Clicked:', node)}
                 />
             </div>
         </Card>

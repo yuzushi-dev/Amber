@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class NodeLabel(str, Enum):
     Document = "Document"
     Chunk = "Chunk"

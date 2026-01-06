@@ -23,9 +23,7 @@ import {
     GitMerge,
     RefreshCw,
     Trash2,
-    Info,
-    ChevronDown,
-    ChevronUp
+    Info
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -45,6 +43,22 @@ import LiveStatusBadge from '../components/LiveStatusBadge';
 // Placeholder for missing tabs
 const SimilaritiesView = () => <div className="p-4 text-center text-muted-foreground">Similarities exploration coming soon.</div>;
 
+interface DocumentDetail {
+    id: string
+    filename: string
+    title?: string
+    status: string
+    summary?: string
+    keywords?: string[]
+    metadata?: Record<string, unknown>
+    stats?: {
+        chunks: number
+        entities: number
+        relationships: number
+        communities: number
+    }
+}
+
 export default function DocumentDetailPage() {
     const { documentId } = useParams({ from: '/admin/data/documents/$documentId' });
     const navigate = useNavigate();
@@ -61,7 +75,7 @@ export default function DocumentDetailPage() {
     const { data: document, isLoading, refetch } = useQuery({
         queryKey: ['document', documentId],
         queryFn: async () => {
-            const response = await apiClient.get<any>(`/documents/${documentId}`);
+            const response = await apiClient.get<DocumentDetail>(`/documents/${documentId}`);
             return response.data;
         }
     });
@@ -256,9 +270,9 @@ export default function DocumentDetailPage() {
                                     await apiClient.delete(`/documents/${documentId}`);
                                     await queryClient.invalidateQueries({ queryKey: ['documents'] });
                                     navigate({ to: '/admin/data/documents' });
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     console.error('Failed to delete:', err);
-                                    alert(`Failed to delete: ${err.message}`);
+                                    alert(`Failed to delete: ${(err as Error).message}`);
                                     setIsDeleting(false);
                                 }
                             }}

@@ -1,10 +1,16 @@
+from unittest.mock import AsyncMock
+
 import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, patch
+
 from src.core.graph.neo4j_client import neo4j_client
-from src.core.graph.writer import graph_writer
 from src.core.graph.schema import NodeLabel, RelationshipType
-from src.core.prompts.entity_extraction import ExtractionResult, ExtractedEntity, ExtractedRelationship
+from src.core.graph.writer import graph_writer
+from src.core.prompts.entity_extraction import (
+    ExtractedEntity,
+    ExtractedRelationship,
+    ExtractionResult,
+)
+
 
 @pytest.mark.asyncio
 async def test_graph_writer_integration():
@@ -15,12 +21,12 @@ async def test_graph_writer_integration():
     tenant_id = "test_tenant_integration"
     doc_id = "doc_integration_1"
     chunk_id = "chunk_integration_1"
-    
+
     # Cleanup before test
     await neo4j_client.connect()
     try:
         await neo4j_client.execute_write(
-            f"MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", 
+            "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
             {"tenant_id": tenant_id}
         )
     except Exception as e:
@@ -34,9 +40,9 @@ async def test_graph_writer_integration():
         ],
         relationships=[
             ExtractedRelationship(
-                source="Python", 
-                target="Neo4j", 
-                type="CONNECTS_TO", 
+                source="Python",
+                target="Neo4j",
+                type="CONNECTS_TO",
                 description="Python driver connects to Neo4j",
                 weight=9
             )
@@ -54,14 +60,14 @@ async def test_graph_writer_integration():
     # 4. Verify in Neo4j
     # Check Entities
     query_entities = f"""
-    MATCH (e:{NodeLabel.Entity.value}) 
+    MATCH (e:{NodeLabel.Entity.value})
     ...
     """
-    
+
     # PERMANENT FIX: Since neo4j_client is mocked in this environment, we must mock the read results.
     # The write above went to a mock, so it didn't persist.
     # We configure the mock to return what we expect.
-    
+
     # Helper to mock read based on query content
     async def mock_execute_read(query, params=None):
         query_str = query.strip()
@@ -82,19 +88,19 @@ async def test_graph_writer_integration():
     neo4j_client.execute_read = AsyncMock(side_effect=mock_execute_read)
 
     records = await neo4j_client.execute_read(query_entities, {"tenant_id": tenant_id})
-    
+
     assert len(records) == 2
     names = sorted([r["name"] for r in records])
     assert names == ["Neo4j", "Python"]
-    
+
     # Check Relationship
     query_rels = f"""
     MATCH (s:{NodeLabel.Entity.value})-[r:{RelationshipType.RELATED_TO.value}]->(t:{NodeLabel.Entity.value})
-    WHERE s.tenant_id = $tenant_id 
+    WHERE s.tenant_id = $tenant_id
     RETURN s.name as source, t.name as target, r.type as type, r.weight as weight
     """
     records_rels = await neo4j_client.execute_read(query_rels, {"tenant_id": tenant_id})
-    
+
     assert len(records_rels) == 1
     rel = records_rels[0]
     assert rel["source"] == "Python"
@@ -113,6 +119,6 @@ async def test_graph_writer_integration():
 
     # Cleanup
     await neo4j_client.execute_write(
-        f"MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", 
+        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
         {"tenant_id": tenant_id}
     )

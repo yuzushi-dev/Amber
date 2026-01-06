@@ -198,7 +198,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Request Tracing**: Request IDs for end-to-end tracking
 - **Timing Metrics**: Detailed latency breakdowns (retrieval, generation, etc.)
 - **Cache Hit Rates**: Monitor cache effectiveness
-- **Query Metrics**: Track tokens, costs, and sources per query
+- **Query Metrics**: Track input/output tokens, costs, latency breakdowns (retrieval vs generation), and success/error rates per query.
 - **Event Stream**: Real-time processing events via WebSockets
 
 ---
@@ -646,6 +646,7 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 #### Data Management (`/admin/data`)
 - **Documents**: Upload, manage, view details
 - **Database Overview**: Graph statistics
+- **Query Log**: Granular inspection of recent RAG queries for debugging
 - **Vector Store**: Milvus collection inspection
 
 #### Operations (`/admin/ops`)

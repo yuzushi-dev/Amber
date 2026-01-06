@@ -5,14 +5,14 @@ Provider Unit Tests
 Tests for the model provider abstraction layer.
 """
 
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.providers.base import (
-    BaseLLMProvider,
     BaseEmbeddingProvider,
-    GenerationResult,
+    BaseLLMProvider,
     EmbeddingResult,
+    GenerationResult,
     ProviderConfig,
     ProviderTier,
     ProviderUnavailableError,
@@ -20,11 +20,10 @@ from src.core.providers.base import (
     TokenUsage,
 )
 from src.core.providers.factory import (
-    ProviderFactory,
-    FailoverLLMProvider,
     FailoverEmbeddingProvider,
+    FailoverLLMProvider,
+    ProviderFactory,
 )
-
 
 # =============================================================================
 # Mock Providers for Testing
@@ -162,7 +161,7 @@ class TestFailoverLLMProvider:
         provider2 = MockLLMProvider()
         failover = FailoverLLMProvider([provider1, provider2])
 
-        result = await failover.generate("test")
+        await failover.generate("test")
 
         assert provider1.call_count == 1
         assert provider2.call_count == 1

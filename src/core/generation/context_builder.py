@@ -6,13 +6,13 @@ Builds context for LLM generation from retrieved candidates.
 """
 
 import logging
-from typing import Any, Optional, Dict, List, Tuple
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+from typing import Any
 
-from src.core.utils.tokenizer import Tokenizer
 from src.core.models.candidate import Candidate
 from src.core.security.pii_scrubber import PIIScrubber
+from src.core.utils.tokenizer import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,8 @@ class ContextResult:
     """Result of context building."""
     content: str
     tokens: int
-    used_candidates: List[Candidate]
-    dropped_candidates: List[Candidate]
+    used_candidates: list[Candidate]
+    dropped_candidates: list[Candidate]
 
 class ContextBuilder:
     """
@@ -30,9 +30,9 @@ class ContextBuilder:
     """
 
     def __init__(
-        self, 
-        max_tokens: int = 4000, 
-        model: Optional[str] = None,
+        self,
+        max_tokens: int = 4000,
+        model: str | None = None,
         include_metadata: bool = True
     ):
         self.max_tokens = max_tokens
@@ -40,10 +40,10 @@ class ContextBuilder:
         self.include_metadata = include_metadata
         self.pii_scrubber = PIIScrubber()
 
-    def build(self, candidates: List[Any], query: Optional[str] = None) -> ContextResult:
+    def build(self, candidates: list[Any], query: str | None = None) -> ContextResult:
         """
         Build context string from candidates.
-        
+
         Candidates can be Candidate objects or dictionaries.
         """
         used_candidates = []
@@ -55,12 +55,12 @@ class ContextBuilder:
         for idx, candidate in enumerate(candidates, 1):
             if isinstance(candidate, dict):
                 content = candidate.get("content", "")
-                source_id = candidate.get("chunk_id", f"chunk_{idx}")
+                candidate.get("chunk_id", f"chunk_{idx}")
                 title = candidate.get("title") or candidate.get("metadata", {}).get("title")
             else:
                 # Assume it's a Candidate object from Phase 6
                 content = getattr(candidate, "content", "")
-                source_id = getattr(candidate, "id", f"chunk_{idx}")
+                getattr(candidate, "id", f"chunk_{idx}")
                 title = getattr(candidate, "metadata", {}).get("title")
 
             if not content:
@@ -73,12 +73,12 @@ class ContextBuilder:
             header = f"[Source ID: {idx}]"
             if title:
                 header += f" Title: {title}"
-            
+
             formatted_part = f"{header}\n{content.strip()}"
-            
+
             # Count tokens
             part_tokens = Tokenizer.count_tokens(formatted_part, self.model)
-            
+
             # Check budget
             if current_tokens + part_tokens + 2 <= self.max_tokens: # +2 for newlines
                 context_parts.append(formatted_part)
@@ -96,7 +96,7 @@ class ContextBuilder:
                         current_tokens += Tokenizer.count_tokens(final_part, self.model)
                         used_candidates.append(candidate)
                         continue
-                
+
                 dropped_candidates.append(candidate)
 
         return ContextResult(
@@ -110,16 +110,16 @@ class ContextBuilder:
         """Truncates text to fit within max_tokens at the nearest sentence boundary."""
         # Initial truncation by tokens
         rough_truncated = Tokenizer.truncate_to_budget(text, max_tokens, self.model)
-        
+
         if rough_truncated == text:
             return text
-            
+
         # Refine to sentence boundary (., !, ?)
         # Look for the last end-of-sentence punctuation in the truncated text
         sentence_end_match = list(re.finditer(r'[.!?](?:\s|$)', rough_truncated))
-        
+
         if sentence_end_match:
             last_end = sentence_end_match[-1].end()
             return rough_truncated[:last_end].strip()
-        
+
         return rough_truncated.strip()

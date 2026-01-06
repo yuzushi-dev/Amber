@@ -1,5 +1,5 @@
-from typing import List, Dict, Optional
 import re
+
 
 class SourceVerifier:
     """
@@ -14,29 +14,29 @@ class SourceVerifier:
         """
         if not citation_text or not source_text:
             return False
-            
+
         # 1. Exact match
         if citation_text in source_text:
             return True
-            
+
         # 2. Normalized match (ignore whitespace/case)
         norm_citation = re.sub(r'\s+', ' ', citation_text).strip().lower()
         norm_source = re.sub(r'\s+', ' ', source_text).strip().lower()
-        
+
         if norm_citation in norm_source:
             return True
-            
+
         # 3. Fuzzy match (optional, skipping for MVP strictness)
         # We want STRICT grounding for security/trust.
-        
+
         return False
 
-    def verify_answer_grounding(self, answer: str, context_chunks: List[str]) -> bool:
+    def verify_answer_grounding(self, answer: str, context_chunks: list[str]) -> bool:
         """
         Checks if the answer implies citations that are supported by context.
         Note: This is hard without parsing the answer's citation format.
         Assuming answer contains [Source ID] or quoted text.
-        
+
         For MVP, we might rely on the LLM to output specific citation format like <cite>text</cite>
         or check if quoted substrings > N chars exist in context.
         """

@@ -1,10 +1,10 @@
-from typing import Dict, Optional
+
 
 def get_adaptive_weights(
-    domain: Optional[str] = None,
-    query_type: Optional[str] = None,
-    tenant_config: Optional[Dict[str, float]] = None
-) -> Dict[str, float]:
+    domain: str | None = None,
+    query_type: str | None = None,
+    tenant_config: dict[str, float] | None = None
+) -> dict[str, float]:
     """
     Returns adaptive fusion weights based on document domain or query classification.
     """
@@ -14,7 +14,7 @@ def get_adaptive_weights(
         "graph": 1.0,
         "community": 1.0
     }
-    
+
     # Adjust based on domain (from Phase 1 classification)
     if domain:
         domain = domain.lower()
@@ -26,7 +26,7 @@ def get_adaptive_weights(
             # These benefit more from semantic vector similarity
             weights["vector"] = 1.2
             weights["graph"] = 0.8
-            
+
     # Adjust based on query type (from Phase 5 routing)
     if query_type:
         query_type = query_type.upper()
@@ -36,7 +36,7 @@ def get_adaptive_weights(
         elif query_type == "LOCAL":
             weights["graph"] = 1.3
             weights["vector"] = 0.7
-            
+
     # Apply tenant-specific overrides if provided
     if tenant_config:
         for k, v in tenant_config.items():

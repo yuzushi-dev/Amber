@@ -8,15 +8,15 @@ LLM-based answer generation with context injection and groundedness checks.
 import logging
 import re
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, List, Optional, Dict, Tuple
+from typing import Any
 
+from src.core.generation.context_builder import ContextBuilder
+from src.core.generation.registry import PromptRegistry
+from src.core.observability.tracer import trace_span
 from src.core.providers.base import BaseLLMProvider, ProviderTier
 from src.core.providers.factory import ProviderFactory
-from src.core.generation.context_builder import ContextBuilder, ContextResult
-from src.core.generation.registry import PromptRegistry
-from src.core.utils.tokenizer import Tokenizer
-from src.core.observability.tracer import trace_span
 from src.core.security.source_verifier import SourceVerifier
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class Source:
     chunk_id: str
     document_id: str
     content_preview: str  # First ~100 chars
-    title: Optional[str] = None
+    title: str | None = None
     score: float = 0.0
 
 
@@ -45,6 +45,8 @@ class GenerationResult:
     latency_ms: float
     tokens_used: int
     cost_estimate: float
+    input_tokens: int = 0
+    output_tokens: int = 0
     context_tokens: int = 0
     trace: list[dict[str, Any]] = field(default_factory=list)
     follow_up_questions: list[str] = field(default_factory=list)
@@ -68,7 +70,7 @@ class GenerationConfig:
 class GenerationService:
     """
     LLM-based answer generation with context injection and groundedness checks.
-    
+
     Features:
     - Smart context building with sentence-aware truncation
     - Prompt versioning via PromptRegistry
@@ -85,7 +87,7 @@ class GenerationService:
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
-        
+
         if llm_provider:
             self.llm = llm_provider
         else:
@@ -94,17 +96,17 @@ class GenerationService:
                 anthropic_api_key=anthropic_api_key,
             )
             self.llm = factory.get_llm_provider(tier=self.config.tier)
-        
+
         self.verifier = SourceVerifier()
 
     @trace_span("GenerationService.generate")
     async def generate(
         self,
         query: str,
-        candidates: List[Any],
+        candidates: list[Any],
         conversation_history: list[dict[str, str]] | None = None,
         include_trace: bool = False,
-        options: Optional[Any] = None,
+        options: Any | None = None,
     ) -> GenerationResult:
         """
         Generate a grounded answer from retrieved candidates.
@@ -122,7 +124,7 @@ class GenerationService:
         # Step 2: Get prompts from registry
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-        
+
         user_prompt = user_prompt_template.format(
             context=context_result.content,
             query=query
@@ -140,14 +142,13 @@ class GenerationService:
 
         # Step 4: Parse citations and map sources
         cited_sources = self._map_sources(llm_result.text, context_result.used_candidates)
-        
+
         # Step 5: Verify sources
         is_grounded = True
         grounding_score = 1.0
-        
+
         if cited_sources:
-            verified_count = 0
-            for source in cited_sources:
+            for _source in cited_sources:
                 # We verify if the generated answer text around complexity (not implemented fully here)
                 # For MVP, we verify if the citation points to content that appears relevant.
                 # Actually, SourceVerifier.verify_citation checks if 'citation_text' is in 'source_text'.
@@ -156,8 +157,8 @@ class GenerationService:
                 # Or just mark it based on presence.
                 # For now, let's assume if it cites a source validly mapped, it's partially verified.
                 # Use source_verifier if we can extract quoted text.
-                pass 
-                
+                pass
+
             # TODO: Implement granular quote extraction for robust verification
             pass
 
@@ -171,6 +172,8 @@ class GenerationService:
             latency_ms=total_latency,
             tokens_used=llm_result.usage.total_tokens,
             cost_estimate=llm_result.cost_estimate,
+            input_tokens=llm_result.usage.input_tokens,
+            output_tokens=llm_result.usage.output_tokens,
             context_tokens=context_result.tokens,
             trace=trace if include_trace else [],
             follow_up_questions=self._generate_follow_ups(query, llm_result.text) if self.config.enable_follow_up else [],
@@ -181,12 +184,12 @@ class GenerationService:
     async def generate_stream(
         self,
         query: str,
-        candidates: List[Any],
+        candidates: list[Any],
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncIterator[dict]:
         """
         Stream the generated answer with metadata events.
-        
+
         Yields dictionaries suitable for SSE conversion.
         """
         # 1. Build context
@@ -195,10 +198,10 @@ class GenerationService:
             model=self.config.model or self.llm.model_name
         )
         ctx = builder.build(candidates, query=query)
-        
+
         # 2. Build document title lookup
         doc_titles = await self._get_document_titles(ctx.used_candidates)
-        
+
         # 3. Yield source metadata first
         cited_sources = [
             {
@@ -234,19 +237,19 @@ class GenerationService:
 
         # 5. Final event with follow-ups and summary
         yield {
-            "event": "done", 
+            "event": "done",
             "data": {
                 "follow_ups": self._generate_follow_ups(query, full_answer),
                 "model": self.llm.model_name
             }
         }
 
-    def _map_sources(self, answer: str, candidates: List[Any]) -> List[Source]:
+    def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
         pattern = r"\[(\d+)\]"
         matches = re.findall(pattern, answer)
-        cited_indices = set(int(m) for m in matches)
-        
+        cited_indices = {int(m) for m in matches}
+
         sources = []
         for i, cand in enumerate(candidates, 1):
             if i in cited_indices:
@@ -274,26 +277,26 @@ class GenerationService:
         """Simple rule-based follow-up generator."""
         follow_ups = []
         lower_answer = answer.lower()
-        
+
         if "process" in lower_answer:
             follow_ups.append("Can you explain the specific steps of this process?")
         if "relationship" in lower_answer or "connected" in lower_answer:
             follow_ups.append("How are these entities related in other contexts?")
         if "limit" in lower_answer or "restricts" in lower_answer:
             follow_ups.append("What are the potential workarounds for these limitations?")
-            
+
         if len(follow_ups) < 2:
             follow_ups.append("Are there any conflicting viewpoints in the sources?")
-            
+
         return follow_ups[:3]
 
-    async def _get_document_titles(self, candidates: List[Any]) -> Dict[str, str]:
+    async def _get_document_titles(self, candidates: list[Any]) -> dict[str, str]:
         """
         Fetch document titles (filenames) from database for display in sources.
-        
+
         Args:
             candidates: List of candidates with document_id
-            
+
         Returns:
             Dict mapping document_id -> filename
         """
@@ -306,28 +309,29 @@ class GenerationService:
                 doc_id = c.get("document_id")
             if doc_id:
                 doc_ids.add(doc_id)
-        
+
         if not doc_ids:
             return {}
-        
+
         try:
-            from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-            from sqlalchemy.orm import sessionmaker
             from sqlalchemy import select
+            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+            from sqlalchemy.orm import sessionmaker
+
             from src.api.config import settings
             from src.core.models.document import Document
-            
+
             engine = create_async_engine(settings.db.database_url)
             async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            
+
             async with async_session() as session:
                 result = await session.execute(
                     select(Document.id, Document.filename).where(Document.id.in_(list(doc_ids)))
                 )
                 rows = result.all()
-                
+
                 return {row.id: row.filename for row in rows}
-                
+
         except Exception as e:
             logger.warning(f"Failed to fetch document titles: {e}")
             return {}

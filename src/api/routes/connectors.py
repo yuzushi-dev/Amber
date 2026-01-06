@@ -7,19 +7,19 @@ Endpoints for managing external data source connectors.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db
 from src.api.schemas.base import ResponseSchema
+from src.core.connectors.zendesk import ZendeskConnector
 from src.core.models.connector_state import ConnectorState
 from src.shared.context import get_current_tenant
-from src.core.connectors.zendesk import ZendeskConnector
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class ConnectorAuthRequest(BaseModel):
     """Authentication credentials for a connector."""
-    credentials: Dict[str, Any]
+    credentials: dict[str, Any]
 
 
 class ConnectorSyncRequest(BaseModel):
@@ -42,9 +42,9 @@ class ConnectorStatusResponse(BaseModel):
     connector_type: str
     status: str
     is_authenticated: bool
-    last_sync_at: Optional[datetime] = None
+    last_sync_at: datetime | None = None
     items_synced: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 class SyncJobResponse(BaseModel):
@@ -76,7 +76,7 @@ async def get_or_create_connector_state(
         )
     )
     state = result.scalar_one_or_none()
-    
+
     if not state:
         state = ConnectorState(
             id=f"conn_{uuid4().hex[:16]}",
@@ -87,7 +87,7 @@ async def get_or_create_connector_state(
         db.add(state)
         await db.commit()
         await db.refresh(state)
-    
+
     return state
 
 
@@ -113,10 +113,10 @@ async def get_connector_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Connector type '{connector_type}' not found"
         )
-    
+
     tenant_id = get_current_tenant() or "default"
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
-    
+
     return ResponseSchema(
         data=ConnectorStatusResponse(
             connector_type=state.connector_type,
@@ -137,7 +137,7 @@ async def authenticate_connector(
 ):
     """
     Authenticate a connector with external service.
-    
+
     Credentials vary by connector type:
     - zendesk: {subdomain, email, api_token}
     - confluence: {base_url, email, api_token}
@@ -147,12 +147,12 @@ async def authenticate_connector(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Connector type '{connector_type}' not found"
         )
-    
+
     tenant_id = get_current_tenant() or "default"
-    
+
     # Get connector class and instantiate
     ConnectorClass = CONNECTOR_REGISTRY[connector_type]
-    
+
     try:
         if connector_type == "zendesk":
             subdomain = request.credentials.get("subdomain")
@@ -164,16 +164,16 @@ async def authenticate_connector(
             connector = ConnectorClass(subdomain=subdomain)
         else:
             connector = ConnectorClass()
-        
+
         # Attempt authentication
         success = await connector.authenticate(request.credentials)
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication failed. Check credentials."
             )
-        
+
         # Update state
         state = await get_or_create_connector_state(db, tenant_id, connector_type)
         state.status = "idle"
@@ -182,9 +182,9 @@ async def authenticate_connector(
         state.sync_cursor = {"subdomain": request.credentials.get("subdomain")} if connector_type == "zendesk" else {}
         await db.commit()
         await db.refresh(state)
-        
+
         logger.info(f"Connector {connector_type} authenticated for tenant {tenant_id}")
-        
+
         return ResponseSchema(
             data=ConnectorStatusResponse(
                 connector_type=state.connector_type,
@@ -196,7 +196,7 @@ async def authenticate_connector(
             ),
             message="Authentication successful"
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -204,7 +204,7 @@ async def authenticate_connector(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Authentication error: {str(e)}"
-        )
+        ) from e
 
 
 @router.post("/{connector_type}/sync", response_model=ResponseSchema[SyncJobResponse])
@@ -216,7 +216,7 @@ async def trigger_sync(
 ):
     """
     Trigger a sync operation for a connector.
-    
+
     Returns immediately with a job ID. Use GET /status to check progress.
     """
     if connector_type not in CONNECTOR_REGISTRY:
@@ -224,29 +224,29 @@ async def trigger_sync(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Connector type '{connector_type}' not found"
         )
-    
+
     tenant_id = get_current_tenant() or "default"
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
-    
+
     if state.status == "syncing":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Sync already in progress"
         )
-    
+
     # Update state to syncing
     state.status = "syncing"
     state.error_message = None
     await db.commit()
-    
+
     job_id = f"sync_{uuid4().hex[:12]}"
-    
+
     # TODO: In production, this would dispatch a Celery task
     # For now, we just return the job ID
     # background_tasks.add_task(run_sync, connector_type, tenant_id, job_id, request.full_sync)
-    
+
     logger.info(f"Sync triggered for {connector_type} tenant {tenant_id}, job {job_id}")
-    
+
     return ResponseSchema(
         data=SyncJobResponse(
             job_id=job_id,

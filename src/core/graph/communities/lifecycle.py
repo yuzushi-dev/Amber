@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import Any
 
 from src.core.graph.neo4j_client import Neo4jClient
 
@@ -13,7 +13,7 @@ class CommunityLifecycleManager:
     def __init__(self, neo4j_client: Neo4jClient):
         self.neo4j = neo4j_client
 
-    async def mark_stale_by_entities(self, entity_ids: List[str]):
+    async def mark_stale_by_entities(self, entity_ids: list[str]):
         """
         Marks communities as stale if they contain any of the given entity IDs.
         """
@@ -31,7 +31,7 @@ class CommunityLifecycleManager:
         if count > 0:
             logger.info(f"Marked {count} communities as stale due to entity changes")
 
-    async def mark_stale_by_entities_by_name(self, entity_names: List[str], tenant_id: str):
+    async def mark_stale_by_entities_by_name(self, entity_names: list[str], tenant_id: str):
         """
         Marks communities as stale if they contain any of the given entity names.
         """
@@ -80,7 +80,7 @@ class CommunityLifecycleManager:
         # 2. Get or create 'Misc' community at Level 0
         misc_query = """
         MERGE (c:Community {id: 'comm_0_misc', tenant_id: $tenant_id})
-        ON CREATE SET 
+        ON CREATE SET
             c.title = 'Uncategorized Entities',
             c.level = 0,
             c.summary = 'Miscellaneous entities that do not belong to a specific cluster.',
@@ -98,11 +98,11 @@ class CommunityLifecycleManager:
         await self.neo4j.execute_write(link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids})
         logger.info(f"Assigned {len(entity_ids)} entities to 'Misc' community")
 
-    async def get_community_stats(self, tenant_id: str) -> Dict[str, Any]:
+    async def get_community_stats(self, tenant_id: str) -> dict[str, Any]:
         """Returns stats about communities for a tenant."""
         query = """
         MATCH (c:Community {tenant_id: $tenant_id})
-        RETURN 
+        RETURN
             count(c) as total,
             sum(case when c.is_stale then 1 else 0 end) as stale,
             sum(case when c.status = 'ready' then 1 else 0 end) as ready,

@@ -6,13 +6,17 @@ Database model for document chunks.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.models.base import Base
+
+if TYPE_CHECKING:
+    from src.core.models.document import Document
 
 
 class EmbeddingStatus(str, Enum):
@@ -31,13 +35,13 @@ class Chunk(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     index: Mapped[int] = mapped_column(Integer, nullable=False) # 0-based index in the document
-    
+
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tokens: Mapped[int] = mapped_column(Integer, nullable=False) # Token count from tiktoken
-    
+
     # Metadata includes: start_char, end_char, page_numbers, section_title
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
-    
+
     embedding_status: Mapped[EmbeddingStatus] = mapped_column(
         SQLEnum(EmbeddingStatus), default=EmbeddingStatus.PENDING, nullable=False
     )

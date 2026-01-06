@@ -6,7 +6,6 @@ and graph RAG pipeline.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -17,8 +16,8 @@ class Entity:
     type: str
     description: str
     importance_score: float = 0.5
-    source_text_units: List[str] = field(default_factory=list)
-    source_chunks: List[str] = field(default_factory=list)
+    source_text_units: list[str] = field(default_factory=list)
+    source_chunks: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         # Fix mutable defaults if they were passed as None or shared
@@ -26,12 +25,12 @@ class Entity:
             self.source_text_units = []
         else:
             self.source_text_units = list(self.source_text_units)
-            
+
         if self.source_chunks is None:
             self.source_chunks = []
         else:
             self.source_chunks = list(self.source_chunks)
-            
+
         # Ensure semantic equivalence between text units and chunks if one is missing
         if not self.source_text_units and self.source_chunks:
             self.source_text_units = list(self.source_chunks)
@@ -48,8 +47,8 @@ class Relationship:
     relationship_type: str
     description: str
     strength: float = 0.5
-    source_text_units: List[str] = field(default_factory=list)
-    source_chunks: List[str] = field(default_factory=list)
+    source_text_units: list[str] = field(default_factory=list)
+    source_chunks: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         # Fix mutable defaults
@@ -57,12 +56,12 @@ class Relationship:
             self.source_text_units = []
         else:
             self.source_text_units = list(self.source_text_units)
-            
+
         if self.source_chunks is None:
             self.source_chunks = []
         else:
             self.source_chunks = list(self.source_chunks)
-            
+
         # Ensure semantic equivalence
         if not self.source_text_units and self.source_chunks:
             self.source_text_units = list(self.source_chunks)

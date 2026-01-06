@@ -8,17 +8,16 @@ Stage 10.3 - Curation Queue (SME Loop) Backend
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional, List
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
-from sqlalchemy import func, DateTime
 
 from src.core.database.session import async_session_maker
-from src.core.models.flag import Flag, FlagType, FlagStatus
+from src.core.models.flag import Flag, FlagStatus
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +30,16 @@ router = APIRouter(prefix="/curation", tags=["admin-curation"])
 
 class FlagContext(BaseModel):
     """Context information for a flag."""
-    query_text: Optional[str] = None
-    chunk_text: Optional[str] = None
-    chunk_id: Optional[str] = None
-    entity_id: Optional[str] = None
-    entity_name: Optional[str] = None
-    relationship_id: Optional[str] = None
-    document_id: Optional[str] = None
-    document_title: Optional[str] = None
-    request_id: Optional[str] = None
-    retrieval_trace: Optional[dict] = None
+    query_text: str | None = None
+    chunk_text: str | None = None
+    chunk_id: str | None = None
+    entity_id: str | None = None
+    entity_name: str | None = None
+    relationship_id: str | None = None
+    document_id: str | None = None
+    document_title: str | None = None
+    request_id: str | None = None
+    retrieval_trace: dict | None = None
 
 
 class FlagSummary(BaseModel):
@@ -52,23 +51,23 @@ class FlagSummary(BaseModel):
     reported_by: str
     target_type: str
     target_id: str
-    comment: Optional[str] = None
-    snippet_preview: Optional[str] = Field(None, max_length=200)
+    comment: str | None = None
+    snippet_preview: str | None = Field(None, max_length=200)
     created_at: str
-    resolved_at: Optional[str] = None
-    resolved_by: Optional[str] = None
+    resolved_at: str | None = None
+    resolved_by: str | None = None
 
 
 class FlagDetail(FlagSummary):
     """Detailed flag information including context."""
     context: FlagContext
-    resolution_notes: Optional[str] = None
-    merge_target_id: Optional[str] = None
+    resolution_notes: str | None = None
+    merge_target_id: str | None = None
 
 
 class FlagListResponse(BaseModel):
     """List of flags response."""
-    flags: List[FlagSummary]
+    flags: list[FlagSummary]
     total: int
     pending_count: int
     resolved_count: int
@@ -77,8 +76,8 @@ class FlagListResponse(BaseModel):
 class FlagResolution(BaseModel):
     """Flag resolution request."""
     action: str = Field(..., description="Resolution action: accept, reject, merge")
-    notes: Optional[str] = Field(None, description="Resolution notes")
-    merge_target_id: Optional[str] = Field(None, description="Target entity ID for merge action")
+    notes: str | None = Field(None, description="Resolution notes")
+    merge_target_id: str | None = Field(None, description="Target entity ID for merge action")
 
 
 class FlagCreateRequest(BaseModel):
@@ -88,8 +87,8 @@ class FlagCreateRequest(BaseModel):
     target_type: str
     target_id: str
     reported_by: str = "analyst"
-    comment: Optional[str] = None
-    context: Optional[FlagContext] = None
+    comment: str | None = None
+    context: FlagContext | None = None
 
 
 class CurationStats(BaseModel):
@@ -99,7 +98,7 @@ class CurationStats(BaseModel):
     accepted_count: int
     rejected_count: int
     merged_count: int
-    avg_resolution_time_hours: Optional[float] = None
+    avg_resolution_time_hours: float | None = None
     flags_by_type: dict
 
 
@@ -109,54 +108,54 @@ class CurationStats(BaseModel):
 
 @router.get("/flags", response_model=FlagListResponse)
 async def list_flags(
-    status: Optional[str] = Query(None, description="Filter by status"),
-    flag_type: Optional[str] = Query(None, description="Filter by type"),
-    tenant_id: Optional[str] = Query(None, description="Filter by tenant"),
+    status: str | None = Query(None, description="Filter by status"),
+    flag_type: str | None = Query(None, description="Filter by type"),
+    tenant_id: str | None = Query(None, description="Filter by tenant"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """
     List flags in the curation queue.
-    
+
     Returns paginated list of analyst-reported issues with filtering options.
     """
     try:
         async with async_session_maker() as session:
             # Build query
             query = select(Flag)
-            
+
             if status:
                 query = query.where(Flag.status == status)
             if flag_type:
                 query = query.where(Flag.type == flag_type)
             if tenant_id:
                 query = query.where(Flag.tenant_id == tenant_id)
-            
+
             # Get total count
             count_query = select(func.count()).select_from(query.subquery())
             total_result = await session.execute(count_query)
             total = total_result.scalar() or 0
-            
+
             # Apply pagination and ordering
             query = query.order_by(Flag.created_at.desc()).offset(offset).limit(limit)
-            
+
             # Execute
             result = await session.execute(query)
             flags = result.scalars().all()
-            
+
             # Get counts
             pending_query = select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING.value)
             pending_result = await session.execute(pending_query)
             pending_count = pending_result.scalar() or 0
-            
+
             resolved_count = total - pending_count
-            
+
             # Convert to summaries
             flag_summaries = []
             for flag in flags:
                 context = flag.context or {}
                 snippet = context.get("chunk_text", "")[:200] if context else ""
-                
+
                 flag_summaries.append(FlagSummary(
                     id=flag.id,
                     tenant_id=flag.tenant_id,
@@ -171,37 +170,37 @@ async def list_flags(
                     resolved_at=flag.resolved_at,
                     resolved_by=flag.resolved_by,
                 ))
-            
+
             return FlagListResponse(
                 flags=flag_summaries,
                 total=total,
                 pending_count=pending_count,
                 resolved_count=resolved_count,
             )
-            
+
     except Exception as e:
         logger.error(f"Failed to list flags: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list flags: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list flags: {str(e)}") from e
 
 
 @router.get("/flags/{flag_id}", response_model=FlagDetail)
 async def get_flag(flag_id: str):
     """
     Get detailed information about a specific flag.
-    
+
     Returns full context including source chunk, query, and retrieval trace.
     """
     try:
         async with async_session_maker() as session:
             result = await session.execute(select(Flag).where(Flag.id == flag_id))
             flag = result.scalar_one_or_none()
-            
+
             if not flag:
                 raise HTTPException(status_code=404, detail=f"Flag {flag_id} not found")
-            
+
             context = flag.context or {}
             snippet = context.get("chunk_text", "")[:200] if context else ""
-            
+
             return FlagDetail(
                 id=flag.id,
                 tenant_id=flag.tenant_id,
@@ -219,19 +218,19 @@ async def get_flag(flag_id: str):
                 resolution_notes=flag.resolution_notes,
                 merge_target_id=flag.merge_target_id,
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get flag {flag_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get flag: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get flag: {str(e)}") from e
 
 
 @router.put("/flags/{flag_id}", response_model=FlagDetail)
 async def resolve_flag(flag_id: str, resolution: FlagResolution):
     """
     Resolve a flag with an action.
-    
+
     Actions:
     - `accept`: Accept the flag and apply correction
     - `reject`: Reject the flag (false positive)
@@ -242,26 +241,26 @@ async def resolve_flag(flag_id: str, resolution: FlagResolution):
         valid_actions = ["accept", "reject", "merge"]
         if resolution.action not in valid_actions:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Invalid action. Must be one of: {valid_actions}"
             )
-        
+
         # Validate merge requires target
         if resolution.action == "merge" and not resolution.merge_target_id:
             raise HTTPException(
                 status_code=400,
                 detail="merge_target_id required for merge action"
             )
-        
+
         async with async_session_maker() as session:
             result = await session.execute(select(Flag).where(Flag.id == flag_id))
             flag = result.scalar_one_or_none()
-            
+
             if not flag:
                 raise HTTPException(status_code=404, detail=f"Flag {flag_id} not found")
-            
+
             # Update flag
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if resolution.action == "merge":
                 flag.status = FlagStatus.MERGED
                 flag.merge_target_id = resolution.merge_target_id
@@ -269,31 +268,31 @@ async def resolve_flag(flag_id: str, resolution: FlagResolution):
                 flag.status = FlagStatus.ACCEPTED
             else:  # reject
                 flag.status = FlagStatus.REJECTED
-            
+
             flag.resolved_at = now.isoformat()
             flag.resolved_by = "admin"  # TODO: Get from auth context
             flag.resolution_notes = resolution.notes
-            
+
             session.add(flag)
             await session.commit()
             await session.refresh(flag)
-            
+
             logger.info(f"Resolved flag {flag_id} with action {resolution.action}")
-        
+
         return await get_flag(flag_id)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to resolve flag {flag_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to resolve flag: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to resolve flag: {str(e)}") from e
 
 
 @router.post("/flags")
 async def create_flag(request: FlagCreateRequest):
     """
     Create a new flag (for testing or manual flagging).
-    
+
     In production, flags are typically created from the Analyst UI's feedback buttons.
     """
     try:
@@ -309,17 +308,17 @@ async def create_flag(request: FlagCreateRequest):
                 comment=request.comment,
                 context=request.context.model_dump() if request.context else {},
             )
-            
+
             session.add(flag)
             await session.commit()
-            
+
             logger.info(f"Created flag {flag.id} of type {request.flag_type}")
-            
+
             return {"id": flag.id, "status": "created"}
-            
+
     except Exception as e:
         logger.error(f"Failed to create flag: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create flag: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create flag: {str(e)}") from e
 
 
 @router.get("/stats", response_model=CurationStats)
@@ -390,5 +389,5 @@ async def get_curation_stats():
 
     except Exception as e:
         logger.error(f"Failed to get curation stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}") from e
 

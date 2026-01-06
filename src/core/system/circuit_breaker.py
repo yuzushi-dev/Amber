@@ -1,7 +1,5 @@
 import logging
-import time
 from collections import deque
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +8,7 @@ class CircuitBreaker:
     Monitors system latency and determines if the system should enter 'Degraded Mode'.
     Uses a sliding window of recent latencies.
     """
-    
+
     def __init__(
         self,
         window_size: int = 50,
@@ -35,9 +33,9 @@ class CircuitBreaker:
             return
 
         # Calculate ratio of latencies exceeding threshold
-        exceed_count = sum(1 for l in self.latencies if l > self.latency_threshold_ms)
+        exceed_count = sum(1 for latency in self.latencies if latency > self.latency_threshold_ms)
         ratio = exceed_count / len(self.latencies)
-        
+
         if not self._is_degraded and ratio >= self.degradation_ratio:
             logger.warning(f"System entering DEGRADED mode (ratio: {ratio:.2f})")
             self._is_degraded = True

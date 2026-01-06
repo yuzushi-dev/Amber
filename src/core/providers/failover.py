@@ -1,23 +1,24 @@
 import logging
-from typing import Any, List, Optional, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from src.core.providers.base import (
-    BaseLLMProvider, 
     BaseEmbeddingProvider,
-    GenerationResult, 
+    BaseLLMProvider,
     EmbeddingResult,
+    GenerationResult,
+    ProviderError,
     ProviderUnavailableError,
     RateLimitError,
-    ProviderError
 )
-from src.core.providers.resilience import CircuitBreaker, CircuitState
+from src.core.providers.resilience import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
 class FailoverLLMProvider(BaseLLMProvider):
     """
     LLM provider with automatic failover.
-    
+
     Tries providers in order, falling back on errors.
     """
 
@@ -32,7 +33,7 @@ class FailoverLLMProvider(BaseLLMProvider):
         self.max_retries = max_retries
         # Initialize circuit breaker for each provider
         self.circuits = {
-            p.provider_name: CircuitBreaker(failure_threshold=5, recovery_timeout=300) 
+            p.provider_name: CircuitBreaker(failure_threshold=5, recovery_timeout=300)
             for p in providers
         }
 
@@ -54,7 +55,7 @@ class FailoverLLMProvider(BaseLLMProvider):
 
         for provider in self.providers:
             circuit = self.circuits[provider.provider_name]
-            
+
             # Check circuit state
             if not circuit.allow_request():
                 logger.warning(f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})")
@@ -71,7 +72,7 @@ class FailoverLLMProvider(BaseLLMProvider):
                     stop=stop,
                     **kwargs,
                 )
-                
+
                 # Success
                 circuit.record_success()
                 return result
@@ -91,15 +92,15 @@ class FailoverLLMProvider(BaseLLMProvider):
             except ProviderError as e:
                 logger.error(f"Provider {provider.provider_name} error: {e}")
                 last_error = e
-                # Don't retry/record failure on auth/invalid request errors 
+                # Don't retry/record failure on auth/invalid request errors
                 # (these are permanent config issues, not transient failures)
                 if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
                     continue
-                
+
                 # Treat unknown provider errors as failures
                 circuit.record_failure()
                 break
-        
+
         # All providers failed
         if not last_error:
              last_error = "All providers skipped or unavailable"
@@ -123,7 +124,7 @@ class FailoverLLMProvider(BaseLLMProvider):
 
         for provider in self.providers:
             circuit = self.circuits[provider.provider_name]
-            
+
             # Check circuit state
             if not circuit.allow_request():
                 continue
@@ -139,7 +140,7 @@ class FailoverLLMProvider(BaseLLMProvider):
                     **kwargs,
                 ):
                     yield chunk
-                
+
                 # If we finished streaming without error, record success
                 circuit.record_success()
                 return
@@ -149,13 +150,13 @@ class FailoverLLMProvider(BaseLLMProvider):
                 circuit.record_failure()
                 last_error = e
                 continue
-            
+
             except Exception as e:
                 logger.error(f"Provider {provider.provider_name} streaming error: {e}")
                 circuit.record_failure()
                 last_error = e
                 continue
-        
+
         if not last_error:
              last_error = "All providers skipped or unavailable"
 

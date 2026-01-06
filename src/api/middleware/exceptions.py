@@ -6,7 +6,7 @@ Global exception handlers for consistent error responses.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -33,7 +33,7 @@ def _create_error_response(
         code=code,
         message=message,
         request_id=str(request_id) if request_id else None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         details=details,
     )
 

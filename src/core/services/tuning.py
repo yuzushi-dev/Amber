@@ -6,12 +6,12 @@ Handles retrieval of tenant configuration and dynamic weight adjustments.
 """
 
 import logging
-from typing import Dict, Any, Optional
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
 
-from src.core.models.tenant import Tenant
+from sqlalchemy.future import select
+
 from src.core.models.audit import AuditLog
+from src.core.models.tenant import Tenant
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ class TuningService:
     def __init__(self, session_factory: Any):
         self.session_factory = session_factory
         # In-memory cache for configs for performance
-        self._config_cache: Dict[str, Dict[str, Any]] = {}
+        self._config_cache: dict[str, dict[str, Any]] = {}
 
-    async def get_tenant_config(self, tenant_id: str) -> Dict[str, Any]:
+    async def get_tenant_config(self, tenant_id: str) -> dict[str, Any]:
         """
         Retrieves the configuration for a given tenant.
         """
@@ -44,10 +44,10 @@ class TuningService:
                     return config
         except Exception as e:
             logger.error(f"Failed to fetch tenant config for {tenant_id}: {e}")
-        
+
         return {}
 
-    async def update_tenant_weights(self, tenant_id: str, weights: Dict[str, float]):
+    async def update_tenant_weights(self, tenant_id: str, weights: dict[str, float]):
         """
         Updates the retrieval weights for a tenant.
         """
@@ -60,14 +60,14 @@ class TuningService:
                 if tenant:
                     if not tenant.config:
                         tenant.config = {}
-                    
+
                     # Update specific weight keys
                     for k, v in weights.items():
                         tenant.config[f"{k}_weight"] = v
-                    
+
                     session.add(tenant)
                     await session.commit()
-                    
+
                     # Log the change
                     await self.log_change(
                         tenant_id=tenant_id,
@@ -85,13 +85,13 @@ class TuningService:
             logger.error(f"Failed to update tenant weights for {tenant_id}: {e}")
 
     async def log_change(
-        self, 
-        tenant_id: str, 
-        actor: str, 
-        action: str, 
-        target_type: str, 
-        target_id: str, 
-        changes: Dict[str, Any]
+        self,
+        tenant_id: str,
+        actor: str,
+        action: str,
+        target_type: str,
+        target_id: str,
+        changes: dict[str, Any]
     ):
         """Records a change in the audit log."""
         try:
@@ -111,7 +111,7 @@ class TuningService:
 
     async def analyze_feedback_for_tuning(self, tenant_id: str, request_id: str, is_positive: bool):
         """
-        Heuristic: If we get negative feedback on a local search, 
+        Heuristic: If we get negative feedback on a local search,
         maybe we should increase the graph weight slightly move.
         """
         if is_positive:
@@ -120,11 +120,11 @@ class TuningService:
         # Simple heuristic for Phase 8 demonstration
         # In a real system, this would aggregate over many requests.
         logger.info(f"Negative feedback received for request {request_id}. Analyzing for tuning...")
-        
+
         # Example: Slightly bump graph weight if it seems relevant
         # This is a placeholder for a more complex optimization loop (Stage 8.5.2)
         # current_weights = await self.get_tenant_config(tenant_id)
-        # new_weights = {"graph": 1.1} 
+        # new_weights = {"graph": 1.1}
         # await self.update_tenant_weights(tenant_id, new_weights)
 
     def invalidate_cache(self, tenant_id: str):

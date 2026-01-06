@@ -6,6 +6,7 @@ Definitions for domain-specific chunking strategies.
 """
 
 from enum import Enum
+
 from pydantic import BaseModel
 
 

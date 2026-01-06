@@ -1,8 +1,7 @@
 import logging
-import asyncio
-from typing import List, Optional
+
 from src.core.graph.neo4j_client import neo4j_client
-from src.core.graph.schema import RelationshipType, NodeLabel
+from src.core.graph.schema import NodeLabel, RelationshipType
 
 # Import Vector Store Client (Assuming interface)
 # Ideally dependency injection, but simple import for now
@@ -22,9 +21,9 @@ class GraphEnricher:
     """
 
     def __init__(self, vector_store=None):
-        self.vector_store = vector_store 
+        self.vector_store = vector_store
 
-    async def create_similarity_edges(self, chunk_id: str, embedding: List[float], tenant_id: str, threshold: float = 0.7, limit: int = 5):
+    async def create_similarity_edges(self, chunk_id: str, embedding: list[float], tenant_id: str, threshold: float = 0.7, limit: int = 5):
         """
         Find similar chunks and create SIMILAR_TO edges.
         """
@@ -52,35 +51,34 @@ class GraphEnricher:
             return
 
         # 2. Filter and Create Edges
-        queries = []
         for res in results:
             other_id = res.get("id")
             score = res.get("score", 0)
-            
+
             if other_id == chunk_id:
                 continue
-            
+
             if score < threshold:
                 continue
-                
+
             # Create Edge: (Chunk1)-[:SIMILAR_TO {score: ...}]->(Chunk2)
             # Undirected concept, but Neo4j is directed. We can create one way or both.
             # Usually strict A < B ID rule prevents double edges, or we just create one direction.
             # Let's create one direction for A->B where score is high.
-            
+
             query = f"""
             MATCH (c1:{NodeLabel.Chunk.value} {{id: $id1}})
             MATCH (c2:{NodeLabel.Chunk.value} {{id: $id2}})
             MERGE (c1)-[r:{RelationshipType.SIMILAR_TO.value}]->(c2)
             ON CREATE SET r.score = $score, r.created_at = timestamp()
             """
-            
+
             await neo4j_client.execute_write(query, {
-                "id1": chunk_id, 
-                "id2": other_id, 
+                "id1": chunk_id,
+                "id2": other_id,
                 "score": score
             })
-            
+
         logger.info(f"Created similarity edges for chunk {chunk_id}")
 
     async def compute_co_occurrence(self, tenant_id: str, min_weight: int = 2):
@@ -88,7 +86,7 @@ class GraphEnricher:
         Compute Entity Co-occurrence based on shared chunks.
         (e1)-[:MENTIONS]-(c)-[:MENTIONS]-(e2)
         => (e1)-[:CO_OCCURS {weight: count(c)}]->(e2)
-        
+
         This is a heavy analytical query using APOC or pure Cypher aggregation.
         """
         query = f"""
@@ -100,7 +98,7 @@ class GraphEnricher:
         SET r.weight = weight
         """
         # Note: Dynamic rel type
-        
+
         try:
              await neo4j_client.execute_write(query, {"tenant_id": tenant_id, "min_weight": min_weight})
              logger.info(f"Computed co-occurrence edges for tenant {tenant_id}")
