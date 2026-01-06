@@ -82,6 +82,7 @@ dev = [
     "httpx>=0.26.0",
     "ruff>=0.1.0",
     "mypy>=1.8.0",
+    "testcontainers[postgres,neo4j,minio]>=3.7.1",
 ]
 
 [project.urls]

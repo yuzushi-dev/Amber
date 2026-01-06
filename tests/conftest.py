@@ -70,6 +70,11 @@ mock_modules = [
 ]
 
 for module_name in mock_modules:
+    try:
+        __import__(module_name)
+    except ImportError:
+        pass
+        
     if module_name not in sys.modules:
         sys.modules[module_name] = MagicMock()
 

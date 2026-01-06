@@ -17,6 +17,7 @@ from src.core.cache.result_cache import ResultCache, ResultCacheConfig
 from src.core.providers.base import BaseRerankerProvider
 from src.core.providers.factory import ProviderFactory
 from src.core.services.embeddings import EmbeddingService
+from src.core.services.sparse_embeddings import SparseEmbeddingService
 from src.core.query.parser import QueryParser
 from src.core.query.rewriter import QueryRewriter
 from src.core.query.decomposer import QueryDecomposer
@@ -67,6 +68,9 @@ class RetrievalConfig:
     # Reranking
     enable_reranking: bool = True
     rerank_model: str = "ms-marco-MiniLM-L-12-v2"
+    
+    # Hybrid Search
+    enable_hybrid: bool = True
 
     # Caching
     enable_embedding_cache: bool = True
@@ -113,6 +117,10 @@ class RetrievalService:
         self.embedding_service = EmbeddingService(
             provider=factory.get_embedding_provider(),
         )
+        
+        self.sparse_embedding = None
+        if self.config.enable_hybrid:
+            self.sparse_embedding = SparseEmbeddingService()
 
         # Initialize vector store with tenant-specific collection pattern
         # The collection name will be dynamically set per-query using _get_tenant_vector_store
@@ -493,14 +501,33 @@ class RetrievalService:
             # Get embedding
             query_embedding = await self.embedding_service.embed_single(search_query)
 
-            # Vector search
-            search_results = await self.vector_store.search(
-                query_vector=query_embedding,
-                tenant_id=tenant_id,
-                document_ids=document_ids,
-                limit=self.config.initial_k if self.reranker else top_k,
-                score_threshold=self.config.score_threshold,
-            )
+            # Vector search (Dense or Hybrid)
+            search_results = None
+            
+            if self.sparse_embedding and self.config.enable_hybrid:
+                try:
+                    sparse_vec = self.sparse_embedding.embed_sparse(search_query)
+                    search_results = await self.vector_store.hybrid_search(
+                        dense_vector=query_embedding,
+                        sparse_vector=sparse_vec,
+                        tenant_id=tenant_id,
+                        document_ids=document_ids,
+                        limit=self.config.initial_k if self.reranker else top_k,
+                        filters=filters,
+                    )
+                except Exception as e:
+                    logger.warning(f"Hybrid search step failed: {e}")
+                    search_results = None
+            
+            if search_results is None:
+                search_results = await self.vector_store.search(
+                    query_vector=query_embedding,
+                    tenant_id=tenant_id,
+                    document_ids=document_ids,
+                    limit=self.config.initial_k if self.reranker else top_k,
+                    score_threshold=self.config.score_threshold,
+                    filters=filters,
+                )
             
             # Rerank
             reranked = False

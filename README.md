@@ -57,10 +57,11 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 ### 🧠 Intelligent Multi-Mode Retrieval
 
-#### Vector Search (Basic Mode)
-- Fast semantic similarity search using **Milvus** vector database
-- Text-embedding-3-small embeddings (1536 dimensions)
-- Configurable top-k and score thresholds
+#### Vector & Hybrid Search (Basic Mode)
+- **Hybrid Retrieval**: Combines Dense (Semantic) and Sparse (SPLADE) vectors for superior precision
+- **Dense**: Text-embedding-3-small embeddings (1536 dimensions)
+- **Sparse (New)**: Learned keyword expansion using SPLADE (cocondenser-ensembledistil)
+- **Native Fusion**: Uses Reciprocal Rank Fusion (RRFRanker) in Milvus
 - Result caching with Redis for performance
 
 #### Graph-Enhanced Retrieval
@@ -298,7 +299,7 @@ Amber follows a microservices architecture designed for scalability, resilience,
 |                | Validation       | Pydantic v2               | Data validation and serialization         |
 | **Databases**  | Metadata         | PostgreSQL 16             | ACID-compliant relational data            |
 |                | Graph            | Neo4j 5 Community         | Property graph with Cypher queries        |
-|                | Vector           | Milvus 2.3                | Distributed vector similarity search      |
+|                | Vector           | Milvus 2.5+               | Hybrid search (Dense + Sparse)            |
 |                | Cache            | Redis 7                   | In-memory cache & message broker          |
 |                | Object Storage   | MinIO                     | S3-compatible file storage                |
 | **Processing** | Task Queue       | Celery 5.3+               | Distributed async task processing         |
@@ -362,6 +363,8 @@ We don't just dump text into Neo4j; we construct a meaningful graph using **Iter
 Retrieval is handled by a sophisticated orchestration layer that combines deterministic and agentic strategies.
 
 *   **Fusion (Hybrid Search)**: We employ **Reciprocal Rank Fusion (RRF)** to combine results from Milvus (Vector) and Neo4j (Keyword/Graph).
+    *   **Milvus Hybrid**: Within Milvus itself, we combine **Dense Vectors** (Semantic) and **Sparse Vectors** (SPLADE/Keyword) to find the most relevant chunks.
+    *   **Graph Fusion**: These results are then fused with graph traversals.
     *   Formula: `score = sum(weight / (k + rank))`
     *   This ensures that a document appearing in *both* top-lists is ranked significantly higher than one appearing in only one.
 *   **Drift Search (Agentic)**: Defined in `DriftSearchService`, this is our most powerful retrieval mode:
@@ -701,6 +704,7 @@ make migrate      # Run migrations
 
 ## Testing
 
+See [TESTING.md](TESTING.md) for a comprehensive guide on running unit, integration, and E2E tests.
 ```bash
 make test          # Run all tests
 make test-unit     # Unit tests only

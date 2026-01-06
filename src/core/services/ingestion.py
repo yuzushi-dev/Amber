@@ -298,6 +298,7 @@ class IngestionService:
                 from src.api.config import settings
                 from src.core.services.embeddings import EmbeddingService
                 from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+                from src.core.services.sparse_embeddings import SparseEmbeddingService
                 
                 logger.info(f"Generating embeddings for {len(chunks_to_process)} chunks")
                 
@@ -305,6 +306,7 @@ class IngestionService:
                 embedding_service = EmbeddingService(
                     openai_api_key=settings.openai_api_key or None,
                 )
+                sparse_service = SparseEmbeddingService()
                 
                 milvus_config = MilvusConfig(
                     host=settings.db.milvus_host,
@@ -319,9 +321,20 @@ class IngestionService:
                 # Generate embeddings in batch
                 embeddings, embed_stats = await embedding_service.embed_texts(chunk_contents)
                 
+                # Generate sparse embeddings
+                sparse_embeddings = []
+                try:
+                    # TODO: Batch sparse generation
+                    for text in chunk_contents:
+                        sparse_embeddings.append(sparse_service.embed_sparse(text))
+                except Exception as e:
+                    logger.warning(f"Failed to generate sparse embeddings: {e}")
+                    # Fill with None/Empty
+                    sparse_embeddings = [None] * len(chunks_to_process)
+                
                 # Prepare data for Milvus upsert
                 milvus_data = []
-                for chunk, emb in zip(chunks_to_process, embeddings):
+                for chunk, emb, sparse_emb in zip(chunks_to_process, embeddings, sparse_embeddings):
                     # Base data
                     data = {
                         "chunk_id": chunk.id,
@@ -330,6 +343,9 @@ class IngestionService:
                         "content": chunk.content[:65530],
                         "embedding": emb,
                     }
+                    if sparse_emb:
+                        data["sparse_vector"] = sparse_emb
+
                     # Add metadata from chunk (handling potential None)
                     if chunk.metadata_:
                         data.update(chunk.metadata_)
