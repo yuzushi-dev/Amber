@@ -245,7 +245,7 @@ services:
   # Milvus - Vector Database
   # ---------------------------------------------------------------------------
   milvus:
-    image: milvusdb/milvus:v2.3.3
+    image: milvusdb/milvus:v2.5.4
     container_name: graphrag-milvus
     command: [ "milvus", "run", "standalone" ]
     security_opt:

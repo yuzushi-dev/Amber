@@ -27,6 +27,13 @@ def _get_milvus():
             connections,
             utility,
         )
+        
+        # Try importing Hybrid Search components
+        try:
+            from pymilvus import AnnSearchRequest, RRFRanker
+        except ImportError:
+            AnnSearchRequest = None
+            RRFRanker = None
 
         return {
             "Collection": Collection,
@@ -36,6 +43,8 @@ def _get_milvus():
             "MilvusClient": MilvusClient,
             "connections": connections,
             "utility": utility,
+            "AnnSearchRequest": AnnSearchRequest,
+            "RRFRanker": RRFRanker,
         }
     except ImportError:
         raise ImportError("pymilvus package is required. Install with: pip install pymilvus>=2.3.0")
@@ -88,6 +97,7 @@ class MilvusVectorStore:
     FIELD_DOCUMENT_ID = "document_id"
     FIELD_TENANT_ID = "tenant_id"
     FIELD_VECTOR = "vector"
+    FIELD_SPARSE_VECTOR = "sparse_vector"
     FIELD_CONTENT = "content"
     FIELD_METADATA = "metadata"
 
@@ -150,6 +160,7 @@ class MilvusVectorStore:
         logger.info(f"Creating collection: {self.config.collection_name}")
 
         # Define schema
+        # Define schema
         fields = [
             milvus["FieldSchema"](
                 name=self.FIELD_CHUNK_ID,
@@ -178,6 +189,15 @@ class MilvusVectorStore:
                 dim=self.config.dimensions,
             ),
         ]
+        
+        # Add Sparse Vector field if supported (Milvus 2.4+)
+        if hasattr(milvus["DataType"], "SPARSE_FLOAT_VECTOR"):
+            fields.append(
+                milvus["FieldSchema"](
+                    name=self.FIELD_SPARSE_VECTOR,
+                    dtype=milvus["DataType"].SPARSE_FLOAT_VECTOR,
+                )
+            )
 
         schema = milvus["CollectionSchema"](
             fields=fields,
@@ -201,6 +221,21 @@ class MilvusVectorStore:
             field_name=self.FIELD_VECTOR,
             index_params=index_params,
         )
+        
+        # Create index for sparse vector if supported
+        if hasattr(milvus["DataType"], "SPARSE_FLOAT_VECTOR"):
+            sparse_index_params = {
+                "metric_type": "IP",
+                "index_type": "SPARSE_INVERTED_INDEX",
+                "params": {"drop_ratio_build": 0.2},
+            }
+            try:
+                self._collection.create_index(
+                    field_name=self.FIELD_SPARSE_VECTOR,
+                    index_params=sparse_index_params,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create sparse index used standard parameters: {e}")
 
         # Create indexes for filter fields
         self._collection.create_index(
@@ -261,10 +296,16 @@ class MilvusVectorStore:
                 self.FIELD_CONTENT: c.get("content", "")[:65530],
                 self.FIELD_VECTOR: c["embedding"],
             }
+            
+            # Add sparse vector if present
+            if self.FIELD_SPARSE_VECTOR in c and c[self.FIELD_SPARSE_VECTOR]:
+                row[self.FIELD_SPARSE_VECTOR] = c[self.FIELD_SPARSE_VECTOR]
+
             # Merge extra metadata (everything in c that isn't a reserved field)
             reserved = {
                 self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, 
                 self.FIELD_TENANT_ID, self.FIELD_CONTENT, self.FIELD_VECTOR,
+                self.FIELD_SPARSE_VECTOR,
                 "metadata" # avoid nesting if passed explicitly
             }
             for k, v in c.items():
@@ -491,3 +532,118 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             return {"error": str(e)}
+
+    async def hybrid_search(
+        self,
+        dense_vector: list[float],
+        sparse_vector: dict[int, float],
+        tenant_id: str,
+        document_ids: list[str] | None = None,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+        rrf_k: int = 60,
+    ) -> list[SearchResult]:
+        """
+        Perform Hybrid Search (Dense + Sparse) with Reciprocal Rank Fusion (RRF).
+        Requires Milvus 2.4+.
+        """
+        await self.connect()
+        milvus = _get_milvus()
+        
+        # Check if hybrid search components are available
+        if not milvus.get("AnnSearchRequest") or not milvus.get("RRFRanker"):
+             logger.warning("Hybrid search components not found (pymilvus too old?), falling back to Dense search")
+             return await self.search(dense_vector, tenant_id, document_ids=document_ids, limit=limit, filters=filters)
+
+        # Build filter
+        filter_list = [f'{self.FIELD_TENANT_ID} == "{tenant_id}"']
+        if document_ids:
+            doc_filter = " || ".join(
+                f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
+            )
+            filter_list.append(f"({doc_filter})")
+            
+        if filters:
+            for key, val in filters.items():
+                if isinstance(val, str):
+                    val_str = f'"{val}"'
+                else:
+                    val_str = str(val).lower() if isinstance(val, bool) else str(val)
+                filter_list.append(f"{key} == {val_str}")
+        filter_expr = " && ".join(filter_list)
+
+        # 1. Define Search Requests
+        # Dense
+        dense_req = milvus["AnnSearchRequest"](
+            data=[dense_vector],
+            ann_field=self.FIELD_VECTOR,
+            param={"metric_type": self.config.metric_type, "params": {"ef": 128}},
+            limit=limit,
+            expr=filter_expr
+        )
+        
+        # Sparse
+        # Check if sparse vector is valid and collection has the field
+        has_sparse_field = next((f for f in self._collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None)
+        
+        if not sparse_vector or not has_sparse_field:
+            return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
+
+        sparse_req = milvus["AnnSearchRequest"](
+            data=[sparse_vector],
+            ann_field=self.FIELD_SPARSE_VECTOR,
+            param={"metric_type": "IP", "params": {"drop_ratio_build": 0.2}}, # IP usually for Sparse
+            limit=limit,
+            expr=filter_expr
+        )
+
+        # 2. Define Reranker
+        ranker = milvus["RRFRanker"](k=rrf_k)
+
+        import asyncio
+
+        def _sync_hybrid():
+            # Use the collection's hybrid_search method
+            results = self._collection.hybrid_search(
+                reqs=[dense_req, sparse_req],
+                rerank=ranker,
+                limit=limit,
+                output_fields=["*"]
+            )
+            return results
+
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(_sync_hybrid),
+                timeout=30.0
+            )
+            
+            # Map results
+            search_results = []
+            for hits in results:
+                for hit in hits:
+                     # Extract all fields into metadata
+                     meta = {}
+                     reserved = {
+                         self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, 
+                         self.FIELD_TENANT_ID, self.FIELD_VECTOR, self.FIELD_SPARSE_VECTOR
+                     }
+                     for k, v in hit.entity.items():
+                         if k not in reserved:
+                             meta[k] = v
+                     
+                     search_results.append(
+                         SearchResult(
+                             chunk_id=hit.entity.get(self.FIELD_CHUNK_ID),
+                             document_id=hit.entity.get(self.FIELD_DOCUMENT_ID),
+                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
+                             score=hit.score,
+                             metadata=meta,
+                         )
+                     )
+            return search_results
+
+        except Exception as e:
+            logger.error(f"Hybrid search failed: {e}")
+            # Fallback
+            return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)

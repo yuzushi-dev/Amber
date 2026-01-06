@@ -6,7 +6,7 @@ test.describe('Amber 2.0 Pipelines E2E Tests', () => {
 
     test('Ingestion Pipeline: Document Upload', async ({ page }) => {
         // 1. Navigate to the Documents page
-        await page.goto('/documents');
+        await page.goto('/admin/data/documents');
 
         // Create a dummy file to upload with unique content
         const timestamp = Date.now();
@@ -66,11 +66,11 @@ test.describe('Amber 2.0 Pipelines E2E Tests', () => {
 
     test('Search/Chat Pipeline: Query and Response', async ({ page }) => {
         // 1. Navigate to the Chat page
-        await page.goto('/chat');
+        await page.goto('/amber/chat');
 
         // 2. Identify the chat input using the ID found in QueryInput.tsx
         const chatInput = page.locator('#query-input');
-        await expect(chatInput).toBeVisible();
+        await expect(chatInput).toBeVisible({ timeout: 15000 });
 
         // 3. Type a query
         const query = 'Hello, e2e test query';

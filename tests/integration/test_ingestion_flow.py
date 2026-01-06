@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.services.ingestion import IngestionService
-from src.core.storage.minio_client import MinIOClient
+from src.core.storage.storage_client import MinIOClient
 from src.core.models.document import Document
 from src.core.models.chunk import Chunk
 from src.core.state.machine import DocumentStatus
@@ -23,7 +23,7 @@ async def clean_database(session: AsyncSession):
     await session.commit()
 
 @pytest.mark.asyncio
-async def test_register_document_flow(db_session: AsyncSession):
+async def test_register_document_flow(db_session: AsyncSession, minio_container):
     # Setup
     tenant_id = f"test_tenant_{uuid.uuid4().hex[:8]}"
     filename = "test_doc.txt"
@@ -34,9 +34,12 @@ async def test_register_document_flow(db_session: AsyncSession):
     
     # Initialize Service
     from src.api.config import settings
-    # Force host to minio for docker test environment (if running in docker with service alias)
-    # Ideally this should be handled by env vars in the compose run command, but patching here ensures it works.
-    settings.minio.host = "minio"
+    # Configure settings to use the test container
+    settings.minio.host = minio_container.get_container_host_ip()
+    settings.minio.port = int(minio_container.get_exposed_port(9000))
+    settings.minio.secure = False
+    settings.minio.access_key = "minioadmin"
+    settings.minio.secret_key = "minioadmin"
     
     storage = MinIOClient()
     # Ensure bucket exists (handling this in service/client implicitly or explicitly)
