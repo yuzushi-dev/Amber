@@ -5,9 +5,14 @@ Celery Application Configuration
 Configures Celery for background task processing.
 """
 
+import logging
 import os
 import sys
-import logging
+
+from celery import Celery
+from celery.signals import worker_process_init, worker_ready
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # SAFETY GUARDRAIL
@@ -17,7 +22,7 @@ try:
     _is_worker = "worker" in sys.argv
     _is_docker = os.getenv("AMBER_RUNTIME") == "docker"
     _force_local = os.getenv("AMBER_FORCE_LOCAL") == "true"
-    
+
     if _is_worker and not _is_docker and not _force_local:
         print("\n" + "!" * 80)
         print("CRITICAL SAFETY ERROR: HOST EXECUTION BLOCKED")
@@ -32,10 +37,8 @@ try:
 except Exception:
     pass  # Fallback for weird edge cases, though sys.exit should happen
 
-logger = logging.getLogger(__name__)
 
-from celery import Celery
-from celery.signals import worker_process_init, worker_ready
+# ... imports
 
 # Celery configuration
 broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
@@ -84,7 +87,7 @@ celery_app.conf.task_routes = {
 @worker_process_init.connect
 def init_worker_process(**kwargs):
     """Initialize providers and other dependencies when worker process starts.
-    
+
     Uses worker_process_init instead of worker_init because prefork pool
     requires each forked process to initialize its own resources.
     """
@@ -92,7 +95,7 @@ def init_worker_process(**kwargs):
     try:
         from src.api.config import settings
         from src.core.providers.factory import init_providers
-        
+
         providers = getattr(settings, "providers", None)
         openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
         anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
@@ -111,16 +114,16 @@ def init_worker_process(**kwargs):
 @worker_ready.connect
 def on_worker_ready(**kwargs):
     """Run stale document recovery when worker is fully ready.
-    
+
     This signal fires after all worker initialization is complete,
     making it safe to access databases and other resources.
     """
     logger.info("Worker ready - checking for stale documents...")
     try:
         from src.workers.recovery import run_recovery_sync
-        
+
         result = run_recovery_sync()
-        
+
         if result.get("total", 0) > 0:
             logger.info(
                 f"Stale document recovery: {result.get('recovered', 0)} recovered, "
@@ -128,7 +131,7 @@ def on_worker_ready(**kwargs):
             )
         else:
             logger.info("No stale documents found")
-            
+
     except Exception as e:
         logger.error(f"Stale document recovery failed: {e}")
         # Don't fail worker startup - recovery is best-effort

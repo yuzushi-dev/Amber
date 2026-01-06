@@ -6,7 +6,8 @@ Token-aware batching for efficient API calls.
 """
 
 import logging
-from typing import TypeVar, Callable, Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ T = TypeVar("T")
 def get_token_counter(model: str = "gpt-4") -> Callable[[str], int]:
     """
     Get a token counter function for the specified model.
-    
+
     Falls back to word-based approximation if tiktoken not available.
     """
     try:
@@ -44,11 +45,11 @@ def batch_by_count(
 ) -> list[list[T]]:
     """
     Split items into batches of fixed size.
-    
+
     Args:
         items: List of items to batch
         max_batch_size: Maximum items per batch
-        
+
     Returns:
         List of batches
     """
@@ -70,13 +71,13 @@ def batch_by_tokens(
 ) -> list[list[tuple[int, str]]]:
     """
     Split texts into batches respecting token limits.
-    
+
     Args:
         texts: List of texts to batch
         max_tokens_per_batch: Maximum tokens per batch
         max_items_per_batch: Optional maximum items per batch
         token_counter: Function to count tokens (defaults to tiktoken)
-        
+
     Returns:
         List of batches, each containing (original_index, text) tuples
     """
@@ -140,13 +141,13 @@ def batch_texts_for_embedding(
 ) -> list[list[tuple[int, str]]]:
     """
     Batch texts specifically for embedding API calls.
-    
+
     Args:
         texts: Texts to embed
         model: Embedding model name
         max_tokens: Maximum tokens per batch
         max_items: Maximum items per batch
-        
+
     Returns:
         Batches with (index, text) tuples
     """
@@ -162,7 +163,7 @@ def batch_texts_for_embedding(
 class BatchProcessor:
     """
     Generic batch processor with progress tracking.
-    
+
     Usage:
         processor = BatchProcessor(
             items=texts,

@@ -9,7 +9,7 @@ import functools
 import json
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +19,11 @@ def _get_redis():
     try:
         import redis.asyncio as redis
         return redis
-    except ImportError:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0")
+    except ImportError as e:
+        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
 
 
-async def get_from_cache(key: str) -> Optional[dict]:
+async def get_from_cache(key: str) -> dict | None:
     """
     Get value from Redis cache.
 

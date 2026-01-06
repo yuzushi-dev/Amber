@@ -6,23 +6,22 @@ FastAPI application entry point.
 Configures middleware, routes, and exception handlers.
 """
 
-import os
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.config import settings
-
 from src.api.middleware.auth import AuthenticationMiddleware
 from src.api.middleware.exceptions import register_exception_handlers
 from src.api.middleware.rate_limit import RateLimitMiddleware, UploadSizeLimitMiddleware
 from src.api.middleware.request_id import RequestIdMiddleware
 from src.api.middleware.timing import TimingMiddleware
+
 # from src.core.observability.tracer import setup_tracer
 # from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
 # Import core routes (always available)
 from src.api.routes import health, query
 
@@ -44,7 +43,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
-    
+
     # SAFETY WARNING
     if os.getenv("AMBER_RUNTIME") != "docker":
         logger.warning("! " * 40)
@@ -165,7 +164,7 @@ app.include_router(health.router)
 app.include_router(health.router, prefix="/api")
 
 # API v1 routes
-from fastapi import APIRouter
+# from fastapi import APIRouter # Moved to top
 
 v1_router = APIRouter(prefix="/v1")
 
@@ -200,7 +199,7 @@ try:
     logger.info("Registered communities router")
 except ImportError as e:
     logger.warning(f"Communities router not available: {e}")
-    
+
 try:
     from src.api.routes import feedback
     v1_router.include_router(feedback.router)

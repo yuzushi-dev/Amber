@@ -5,9 +5,20 @@ import { StatCard } from '@/components/ui/StatCard';
 import { maintenanceApi, SystemStats } from '@/lib/api-admin';
 import { Activity, Database, Server, Zap } from 'lucide-react';
 
+interface HealthDependency {
+    status: 'healthy' | 'degraded' | 'down'
+    latency_ms: number
+}
+
+interface SystemHealth {
+    status: 'ready' | 'degraded' | 'down'
+    dependencies: Record<string, HealthDependency>
+    timestamp: string
+}
+
 export default function MetricsDashboard() {
     const [stats, setStats] = useState<SystemStats | null>(null);
-    const [health, setHealth] = useState<any>(null); // TODO: Type properly with Health API
+    const [health, setHealth] = useState<SystemHealth | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -85,7 +96,7 @@ export default function MetricsDashboard() {
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {health?.dependencies && Object.entries(health.dependencies).map(([name, status]: [string, any]) => (
+                        {health?.dependencies && Object.entries(health.dependencies).map(([name, status]) => (
                             <div key={name} className="flex items-center justify-between p-3 border rounded-lg bg-muted/20">
                                 <span className="capitalize font-medium text-sm">{name}</span>
                                 <div className="flex items-center gap-2">

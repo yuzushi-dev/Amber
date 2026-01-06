@@ -1,7 +1,9 @@
 import sys
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.core.database.session import get_session_maker
 
 # Mock dependencies that might be missing in the host environment
@@ -14,7 +16,7 @@ from src.core.database.session import get_session_maker
 # ============================================================================
 class MockTiktokenEncoding:
     """Mock tiktoken encoding that returns realistic token counts."""
-    
+
     def encode(self, text: str):
         """Estimate tokens as ~4 chars per token (industry standard approximation)."""
         if not text:
@@ -22,7 +24,7 @@ class MockTiktokenEncoding:
         # Return a list with length = estimated token count
         estimated_tokens = max(1, len(text) // 4)
         return list(range(estimated_tokens))
-    
+
     def decode(self, tokens):
         """Decode tokens back to approximate text length."""
         if not tokens:
@@ -33,10 +35,10 @@ class MockTiktokenEncoding:
 
 class MockTiktoken:
     """Mock tiktoken module."""
-    
+
     def get_encoding(self, encoding_name: str):
         return MockTiktokenEncoding()
-    
+
     def encoding_for_model(self, model: str):
         return MockTiktokenEncoding()
 
@@ -74,7 +76,7 @@ for module_name in mock_modules:
         __import__(module_name)
     except ImportError:
         pass
-        
+
     if module_name not in sys.modules:
         sys.modules[module_name] = MagicMock()
 
@@ -93,7 +95,8 @@ if "minio" not in sys.modules:
 # ============================================================================
 # Neo4j specific mocks
 # ============================================================================
-import neo4j
+import neo4j  # noqa: E402
+
 neo4j.AsyncGraphDatabase = MagicMock()
 neo4j.AsyncDriver = MagicMock()
 neo4j.AsyncSession = MagicMock()
@@ -110,7 +113,7 @@ async def db_session() -> AsyncSession:
     """
     # Create session
     async_session = get_session_maker()
-    
+
     async with async_session() as session:
         try:
             yield session

@@ -10,6 +10,16 @@ interface ContentTabProps {
     documentId: string;
 }
 
+interface DocumentData {
+    content_type?: string
+    [key: string]: unknown
+}
+
+interface Chunk {
+    index: number
+    content: string
+}
+
 const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
     const [content, setContent] = useState<string>('');
     const [contentType, setContentType] = useState<string | null>(null);
@@ -21,7 +31,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
         const fetchContent = async () => {
             try {
                 // Fetch document metadata to get content_type
-                const docResponse = await apiClient.get<any>(`/documents/${documentId}`);
+                const docResponse = await apiClient.get<DocumentData>(`/documents/${documentId}`);
                 const document = docResponse.data;
                 const type = document.content_type || 'text/plain';
 
@@ -45,20 +55,20 @@ const ContentTab: React.FC<ContentTabProps> = ({ documentId }) => {
                     setFileUrl({
                         url: url,
                         httpHeaders: token ? { 'X-API-Key': token } : undefined
-                    } as any); // Cast to any because state is typed as string | null currently
+                    } as unknown as string); // Cast to string/object as per PDFViewer props (typed loosely as string | object)
 
                     setLoading(false);
                     return;
                 }
 
                 // For text-based formats, fetch chunks to reconstruct content
-                const chunksResponse = await apiClient.get<any>(`/documents/${documentId}/chunks`);
-                const chunks = chunksResponse.data.chunks || chunksResponse.data;
+                const chunksResponse = await apiClient.get<{ chunks: Chunk[] } | Chunk[]>(`/documents/${documentId}/chunks`);
+                const chunks = 'chunks' in chunksResponse.data ? chunksResponse.data.chunks : chunksResponse.data;
 
                 // Sort by index and join
                 const fullText = chunks
-                    .sort((a: any, b: any) => a.index - b.index)
-                    .map((c: any) => c.content)
+                    .sort((a, b) => a.index - b.index)
+                    .map((c) => c.content)
                     .join('\n\n');
 
                 setContent(fullText || 'No text content available.');

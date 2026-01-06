@@ -9,18 +9,16 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
+
 # Import your models' Base for autogenerate support
 from src.core.models.base import Base
+
 # Import all models so they are registered with Base metadata
-from src.core.models.document import Document
-from src.core.models.chunk import Chunk
-from src.core.models.flag import Flag
-from src.core.models.memory import UserFact, ConversationSummary
 
 # Alembic Config object
 config = context.config

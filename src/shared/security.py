@@ -7,6 +7,7 @@ API key hashing, generation, and verification utilities.
 
 import hashlib
 import hmac
+import os
 import secrets
 from base64 import b64encode
 from typing import Any
@@ -107,7 +108,9 @@ _DEFAULT_API_KEY = generate_api_key()
 _DEFAULT_API_KEY_HASH = hash_api_key(_DEFAULT_API_KEY)
 
 # Support fixed dev API key from environment
-import os
+# Support fixed dev API key from environment
+# import os # Moved to top
+
 _DEV_API_KEY = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
 _DEV_API_KEY_HASH = hash_api_key(_DEV_API_KEY)
 

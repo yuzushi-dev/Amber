@@ -6,7 +6,7 @@ API key validation and tenant context injection.
 """
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -91,7 +91,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Extract API key from header
         api_key = request.headers.get("X-API-Key")
-        
+
         # Fallback: For SSE endpoints, check query params since EventSource can't set headers
         is_sse_path = any(p in path for p in ["/stream", "/events"])
         if not api_key and is_sse_path:

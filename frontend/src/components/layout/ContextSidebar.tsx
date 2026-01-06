@@ -59,7 +59,8 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
         {
             title: 'Database',
             items: [
-                { label: 'Statistics', icon: Database, to: '/admin/data/database' },
+                { label: 'Statistics', icon: Database, to: '/admin/data/maintenance' },
+                { label: 'Query Log', icon: Activity, to: '/admin/queries' },
                 { label: 'Vector Store', icon: Layers, to: '/admin/data/vectors' },
             ]
         }

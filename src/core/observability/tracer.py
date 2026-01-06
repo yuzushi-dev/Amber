@@ -8,8 +8,8 @@ Sets up the distributed tracing system for the Amber system.
 import functools
 import inspect
 import logging
-import contextlib
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ try:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
-    
+
     OPENTELEMETRY_AVAILABLE = True
 except ImportError:
     OPENTELEMETRY_AVAILABLE = False
@@ -51,7 +51,7 @@ def setup_tracer(service_name: str = "amber-rag") -> Any:
     Sets up the OpenTelemetry TracerProvider and global tracer.
     """
     global _tracer
-    
+
     if _tracer:
         return _tracer
 
@@ -64,14 +64,14 @@ def setup_tracer(service_name: str = "amber-rag") -> Any:
 
     # Initialize Provider
     provider = TracerProvider(resource=resource)
-    
+
     # Configure Console Exporter (for MVP/logs)
     console_exporter = ConsoleSpanExporter()
     provider.add_span_processor(SimpleSpanProcessor(console_exporter))
 
     trace.set_tracer_provider(provider)
     _tracer = trace.get_tracer(__name__)
-    
+
     logger.info(f"OpenTelemetry tracer initialized for service: {service_name}")
     return _tracer
 
@@ -82,23 +82,23 @@ def get_tracer() -> Any:
         return setup_tracer()
     return _tracer
 
-def trace_span(name: Optional[str] = None):
+def trace_span(name: str | None = None):
     """
     Decorator to wrap a function in an OpenTelemetry span.
-    
+
     Args:
         name: Override the span name. Defaults to function's name.
     """
     def decorator(func: Callable):
         span_name = name or func.__name__
-        
+
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             tracer = get_tracer()
             # Handle both MockTracer and real Tracer context managers
             ctx = tracer.start_as_current_span(span_name)
-            
-            # If using OTel, ctx is a context manager. 
+
+            # If using OTel, ctx is a context manager.
             # If mock, MockSpan is a context manager.
             with ctx as span:
                 try:

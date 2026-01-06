@@ -1,11 +1,11 @@
 import re
-from typing import List
+
 
 class InjectionDetector:
     """
     Service to detect prompt injection attempts using heuristics and patterns.
     """
-    
+
     # Common injection patterns
     INJECTION_PATTERNS = [
         r"(ignore|disregard)\s+(all\s+)?(previous|prior)\s+instructions",
@@ -30,7 +30,7 @@ class InjectionDetector:
         """
         if not text:
             return False
-            
+
         for pattern in self.compiled_patterns:
             if pattern.search(text):
                 return True

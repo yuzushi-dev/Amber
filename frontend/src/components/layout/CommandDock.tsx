@@ -69,7 +69,7 @@ export default function CommandDock() {
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [])
 
-    const isActive = (item: DockItem, _index: number) => {
+    const isActive = (item: DockItem) => {
         // Check if current path starts with their prefix
         return currentPath.startsWith(item.matchPrefix || item.to)
     }
@@ -124,8 +124,8 @@ export default function CommandDock() {
 
                         {/* Grid of navigation items */}
                         <div className="grid grid-cols-3 gap-4">
-                            {[...dockItems, clientChatItem].map((item, index) => {
-                                const active = isActive(item, index)
+                            {[...dockItems, clientChatItem].map((item) => {
+                                const active = isActive(item)
                                 const Icon = item.icon
                                 return (
                                     <Link
@@ -164,7 +164,7 @@ export default function CommandDock() {
         >
             <div className="flex items-center gap-1">
                 {dockItems.map((item, index) => {
-                    const active = isActive(item, index)
+                    const active = isActive(item)
                     const Icon = item.icon
                     const scale = getScale(index)
 

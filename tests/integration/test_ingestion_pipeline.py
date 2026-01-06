@@ -16,19 +16,14 @@ Run with: pytest tests/integration/test_ingestion_pipeline.py -v
 """
 
 import asyncio
-import io
-import time
-from pathlib import Path
-from typing import Dict, Any
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
+from src.api.config import settings
 from src.api.main import app
 from src.core.graph.neo4j_client import neo4j_client
-from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
-from src.api.config import settings
-
+from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
 
 # Test PDF content as bytes
 TEST_PDF_CONTENT = b"""%PDF-1.4
@@ -322,11 +317,11 @@ class TestIngestionPipeline:
 if __name__ == "__main__":
     # Allow running standalone
     async def run_test():
-        from httpx import AsyncClient, ASGITransport
-        
+        from httpx import ASGITransport, AsyncClient
+
         api_key = "amber-dev-key-2024"
         transport = ASGITransport(app=app)
-        
+
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             test = TestIngestionPipeline()
             result = await test.test_complete_pipeline(
@@ -334,12 +329,12 @@ if __name__ == "__main__":
                 api_key,
                 ("test_integration.pdf", TEST_PDF_CONTENT, "application/pdf")
             )
-            
+
             print(f"\n{'='*60}")
             print("TEST RESULTS:")
             print(f"{'='*60}")
             for key, value in result.items():
                 print(f"  {key}: {value}")
             print(f"{'='*60}\n")
-    
+
     asyncio.run(run_test())

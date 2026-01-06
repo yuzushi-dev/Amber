@@ -7,24 +7,18 @@ Factory pattern for provider instantiation with failover support.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Type
 
+from src.core.database.session import async_session_maker
 from src.core.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
     BaseRerankerProvider,
-    EmbeddingResult,
-    GenerationResult,
     ProviderConfig,
-    ProviderError,
     ProviderTier,
     ProviderUnavailableError,
-    RateLimitError,
-    RerankResult,
 )
-from src.core.database.session import async_session_maker
+from src.core.providers.failover import FailoverEmbeddingProvider, FailoverLLMProvider
 from src.core.services.usage_tracker import UsageTracker
-from src.core.providers.failover import FailoverLLMProvider, FailoverEmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,26 +27,26 @@ logger = logging.getLogger(__name__)
 class ProviderRegistry:
     """Registry of available providers."""
 
-    llm_providers: dict[str, Type[BaseLLMProvider]] = field(default_factory=dict)
-    embedding_providers: dict[str, Type[BaseEmbeddingProvider]] = field(default_factory=dict)
-    reranker_providers: dict[str, Type[BaseRerankerProvider]] = field(default_factory=dict)
+    llm_providers: dict[str, type[BaseLLMProvider]] = field(default_factory=dict)
+    embedding_providers: dict[str, type[BaseEmbeddingProvider]] = field(default_factory=dict)
+    reranker_providers: dict[str, type[BaseRerankerProvider]] = field(default_factory=dict)
 
 
 # Global registry
 _registry = ProviderRegistry()
 
 
-def register_llm_provider(name: str, provider_class: Type[BaseLLMProvider]):
+def register_llm_provider(name: str, provider_class: type[BaseLLMProvider]):
     """Register an LLM provider."""
     _registry.llm_providers[name] = provider_class
 
 
-def register_embedding_provider(name: str, provider_class: Type[BaseEmbeddingProvider]):
+def register_embedding_provider(name: str, provider_class: type[BaseEmbeddingProvider]):
     """Register an embedding provider."""
     _registry.embedding_providers[name] = provider_class
 
 
-def register_reranker_provider(name: str, provider_class: Type[BaseRerankerProvider]):
+def register_reranker_provider(name: str, provider_class: type[BaseRerankerProvider]):
     """Register a reranker provider."""
     _registry.reranker_providers[name] = provider_class
 
@@ -105,7 +99,7 @@ _auto_register()
 class ProviderFactory:
     """
     Factory for creating configured providers.
-    
+
     Usage:
         factory = ProviderFactory(openai_key="sk-...", anthropic_key="sk-...")
         llm = factory.get_llm_provider(tier=ProviderTier.ECONOMY)

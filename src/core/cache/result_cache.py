@@ -20,8 +20,8 @@ def _get_redis():
         import redis.asyncio as redis
 
         return redis
-    except ImportError:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0")
+    except ImportError as e:
+        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
 
 
 @dataclass
@@ -47,18 +47,18 @@ class CachedResult:
 class ResultCache:
     """
     Cache for retrieval results.
-    
+
     Stores (query, tenant, filters) -> chunk IDs mapping
     to avoid repeating expensive vector searches.
-    
+
     Invalidation Strategy:
     - Each tenant has a `last_update_ts` timestamp
     - When a document is added/modified, increment this timestamp
     - Cache entries are ignored if their timestamp < last_update_ts
-    
+
     Usage:
         cache = ResultCache(config)
-        
+
         # Check cache
         result = await cache.get("query", "tenant_123")
         if result is None:
@@ -112,12 +112,12 @@ class ResultCache:
     ) -> CachedResult | None:
         """
         Get cached retrieval result.
-        
+
         Args:
             query: The search query
             tenant_id: Tenant ID
             filters: Optional search filters
-            
+
         Returns:
             CachedResult or None if not found/stale
         """
@@ -170,7 +170,7 @@ class ResultCache:
     ) -> bool:
         """
         Cache a retrieval result.
-        
+
         Args:
             query: The search query
             tenant_id: Tenant ID
@@ -178,7 +178,7 @@ class ResultCache:
             scores: Corresponding similarity scores
             filters: Optional search filters used
             ttl: Optional TTL override
-            
+
         Returns:
             True if cached successfully
         """
@@ -211,7 +211,7 @@ class ResultCache:
     async def invalidate_tenant(self, tenant_id: str) -> bool:
         """
         Invalidate all cached results for a tenant.
-        
+
         Call this when documents are added/modified/deleted.
         """
         try:
@@ -243,7 +243,7 @@ class ResultCache:
                 data = await client.get(key)
                 if data:
                     try:
-                        cached = json.loads(data)
+                        json.loads(data)
                         # We can't filter by tenant without tenant in key
                         # For now, just use invalidation instead
                         pass

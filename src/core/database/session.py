@@ -7,19 +7,24 @@ The engine and session_maker are created on first access, not at import time.
 This enables unit tests to import modules without requiring a database connection.
 """
 
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker, AsyncEngine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 # Lazy-initialized globals
-_engine: Optional[AsyncEngine] = None
-_async_session_maker: Optional[async_sessionmaker[AsyncSession]] = None
+_engine: AsyncEngine | None = None
+_async_session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
     """
     Get the async database engine, creating it on first access.
-    
+
     Returns:
         AsyncEngine: The SQLAlchemy async engine.
     """
@@ -39,7 +44,7 @@ def get_engine() -> AsyncEngine:
 def get_session_maker() -> async_sessionmaker[AsyncSession]:
     """
     Get the async session maker, creating it on first access.
-    
+
     Returns:
         async_sessionmaker: Factory for creating database sessions.
     """
@@ -59,7 +64,7 @@ class _LazyEngine:
     """Lazy proxy for the engine to maintain backward compatibility."""
     def __getattr__(self, name):
         return getattr(get_engine(), name)
-    
+
     def __call__(self, *args, **kwargs):
         return get_engine()(*args, **kwargs)
 
@@ -68,7 +73,7 @@ class _LazySessionMaker:
     """Lazy proxy for the session maker to maintain backward compatibility."""
     def __getattr__(self, name):
         return getattr(get_session_maker(), name)
-    
+
     def __call__(self, *args, **kwargs):
         return get_session_maker()(*args, **kwargs)
 
@@ -81,7 +86,7 @@ async_session_maker = _LazySessionMaker()
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that yields a database session.
-    
+
     Yields:
         AsyncSession: Database session that auto-closes.
     """

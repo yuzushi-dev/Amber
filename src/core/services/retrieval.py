@@ -11,34 +11,33 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.api.schemas.query import SearchMode, QueryOptions
-from src.core.cache.semantic_cache import CacheConfig, SemanticCache
+from src.api.schemas.query import QueryOptions, SearchMode
 from src.core.cache.result_cache import ResultCache, ResultCacheConfig
-from src.core.providers.base import BaseRerankerProvider
-from src.core.providers.factory import ProviderFactory
-from src.core.services.embeddings import EmbeddingService
-from src.core.services.sparse_embeddings import SparseEmbeddingService
-from src.core.query.parser import QueryParser
-from src.core.query.rewriter import QueryRewriter
-from src.core.query.decomposer import QueryDecomposer
-from src.core.query.hyde import HyDEService
-from src.core.query.router import QueryRouter
-from src.core.query.models import StructuredQuery
-from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore, SearchResult
-from src.core.models.candidate import Candidate
-from src.core.retrieval.search.vector import VectorSearcher
-from src.core.retrieval.search.graph import GraphSearcher
-from src.core.retrieval.search.entity import EntitySearcher
-from src.core.retrieval.search.graph_traversal import GraphTraversalService
-from src.core.retrieval.fusion import fuse_results
-from src.core.retrieval.weights import get_adaptive_weights
-from src.core.retrieval.global_search import GlobalSearchService
-from src.core.retrieval.drift_search import DriftSearchService
-from src.core.system.circuit_breaker import CircuitBreaker
+from src.core.cache.semantic_cache import CacheConfig, SemanticCache
+from src.core.database.session import async_session_maker
 from src.core.graph.neo4j_client import Neo4jClient
 from src.core.observability.tracer import trace_span
+from src.core.providers.base import BaseRerankerProvider
+from src.core.providers.factory import ProviderFactory
+from src.core.query.decomposer import QueryDecomposer
+from src.core.query.hyde import HyDEService
+from src.core.query.models import StructuredQuery
+from src.core.query.parser import QueryParser
+from src.core.query.rewriter import QueryRewriter
+from src.core.query.router import QueryRouter
+from src.core.retrieval.drift_search import DriftSearchService
+from src.core.retrieval.fusion import fuse_results
+from src.core.retrieval.global_search import GlobalSearchService
+from src.core.retrieval.search.entity import EntitySearcher
+from src.core.retrieval.search.graph import GraphSearcher
+from src.core.retrieval.search.graph_traversal import GraphTraversalService
+from src.core.retrieval.search.vector import VectorSearcher
+from src.core.retrieval.weights import get_adaptive_weights
+from src.core.services.embeddings import EmbeddingService
+from src.core.services.sparse_embeddings import SparseEmbeddingService
 from src.core.services.tuning import TuningService
-from src.core.database.session import async_session_maker
+from src.core.system.circuit_breaker import CircuitBreaker
+from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ class RetrievalConfig:
     # Reranking
     enable_reranking: bool = True
     rerank_model: str = "ms-marco-MiniLM-L-12-v2"
-    
+
     # Hybrid Search
     enable_hybrid: bool = True
 
@@ -89,7 +88,7 @@ class RetrievalService:
     - Vector search in Milvus
     - Reranking with FlashRank
     - Result caching
-    
+
     Usage:
         service = RetrievalService(
             openai_api_key="sk-...",
@@ -117,7 +116,7 @@ class RetrievalService:
         self.embedding_service = EmbeddingService(
             provider=factory.get_embedding_provider(),
         )
-        
+
         self.sparse_embedding = None
         if self.config.enable_hybrid:
             self.sparse_embedding = SparseEmbeddingService()
@@ -166,19 +165,19 @@ class RetrievalService:
 
         # Initialize Phase 6 services
         self.vector_searcher = VectorSearcher(self.vector_store)
-        
+
         # We need a Neo4jClient for graph searchers
         # In a real app, this should be injected or retrieved from a registry
         self.neo4j_client = Neo4jClient()
         self.graph_searcher = GraphSearcher(self.neo4j_client)
         self.entity_searcher = EntitySearcher(self.vector_store) # Uses entity collection
         self.graph_traversal = GraphTraversalService(self.neo4j_client)
-        
+
         # Advanced Search Modes
         llm = factory.get_llm_provider(tier=self.config.llm_tier if hasattr(self.config, 'llm_tier') else None)
         self.global_search = GlobalSearchService(self.vector_store, llm)
         self.drift_search = DriftSearchService(self, llm)
-        
+
         # Resilience
         self.circuit_breaker = CircuitBreaker()
 
@@ -207,7 +206,7 @@ class RetrievalService:
     ) -> RetrievalResult:
         """
         Retrieve relevant chunks for a query with Phase 5 analysis.
-        
+
         Pipeline:
         1. Contextual Rewriting (if enabled)
         2. Filter Extraction & Parsing
@@ -222,14 +221,14 @@ class RetrievalService:
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
-        
+
         # Step 1: Contextual Rewriting
         processed_query = query
         if options.use_rewrite and history:
             processed_query = await self.rewriter.rewrite(query, history)
-        
+
         structured_query = QueryParser.parse(processed_query)
-        
+
         # Merge filters
         all_document_ids = list(set((document_ids or []) + (structured_query.document_ids or [])))
         all_filters = {**(filters or {})}
@@ -246,12 +245,12 @@ class RetrievalService:
         # Step 4 & 5: Search Execution based on Mode
         # For now, most modes fall back to vector search with optional HyDE/Decomposition
         # Phase 6 will implement specialized Global and DRIFT strategies.
-        
-        retrieval_start = time.perf_counter()
-        
+
+        time.perf_counter()
+
         # Step 4: Search Execution based on Mode
-        retrieval_start = time.perf_counter()
-        
+        time.perf_counter()
+
         try:
             if search_mode == SearchMode.GLOBAL:
                 res = await self.global_search.search(
@@ -300,17 +299,17 @@ class RetrievalService:
                 options=options,
                 trace=trace
             )
-        
+
         # Record latency for circuit breaker
         total_latency = (time.perf_counter() - start_time) * 1000
         self.circuit_breaker.record_latency(total_latency)
-        
+
         result.latency_ms = total_latency
         if not include_trace:
             result.trace = []
         else:
             result.trace = trace
-            
+
         return result
 
     @trace_span("RetrievalService.hybrid_search")
@@ -326,28 +325,28 @@ class RetrievalService:
     ) -> RetrievalResult:
         """Executes Hybrid (Vector + Graph) retrieval with RRF fusion."""
         step_start = time.perf_counter()
-        
+
         # Parallel retrieval tasks
         query_text = structured_query.cleaned_query
-        
+
         # 1. Vector Search
         # We need an embedding first
         embedding = await self.embedding_service.embed_single(query_text)
-        
+
         vector_task = self.vector_searcher.search(
             query_vector=embedding,
             tenant_id=tenant_id,
             document_ids=document_ids,
             limit=self.config.initial_k
         )
-        
+
         # 2. Entity + Graph Search
         entity_task = self.entity_searcher.search(
             query_vector=embedding,
             tenant_id=tenant_id,
             limit=5
         )
-        
+
         # Run vector and entity search in parallel with timeout
         try:
             vector_results, entity_results = await asyncio.wait_for(
@@ -361,11 +360,11 @@ class RetrievalService:
             if isinstance(entity_results, Exception):
                 logger.warning(f"Entity search failed: {entity_results}")
                 entity_results = []
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Hybrid search timed out, falling back to empty results")
             vector_results = []
             entity_results = []
-        
+
         graph_results = []
         if entity_results:
             entity_ids = [e["entity_id"] for e in entity_results]
@@ -374,7 +373,7 @@ class RetrievalService:
                 tenant_id=tenant_id,
                 limit=self.config.initial_k
             )
-            
+
             # 3. Optional Multi-hop Traversal (if not degraded)
             if not self.circuit_breaker.should_degrade:
                 traversal_results = await self.graph_traversal.beam_search(
@@ -390,7 +389,7 @@ class RetrievalService:
             "vector": vector_results,
             "graph": graph_results
         }
-        
+
         # Adaptive weights with tenant overrides
         tenant_config = await self.tuning.get_tenant_config(tenant_id)
         weights = get_adaptive_weights(
@@ -398,11 +397,11 @@ class RetrievalService:
             tenant_config=tenant_config.get("weights", {})
         )
         fused = fuse_results(groups, weights=weights)
-        
+
         # 5. Reranking (if not degraded)
         reranked_chunks = []
         reranked_flag = False
-        
+
         if self.reranker and fused and not self.circuit_breaker.should_degrade:
             try:
                 rerank_start = time.perf_counter()
@@ -412,13 +411,13 @@ class RetrievalService:
                     documents=texts,
                     top_k=top_k
                 )
-                
+
                 # Map back to Candidates
                 for item in rerank_res.results:
                     cand = fused[item.index]
                     cand.score = item.score
                     reranked_chunks.append(cand.to_dict())
-                
+
                 reranked_flag = True
                 trace.append({
                     "step": "rerank",
@@ -459,7 +458,7 @@ class RetrievalService:
         trace: list[dict],
     ) -> RetrievalResult:
         """Helper to execute vector search with HyDE and Decomposition support."""
-        
+
         # Handle Decomposition
         queries_to_run = [structured_query.cleaned_query]
         if options.use_decomposition:
@@ -467,7 +466,7 @@ class RetrievalService:
 
         all_chunks = []
         seen_chunk_ids = set()
-        
+
         for q in queries_to_run:
             # Handle HyDE
             search_query = q
@@ -503,7 +502,7 @@ class RetrievalService:
 
             # Vector search (Dense or Hybrid)
             search_results = None
-            
+
             if self.sparse_embedding and self.config.enable_hybrid:
                 try:
                     sparse_vec = self.sparse_embedding.embed_sparse(search_query)
@@ -518,7 +517,7 @@ class RetrievalService:
                 except Exception as e:
                     logger.warning(f"Hybrid search step failed: {e}")
                     search_results = None
-            
+
             if search_results is None:
                 search_results = await self.vector_store.search(
                     query_vector=query_embedding,
@@ -528,9 +527,8 @@ class RetrievalService:
                     score_threshold=self.config.score_threshold,
                     filters=filters,
                 )
-            
+
             # Rerank
-            reranked = False
             if self.reranker and len(search_results) > 0:
                 step_start = time.perf_counter()
                 try:
@@ -559,7 +557,6 @@ class RetrievalService:
                             )
 
                     search_results = reranked_results
-                    reranked = True
 
                     trace.append({
                         "step": "rerank",
@@ -573,7 +570,7 @@ class RetrievalService:
 
             else:
                 search_results = search_results[:top_k]
-            
+
             # Build chunks and cache
             sub_chunks_to_cache = []
             for r in search_results:
@@ -600,7 +597,7 @@ class RetrievalService:
         # Final sort and limit
         all_chunks.sort(key=lambda x: x["score"], reverse=True)
         final_chunks = all_chunks[:top_k]
-        
+
         return RetrievalResult(
             chunks=final_chunks,
             query=structured_query.cleaned_query,
@@ -617,12 +614,12 @@ class RetrievalService:
         """Fetch full chunk data by IDs (from cache hit)."""
         # Fetch content from vector store
         chunks_data = await self.vector_store.get_chunks(chunk_ids)
-        
+
         # Create lookup map
         chunk_map = {c["chunk_id"]: c for c in chunks_data}
-        
+
         results = []
-        for cid, score in zip(chunk_ids, scores):
+        for cid, score in zip(chunk_ids, scores, strict=False):
             chunk = chunk_map.get(cid)
             if chunk:
                 # Add score and ensure standardized format
@@ -633,7 +630,7 @@ class RetrievalService:
                     "content": chunk.get("content", ""),
                     "metadata": chunk.get("metadata", {}),
                 })
-                
+
         return results
 
     async def invalidate_cache(self, tenant_id: str) -> None:

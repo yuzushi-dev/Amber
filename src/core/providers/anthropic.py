@@ -21,6 +21,7 @@ from src.core.providers.base import (
     TokenUsage,
 )
 from src.shared.context import get_current_tenant, get_request_id
+
 try:
     from opentelemetry import trace
 except ImportError:
@@ -36,7 +37,7 @@ except ImportError:
     class MockTrace:
         def get_current_span(self):
             return MockSpan()
-            
+
     trace = MockTrace()
 
 logger = logging.getLogger(__name__)
@@ -48,8 +49,8 @@ def _get_anthropic_client(api_key: str):
         from anthropic import AsyncAnthropic
 
         return AsyncAnthropic(api_key=api_key)
-    except ImportError:
-        raise ImportError("anthropic package is required. Install with: pip install anthropic>=0.18.0")
+    except ImportError as e:
+        raise ImportError("anthropic package is required. Install with: pip install anthropic>=0.18.0") from e
 
 
 class AnthropicLLMProvider(BaseLLMProvider):
@@ -170,7 +171,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-                
+
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
                     operation="generation",

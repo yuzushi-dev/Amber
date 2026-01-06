@@ -7,8 +7,8 @@ Falls back to custom JudgeService if Ragas is not installed.
 """
 
 import logging
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,12 @@ except ImportError:
 @dataclass
 class RagasEvaluationResult:
     """Result from a Ragas evaluation."""
-    faithfulness: Optional[float] = None
-    response_relevancy: Optional[float] = None
-    context_precision: Optional[float] = None
-    context_recall: Optional[float] = None
-    metadata: Dict[str, Any] = None
-    
+    faithfulness: float | None = None
+    response_relevancy: float | None = None
+    context_precision: float | None = None
+    context_recall: float | None = None
+    metadata: dict[str, Any] = None
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -41,18 +41,18 @@ class RagasEvaluationResult:
 class RagasService:
     """
     Evaluates RAG outputs using the official Ragas library.
-    
+
     Falls back to JudgeService for faithfulness/relevance if Ragas is unavailable.
     """
 
     def __init__(
         self,
-        llm_client: Optional[Any] = None,
+        llm_client: Any | None = None,
         model_name: str = "gpt-4o-mini"
     ):
         """
         Initialize the RagasService.
-        
+
         Args:
             llm_client: An async LLM client (e.g., AsyncOpenAI instance)
             model_name: Name of the model to use for evaluation
@@ -61,7 +61,7 @@ class RagasService:
         self.llm_client = llm_client
         self._llm = None
         self._metrics_initialized = False
-        
+
         if RAGAS_AVAILABLE and llm_client:
             try:
                 self._llm = llm_factory(model_name, client=llm_client)
@@ -86,22 +86,22 @@ class RagasService:
     ) -> float:
         """
         Evaluate the faithfulness of a response to the context.
-        
+
         Args:
             query: The user's question
             context: The retrieved context (concatenated chunks)
             response: The generated answer
-            
+
         Returns:
             Faithfulness score (0.0 to 1.0)
         """
         if not self.is_available:
             return await self._fallback_faithfulness(query, context, response)
-        
+
         try:
             # Ragas expects contexts as a list
             contexts = [context] if isinstance(context, str) else context
-            
+
             result = await self._faithfulness.ascore(
                 user_input=query,
                 response=response,
@@ -119,17 +119,17 @@ class RagasService:
     ) -> float:
         """
         Evaluate how relevant the response is to the query.
-        
+
         Args:
             query: The user's question
             response: The generated answer
-            
+
         Returns:
             Relevancy score (0.0 to 1.0)
         """
         if not self.is_available:
             return await self._fallback_relevance(query, response)
-        
+
         try:
             result = await self._response_relevancy.ascore(
                 user_input=query,
@@ -145,23 +145,23 @@ class RagasService:
         query: str,
         context: str,
         response: str,
-        reference: Optional[str] = None
+        reference: str | None = None
     ) -> RagasEvaluationResult:
         """
         Run full evaluation on a single sample.
-        
+
         Args:
             query: The user's question
             context: The retrieved context
             response: The generated answer
             reference: Optional reference answer for comparison
-            
+
         Returns:
             RagasEvaluationResult with all available scores
         """
         faithfulness = await self.evaluate_faithfulness(query, context, response)
         relevancy = await self.evaluate_response_relevancy(query, response)
-        
+
         return RagasEvaluationResult(
             faithfulness=faithfulness,
             response_relevancy=relevancy,
@@ -173,14 +173,14 @@ class RagasService:
 
     async def evaluate_batch(
         self,
-        samples: List[Dict[str, str]]
-    ) -> List[RagasEvaluationResult]:
+        samples: list[dict[str, str]]
+    ) -> list[RagasEvaluationResult]:
         """
         Evaluate a batch of samples.
-        
+
         Args:
             samples: List of dicts with keys: query, context, response
-            
+
         Returns:
             List of RagasEvaluationResult
         """
@@ -202,18 +202,18 @@ class RagasService:
     ) -> float:
         """Use JudgeService as fallback for faithfulness."""
         try:
-            from src.core.evaluation.judge import JudgeService
-            from src.core.providers.factory import ProviderFactory
-            from src.core.generation.registry import PromptRegistry
             from src.api.config import settings
-            
+            from src.core.evaluation.judge import JudgeService
+            from src.core.generation.registry import PromptRegistry
+            from src.core.providers.factory import ProviderFactory
+
             factory = ProviderFactory(
                 openai_api_key=settings.providers.openai_api_key,
                 anthropic_api_key=settings.providers.anthropic_api_key
             )
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()
-            
+
             judge = JudgeService(llm=llm, prompt_registry=registry)
             result = await judge.evaluate_faithfulness(query, context, response)
             return result.score
@@ -228,18 +228,18 @@ class RagasService:
     ) -> float:
         """Use JudgeService as fallback for relevance."""
         try:
-            from src.core.evaluation.judge import JudgeService
-            from src.core.providers.factory import ProviderFactory
-            from src.core.generation.registry import PromptRegistry
             from src.api.config import settings
-            
+            from src.core.evaluation.judge import JudgeService
+            from src.core.generation.registry import PromptRegistry
+            from src.core.providers.factory import ProviderFactory
+
             factory = ProviderFactory(
                 openai_api_key=settings.providers.openai_api_key,
                 anthropic_api_key=settings.providers.anthropic_api_key
             )
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()
-            
+
             judge = JudgeService(llm=llm, prompt_registry=registry)
             result = await judge.evaluate_relevance(query, response)
             return result.score

@@ -8,9 +8,9 @@ Stage 10.2 - RAG Tuning Panel Backend
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.database.session import async_session_maker
@@ -30,7 +30,7 @@ class RetrievalWeights(BaseModel):
     vector_weight: float = Field(0.35, ge=0, le=1, description="Vector search weight")
     graph_weight: float = Field(0.35, ge=0, le=1, description="Graph search weight")
     rerank_weight: float = Field(0.30, ge=0, le=1, description="Reranking influence")
-    
+
     @field_validator('*', mode='after')
     @classmethod
     def validate_weights(cls, v):
@@ -40,48 +40,48 @@ class RetrievalWeights(BaseModel):
 class TenantConfigResponse(BaseModel):
     """Tenant configuration response."""
     tenant_id: str
-    config: Dict[str, Any]
-    weights: Optional[RetrievalWeights] = None
-    
+    config: dict[str, Any]
+    weights: RetrievalWeights | None = None
+
     # RAG Parameters
     top_k: int = Field(10, ge=1, le=100)
     expansion_depth: int = Field(2, ge=1, le=5)
     similarity_threshold: float = Field(0.7, ge=0, le=1)
-    
+
     # Feature toggles
     reranking_enabled: bool = True
     hyde_enabled: bool = False
     graph_expansion_enabled: bool = True
-    
+
     # Model settings
     embedding_model: str = "text-embedding-3-small"
     generation_model: str = "gpt-4o-mini"
-    
+
     # Custom prompts
-    system_prompt_override: Optional[str] = None
+    system_prompt_override: str | None = None
 
 
 class TenantConfigUpdate(BaseModel):
     """Tenant configuration update request."""
     # RAG Parameters
-    top_k: Optional[int] = Field(None, ge=1, le=100)
-    expansion_depth: Optional[int] = Field(None, ge=1, le=5)
-    similarity_threshold: Optional[float] = Field(None, ge=0, le=1)
-    
+    top_k: int | None = Field(None, ge=1, le=100)
+    expansion_depth: int | None = Field(None, ge=1, le=5)
+    similarity_threshold: float | None = Field(None, ge=0, le=1)
+
     # Weights
-    weights: Optional[RetrievalWeights] = None
-    
+    weights: RetrievalWeights | None = None
+
     # Feature toggles
-    reranking_enabled: Optional[bool] = None
-    hyde_enabled: Optional[bool] = None
-    graph_expansion_enabled: Optional[bool] = None
-    
+    reranking_enabled: bool | None = None
+    hyde_enabled: bool | None = None
+    graph_expansion_enabled: bool | None = None
+
     # Model settings
-    embedding_model: Optional[str] = None
-    generation_model: Optional[str] = None
-    
+    embedding_model: str | None = None
+    generation_model: str | None = None
+
     # Custom prompts
-    system_prompt_override: Optional[str] = None
+    system_prompt_override: str | None = None
 
 
 class ConfigSchemaField(BaseModel):
@@ -91,17 +91,17 @@ class ConfigSchemaField(BaseModel):
     label: str
     description: str
     default: Any
-    min: Optional[float] = None
-    max: Optional[float] = None
-    step: Optional[float] = None
-    options: Optional[List[str]] = None
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
+    options: list[str] | None = None
     group: str = "general"
 
 
 class ConfigSchemaResponse(BaseModel):
     """Configuration schema for form generation."""
-    fields: List[ConfigSchemaField]
-    groups: List[str]
+    fields: list[ConfigSchemaField]
+    groups: list[str]
 
 
 # =============================================================================
@@ -112,7 +112,7 @@ class ConfigSchemaResponse(BaseModel):
 async def get_config_schema():
     """
     Get configuration schema for dynamic form generation.
-    
+
     Returns field definitions with types, constraints, and groupings
     for rendering the tuning panel UI.
     """
@@ -151,7 +151,7 @@ async def get_config_schema():
             step=0.05,
             group="retrieval"
         ),
-        
+
         # Weights
         ConfigSchemaField(
             name="vector_weight",
@@ -186,7 +186,7 @@ async def get_config_schema():
             step=0.05,
             group="weights"
         ),
-        
+
         # Feature Toggles
         ConfigSchemaField(
             name="reranking_enabled",
@@ -212,7 +212,7 @@ async def get_config_schema():
             default=True,
             group="features"
         ),
-        
+
         # Model Settings
         ConfigSchemaField(
             name="embedding_model",
@@ -242,7 +242,7 @@ async def get_config_schema():
             ],
             group="models"
         ),
-        
+
         # Custom Prompts
         ConfigSchemaField(
             name="system_prompt_override",
@@ -253,7 +253,7 @@ async def get_config_schema():
             group="prompts"
         ),
     ]
-    
+
     return ConfigSchemaResponse(
         fields=fields,
         groups=["retrieval", "weights", "features", "models", "prompts"]
@@ -264,15 +264,14 @@ async def get_config_schema():
 async def get_tenant_config(tenant_id: str):
     """
     Get configuration for a specific tenant.
-    
+
     Returns all tunable parameters and their current values.
     """
     try:
-        from sqlalchemy.ext.asyncio import AsyncSession
-        
+
         tuning_service = TuningService(async_session_maker)
         config = await tuning_service.get_tenant_config(tenant_id)
-        
+
         # Extract weights if present
         weights = None
         if any(k.endswith("_weight") for k in config):
@@ -281,7 +280,7 @@ async def get_tenant_config(tenant_id: str):
                 graph_weight=config.get("graph_weight", 0.35),
                 rerank_weight=config.get("rerank_weight", 0.30),
             )
-        
+
         return TenantConfigResponse(
             tenant_id=tenant_id,
             config=config,
@@ -296,55 +295,55 @@ async def get_tenant_config(tenant_id: str):
             generation_model=config.get("generation_model", "gpt-4o-mini"),
             system_prompt_override=config.get("system_prompt_override"),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get config: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get config: {str(e)}") from e
 
 
 @router.put("/tenants/{tenant_id}", response_model=TenantConfigResponse)
 async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
     """
     Update configuration for a specific tenant.
-    
+
     Only provided fields are updated; others remain unchanged.
     Changes take effect immediately for subsequent requests.
     """
     try:
-        from sqlalchemy.ext.asyncio import AsyncSession
         from sqlalchemy.future import select
+
         from src.core.models.tenant import Tenant
-        
+
         async with async_session_maker() as session:
             result = await session.execute(
                 select(Tenant).where(Tenant.id == tenant_id)
             )
             tenant = result.scalar_one_or_none()
-            
+
             if not tenant:
                 raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
-            
+
             # Initialize config if needed
             if not tenant.config:
                 tenant.config = {}
-            
+
             # Update provided fields
             update_dict = update.model_dump(exclude_unset=True, exclude_none=True)
-            
+
             # Handle nested weights
             if "weights" in update_dict:
                 weights = update_dict.pop("weights")
                 for k, v in weights.items():
                     tenant.config[k] = v
-            
+
             # Update remaining fields
             for key, value in update_dict.items():
                 tenant.config[key] = value
-            
+
             # Persist changes
             session.add(tenant)
             await session.commit()
-            
+
             # Log the change
             tuning_service = TuningService(async_session_maker)
             await tuning_service.log_change(
@@ -355,47 +354,48 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
                 target_id=tenant_id,
                 changes=update_dict
             )
-            
+
             logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
-        
+
         # Return updated config
         return await get_tenant_config(tenant_id)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to update tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}") from e
 
 
 @router.post("/tenants/{tenant_id}/reset")
 async def reset_tenant_config(tenant_id: str):
     """
     Reset tenant configuration to defaults.
-    
+
     Removes all custom configuration, reverting to system defaults.
     """
     try:
         from sqlalchemy.future import select
+
         from src.core.models.tenant import Tenant
-        
+
         async with async_session_maker() as session:
             result = await session.execute(
                 select(Tenant).where(Tenant.id == tenant_id)
             )
             tenant = result.scalar_one_or_none()
-            
+
             if not tenant:
                 raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
-            
+
             # Store old config for audit
             old_config = dict(tenant.config) if tenant.config else {}
-            
+
             # Reset to empty
             tenant.config = {}
             session.add(tenant)
             await session.commit()
-            
+
             # Log the reset
             tuning_service = TuningService(async_session_maker)
             await tuning_service.log_change(
@@ -406,13 +406,13 @@ async def reset_tenant_config(tenant_id: str):
                 target_id=tenant_id,
                 changes={"old_config": old_config}
             )
-            
+
             logger.info(f"Reset config for tenant {tenant_id}")
-        
+
         return {"status": "success", "message": f"Configuration reset for tenant {tenant_id}"}
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to reset tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to reset config: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reset config: {str(e)}") from e

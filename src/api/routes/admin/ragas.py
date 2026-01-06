@@ -5,25 +5,26 @@ Ragas Benchmark Admin Routes
 API endpoints for managing Ragas benchmark runs and evaluation.
 """
 
-import logging
 import json
+import logging
 import os
-from typing import Optional, List
-from uuid import uuid4
 from datetime import datetime
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from sqlalchemy import select, func
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.api.deps import get_db_session, verify_admin
 from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
 from src.workers.tasks import run_ragas_benchmark
-from src.api.deps import get_db_session, verify_admin
 
 logger = logging.getLogger(__name__)
 
 # Fix: Protect all ragas routes with admin check
 router = APIRouter(
-    prefix="/ragas", 
+    prefix="/ragas",
     tags=["admin", "ragas"],
     dependencies=[Depends(verify_admin)]
 )
@@ -93,7 +94,7 @@ class DatasetInfo(BaseModel):
 class RunBenchmarkRequest(BaseModel):
     """Request to trigger a benchmark run."""
     dataset_name: str
-    metrics: List[str] = ["faithfulness", "response_relevancy"]
+    metrics: list[str] = ["faithfulness", "response_relevancy"]
 
 
 class RunBenchmarkResponse(BaseModel):
@@ -119,7 +120,7 @@ async def get_ragas_stats(
         # Total runs
         total_result = await session.execute(select(func.count(BenchmarkRun.id)))
         total_runs = total_result.scalar() or 0
-        
+
         # Completed runs
         completed_result = await session.execute(
             select(func.count(BenchmarkRun.id)).where(
@@ -127,7 +128,7 @@ async def get_ragas_stats(
             )
         )
         completed_runs = completed_result.scalar() or 0
-        
+
         # Failed runs
         failed_result = await session.execute(
             select(func.count(BenchmarkRun.id)).where(
@@ -135,7 +136,7 @@ async def get_ragas_stats(
             )
         )
         failed_runs = failed_result.scalar() or 0
-        
+
         # Average metrics from completed runs
         completed_runs_result = await session.execute(
             select(BenchmarkRun).where(
@@ -143,28 +144,28 @@ async def get_ragas_stats(
             )
         )
         completed_benchmarks = completed_runs_result.scalars().all()
-        
+
         avg_faithfulness = None
         avg_relevancy = None
-        
+
         if completed_benchmarks:
             # Safe access ensuring metrics is a dict
             faith_scores = [
-                b.metrics.get("faithfulness", 0) 
-                for b in completed_benchmarks 
+                b.metrics.get("faithfulness", 0)
+                for b in completed_benchmarks
                 if b.metrics and isinstance(b.metrics, dict)
             ]
             rel_scores = [
-                b.metrics.get("response_relevancy", 0) 
-                for b in completed_benchmarks 
+                b.metrics.get("response_relevancy", 0)
+                for b in completed_benchmarks
                 if b.metrics and isinstance(b.metrics, dict)
             ]
-            
+
             if faith_scores:
                 avg_faithfulness = sum(faith_scores) / len(faith_scores)
             if rel_scores:
                 avg_relevancy = sum(rel_scores) / len(rel_scores)
-        
+
         return BenchmarkStatsResponse(
             total_runs=total_runs,
             completed_runs=completed_runs,
@@ -172,7 +173,7 @@ async def get_ragas_stats(
             avg_faithfulness=avg_faithfulness,
             avg_relevancy=avg_relevancy
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get Ragas stats: {e}")
         # Return zero stats instead of 500
@@ -185,37 +186,37 @@ async def get_ragas_stats(
         )
 
 
-@router.get("/datasets", response_model=List[DatasetInfo])
+@router.get("/datasets", response_model=list[DatasetInfo])
 async def list_datasets():
     """
     List available golden datasets.
     """
     datasets = []
-    
+
     # Check known dataset locations
     paths_to_check = [
         "src/core/evaluation",
         "tests/data",
     ]
-    
+
     for base_path in paths_to_check:
         if os.path.exists(base_path):
             for filename in os.listdir(base_path):
                 if filename.endswith(".json") and ("golden" in filename.lower() or "dataset" in filename.lower()):
                     full_path = os.path.join(base_path, filename)
                     try:
-                        with open(full_path, "r") as f:
+                        with open(full_path) as f:
                             data = json.load(f)
                             sample_count = len(data) if isinstance(data, list) else 0
                     except Exception:
                         sample_count = 0
-                    
+
                     datasets.append(DatasetInfo(
                         name=filename,
                         sample_count=sample_count,
                         path=full_path
                     ))
-    
+
     return datasets
 
 
@@ -237,18 +238,18 @@ async def upload_dataset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Dataset must be a JSON file"
         )
-    
+
     # Read and validate content
     try:
         content = await file.read()
         data = json.loads(content)
-        
+
         if not isinstance(data, list):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Dataset must be a JSON array"
             )
-        
+
         # Validate structure
         for i, sample in enumerate(data):
             if not isinstance(sample, dict):
@@ -265,15 +266,15 @@ async def upload_dataset(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid JSON: {e}"
-        )
-    
+        ) from e
+
     # Save to evaluation directory
     save_path = f"src/core/evaluation/{file.filename}"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    
+
     with open(save_path, "wb") as f:
         f.write(content)
-    
+
     return {
         "filename": file.filename,
         "samples": len(data),
@@ -299,7 +300,7 @@ async def run_benchmark(
 
     # Create benchmark run record
     benchmark_id = str(uuid4())
-    
+
     benchmark = BenchmarkRun(
         id=benchmark_id,
         tenant_id="default",  # TODO: Get from auth context
@@ -307,13 +308,13 @@ async def run_benchmark(
         status=BenchmarkStatus.PENDING,
         config={"metrics": request.metrics}
     )
-    
+
     session.add(benchmark)
     await session.commit()
-    
+
     # Dispatch Celery task
     task = run_ragas_benchmark.delay(benchmark_id, "default")
-    
+
     return RunBenchmarkResponse(
         benchmark_run_id=benchmark_id,
         task_id=task.id,
@@ -334,13 +335,13 @@ async def get_benchmark_job(
         select(BenchmarkRun).where(BenchmarkRun.id == job_id)
     )
     benchmark = result.scalars().first()
-    
+
     if not benchmark:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Benchmark run {job_id} not found"
         )
-    
+
     return BenchmarkRunDetail(
         id=benchmark.id,
         tenant_id=benchmark.tenant_id,
@@ -365,18 +366,18 @@ async def compare_runs(
     Compare results across multiple benchmark runs.
     """
     ids = [r.strip() for r in run_ids.split(",")]
-    
+
     result = await session.execute(
         select(BenchmarkRun).where(BenchmarkRun.id.in_(ids))
     )
     benchmarks = result.scalars().all()
-    
+
     if not benchmarks:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No benchmark runs found"
         )
-    
+
     comparison = []
     for benchmark in benchmarks:
         comparison.append({
@@ -386,33 +387,33 @@ async def compare_runs(
             "metrics": benchmark.metrics,
             "completed_at": benchmark.completed_at.isoformat() if benchmark.completed_at else None
         })
-    
+
     return {"runs": comparison, "count": len(comparison)}
 
 
-@router.get("/runs", response_model=List[BenchmarkRunSummary])
+@router.get("/runs", response_model=list[BenchmarkRunSummary])
 async def list_benchmark_runs(
     limit: int = 20,
     offset: int = 0,
-    status_filter: Optional[str] = None,
+    status_filter: str | None = None,
     session: AsyncSession = Depends(get_db_session)
 ):
     """
     List benchmark runs with optional filtering.
     """
     query = select(BenchmarkRun).order_by(BenchmarkRun.created_at.desc())
-    
+
     if status_filter:
         try:
             status_enum = BenchmarkStatus(status_filter)
             query = query.where(BenchmarkRun.status == status_enum)
         except ValueError:
             pass  # Invalid status, ignore filter
-    
+
     query = query.offset(offset).limit(limit)
     result = await session.execute(query)
     benchmarks = result.scalars().all()
-    
+
     return [
         BenchmarkRunSummary(
             id=b.id,

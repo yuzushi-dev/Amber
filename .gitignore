@@ -208,3 +208,6 @@ project_brain.json
 PROJECT_BRAIN_GUIDE.md
 amber/
 changelog.md
+backend_lint.txt
+frontend/frontend_lint.txt
+frontend/frontend_lint_final.txt

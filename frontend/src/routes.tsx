@@ -31,6 +31,7 @@ import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 import RagasSubPanel from './features/admin/components/RagasSubPanel'
 import DatabaseOverviewPage from './features/documents/pages/DatabaseOverviewPage'
+import QueryLogPage from './features/admin/pages/QueryLogPage'
 
 // =============================================================================
 // Root Route
@@ -109,6 +110,12 @@ const adminChatRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/chat',
     component: () => <ChatContainer />,
+})
+
+const adminQueriesRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/queries',
+    component: () => <QueryLogPage />,
 })
 
 // =============================================================================
@@ -217,7 +224,7 @@ const legacyDatabaseRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/database',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/data/database' })
+        throw redirect({ to: '/admin/data/maintenance' })
     },
 })
 
@@ -263,6 +270,7 @@ const routeTree = rootRoute.addChildren([
     adminLayoutRoute.addChildren([
         adminIndexRoute,
         adminChatRoute,
+        adminQueriesRoute,
         // Data section
         dataIndexRoute,
         dataOverviewRoute,

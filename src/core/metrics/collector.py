@@ -37,8 +37,14 @@ class QueryMetrics:
 
     # Generation stats
     tokens_used: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
     cost_estimate: float = 0.0
     model: str = ""
+    provider: str = ""
+    success: bool = True
+    error_message: str | None = None
+    conversation_id: str | None = None
 
     # Quality signals
     sources_cited: int = 0
@@ -65,8 +71,14 @@ class QueryMetrics:
             },
             "generation": {
                 "tokens_used": self.tokens_used,
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
                 "cost_estimate": self.cost_estimate,
                 "model": self.model,
+                "provider": self.provider,
+                "success": self.success,
+                "error_message": self.error_message,
+                "conversation_id": self.conversation_id,
             },
             "quality": {
                 "sources_cited": self.sources_cited,
@@ -104,15 +116,15 @@ class AggregatedMetrics:
 class MetricsCollector:
     """
     Centralized metrics collection for the RAG pipeline.
-    
+
     Supports:
     - Per-query metrics recording
     - Aggregation for dashboards
     - Export to various backends (Redis, Prometheus, etc.)
-    
+
     Usage:
         collector = MetricsCollector(redis_url="redis://localhost:6379/0")
-        
+
         async with collector.track_query("q_123", "tenant_1", "What is X?") as metrics:
             # Perform query...
             metrics.chunks_retrieved = 10
@@ -163,6 +175,10 @@ class MetricsCollector:
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             if self._start_time:
                 self.metrics.total_latency_ms = (time.perf_counter() - self._start_time) * 1000
+
+            if exc_val:
+                self.metrics.success = False
+                self.metrics.error_message = str(exc_val)
 
             await self.collector.record(self.metrics)
             return False

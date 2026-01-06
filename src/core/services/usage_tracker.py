@@ -6,9 +6,8 @@ Handles recording of model usage events to the database.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.models.usage import UsageLog
 from src.core.providers.base import TokenUsage
 
@@ -34,10 +33,10 @@ class UsageTracker:
         model: str,
         usage: TokenUsage,
         cost: float = 0.0,
-        request_id: Optional[str] = None,
-        trace_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> Optional[str]:
+        request_id: str | None = None,
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
         """
         Persists a usage event to the database.
         """

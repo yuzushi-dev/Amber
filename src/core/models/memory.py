@@ -5,12 +5,14 @@ Memory Models
 Database models for the Layered Memory System (User Facts and Conversation Summaries).
 """
 
-from typing import Optional, Dict, Any
-from sqlalchemy import String, Text, Float, Index
+from typing import Any
+
+from sqlalchemy import Float, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.models.base import Base, TimestampMixin
+
 
 class UserFact(Base, TimestampMixin):
     """
@@ -22,16 +24,16 @@ class UserFact(Base, TimestampMixin):
     # Composite Primary Key: (tenant_id, user_id, fact_id) to ensure uniqueness per user context
     # However, for simplicity and standard practice, we use a global ID string or GUID.
     # Let's stick to valid string IDs provided by the application or UUIDs.
-    
+
     id: Mapped[str] = mapped_column(String, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    
+
     content: Mapped[str] = mapped_column(Text, nullable=False)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
-    
+
     # Flexible metadata (e.g. source_message_id, category, tags)
-    metadata_: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
 
     # Index for retrieval by user within a tenant
     __table_args__ = (
@@ -52,12 +54,12 @@ class ConversationSummary(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True) # Usually the session_id / conversation_id
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    
+
     title: Mapped[str] = mapped_column(String, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    
+
     # Metadata (e.g. valid_from, valid_to, message_count)
-    metadata_: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
 
     __table_args__ = (
         Index("ix_conv_summaries_tenant_user_date", "tenant_id", "user_id", "created_at"),

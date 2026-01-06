@@ -1,5 +1,6 @@
 import pytest
 
+
 @pytest.mark.asyncio
 async def test_community_quality():
     """
@@ -10,5 +11,5 @@ async def test_community_quality():
     # 1. Fetch random community report
     # 2. Check if it has title, summary, findings
     # 3. Check if rating is within valid range
-    
+
     assert True

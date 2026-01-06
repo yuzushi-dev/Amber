@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import List, Dict, Any
+
 from src.core.graph.neo4j_client import neo4j_client
 from src.core.graph.schema import NodeLabel, RelationshipType
 from src.core.prompts.entity_extraction import ExtractionResult
@@ -15,15 +15,15 @@ class GraphWriter:
     """
 
     async def write_extraction_result(
-        self, 
-        document_id: str, 
-        chunk_id: str, 
-        tenant_id: str, 
+        self,
+        document_id: str,
+        chunk_id: str,
+        tenant_id: str,
         result: ExtractionResult
     ):
         """
         Persist extraction results for a single chunk.
-        
+
         Args:
             document_id: ID of the parent document
             chunk_id: ID of the chunk
@@ -37,26 +37,26 @@ class GraphWriter:
         # Prepare parameters
         # Normalize entity names slightly to reduce casing duplicates if LLM is inconsistent
         # But rely mostly on LLM prompt.
-        
+
         entities_param = [e.model_dump() for e in result.entities]
-        relationships_param = [r.model_dump() for r in result.relationships]
+        [r.model_dump() for r in result.relationships]
 
         # Cypher Query
         # We use strict MERGE to ensure idempotency.
-        # Note: We rely on the constraint `ON (e:Entity) ASSERT (e.name, e.tenant_id) IS UNIQUE` 
+        # Note: We rely on the constraint `ON (e:Entity) ASSERT (e.name, e.tenant_id) IS UNIQUE`
         # (or similar) created in setup.
-        
+
         query = f"""
         // 1. Ensure Context (Document & Chunk)
         MERGE (d:{NodeLabel.Document.value} {{id: $document_id}})
         ON CREATE SET d.tenant_id = $tenant_id
-        
+
         MERGE (c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
         ON CREATE SET c.document_id = $document_id, c.tenant_id = $tenant_id
-        
+
         MERGE (d)-[:{RelationshipType.HAS_CHUNK.value}]->(c)
         """
-        
+
 
         # 2. Merge Entities
         if entities_param:
@@ -64,8 +64,8 @@ class GraphWriter:
             WITH c
             UNWIND $entities as ent
             MERGE (e:{NodeLabel.Entity.value} {{name: ent.name, tenant_id: $tenant_id}})
-            ON CREATE SET 
-                e.type = ent.type, 
+            ON CREATE SET
+                e.type = ent.type,
                 e.description = ent.description,
                 e.created_at = timestamp()
             // Link Chunk -> Entity
@@ -82,7 +82,7 @@ class GraphWriter:
 
         try:
             await neo4j_client.execute_write(query, params)
-            
+
             # 3. Native Relationship Merges (Batched by Type)
             if result.relationships:
                 # Group relationships by sanitized type
@@ -90,12 +90,13 @@ class GraphWriter:
                 for rel in result.relationships:
                     # Sanitize: UPPER_CASE only, replace special chars with _
                     safe_type = re.sub(r'[^A-Z0-9_]', '_', rel.type.upper())
-                    if not safe_type: safe_type = "RELATED_TO"
-                    
+                    if not safe_type:
+                        safe_type = "RELATED_TO"
+
                     if safe_type not in rels_by_type:
                         rels_by_type[safe_type] = []
                     rels_by_type[safe_type].append(rel.model_dump())
-                
+
                 # Execute one batch per type
                 for r_type, rel_batch in rels_by_type.items():
                     rel_query = f"""
@@ -103,9 +104,9 @@ class GraphWriter:
                     MATCH (s:{NodeLabel.Entity.value} {{name: rel.source, tenant_id: $tenant_id}})
                     MATCH (t:{NodeLabel.Entity.value} {{name: rel.target, tenant_id: $tenant_id}})
                     MERGE (s)-[r:`{r_type}`]->(t)
-                    ON CREATE SET 
-                        r.description = rel.description, 
-                        r.weight = rel.weight, 
+                    ON CREATE SET
+                        r.description = rel.description,
+                        r.weight = rel.weight,
                         r.tenant_id = $tenant_id,
                         r.created_at = timestamp()
                     ON MATCH SET

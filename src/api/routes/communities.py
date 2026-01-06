@@ -1,9 +1,9 @@
-from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.shared.context import get_current_tenant as get_tenant_id
 from src.core.graph.neo4j_client import neo4j_client
+from src.shared.context import get_current_tenant as get_tenant_id
 
 router = APIRouter(prefix="/communities", tags=["Communities"])
 
@@ -11,17 +11,17 @@ class CommunityResponse(BaseModel):
     id: str
     title: str
     level: int
-    summary: Optional[str] = None
+    summary: str | None = None
     rating: float = 0
-    key_entities: List[str] = Field(default_factory=list)
-    findings: List[str] = Field(default_factory=list)
+    key_entities: list[str] = Field(default_factory=list)
+    findings: list[str] = Field(default_factory=list)
     status: str
     is_stale: bool
-    last_updated_at: Optional[str] = None
+    last_updated_at: str | None = None
 
-@router.get("", response_model=List[CommunityResponse])
+@router.get("", response_model=list[CommunityResponse])
 async def list_communities(
-    level: Optional[int] = Query(None, description="Filter by hierarchy level"),
+    level: int | None = Query(None, description="Filter by hierarchy level"),
     tenant_id: str = Depends(get_tenant_id)
 ):
     """
@@ -32,15 +32,15 @@ async def list_communities(
     """
     if level is not None:
         query += " WHERE c.level = $level"
-    
+
     query += """
     RETURN c.id as id, c.title as title, c.level as level, c.summary as summary,
            c.rating as rating, c.key_entities as key_entities, c.findings as findings,
-           c.status as status, c.is_stale as is_stale, 
+           c.status as status, c.is_stale as is_stale,
            toString(c.last_updated_at) as last_updated_at
     ORDER BY c.level DESC, c.rating DESC
     """
-    
+
     results = await neo4j_client.execute_read(query, {"tenant_id": tenant_id, "level": level})
     return [CommunityResponse(**r) for r in results]
 
@@ -62,7 +62,7 @@ async def get_community(
     results = await neo4j_client.execute_read(query, {"id": community_id, "tenant_id": tenant_id})
     if not results:
         raise HTTPException(status_code=404, detail="Community not found")
-    
+
     return CommunityResponse(**results[0])
 
 @router.post("/refresh")

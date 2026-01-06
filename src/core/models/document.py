@@ -5,14 +5,20 @@ Document Model
 Database model for stored documents.
 """
 
-from typing import Optional
 
-from sqlalchemy import String, Enum as SQLEnum, Text
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.models.base import Base, TimestampMixin
 from src.core.state.machine import DocumentStatus
+
+if TYPE_CHECKING:
+    from src.core.models.chunk import Chunk
+
 # We use str for ID fields to allow our custom ID types (DocumentId, TenantId) to be stored directly
 # SQLAlchemy will handle them as strings
 
@@ -26,30 +32,30 @@ class Document(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     tenant_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    
+
     filename: Mapped[str] = mapped_column(String, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, index=True, nullable=False)
     storage_path: Mapped[str] = mapped_column(String, nullable=False) # Path in Object Storage (MinIO)
-    
+
     status: Mapped[DocumentStatus] = mapped_column(
         SQLEnum(DocumentStatus), default=DocumentStatus.INGESTED, nullable=False
     )
-    
-    domain: Mapped[Optional[str]] = mapped_column(String, nullable=True) # E.g., LEGAL, TECHNICAL
-    
+
+    domain: Mapped[str | None] = mapped_column(String, nullable=True) # E.g., LEGAL, TECHNICAL
+
     # Source tracking
     source_type: Mapped[str] = mapped_column(String, default="file", nullable=False)  # file, url, connector
-    source_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Original URL if from URL/connector
-    
+    source_url: Mapped[str | None] = mapped_column(String, nullable=True)  # Original URL if from URL/connector
+
     # Metadata includes: page_count, custom tags, source info, processing_stats
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
 
     # Error tracking for failed processing
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Document enrichment fields (populated during ingestion)
-    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # LLM-generated summary
-    document_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # e.g., user_manual, report
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # LLM-generated summary
+    document_type: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., user_manual, report
     keywords: Mapped[list] = mapped_column("keywords", JSONB, server_default="[]", nullable=False)  # Extracted keywords
     hashtags: Mapped[list] = mapped_column("hashtags", JSONB, server_default="[]", nullable=False)  # Generated hashtags
 

@@ -8,7 +8,6 @@ Orchestrates the evaluation of RAG outputs against a golden dataset using JudgeS
 import asyncio
 import json
 import logging
-from typing import List, Dict, Any
 
 from src.core.evaluation.judge import JudgeService
 from src.core.generation.registry import PromptRegistry
@@ -22,7 +21,7 @@ async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
     Runs evaluation for each entry in the golden dataset.
     """
     # Load dataset
-    with open(dataset_path, "r") as f:
+    with open(dataset_path) as f:
         dataset = json.load(f)
 
     # Initialize Services
@@ -32,31 +31,31 @@ async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
     judge = JudgeService(llm=llm, prompt_registry=registry)
 
     results = []
-    
+
     print(f"\n--- Starting Evaluation on {len(dataset)} items ---\n")
 
     for i, entry in enumerate(dataset):
         query = entry["query"]
-        ideal_answer = entry["ideal_answer"]
-        
+        entry["ideal_answer"]
+
         # In a real scenario, you would call your RetrievalService here:
         # actual_result = await retrieval_service.retrieve(query, tenant_id="eval")
         # For demonstration, we simulate an answer:
-        actual_answer = f"Simulated answer for: {query}" 
+        actual_answer = f"Simulated answer for: {query}"
         actual_context = entry.get("ideal_context", "Sample context")
 
         print(f"[{i+1}/{len(dataset)}] Evaluating Query: {query}")
 
         # Evaluate Faithfulness
         faith_res = await judge.evaluate_faithfulness(
-            query=query, 
-            context=actual_context, 
+            query=query,
+            context=actual_context,
             answer=actual_answer
         )
 
         # Evaluate Relevance
         rel_res = await judge.evaluate_relevance(
-            query=query, 
+            query=query,
             answer=actual_answer
         )
 

@@ -5,24 +5,25 @@ Revises: a4bfb860998e
 Create Date: 2024-12-30 09:30:00.000000
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
 revision: str = 'b5df12c3e4f5'
-down_revision: Union[str, None] = 'a4bfb860998e'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'a4bfb860998e'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # Add source tracking columns to documents table
     op.add_column('documents', sa.Column('source_type', sa.String(), nullable=False, server_default='file'))
     op.add_column('documents', sa.Column('source_url', sa.String(), nullable=True))
-    
+
     # Create connector_states table
     op.create_table(
         'connector_states',
@@ -41,7 +42,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Drop connector_states table
     op.drop_table('connector_states')
-    
+
     # Remove source tracking columns from documents
     op.drop_column('documents', 'source_url')
     op.drop_column('documents', 'source_type')

@@ -1,8 +1,8 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from src.core.vector_store.milvus import _get_milvus, MilvusConfig
 from src.core.services.embeddings import EmbeddingService
+from src.core.vector_store.milvus import MilvusConfig, _get_milvus
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,9 @@ class CommunityEmbeddingService:
     FIELD_VECTOR = "vector"
 
     def __init__(
-        self, 
+        self,
         embedding_service: EmbeddingService,
-        config: Optional[MilvusConfig] = None
+        config: MilvusConfig | None = None
     ):
         self.embedding_service = embedding_service
         self.config = config or MilvusConfig(collection_name="community_embeddings")
@@ -110,10 +110,10 @@ class CommunityEmbeddingService:
         self._collection.load()
         logger.info(f"Created collection {self.config.collection_name}")
 
-    async def embed_and_store_community(self, community_data: Dict[str, Any]):
+    async def embed_and_store_community(self, community_data: dict[str, Any]):
         """
         Embeds a community summary and stores it in Milvus.
-        
+
         Args:
             community_data: Dict with id, tenant_id, level, title, summary
         """
@@ -142,12 +142,12 @@ class CommunityEmbeddingService:
             raise
 
     async def search_communities(
-        self, 
-        query_vector: List[float], 
-        tenant_id: str, 
-        level: Optional[int] = None,
+        self,
+        query_vector: list[float],
+        tenant_id: str,
+        level: int | None = None,
         limit: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Searches for communities semantically similar to the query.
         """
@@ -158,7 +158,7 @@ class CommunityEmbeddingService:
             filter_expr += f' && {self.FIELD_LEVEL} == {level}'
 
         search_params = {"metric_type": self.config.metric_type, "params": {"ef": 64}}
-        
+
         results = self._collection.search(
             data=[query_vector],
             anns_field=self.FIELD_VECTOR,
@@ -166,9 +166,9 @@ class CommunityEmbeddingService:
             limit=limit,
             expr=filter_expr,
             output_fields=[
-                self.FIELD_COMMUNITY_ID, 
-                self.FIELD_TITLE, 
-                self.FIELD_SUMMARY, 
+                self.FIELD_COMMUNITY_ID,
+                self.FIELD_TITLE,
+                self.FIELD_SUMMARY,
                 self.FIELD_LEVEL
             ]
         )

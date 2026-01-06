@@ -14,6 +14,7 @@ interface PDFViewerProps {
 }
 
 export function PDFViewer({ file }: PDFViewerProps) {
+  const fileKey = JSON.stringify(file);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
@@ -29,7 +30,8 @@ export function PDFViewer({ file }: PDFViewerProps) {
     setIsLoading(true);
     setError(null);
     pdfDocumentRef.current = null;
-  }, [file]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileKey]); // Use fileKey to detect changes
 
   function onDocumentLoadSuccess(pdf: PDFDocumentProxy) {
     console.log('PDF loaded successfully:', { numPages: pdf.numPages });
@@ -54,7 +56,8 @@ export function PDFViewer({ file }: PDFViewerProps) {
   // Memoize file object to prevent unnecessary re-renders in Document
   const memoizedFile = useMemo(() => {
     return file;
-  }, [JSON.stringify(file)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileKey]);
 
   return (
     <div className="flex flex-col h-full">

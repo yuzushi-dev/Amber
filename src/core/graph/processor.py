@@ -1,6 +1,6 @@
-import logging
 import asyncio
-from typing import List, TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING
 
 from src.core.extraction.graph_extractor import GraphExtractor
 from src.core.graph.writer import graph_writer
@@ -15,13 +15,13 @@ class GraphProcessor:
     Orchestrator for Graph Extraction and Persistence.
     Takes chunks, runs extraction, and writes to Neo4j.
     """
-    
+
     def __init__(self):
         # Configuration could be passed here
         self.extractor = GraphExtractor(use_gleaning=True)
         self.writer = graph_writer
-    
-    async def process_chunks(self, chunks: List["Chunk"], tenant_id: str):
+
+    async def process_chunks(self, chunks: list["Chunk"], tenant_id: str):
         """
         Process a list of chunks to extract and write graph data.
         """
@@ -29,11 +29,11 @@ class GraphProcessor:
             return
 
         logger.info(f"Starting graph processing for {len(chunks)} chunks")
-        
+
         # Concurrency control
         # 5 concurrent requests is a safe default for economy tier
         sem = asyncio.Semaphore(5)
-        
+
         async def _process_one(chunk):
             async with sem:
                 try:
@@ -42,7 +42,7 @@ class GraphProcessor:
                         return
 
                     result = await self.extractor.extract(chunk.content)
-                    
+
                     if result.entities:
                         await self.writer.write_extraction_result(
                             document_id=chunk.document_id,

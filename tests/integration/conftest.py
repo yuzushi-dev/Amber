@@ -1,11 +1,11 @@
-import pytest
-import os
 import asyncio
-from testcontainers.postgres import PostgresContainer
-from testcontainers.neo4j import Neo4jContainer
-from testcontainers.minio import MinioContainer
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from testcontainers.minio import MinioContainer
+from testcontainers.neo4j import Neo4jContainer
+from testcontainers.postgres import PostgresContainer
 
 # Only import if we are running integration tests
 # This prevents testcontainers from being a hard dependency for unit tests
@@ -43,8 +43,8 @@ async def integration_db_session(postgres_container):
     db_url = postgres_container.get_connection_url().replace("psycopg2", "asyncpg")
     engine = create_async_engine(db_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
-    async with engine.begin() as conn:
+
+    async with engine.begin():
         # Here we would run alembic migrations if needed
         # For now, we just yield the session
         pass

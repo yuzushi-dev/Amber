@@ -1,5 +1,6 @@
+
 from pydantic import BaseModel, Field
-from typing import List
+
 
 class ExtractedEntity(BaseModel):
     name: str = Field(..., description="Name of the entity. Capitalize properly.")
@@ -14,13 +15,13 @@ class ExtractedRelationship(BaseModel):
     weight: float = Field(default=1.0, description="Strength of the relationship (0.0-1.0) based on importance/frequency.")
 
 class ExtractionResult(BaseModel):
-    entities: List[ExtractedEntity] = Field(default_factory=list)
-    relationships: List[ExtractedRelationship] = Field(default_factory=list)
+    entities: list[ExtractedEntity] = Field(default_factory=list)
+    relationships: list[ExtractedRelationship] = Field(default_factory=list)
 
 
 # Dynamic Tuple-based Prompt Generation
 
-def get_tuple_extraction_prompt(entity_types: List[str], relation_types: List[str], text_unit_id: str = "UNKNOWN") -> str:
+def get_tuple_extraction_prompt(entity_types: list[str], relation_types: list[str], text_unit_id: str = "UNKNOWN") -> str:
     """Generate prompt for tuple-delimited format (Phase 3)."""
     entity_types_str = ", ".join(entity_types)
     relation_types_str = ", ".join(relation_types)
@@ -62,16 +63,16 @@ You are processing TextUnit ID: {text_unit_id}. Always preserve this identifier 
 6. AVOID using <|> delimiter in descriptions
 """
 
-def get_gleaning_prompt(existing_entities: List[str], entity_types: List[str]) -> str:
+def get_gleaning_prompt(existing_entities: list[str], entity_types: list[str]) -> str:
     """Generate continuation prompt for gleaning pass."""
     # Show sample of already-extracted entities
     entity_sample = existing_entities[:20] # Show up to 20
     summary = ", ".join(entity_sample)
     if len(existing_entities) > 20:
         summary += f" (and {len(existing_entities) - 20} more)"
-    
+
     entity_types_str = ", ".join(entity_types)
-    
+
     return f"""**Already extracted entities:** {summary}
 
 IMPORTANT: MANY additional entities and relationships were MISSED in the previous extraction pass.

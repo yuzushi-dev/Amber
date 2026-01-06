@@ -5,11 +5,13 @@ Flag Model
 Stores analyst-reported data quality issues for curation queue (SME loop).
 """
 
-from uuid import uuid4
-from datetime import datetime, timezone
-from sqlalchemy import Column, String, JSON, Enum as SQLEnum
-from src.core.models.base import Base, TimestampMixin
 import enum
+from uuid import uuid4
+
+from sqlalchemy import JSON, Column, String
+from sqlalchemy import Enum as SQLEnum
+
+from src.core.models.base import Base, TimestampMixin
 
 
 class FlagType(str, enum.Enum):
@@ -34,7 +36,7 @@ class FlagStatus(str, enum.Enum):
 class Flag(Base, TimestampMixin):
     """
     Analyst-reported flag for data quality issues.
-    
+
     Part of the SME (Subject Matter Expert) loop where analysts
     flag incorrect facts, entities, or relationships during their work.
     """
@@ -42,32 +44,32 @@ class Flag(Base, TimestampMixin):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     tenant_id = Column(String, index=True, nullable=False)
-    
+
     # Flag metadata
     # Use values_callable to ensure lowercase values match PostgreSQL enum
     type = Column(SQLEnum(FlagType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     status = Column(SQLEnum(FlagStatus, values_callable=lambda x: [e.value for e in x]), default=FlagStatus.PENDING, index=True)
-    
+
     # Reporter info
     reported_by = Column(String, nullable=False)  # User ID or username
-    
+
     # Target of the flag
     target_type = Column(String, nullable=False)  # 'chunk', 'entity', 'relationship'
     target_id = Column(String, nullable=False, index=True)
-    
+
     # Context and details
     comment = Column(String)  # User's explanation
     context = Column(JSON, default=dict)  # Query, chunk text, entity names, etc.
-    
+
     # Resolution info
     resolved_by = Column(String)
     resolved_at = Column(String)  # ISO timestamp
     resolution_notes = Column(String)
     merge_target_id = Column(String)  # For merge operations
-    
+
     def __repr__(self) -> str:
         return f"<Flag(id={self.id}, type={self.type}, status={self.status})>"
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
         return {

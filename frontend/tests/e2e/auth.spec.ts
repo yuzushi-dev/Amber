@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Authentication', () => {
-    test.beforeEach(async ({ page }) => {
+    test.beforeEach(async () => {
         // Assume we start at login or home
         // Since this is a dev environment, we might be auto-logged in or allow anonymous.
         // We'll verify the presence of user profile or login elements.
@@ -12,9 +12,8 @@ test.describe('Authentication', () => {
 
         // Check for common auth indicators
         // e.g. "Login", "Sign In", or a User Avatar
-
         const loginButton = page.getByRole('button', { name: /log\s*in|sign\s*in/i });
-        const userAvatar = page.locator('.user-avatar, [aria-label="User menu"]'); // Generic selectors
+        // const userAvatar = page.locator('.user-avatar, [aria-label="User menu"]'); // Generic selectors
 
         if (await loginButton.isVisible()) {
             // Test Login Flow (Mocked)

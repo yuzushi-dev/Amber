@@ -5,13 +5,12 @@ API Dependencies
 FastAPI dependency injection utilities.
 """
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import Request, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from fastapi import HTTPException, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.api.config import settings
-
 
 # Create async engine
 _engine = create_async_engine(
@@ -31,7 +30,7 @@ _async_session_maker = async_sessionmaker(
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that yields a database session.
-    
+
     Yields:
         AsyncSession: Database session that auto-closes.
     """
@@ -50,7 +49,7 @@ async def verify_admin(request: Request):
     """
     # Check permissions from request state (set by AuthMiddleware)
     permissions = getattr(request.state, "permissions", [])
-    
+
     # In Phase 1/MVP, we might use a simple check or specific permission string
     if "admin" not in permissions:
         raise HTTPException(

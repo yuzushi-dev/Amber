@@ -5,14 +5,11 @@ Query Schemas
 Request and response models for the query API.
 """
 
-from enum import Enum
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-from src.shared.identifiers import DocumentId
-
 
 # =============================================================================
 # Enums

@@ -1,8 +1,9 @@
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from src.core.models.candidate import Candidate
-from src.core.vector_store.milvus import MilvusVectorStore, SearchResult
 from src.core.observability.tracer import trace_span
+from src.core.vector_store.milvus import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ class VectorSearcher:
     """
     Handles semantic search against the Milvus vector store.
     """
-    
+
     def __init__(self, vector_store: MilvusVectorStore):
         self.vector_store = vector_store
 
@@ -19,10 +20,10 @@ class VectorSearcher:
         self,
         query_vector: list[float],
         tenant_id: str,
-        document_ids: Optional[list[str]] = None,
+        document_ids: list[str] | None = None,
         limit: int = 10,
-        score_threshold: Optional[float] = None,
-        filters: Optional[dict[str, Any]] = None
+        score_threshold: float | None = None,
+        filters: dict[str, Any] | None = None
     ) -> list[Candidate]:
         """
         Execute semantic search and return results as Candidates.
@@ -36,7 +37,7 @@ class VectorSearcher:
                 score_threshold=score_threshold,
                 filters=filters,
             )
-            
+
             return [
                 Candidate(
                     chunk_id=r.chunk_id,
@@ -49,7 +50,7 @@ class VectorSearcher:
                 )
                 for r in results
             ]
-            
+
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             return []

@@ -15,7 +15,6 @@ from src.core.providers.base import (
     BaseRerankerProvider,
     EmbeddingResult,
     ProviderConfig,
-    ProviderTier,
     ProviderUnavailableError,
     RerankResult,
     TokenUsage,
@@ -31,7 +30,7 @@ _reranker_model = None
 class LocalEmbeddingProvider(BaseEmbeddingProvider):
     """
     Local embedding provider using sentence-transformers.
-    
+
     Uses BGE-M3 by default for multilingual support.
     Works offline, no API costs.
     """
@@ -85,17 +84,17 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
             self._model_name = model_name
             return self._model
 
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "sentence-transformers package is required for local embeddings. "
                 "Install with: pip install sentence-transformers>=2.7.0"
-            )
+            ) from e
         except Exception as e:
             raise ProviderUnavailableError(
                 f"Failed to load model {model_name}: {e}",
                 provider=self.provider_name,
                 model=model_name,
-            )
+            ) from e
 
     async def embed(
         self,
@@ -143,13 +142,13 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
                 f"Embedding failed: {e}",
                 provider=self.provider_name,
                 model=model_name,
-            )
+            ) from e
 
 
 class FlashRankReranker(BaseRerankerProvider):
     """
     Local reranker using FlashRank.
-    
+
     Ultra-fast, CPU-friendly reranking.
     """
 
@@ -176,16 +175,17 @@ class FlashRankReranker(BaseRerankerProvider):
             return self._ranker
 
         try:
-            from flashrank import Ranker, RerankRequest
+            from flashrank import Ranker
+            # from flashrank import RerankRequest # Unused
 
             logger.info(f"Loading FlashRank reranker: {model_name}")
             self._ranker = Ranker(model_name=model_name)
             return self._ranker
 
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "flashrank package is required. Install with: pip install flashrank>=0.2.0"
-            )
+            ) from e
 
     async def rerank(
         self,
@@ -243,4 +243,4 @@ class FlashRankReranker(BaseRerankerProvider):
                 f"Reranking failed: {e}",
                 provider=self.provider_name,
                 model=model_name,
-            )
+            ) from e

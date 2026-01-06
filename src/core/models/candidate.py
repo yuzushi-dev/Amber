@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
+
 
 @dataclass
 class Candidate:
@@ -11,10 +12,10 @@ class Candidate:
     content: str
     score: float = 0.0
     source: Literal["vector", "graph", "community", "hybrid"] = "vector"
-    document_id: Optional[str] = None
-    tenant_id: Optional[str] = None
+    document_id: str | None = None
+    tenant_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert candidate to dictionary for API responses."""
         return {

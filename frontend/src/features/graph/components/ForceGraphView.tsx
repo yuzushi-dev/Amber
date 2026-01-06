@@ -25,7 +25,7 @@ interface ForceGraphViewProps {
         links: GraphLink[];
     };
     mode?: '2d' | '3d';
-    onNodeClick?: (node: any) => void;
+    onNodeClick?: (node: GraphNode) => void;
     width?: number;
     height?: number;
 }
@@ -85,7 +85,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
             })),
             links: data.links
         };
-    }, [data, isDark, theme, resolvedTheme]);
+    }, [data, isDark]);
 
     const commonProps = {
         graphData: processedData,
@@ -101,6 +101,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
     if (mode === '2d') {
         return (
             <ForceGraph2D
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ref={graphRef as any}
                 {...commonProps}
                 nodeRelSize={6}
@@ -112,6 +113,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
 
     return (
         <ForceGraph3D
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ref={graphRef as any}
             {...commonProps}
             nodeOpacity={0.9}

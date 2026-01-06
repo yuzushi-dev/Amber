@@ -22,10 +22,10 @@ _tenant_id: ContextVar[TenantId | None] = ContextVar("tenant_id", default=None)
 _request_id: ContextVar[RequestId | None] = ContextVar("request_id", default=None)
 
 # User permissions context - set by auth middleware
-_permissions: ContextVar[list[str]] = ContextVar("permissions", default=[])
+_permissions: ContextVar[list[str]] = ContextVar("permissions", default=None)
 
 # Extra context data - for extensibility
-_extra_context: ContextVar[dict[str, Any]] = ContextVar("extra_context", default={})
+_extra_context: ContextVar[dict[str, Any]] = ContextVar("extra_context", default=None)
 
 
 # =============================================================================

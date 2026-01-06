@@ -1,7 +1,6 @@
 import logging
 import time
 from enum import Enum
-from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +15,13 @@ class CircuitBreaker:
     """
 
     def __init__(
-        self, 
-        failure_threshold: int = 5, 
+        self,
+        failure_threshold: int = 5,
         recovery_timeout: float = 60.0
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
-        
+
         self.state = CircuitState.CLOSED
         self.failures = 0
         self.last_failure_time = 0.0
@@ -32,7 +31,7 @@ class CircuitBreaker:
         """Returns True if the request should be allowed to proceed."""
         if self.state == CircuitState.CLOSED:
             return True
-        
+
         if self.state == CircuitState.OPEN:
             # Check if recovery timeout has passed
             if time.time() - self.last_failure_time > self.recovery_timeout:
@@ -41,7 +40,7 @@ class CircuitBreaker:
                 logger.info("Circuit breaker entering HALF_OPEN state")
                 return True
             return False
-            
+
         if self.state == CircuitState.HALF_OPEN:
             # Only allow one trial request at a time (simplification)
             # In a real distributed system, this requires a lock or atomic counter
@@ -49,7 +48,7 @@ class CircuitBreaker:
                 self._half_open_trial = False # Consume tokens
                 return True
             return False
-            
+
         return False
 
     def record_success(self):
@@ -65,11 +64,11 @@ class CircuitBreaker:
         """Record a failed request."""
         self.failures += 1
         self.last_failure_time = time.time()
-        
+
         if self.state == CircuitState.HALF_OPEN:
             self.state = CircuitState.OPEN
-            logger.warning(f"Circuit breaker probing failed. Returning to OPEN state.")
-            
+            logger.warning("Circuit breaker probing failed. Returning to OPEN state.")
+
         elif self.state == CircuitState.CLOSED:
             if self.failures >= self.failure_threshold:
                 self.state = CircuitState.OPEN

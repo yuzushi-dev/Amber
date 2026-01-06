@@ -6,7 +6,6 @@ Centralized configuration management using Pydantic Settings.
 Environment variables take precedence over config file values.
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -76,7 +75,7 @@ class MinIOSettings(BaseSettings):
     """MinIO object storage settings."""
 
     model_config = SettingsConfigDict(env_prefix="MINIO_", extra="ignore")
-    
+
     host: str = Field(default="localhost", description="MinIO host")
     port: int = Field(default=9000, description="MinIO API port")
     root_user: str = Field(default="", description="MinIO access key")
@@ -174,14 +173,14 @@ def get_settings() -> Settings:
         Settings: Application settings instance
     """
     settings = Settings()
-    
+
     try:
         yaml_config = Settings.load_yaml_config()
-        
+
         # Apply Rate Limits from YAML (no env vars usually)
         if "rate_limits" in yaml_config:
             settings.rate_limits = RateLimitSettings(**yaml_config["rate_limits"])
-            
+
         # Apply DB pool settings from YAML (preserve existing URL)
         if "db" in yaml_config:
             db_config = yaml_config["db"]
@@ -194,11 +193,11 @@ def get_settings() -> Settings:
         api_config = yaml_config.get("api", {})
         if "cors_origins" in api_config:
             settings.cors_origins = Settings.normalize_cors_origins(api_config["cors_origins"])
-                
-    except Exception as e:
+
+    except Exception:
         # Fallback to defaults/env if YAML fails
         pass
-        
+
     return settings
 
 

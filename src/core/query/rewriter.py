@@ -7,11 +7,10 @@ Uses LLM to rewrite queries into standalone versions using conversation history.
 
 import logging
 import time
-from typing import List, Optional
 
+from src.core.prompts.query_analysis import QUERY_REWRITE_PROMPT
 from src.core.providers.base import BaseLLMProvider
 from src.core.providers.factory import ProviderFactory
-from src.core.prompts.query_analysis import QUERY_REWRITE_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +22,9 @@ class QueryRewriter:
 
     def __init__(
         self,
-        provider: Optional[BaseLLMProvider] = None,
-        openai_api_key: Optional[str] = None,
-        anthropic_api_key: Optional[str] = None,
+        provider: BaseLLMProvider | None = None,
+        openai_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
     ):
         if provider:
             self.provider = provider
@@ -40,17 +39,17 @@ class QueryRewriter:
     async def rewrite(
         self,
         query: str,
-        history: List[dict] | str = "",
+        history: list[dict] | str = "",
         timeout_sec: float = 2.0,
     ) -> str:
         """
         Rewrite a query using conversation history.
-        
+
         Args:
             query: Current user query
             history: List of conversation turns or a formatted string
             timeout_sec: Latency guard, return original if exceeds
-            
+
         Returns:
             Rewritten query or original if failure/timeout
         """
@@ -66,19 +65,19 @@ class QueryRewriter:
             ])
 
         prompt = QUERY_REWRITE_PROMPT.format(history=history_str, query=query)
-        
+
         start_time = time.perf_counter()
         try:
             # We don't have a direct timeout in the provider yet, but we can check after
             rewritten = await self.provider.generate(prompt)
-            
+
             elapsed = time.perf_counter() - start_time
             if elapsed > timeout_sec:
                 logger.warning(f"Query rewrite took too long ({elapsed:.2f}s), using original")
                 return query
-                
+
             return rewritten.strip()
-            
+
         except Exception as e:
             logger.error(f"Query rewrite failed: {e}")
             return query

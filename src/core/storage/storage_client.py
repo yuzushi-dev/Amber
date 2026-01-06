@@ -5,16 +5,17 @@ MinIO Storage Client
 Client for interacting with MinIO object storage.
 """
 
-import io
+import logging
 from typing import BinaryIO
 
 from minio import Minio
 from minio.error import S3Error
-import logging
-
-logger = logging.getLogger(__name__)
 
 from src.api.config import settings
+
+# ... imports
+# logger setup later
+logger = logging.getLogger(__name__)
 
 
 class MinIOClient:
@@ -25,17 +26,17 @@ class MinIOClient:
         # In docker-compose: api depends on minio service
         # But we access it via 'minio' hostname inside docker network
         # Or localhost if running locally with ports exposed
-        
+
         # When running from host (outside docker), use localhost:9000
         # When running from api container, use MILLVUS_HOST (which is 'minio' in docker-compose for MinIO?? No wait)
-        
+
         # Let's check config settings.
-        # MINIO_HOST/PORT usually matching the service. 
+        # MINIO_HOST/PORT usually matching the service.
         # Using settings from config.py
-        
+
         # For this phase implementation, we'll try to use specific env vars or fall back to defaults
         # We need to ensure we can connect.
-        
+
         self.client = Minio(
             endpoint=f"{settings.minio.host}:{settings.minio.port}",
             access_key=settings.minio.root_user,
@@ -52,12 +53,12 @@ class MinIOClient:
                 self.client.make_bucket(self.bucket_name)
         except S3Error as e:
             # Handle potential connection issues or permission errors
-            raise RuntimeError(f"Failed to check/create bucket: {e}")
+            raise RuntimeError(f"Failed to check/create bucket: {e}") from e
 
     def upload_file(self, object_name: str, data: BinaryIO, length: int, content_type: str = "application/octet-stream") -> None:
         """
         Upload a file-like object to MinIO.
-        
+
         Args:
             object_name: The path/name of the object in the bucket
             data: Binary I/O stream
@@ -76,10 +77,10 @@ class MinIOClient:
     def get_file(self, object_name: str) -> bytes:
         """
         Download a file's content as bytes.
-        
+
         Args:
             object_name: The path/name of the object
-            
+
         Returns:
             bytes: The file content
         """
@@ -94,14 +95,14 @@ class MinIOClient:
         finally:
             if 'response' in locals():
                 response.close()
-                
+
     def get_file_stream(self, object_name: str):
         """
         Get a file stream from MinIO.
-        
+
         Args:
             object_name: The path/name of the object
-            
+
         Returns:
             urllib3.response.HTTPResponse: The file stream
         """

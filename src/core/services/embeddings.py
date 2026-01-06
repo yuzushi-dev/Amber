@@ -6,22 +6,20 @@ High-level service for generating and managing embeddings.
 Handles batching, retries, and provider failover.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 from src.core.providers.base import (
     BaseEmbeddingProvider,
     EmbeddingResult,
-    ProviderConfig,
     ProviderUnavailableError,
     RateLimitError,
 )
@@ -46,13 +44,13 @@ class EmbeddingStats:
 class EmbeddingService:
     """
     Service for generating embeddings with production-grade reliability.
-    
+
     Features:
     - Token-aware batching
     - Exponential backoff retries
     - Provider failover
     - Cost & latency tracking
-    
+
     Usage:
         service = EmbeddingService(
             openai_api_key="sk-...",
@@ -82,7 +80,7 @@ class EmbeddingService:
     ):
         """
         Initialize the embedding service.
-        
+
         Args:
             provider: Pre-configured provider (optional)
             openai_api_key: OpenAI API key
@@ -115,13 +113,13 @@ class EmbeddingService:
     ) -> tuple[list[list[float]], EmbeddingStats]:
         """
         Generate embeddings for a list of texts.
-        
+
         Args:
             texts: Texts to embed
             model: Override default model
             dimensions: Override default dimensions
             show_progress: Log progress updates
-            
+
         Returns:
             Tuple of (embeddings, stats)
             Embeddings are in same order as input texts
@@ -215,7 +213,7 @@ class EmbeddingService:
     ) -> list[float]:
         """
         Embed a single text.
-        
+
         Convenience method for single embeddings.
         """
         embeddings, _ = await self.embed_texts(
@@ -246,13 +244,13 @@ async def process_document_embeddings(
 ) -> dict[str, list[float]]:
     """
     Process embeddings for document chunks.
-    
+
     Args:
         document_id: Document ID for logging
         chunks: List of chunk dicts with 'id' and 'content' keys
         embedding_service: Configured embedding service
         update_callback: Optional callback for progress updates
-        
+
     Returns:
         Dict mapping chunk_id -> embedding
     """
@@ -283,6 +281,6 @@ async def process_document_embeddings(
     # Build result mapping
     return {
         chunk_id: embedding
-        for chunk_id, embedding in zip(chunk_ids, embeddings)
+        for chunk_id, embedding in zip(chunk_ids, embeddings, strict=False)
         if embedding  # Skip failed embeddings
     }

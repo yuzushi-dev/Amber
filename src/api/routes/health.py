@@ -6,14 +6,13 @@ Provides liveness and readiness probes for the API.
 These endpoints do NOT require authentication.
 """
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, status
 from pydantic import BaseModel
 
 from src.api.config import settings
-from src.core.health import HealthStatus, health_checker
+from src.core.health import health_checker
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -71,7 +70,7 @@ async def liveness() -> LivenessResponse:
     """
     return LivenessResponse(
         status="healthy",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         version=settings.app_version,
     )
 
@@ -115,7 +114,7 @@ async def readiness() -> ReadinessResponse:
 
     response = ReadinessResponse(
         status="ready" if system_health.is_healthy else "unhealthy",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         dependencies=dependencies,
     )
 

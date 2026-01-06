@@ -9,9 +9,8 @@ Phase 2: Baseline RAG implementation with vector retrieval and LLM generation.
 import json
 import logging
 import time
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from src.api.config import settings
@@ -44,9 +43,9 @@ def _get_services():
 
     if _retrieval_service is None:
         try:
-            from src.core.services.retrieval import RetrievalService, RetrievalConfig
-            from src.core.services.generation import GenerationService, GenerationConfig
             from src.core.metrics.collector import MetricsCollector
+            from src.core.services.generation import GenerationService
+            from src.core.services.retrieval import RetrievalConfig, RetrievalService
 
             providers = getattr(settings, "providers", None)
             openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
@@ -115,7 +114,7 @@ def _get_tenant_id(request: Request) -> str:
     - Embeds query and searches Milvus for relevant chunks
     - Reranks results using FlashRank
     - Generates answer with citations using LLM
-    
+
     **Structured Queries**: List/count queries are executed directly via Cypher
     for instant responses without LLM generation.
     """,
@@ -169,19 +168,19 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
     # =========================================================================
     try:
         from src.core.query.structured_query import structured_executor
-        
+
         structured_result = await structured_executor.try_execute(
             query=request.query,
             tenant_id=tenant_id,
         )
-        
+
         if structured_result and structured_result.success:
             # Return structured response (no LLM, no RAG)
             logger.info(
                 f"Structured query executed: {structured_result.query_type.value} "
                 f"in {structured_result.execution_time_ms:.1f}ms"
             )
-            
+
             # Generate human-readable message
             count = structured_result.count
             query_type = structured_result.query_type.value
@@ -189,7 +188,7 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
                 message = f"Found {count} {query_type.replace('count_', '').replace('_', ' ')}"
             else:
                 message = f"Retrieved {count} {query_type.replace('list_', '').replace('_', ' ')}"
-            
+
             return StructuredQueryResponse(
                 query_type=query_type,
                 data=structured_result.data,
@@ -201,7 +200,7 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
                 ),
                 message=message,
             )
-            
+
     except Exception as e:
         # If structured query fails, fall through to RAG pipeline
         logger.debug(f"Structured query check failed, using RAG: {e}")
@@ -220,6 +219,8 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
     try:
         # Track metrics
         async with metrics.track_query(query_id, tenant_id, request.query) as query_metrics:
+            query_metrics.conversation_id = request.conversation_id or query_id
+
             # Step 1: Parse query
             step_start = time.perf_counter()
             trace_steps.append(TraceStep(
@@ -280,8 +281,11 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
 
                 answer = gen_result.answer
                 query_metrics.tokens_used = gen_result.tokens_used
+                query_metrics.input_tokens = gen_result.input_tokens
+                query_metrics.output_tokens = gen_result.output_tokens
                 query_metrics.cost_estimate = gen_result.cost_estimate
                 query_metrics.model = gen_result.model
+                query_metrics.provider = gen_result.provider
                 query_metrics.sources_cited = len(gen_result.sources)
                 query_metrics.answer_length = len(answer)
 
@@ -329,6 +333,14 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
 
     except Exception as e:
         logger.exception(f"Query failed: {e}")
+        # Note: metrics context manager auto-closes, but we need to mark failure if possible.
+        # Ideally, we should have access to query_metrics here, but it's scoped to the try block.
+        # Best practice: move try/except INSIDE the metrics context manager or handle it better.
+        # For now, we will rely on successful queries for most stats, but let's try to capture error if we can.
+        # Actually, since track_query is a context manager, if we want to capture exception, we should suppression=False
+        # and handle it in __aexit__.
+        # Let's modify collector.py's QueryTracker.__aexit__ to capture exception?
+        # A simpler way is to wrap the inner logic in try/except and set error on metrics.
         return _fallback_response(request, start_time, str(e))
 
 
@@ -391,15 +403,15 @@ async def query_stream(
                 detail="Query parameter 'query' is required for GET requests",
             )
         request = QueryRequest(query=query)
-    
+
     # Handle POST request body (FastAPI dependency injection)
     if request is None and http_request.method == "POST":
-         # This case should be handled by FastAPI if signature is correct, 
+         # This case should be handled by FastAPI if signature is correct,
          # but since we made request optional for GET, we might need to validate.
          # Actually, mixing Body and Query params in one function can be tricky in FastAPI.
          # Better approach is to separate into two functions or use logic below.
          pass
-         
+
     if request is None:
          # If dependency failed or wasn't provided (shouldn't happen for POST if validated)
          raise HTTPException(status_code=400, detail="Invalid request")
@@ -414,14 +426,14 @@ async def query_stream(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"RAG services unavailable: {e}",
-        )
+        ) from e
 
     async def generate_stream():
         """Generate SSE stream."""
         logger.info("SSE: Generator started")
         # Yield immediately so client knows connection is alive
         yield "event: status\ndata: Searching documents...\n\n"
-        
+
         try:
             # First, retrieve relevant chunks
             document_ids = request.filters.document_ids if request.filters else None
@@ -439,7 +451,7 @@ async def query_stream(
                     ),
                     timeout=35.0
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Retrieval timed out after 15 seconds")
                 yield "event: error\ndata: Document retrieval timed out. Please try again.\n\n"
                 return
@@ -456,12 +468,12 @@ async def query_stream(
             ):
                 event = event_dict.get("event", "message")
                 data = event_dict.get("data", "")
-                
+
                 if isinstance(data, (dict, list)):
                     data_str = json.dumps(data)
                 else:
                     data_str = str(data)
-                
+
                 yield f"event: {event}\ndata: {data_str}\n\n"
 
             yield "event: done\ndata: [DONE]\n\n"

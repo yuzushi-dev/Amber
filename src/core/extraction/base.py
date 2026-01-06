@@ -6,7 +6,8 @@ Defines the abstract base class and result schema for all document extractors.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -15,8 +16,8 @@ class ExtractionResult(BaseModel):
     Unified result structure for all extractors.
     """
     content: str = Field(..., description="Extracted markdown text")
-    tables: List[dict] = Field(default_factory=list, description="Extracted structured tables")
-    images: List[dict] = Field(default_factory=list, description="Extracted image metadata/content")
+    tables: list[dict] = Field(default_factory=list, description="Extracted structured tables")
+    images: list[dict] = Field(default_factory=list, description="Extracted image metadata/content")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata (page count, author, etc)")
     extractor_used: str = Field(..., description="Name of the extractor used")
     confidence: float = Field(default=1.0, description="Confidence score 0.0-1.0")
