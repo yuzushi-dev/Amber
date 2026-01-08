@@ -19,6 +19,7 @@ from alembic import context
 from src.core.models.base import Base
 
 # Import all models so they are registered with Base metadata
+from src.core.models.api_key import ApiKey
 
 # Alembic Config object
 config = context.config

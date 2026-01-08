@@ -8,14 +8,14 @@
 import { useState, useEffect } from 'react'
 import { Save, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react'
 import { configApi, ConfigSchema, TenantConfig, ConfigSchemaField } from '@/lib/api-admin'
-import OptionalFeaturesManager from '../components/OptionalFeaturesManager'
-import ApiKeyManager from '../components/ApiKeyManager'
+
 
 const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
 
 export default function TuningPage() {
     const [schema, setSchema] = useState<ConfigSchema | null>(null)
     const [, setConfig] = useState<TenantConfig | null>(null)
+    const [initialValues, setInitialValues] = useState<Record<string, unknown>>({})
     const [formValues, setFormValues] = useState<Record<string, unknown>>({})
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -46,6 +46,7 @@ export default function TuningPage() {
                 }
             })
             setFormValues(values)
+            setInitialValues(values)
             setError(null)
         } catch (err) {
             setError('Failed to load configuration')
@@ -85,6 +86,9 @@ export default function TuningPage() {
             await configApi.updateTenant(DEFAULT_TENANT_ID, configValues as Partial<TenantConfig>)
             setSaveStatus('success')
 
+            // Update initial values to match new saved state
+            setInitialValues(formValues)
+
             // Reset success after 3s
             setTimeout(() => setSaveStatus('idle'), 3000)
         } catch (err) {
@@ -95,20 +99,10 @@ export default function TuningPage() {
         }
     }
 
-    const handleReset = async () => {
-        if (!confirm('Reset all settings to defaults? This cannot be undone.')) return
-
-        try {
-            setSaving(true)
-            await configApi.resetTenant(DEFAULT_TENANT_ID)
-            await loadData()
-            setSaveStatus('success')
-        } catch (err) {
-            setSaveStatus('error')
-            console.error('Failed to reset:', err)
-        } finally {
-            setSaving(false)
-        }
+    const handleReset = () => {
+        if (!confirm('Discard unsaved changes?')) return
+        setFormValues(initialValues)
+        setSaveStatus('idle')
     }
 
     // Check if weights sum to approximately 1.0
@@ -117,6 +111,9 @@ export default function TuningPage() {
         (formValues.graph_weight as number || 0) +
         (formValues.rerank_weight as number || 0)
     const weightsValid = Math.abs(weightsSum - 1.0) < 0.05
+
+    // Check for changes
+    const hasChanges = Object.keys(formValues).some(key => formValues[key] !== initialValues[key])
 
     if (loading) {
         return (
@@ -148,7 +145,7 @@ export default function TuningPage() {
                 <div className="flex gap-2">
                     <button
                         onClick={handleReset}
-                        disabled={saving}
+                        disabled={saving || !hasChanges}
                         className="flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
                     >
                         <RotateCcw className="w-4 h-4" />
@@ -156,7 +153,7 @@ export default function TuningPage() {
                     </button>
                     <button
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || !hasChanges}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
                     >
                         {saveStatus === 'success' ? (
@@ -200,15 +197,7 @@ export default function TuningPage() {
                 </div>
             ))}
 
-            {/* Optional Features Section */}
-            <div className="mb-8 pt-6 border-t">
-                <OptionalFeaturesManager />
-            </div>
 
-            {/* API Key Section */}
-            <div className="mb-8 pt-6 border-t">
-                <ApiKeyManager />
-            </div>
         </div>
     )
 }

@@ -15,12 +15,15 @@ import {
     Activity,
     Gauge,
     Sliders,
-    Flag,
+
     ChevronLeft,
     ChevronRight,
     MessageSquarePlus,
     MessageCircle,
     Trash2,
+    Key,
+    Package,
+    Server,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/features/chat/store'
@@ -72,34 +75,35 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             ]
         }
     ],
-    ops: [
+    metrics: [
         {
-            title: 'Jobs',
+            title: 'Evaluation',
             items: [
-                { label: 'Active Jobs', icon: Activity, to: '/admin/ops/jobs' },
+                { label: 'Token Metrics', icon: Activity, to: '/admin/metrics/tokens' },
+                { label: 'RAGAS Evaluation', icon: Gauge, to: '/admin/metrics/ragas' },
             ]
         },
         {
-            title: 'Queues',
+            title: 'System',
             items: [
-                { label: 'Queue Status', icon: Gauge, to: '/admin/ops/queues' },
-            ]
-        },
-        {
-            title: 'Configuration',
-            items: [
-                { label: 'RAG Tuning', icon: Sliders, to: '/admin/ops/tuning' },
-                { label: 'Curation', icon: Flag, to: '/admin/ops/curation' },
-            ]
-        },
-        {
-            title: 'Analytics',
-            items: [
-                { label: 'Token Metrics', icon: Activity, to: '/admin/ops/metrics' },
-                { label: 'RAGAS Evaluation', icon: Gauge, to: '/admin/ops/ragas' },
+                { label: 'System Status', icon: Server, to: '/admin/metrics/system' },
             ]
         }
-
+    ],
+    settings: [
+        {
+            title: 'Model',
+            items: [
+                { label: 'RAG Tuning', icon: Sliders, to: '/admin/settings/tuning' },
+            ]
+        },
+        {
+            title: 'General',
+            items: [
+                { label: 'Optional Features', icon: Package, to: '/admin/settings/features' },
+                { label: 'API Key', icon: Key, to: '/admin/settings/keys' },
+            ]
+        }
     ]
 }
 
@@ -115,7 +119,8 @@ export default function ContextSidebar() {
     const getActiveSection = (): string | null => {
         if (currentPath.startsWith('/admin/chat')) return 'chat'
         if (currentPath.startsWith('/admin/data')) return 'data'
-        if (currentPath.startsWith('/admin/ops')) return 'ops'
+        if (currentPath.startsWith('/admin/metrics')) return 'metrics'
+        if (currentPath.startsWith('/admin/settings')) return 'settings'
         return null
     }
 

@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { Download, Check, AlertCircle, Loader2, RefreshCw, Package } from 'lucide-react'
+import { Download, Check, AlertCircle, Loader2, RefreshCw, Package, ChevronUp, ChevronDown } from 'lucide-react'
 
 interface Feature {
     id: string
@@ -29,11 +29,53 @@ interface SetupStatus {
     }
 }
 
+const FEATURE_DETAILS: Record<string, string[]> = {
+    'local_embeddings': [
+        'Model: BAAI/bge-small-en-v1.5 (FastEmbed)',
+        'Packages: torch, sentence-transformers',
+        'Size: ~2.1 GB (PyTorch included)',
+        'Purpose: Local vector generation for documents'
+    ],
+    'reranking': [
+        'Model: ms-marco-MiniLM-L-12-v2 (FlashRank)',
+        'Packages: flashrank',
+        'Size: ~50 MB',
+        'Purpose: High-precision result re-ranking'
+    ],
+    'community_detection': [
+        'Algorithm: Leiden (Graph Clustering)',
+        'Packages: cdlib, leidenalg, python-igraph',
+        'Size: ~150 MB',
+        'Purpose: Advanced community structure analysis'
+    ],
+    'document_processing': [
+        'Engine: Unstructured.io & PyMuPDF',
+        'Packages: unstructured, python-magic, pymupdf4llm',
+        'Size: ~800 MB',
+        'Purpose: PDF, DOCX, and HTML extraction'
+    ],
+    'ragas': [
+        'Framework: Ragas (RAG Assessment)',
+        'Packages: ragas, datasets',
+        'Size: ~150 MB',
+        'Purpose: Automated faithfulness and relevancy scoring'
+    ]
+}
+
 export default function OptionalFeaturesManager() {
     const [status, setStatus] = useState<SetupStatus | null>(null)
     const [loading, setLoading] = useState(true)
     const [installing, setInstalling] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
+
+    const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({})
+
+    const toggleFeature = (featureId: string) => {
+        setExpandedFeatures(prev => ({
+            ...prev,
+            [featureId]: !prev[featureId]
+        }))
+    }
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -147,13 +189,13 @@ export default function OptionalFeaturesManager() {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <Package className="w-5 h-5" />
+                    <h1 className="text-2xl font-bold flex items-center gap-2">
+                        <Package className="w-6 h-6" />
                         Optional Features
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
+                    </h1>
+                    <p className="text-muted-foreground">
                         Install additional ML capabilities for enhanced functionality.
                     </p>
                 </div>
@@ -162,10 +204,11 @@ export default function OptionalFeaturesManager() {
                         setLoading(true)
                         fetchStatus()
                     }}
-                    className="p-2 hover:bg-muted rounded-md transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-muted transition-colors"
                     title="Refresh status"
                 >
                     <RefreshCw className="w-4 h-4" />
+                    Refresh
                 </button>
             </div>
 
@@ -182,44 +225,86 @@ export default function OptionalFeaturesManager() {
             )}
 
             <div className="space-y-3">
-                {status?.features.map(feature => (
-                    <div
-                        key={feature.id}
-                        className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-muted/30 transition-colors"
-                    >
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-medium">{feature.name}</h3>
-                                {getStatusBadge(feature)}
+                {status?.features.map(feature => {
+                    const hasDetails = (FEATURE_DETAILS[feature.id] || []).length > 0
+                    const isExpanded = expandedFeatures[feature.id]
+
+                    return (
+                        <div
+                            key={feature.id}
+                            className="p-4 border rounded-lg bg-card hover:bg-muted/30 transition-colors"
+                        >
+                            <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-medium">{feature.name}</h3>
+                                        {getStatusBadge(feature)}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        {feature.description}
+                                    </p>
+
+                                    {/* Detailed Download List (Expandable) */}
+                                    {hasDetails && (
+                                        <div className="mt-2">
+                                            <button
+                                                onClick={() => toggleFeature(feature.id)}
+                                                className="text-xs flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors"
+                                            >
+                                                {isExpanded ? 'Hide Details' : 'Show Details'}
+                                                {isExpanded ? (
+                                                    <ChevronUp className="w-3 h-3" />
+                                                ) : (
+                                                    <ChevronDown className="w-3 h-3" />
+                                                )}
+                                            </button>
+
+                                            {isExpanded && (
+                                                <div className="mt-2 bg-muted/50 rounded-md p-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                    <p className="text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wider">
+                                                        Downloads
+                                                    </p>
+                                                    <ul className="space-y-1">
+                                                        {FEATURE_DETAILS[feature.id]?.map((detail, idx) => (
+                                                            <li key={idx} className="text-xs text-muted-foreground flex items-center gap-2">
+                                                                <div className="w-1 h-1 rounded-full bg-primary/50" />
+                                                                {detail}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="ml-4 flex-shrink-0">
+                                    {feature.status === 'not_installed' && (
+                                        <button
+                                            onClick={() => handleInstall(feature.id)}
+                                            disabled={installing !== null}
+                                            className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                            Install
+                                        </button>
+                                    )}
+
+                                    {feature.status === 'failed' && (
+                                        <button
+                                            onClick={() => handleInstall(feature.id)}
+                                            disabled={installing !== null}
+                                            className="flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+                                        >
+                                            <RefreshCw className="w-4 h-4" />
+                                            Retry
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <p className="text-sm text-muted-foreground mt-1 truncate">
-                                {feature.description}
-                            </p>
                         </div>
-
-                        {feature.status === 'not_installed' && (
-                            <button
-                                onClick={() => handleInstall(feature.id)}
-                                disabled={installing !== null}
-                                className="ml-4 flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-                            >
-                                <Download className="w-4 h-4" />
-                                Install
-                            </button>
-                        )}
-
-                        {feature.status === 'failed' && (
-                            <button
-                                onClick={() => handleInstall(feature.id)}
-                                disabled={installing !== null}
-                                className="ml-4 flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
-                            >
-                                <RefreshCw className="w-4 h-4" />
-                                Retry
-                            </button>
-                        )}
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         </div>
     )
