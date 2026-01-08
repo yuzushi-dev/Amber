@@ -56,6 +56,16 @@
 #   ragas>=0.2.0
 
 # -----------------------------------------------------------------------------
+# [code_intelligence] - Tree-Sitter Code Parsing (~50 MB)
+# For structural code analysis and symbol extraction
+# -----------------------------------------------------------------------------
+# Install with: pip install tree-sitter>=0.20.0 tree-sitter-languages>=1.10.0
+#
+# Packages:
+#   tree-sitter>=0.20.0
+#   tree-sitter-languages>=1.10.0
+
+# -----------------------------------------------------------------------------
 # Feature Definitions (for setup_service.py reference)
 # -----------------------------------------------------------------------------
 # FEATURES = {
@@ -92,6 +102,13 @@
 #         "description": "Systematic RAG evaluation with Faithfulness, Relevancy, and more",
 #         "packages": ["ragas>=0.2.0"],
 #         "size_mb": 150,
+#         "pip_extra_args": []
+#     },
+#     "code_intelligence": {
+#         "name": "Code Intelligence",
+#         "description": "Structural code analysis using Tree-Sitter",
+#         "packages": ["tree-sitter>=0.20.0", "tree-sitter-languages>=1.10.0"],
+#         "size_mb": 50,
 #         "pip_extra_args": []
 #     }
 # }

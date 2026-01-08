@@ -61,14 +61,29 @@ export function useChatStream() {
         eventSourceRef.current = eventSource
 
         eventSource.addEventListener('thinking', (e) => {
-            updateLastMessage({ thinking: e.data })
+            try {
+                const text = JSON.parse(e.data)
+                updateLastMessage({ thinking: text })
+            } catch (err) {
+                // Fallback for legacy/error messages
+                updateLastMessage({ thinking: e.data })
+            }
         })
 
         eventSource.addEventListener('token', (e) => {
-            updateLastMessage({
-                thinking: null,
-                content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + e.data
-            })
+            try {
+                const token = JSON.parse(e.data)
+                updateLastMessage({
+                    thinking: null,
+                    content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + token
+                })
+            } catch (err) {
+                // Fallback
+                updateLastMessage({
+                    thinking: null,
+                    content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + e.data
+                })
+            }
         })
 
         eventSource.addEventListener('sources', (e) => {
@@ -83,6 +98,7 @@ export function useChatStream() {
         eventSource.addEventListener('done', () => {
             setState((prev) => ({ ...prev, isStreaming: false }))
             stopStream()
+            useChatStore.getState().triggerHistoryUpdate()
         })
 
         eventSource.addEventListener('error', (e) => {

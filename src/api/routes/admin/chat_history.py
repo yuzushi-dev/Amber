@@ -74,6 +74,10 @@ class ConversationDetail(BaseModel):
 # Endpoints
 # =============================================================================
 
+# =============================================================================
+# Endpoints
+# =============================================================================
+
 @router.get("/history", response_model=ChatHistoryResponse)
 async def list_chat_history(
     limit: int = Query(20, ge=1, le=100),
@@ -83,64 +87,63 @@ async def list_chat_history(
 ):
     """
     List recent chat conversations.
-
-    Retrieves generation operations from UsageLog with optional feedback data.
     """
+    from src.core.models.memory import ConversationSummary
+
     try:
-        # Build query for generation operations
-        query = (
-            select(UsageLog, Feedback)
-            .outerjoin(Feedback, UsageLog.request_id == Feedback.request_id)
-            .where(UsageLog.operation == "generation")
-        )
+        # Build query for conversation summaries
+        query = select(ConversationSummary)
 
         # Filter by tenant if specified
         if tenant_id:
-            query = query.where(UsageLog.tenant_id == tenant_id)
+            query = query.where(ConversationSummary.tenant_id == tenant_id)
 
         # Order by most recent first
-        query = query.order_by(desc(UsageLog.created_at))
+        query = query.order_by(desc(ConversationSummary.created_at))
 
         # Get total count
-        count_query = (
-            select(func.count(UsageLog.id))
-            .where(UsageLog.operation == "generation")
-        )
+        count_query = select(func.count(ConversationSummary.id))
         if tenant_id:
-            count_query = count_query.where(UsageLog.tenant_id == tenant_id)
+            count_query = count_query.where(ConversationSummary.tenant_id == tenant_id)
 
         total = await session.scalar(count_query) or 0
 
         # Fetch with pagination
         query = query.offset(offset).limit(limit)
         result = await session.execute(query)
-        rows = result.all()
+        rows = result.scalars().all()
 
         # Build response
         conversations = []
-        for usage_log, feedback in rows:
+        for conv in rows:
             # Extract query/response from metadata
-            metadata = usage_log.metadata_json or {}
-            query_text = metadata.get("query_text") or metadata.get("query")
-            response_text = metadata.get("response_text") or metadata.get("response")
-
-            # Create preview (first 100 chars)
+            metadata = conv.metadata_ or {}
+            query_text = metadata.get("query")
+            response_text = metadata.get("answer")
+            model = metadata.get("model", "default")
+            
+            # Use title from model or fallback
+            # conv.title should be populated
+            
+            # Create preview
             response_preview = None
             if response_text:
                 response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+            elif conv.summary:
+                response_preview = conv.summary[:100]
 
             conversations.append(ChatHistoryItem(
-                request_id=usage_log.request_id or usage_log.id,
-                tenant_id=usage_log.tenant_id,
-                query_text=query_text,
+                request_id=conv.id,
+                tenant_id=conv.tenant_id,
+                query_text=query_text or conv.title,
                 response_preview=response_preview,
-                model=usage_log.model,
-                provider=usage_log.provider,
-                total_tokens=usage_log.total_tokens or 0,
-                cost=usage_log.cost or 0.0,
-                has_feedback=feedback is not None,
-                feedback_score=feedback.score if feedback else None,
-                created_at=usage_log.created_at,
+                model=model,
+                provider="openai", # Placeholder
+                total_tokens=0, # Metrics not linked yet
+                cost=0.0,
+                has_feedback=False,
+                feedback_score=None,
+                created_at=conv.created_at,
             ))
 
         return ChatHistoryResponse(
@@ -150,7 +153,6 @@ async def list_chat_history(
             offset=offset,
         )
     except Exception as e:
-        # Handle missing table or other database errors gracefully
         import logging
         logging.getLogger(__name__).warning(f"Chat history query failed: {e}")
         return ChatHistoryResponse(
@@ -168,55 +170,58 @@ async def get_conversation_detail(
 ):
     """
     Get full details for a specific conversation.
-
-    Includes complete query, response, tokens, cost, and feedback.
     """
-    # Query usage log
-    usage_query = (
-        select(UsageLog)
-        .where(UsageLog.request_id == request_id)
-        .where(UsageLog.operation == "generation")
-    )
-    result = await session.execute(usage_query)
-    usage_log = result.scalar_one_or_none()
+    from src.core.models.memory import ConversationSummary
 
-    if not usage_log:
+    # Query conversation summary
+    query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    result = await session.execute(query)
+    conv = result.scalar_one_or_none()
+
+    if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Query feedback
-    feedback_query = select(Feedback).where(Feedback.request_id == request_id)
-    feedback_result = await session.execute(feedback_query)
-    feedback = feedback_result.scalar_one_or_none()
-
-    # Extract query/response from metadata
-    metadata = usage_log.metadata_json or {}
-    query_text = metadata.get("query_text") or metadata.get("query")
-    response_text = metadata.get("response_text") or metadata.get("response")
-
-    # Build feedback dict
-    feedback_data = None
-    if feedback:
-        feedback_data = {
-            "score": feedback.score,
-            "is_positive": feedback.is_positive,
-            "comment": feedback.comment,
-            "correction": feedback.correction,
-            "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
-        }
+    # Extract details
+    metadata = conv.metadata_ or {}
+    query_text = metadata.get("query")
+    response_text = metadata.get("answer")
+    model = metadata.get("model", "default")
 
     return ConversationDetail(
-        request_id=usage_log.request_id or usage_log.id,
-        tenant_id=usage_log.tenant_id,
-        trace_id=usage_log.trace_id,
-        query_text=query_text,
-        response_text=response_text,
-        model=usage_log.model,
-        provider=usage_log.provider,
-        input_tokens=usage_log.input_tokens or 0,
-        output_tokens=usage_log.output_tokens or 0,
-        total_tokens=usage_log.total_tokens or 0,
-        cost=usage_log.cost or 0.0,
-        feedback=feedback_data,
+        request_id=conv.id,
+        tenant_id=conv.tenant_id,
+        trace_id=None,
+        query_text=query_text or conv.title,
+        response_text=response_text or conv.summary,
+        model=model,
+        provider="openai",
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
+        cost=0.0,
+        feedback=None,
         metadata=metadata,
-        created_at=usage_log.created_at,
+        created_at=conv.created_at,
     )
+
+
+@router.delete("/history/{request_id}", status_code=204)
+async def delete_conversation(
+    request_id: str,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Delete a specific conversation.
+    """
+    from src.core.models.memory import ConversationSummary
+
+    # Query conversation summary
+    query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    result = await session.execute(query)
+    conv = result.scalar_one_or_none()
+
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    await session.delete(conv)
+    await session.commit()

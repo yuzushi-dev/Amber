@@ -241,6 +241,22 @@ class BaseLLMProvider(ABC):
         )
         yield result.text
 
+    @trace_span("LLM.chat")
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = "auto",
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Direct chat completion with tool support.
+        
+        Returns raw provider response (e.g. ChatCompletion object).
+        """
+        raise NotImplementedError("Provider does not support chat/tools.")
+
+
     def get_model_info(self, model: str) -> dict[str, Any]:
         """Get information about a specific model."""
         return self.models.get(model, {})

@@ -55,7 +55,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 ## Key Features
 
-### 🧠 Intelligent Multi-Mode Retrieval
+### Intelligent Multi-Mode Retrieval
 
 #### Vector & Hybrid Search (Basic Mode)
 - **Hybrid Retrieval**: Combines Dense (Semantic) and Sparse (SPLADE) vectors for superior precision
@@ -77,7 +77,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Query Routing**: Automatically selects the best search strategy
 - **Structured Query Detection**: Bypasses RAG for simple list/count queries
 
-### 📚 Advanced Knowledge Graph
+### Advanced Knowledge Graph
 
 #### Entity & Relationship Extraction
 - **LLM-powered extraction** from document chunks
@@ -97,7 +97,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Graph statistics** and health monitoring
 - **Tenant isolation** for multi-tenant deployments
 
-### ⚙️ Robust Document Processing Pipeline
+### Robust Document Processing Pipeline
 
 #### Multi-Format Support
 - **PDF**: PyMuPDF4LLM, Marker-PDF, and Unstructured fallback
@@ -123,7 +123,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - Automatic detection of duplicate uploads
 - Idempotent ingestion API
 
-### 🔍 Generation & Quality
+### Generation & Quality
 
 #### Multi-Provider LLM Support
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
@@ -144,7 +144,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Follow-up suggestions**: Generates contextual next questions
 - **Ragas Integration**: Automated evaluation with standard metrics
 
-### 🛠️ Production-Grade Admin & Operations
+### Production-Grade Admin & Operations
 
 #### Document Management (`/admin/data`)
 - **Upload Wizard**: Batch upload with drag-and-drop
@@ -179,7 +179,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Search Settings**: Configure top-k, reranking, and fusion weights
 - **Provider Selection**: Switch LLM and embedding providers
 
-### 🔐 Security & Reliability
+### Security & Reliability
 
 #### Authentication & Authorization
 - **API Key Management**: SHA-256 hashed keys stored in PostgreSQL
@@ -371,6 +371,26 @@ Retrieval is handled by a sophisticated orchestration layer that combines determ
     1.  **Primer**: Performs an initial standard retrieval (Top-5) to get a baseline context.
     2.  **Expansion Loop**: The LLM analyzes the Primer results and generates **Follow-Up Questions**. These sub-queries are executed to "drift" to related graph neighborhoods.
     3.  **Synthesis**: All accumulated context (Primer + Expansion) is deduplicated and fed to the LLM for a final, citation-backed answer.
+
+### 4. Agentic RAG (ReAct Loop)
+
+For complex queries requiring multi-step reasoning, Amber employs a full **Agentic RAG** architecture using a ReAct (Reason+Act) loop.
+
+*   **Agent Orchestrator**: The `AgentOrchestrator` (`src/core/agent/orchestrator.py`) manages the loop:
+    1.  Receive query → LLM decides: call a tool OR give final answer.
+    2.  If tool: execute, append result to context, repeat.
+    3.  Max 10 steps to prevent infinite loops.
+*   **Available Tools**:
+    | Tool                                         | Description                     | Mode                |
+    | -------------------------------------------- | ------------------------------- | ------------------- |
+    | `search_codebase`                            | Vector search over documents    | Knowledge (default) |
+    | `query_graph`                                | Execute Cypher queries on Neo4j | Knowledge           |
+    | `read_file`, `list_directory`, `grep_search` | Filesystem access               | Maintainer (opt-in) |
+*   **Agent Modes**: Two security levels controlled via `agent_role` parameter:
+    *   **Knowledge Agent** (default): Vector + Graph tools only. Safe for production.
+    *   **Maintainer Agent**: Adds filesystem tools. Requires explicit opt-in.
+*   **Resilient Content Fallback**: If Milvus returns empty content, the system automatically fetches from PostgreSQL, with full observability (OTel event + log metric).
+*   **Documentation**: See [docs/agentic-retrieval.md](docs/agentic-retrieval.md) for full implementation details.
 
 ---
 
@@ -1844,5 +1864,3 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit m
 Amber 2.0 is released under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
-
-**Built with ❤️ for the knowledge graph community**

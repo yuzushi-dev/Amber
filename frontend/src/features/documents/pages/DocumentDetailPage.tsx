@@ -21,27 +21,27 @@ import {
     Database,
     Network,
     GitMerge,
-    RefreshCw,
     Trash2,
+    VectorSquare,
     Info
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 // Import existing tabs to reuse as modal content
-import ContentTab from '../components/DocumentTabs/ContentTab';
 import ChunksTab from '../components/DocumentTabs/ChunksTab';
 import EntitiesTab from '../components/DocumentTabs/EntitiesTab';
 import RelationshipsTab from '../components/DocumentTabs/RelationshipsTab';
 import CommunitiesTab from '../components/DocumentTabs/CommunitiesTab';
+import SimilaritiesTab from '../components/DocumentTabs/SimilaritiesTab';
 import LiveStatusBadge from '../components/LiveStatusBadge';
 
 // Placeholder for missing tabs
-const SimilaritiesView = () => <div className="p-4 text-center text-muted-foreground">Similarities exploration coming soon.</div>;
+// const SimilaritiesView = () => <div className="p-4 text-center text-muted-foreground">Similarities exploration coming soon.</div>;
 
 interface DocumentDetail {
     id: string
@@ -56,6 +56,7 @@ interface DocumentDetail {
         entities: number
         relationships: number
         communities: number
+        similarities: number
     }
 }
 
@@ -72,7 +73,7 @@ export default function DocumentDetailPage() {
     const [isDeleting, setIsDeleting] = useState(false);
 
     // Fetch Document Metadata
-    const { data: document, isLoading, refetch } = useQuery({
+    const { data: document, isLoading } = useQuery({
         queryKey: ['document', documentId],
         queryFn: async () => {
             const response = await apiClient.get<DocumentDetail>(`/documents/${documentId}`);
@@ -97,22 +98,20 @@ export default function DocumentDetailPage() {
     }
 
     const statsCards = [
-        { id: 'content', label: 'Content', icon: FileText, count: null, color: 'text-blue-500', bg: 'bg-blue-500/10' },
         { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-purple-500', bg: 'bg-purple-500/10' },
         { id: 'entities', label: 'Entities', icon: Layers, count: document.stats?.entities || 0, color: 'text-green-500', bg: 'bg-green-500/10' },
         { id: 'relationships', label: 'Relationships', icon: Share2, count: document.stats?.relationships || 0, color: 'text-orange-500', bg: 'bg-orange-500/10' },
         { id: 'communities', label: 'Communities', icon: Network, count: document.stats?.communities || 0, color: 'text-pink-500', bg: 'bg-pink-500/10' },
-        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: 0, color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
+        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: document.stats?.similarities || 0, color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
     ];
 
     const renderModalContent = () => {
         switch (activeModal) {
-            case 'content': return <ContentTab documentId={documentId} />;
             case 'chunks': return <ChunksTab documentId={documentId} />;
             case 'entities': return <EntitiesTab documentId={documentId} />;
             case 'relationships': return <RelationshipsTab documentId={documentId} />;
             case 'communities': return <CommunitiesTab documentId={documentId} />;
-            case 'similarities': return <SimilaritiesView />;
+            case 'similarities': return <SimilaritiesTab documentId={documentId} />;
             default: return null;
         }
     };
@@ -140,10 +139,6 @@ export default function DocumentDetailPage() {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => refetch()}>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Update
-                    </Button>
                     <Button
                         variant="destructive"
                         size="sm"
@@ -182,7 +177,7 @@ export default function DocumentDetailPage() {
                 </Card>
 
                 {/* Statistics Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {statsCards.map((card) => (
                         <Card
                             key={card.id}
@@ -217,7 +212,7 @@ export default function DocumentDetailPage() {
                 {/* Graph Visualization Section (Placeholder/Feature) */}
                 <div className="pt-4">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <Share2 className="w-5 h-5" />
+                        <VectorSquare className="w-5 h-5" />
                         Graph Explorer
                     </h2>
                     <div className="border rounded-xl h-[500px] bg-card overflow-hidden">
@@ -230,8 +225,9 @@ export default function DocumentDetailPage() {
 
             {/* Details Modal */}
             <Dialog open={!!activeModal} onOpenChange={(open) => !open && setActiveModal(null)}>
-                <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
-                    <DialogHeader className="px-6 py-4 border-b">
+                <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 relative">
+                    <DialogClose onClose={() => setActiveModal(null)} />
+                    <DialogHeader className="px-6 py-4 border-b pr-12">
                         <DialogTitle className="flex items-center gap-2">
                             {activeModal && (
                                 <>
@@ -244,7 +240,7 @@ export default function DocumentDetailPage() {
                             )}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="flex-1 overflow-hidden p-0">
+                    <div className="flex-1 overflow-y-auto p-0">
                         {renderModalContent()}
                     </div>
                 </DialogContent>

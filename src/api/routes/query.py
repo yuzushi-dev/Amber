@@ -211,6 +211,69 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
         # Fallback to no-op response if services unavailable
         logger.error(f"Services unavailable: {e}")
         return _fallback_response(request, start_time, str(e))
+    
+    # =========================================================================
+    # AGENTIC MODE (Phase 1)
+    # =========================================================================
+    if request.options and request.options.agent_mode:
+        try:
+            from src.core.agent.orchestrator import AgentOrchestrator
+            from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
+            from src.core.tools.retrieval import create_retrieval_tool
+            from src.core.tools.filesystem import create_filesystem_tools
+            
+            # Initialize Tools
+            # Initialize Tools
+            retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
+            
+            tool_map = {
+                retrieval_tool_def["name"]: retrieval_tool_def["func"]
+            }
+            tool_schemas = [retrieval_tool_def["schema"]]
+
+            agent_role = request.options.agent_role
+            
+            # Role-Specific Tools
+            if agent_role == "maintainer":
+                 # Maintainer: Full filesystem access
+                fs_tools = create_filesystem_tools(base_path=".") 
+                for t in fs_tools:
+                    tool_map[t["name"]] = t["func"]
+                    tool_schemas.append(t["schema"])
+            else:
+                 # Knowledge (Default): RAG + Graph only
+                 from src.core.tools.graph import GRAPH_TOOLS, query_graph
+                 
+                 # Add Graph Tool
+                 tool_map["query_graph"] = query_graph
+                 tool_schemas.extend(GRAPH_TOOLS)
+                 
+                 # Note: We do NOT load filesystem tools here.
+            
+            # Initialize Agent
+            agent = AgentOrchestrator(
+                generation_service=generation_service,
+                tools=tool_map,
+                tool_schemas=tool_schemas,
+                system_prompt=AGENT_SYSTEM_PROMPT
+            )
+            
+            # Run Agent
+            agent_response = await agent.run(
+                query=request.query,
+                conversation_id=request.conversation_id
+            )
+            
+            # Fill in timing info (approximate)
+            total_ms = (time.perf_counter() - start_time) * 1000
+            agent_response.timing.total_ms = round(total_ms, 2)
+            
+            return agent_response
+            
+        except Exception as e:
+            logger.error(f"Agent execution failed: {e}")
+            # Fallback to standard RAG if agent crashes
+            pass
 
     # Generate query ID for tracking
     from src.shared.identifiers import generate_query_id
@@ -432,7 +495,7 @@ async def query_stream(
         """Generate SSE stream."""
         logger.info("SSE: Generator started")
         # Yield immediately so client knows connection is alive
-        yield "event: status\ndata: Searching documents...\n\n"
+        yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
 
         try:
             # First, retrieve relevant chunks
@@ -452,15 +515,17 @@ async def query_stream(
                     timeout=35.0
                 )
             except TimeoutError:
-                logger.warning("Retrieval timed out after 15 seconds")
-                yield "event: error\ndata: Document retrieval timed out. Please try again.\n\n"
+                logger.warning("Retrieval timed out after 35 seconds")
+                yield f"event: error\ndata: {json.dumps('Document retrieval timed out. Please try again.')}\n\n"
                 return
 
             if not retrieval_result.chunks:
-                yield "data: No relevant documents found.\n\n"
+                yield f"data: {json.dumps('No relevant documents found.')}\n\n"
                 return
 
+
             # Stream the answer
+            full_answer = ""
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
                 candidates=retrieval_result.chunks,
@@ -468,19 +533,53 @@ async def query_stream(
             ):
                 event = event_dict.get("event", "message")
                 data = event_dict.get("data", "")
+                
+                # Accumulate answer for history
+                if event == "token":
+                    full_answer += str(data)
 
-                if isinstance(data, (dict, list)):
-                    data_str = json.dumps(data)
-                else:
-                    data_str = str(data)
+                # ALWAYS JSON encode data to preserve newlines and special chars
+                data_str = json.dumps(data)
 
                 yield f"event: {event}\ndata: {data_str}\n\n"
 
-            yield "event: done\ndata: [DONE]\n\n"
+            # SAVE INTERACTION TO HISTORY
+            try:
+                # Truncate for summary
+                summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
+                
+                import uuid
+                from src.core.models.memory import ConversationSummary
+                from src.api.deps import _async_session_maker
+                
+                async with _async_session_maker() as session:
+                    new_summary = ConversationSummary(
+                        id=str(uuid.uuid4()),
+                        tenant_id=tenant_id,
+                        user_id="user", # Default user
+                        title=title_text,
+                        summary=summary_text,
+                        metadata_={
+                            "query": request.query,
+                            "answer": full_answer,
+                            "model": request.options.model if request.options else "default"
+                        }
+                    )
+                    session.add(new_summary)
+                    await session.commit()
+                    logger.info(f"Saved conversation history: {new_summary.id}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to save conversation history: {e}")
+                    
+
+
+            yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
 
         except Exception as e:
             logger.exception(f"Stream generation failed: {e}")
-            yield f"event: error\ndata: {str(e)}\n\n"
+            yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
     return StreamingResponse(
         generate_stream(),

@@ -86,6 +86,7 @@ class DocumentResponse(BaseModel):
     status: str
     domain: str | None = None
     tenant_id: str
+    folder_id: str | None = None
     source_type: str | None = "upload"
     content_type: str | None = None  # MIME type of the document
     created_at: datetime
@@ -320,6 +321,7 @@ async def list_documents(
             status=doc.status.value,
             domain=doc.domain,
             tenant_id=doc.tenant_id,
+            folder_id=doc.folder_id,
             source_type=doc.source_type,
             content_type=_get_content_type(doc),
             created_at=doc.created_at
@@ -341,6 +343,7 @@ async def get_document(
     """
     Get document details with enrichment data and statistics.
     """
+    logger.info(f"DEBUG: Processing get_document for {document_id}")
     tenant_id = _get_tenant_id(http_request)
     query = select(Document).where(
         Document.id == document_id,
@@ -365,6 +368,7 @@ async def get_document(
         status=document.status.value,
         domain=document.domain,
         tenant_id=document.tenant_id,
+        folder_id=document.folder_id,
         source_type=document.source_type,
         content_type=_get_content_type(document),
         created_at=document.created_at,
@@ -444,6 +448,23 @@ async def _compute_document_stats(
         if comm_records:
             community_count = comm_records[0].get("community_count", 0)
 
+        # Similarity count (SIMILAR_TO relationship between chunks)
+        sim_cypher = """
+            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (c)-[r:SIMILAR_TO]->(c2:Chunk)
+            RETURN count(DISTINCT r) as sim_count
+        """
+        sim_records = await neo4j_client.execute_read(
+            sim_cypher,
+            {"document_id": document_id, "tenant_id": tenant_id}
+        )
+        if sim_records:
+            # Divide by 2 if bi-directional? The enricher creates one-way or merge.
+            # Schema says SIMILAR_TO. Let's count edges.
+            similarity_count = sim_records[0].get("sim_count", 0)
+        else:
+            similarity_count = 0
+
     except Exception as e:
         logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
 
@@ -451,7 +472,9 @@ async def _compute_document_stats(
         "chunks": chunk_count,
         "entities": entity_count,
         "relationships": relationship_count,
+        "relationships": relationship_count,
         "communities": community_count,
+        "similarities": similarity_count,
     }
 
 
@@ -581,6 +604,93 @@ async def get_document_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve file: {str(e)}"
         ) from e
+
+
+class DocumentUpdate(BaseModel):
+    """Schema for updating a document."""
+    title: str | None = None
+    folder_id: str | None = None
+
+
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    summary="Update Document",
+    description="Update document details (e.g., title, folder).",
+)
+async def update_document(
+    document_id: str,
+    update_data: DocumentUpdate,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentResponse:
+    """
+    Update a document.
+    """
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
+    result = await session.execute(query)
+    document = result.scalars().first()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+        
+    # Apply updates
+    if update_data.title is not None:
+        document.filename = update_data.title # Alias for now
+        # Also update metadata title if exists
+        # document.metadata_['title'] = update_data.title
+
+    if update_data.folder_id is not None:
+        # Verify folder exists if not clearing it
+        # Actually Pydantic won't let it be None here if not explicit? 
+        # Wait, str | None = None means it defaults to None. 
+        # If client sends null for folder_id, update_data.folder_id will be None? 
+        # No, if client sends explicit null, it depends on Pydantic config.
+        # But here I want to allow clearing folder_id.
+        # Let's verify folder logic.
+        
+        # If string "null" or empty string, clear it? No, explicit None or empty string.
+        # Let's support an empty string as "unfile".
+        if update_data.folder_id == "":
+             document.folder_id = None
+        else:
+             # Verify folder exists and belongs to tenant
+             from src.core.models.folder import Folder
+             folder = await session.get(Folder, update_data.folder_id)
+             if not folder or folder.tenant_id != tenant_id:
+                  raise HTTPException(status_code=404, detail="Folder not found")
+             document.folder_id = update_data.folder_id
+             
+    await session.commit()
+    await session.refresh(document)
+    
+    # Re-fetch stats for response
+    stats = await _compute_document_stats(document_id, document.tenant_id, session)
+
+    return DocumentResponse(
+        id=document.id,
+        filename=document.filename,
+        title=document.filename,
+        status=document.status.value,
+        domain=document.domain,
+        tenant_id=document.tenant_id,
+        source_type=document.source_type,
+        content_type=_get_content_type(document),
+        created_at=document.created_at,
+        summary=document.summary,
+        document_type=document.document_type,
+        keywords=document.keywords or [],
+        hashtags=document.hashtags or [],
+        metadata=document.metadata_,
+        stats=stats,
+    )
 
 
 @router.delete(
@@ -766,7 +876,9 @@ async def get_document_relationships(
           }
         RETURN DISTINCT {
             source: s.name,
+            source_type: s.type,
             target: t.name,
+            target_type: t.type,
             type: r.type,
             description: r.description,
             weight: r.weight
@@ -842,3 +954,96 @@ async def get_document_chunks(
         }
         for chunk in chunks
     ]
+@router.get(
+    "/{document_id}/similarities",
+    summary="Get Document Similarities",
+    description="Get similarity relationships between chunks within the document.",
+)
+async def get_document_similarities(
+    document_id: str,
+    http_request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    """
+    Get similarity relationships between chunks within the document.
+    """
+    # Verify document and get tenant
+    tenant_id = _get_tenant_id(http_request)
+    query = select(Document).where(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id,
+    )
+    result = await session.execute(query)
+    document = result.scalars().first()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+    
+    # Query SIMILAR_TO relationships in Neo4j
+    # We want chunk text as well to display in frontend
+    # Query SIMILAR_TO relationships in Neo4j
+    # We fetch chunk IDs from Neo4j, then texts from Postgres (since Neo4j chunks don't have text)
+    cypher = """
+        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c1:Chunk)
+        MATCH (c1)-[r:SIMILAR_TO]->(c2:Chunk)
+        WHERE c1.id < c2.id
+        RETURN c1.id as source_id, 
+               c2.id as target_id, 
+               r.score as score
+        ORDER BY r.score DESC
+        SKIP $offset
+        LIMIT $limit
+    """
+    
+    try:
+        # 1. Fetch relations from Neo4j
+        records = await neo4j_client.execute_read(
+            cypher,
+            {
+                "document_id": document_id, 
+                "tenant_id": tenant_id,
+                "offset": offset,
+                "limit": limit
+            }
+        )
+
+        if not records:
+            return []
+
+        # 2. Collect unique chunk IDs
+        chunk_ids = set()
+        for r in records:
+            chunk_ids.add(r["source_id"])
+            chunk_ids.add(r["target_id"])
+        
+        # 3. Fetch Chunk text from Postgres
+        from src.core.models.chunk import Chunk
+        chunk_query = select(Chunk.id, Chunk.content).where(
+            Chunk.id.in_(chunk_ids)
+        )
+        chunk_result = await session.execute(chunk_query)
+        chunk_map = {row.id: row.content for row in chunk_result.all()}
+        
+        # 4. Map back to response
+        return [
+            {
+                "source_id": r.get("source_id"),
+                "source_text": (chunk_map.get(r.get("source_id")) or "")[:200] + "...",
+                "target_id": r.get("target_id"),
+                "target_text": (chunk_map.get(r.get("target_id")) or "")[:200] + "...",
+                "score": r.get("score"),
+            }
+            for r in records
+        ]
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch similarities for document {document_id}: {e}")
+        return []
+    except Exception as e:
+        logger.warning(f"Failed to fetch similarities for document {document_id}: {e}")
+        return []

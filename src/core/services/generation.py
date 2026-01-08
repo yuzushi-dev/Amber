@@ -243,6 +243,24 @@ class GenerationService:
                 "model": self.llm.model_name
             }
         }
+    
+    async def chat_completion(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = "auto"
+    ) -> Any:
+        """
+        Direct chat completion with tool support (Agentic Mode).
+        Exposes the raw provider response object (e.g. ChatCompletion).
+        """
+        return await self.llm.chat(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens
+        )
 
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""

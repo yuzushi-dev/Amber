@@ -74,19 +74,24 @@ class SemanticChunker:
         # Fallback: rough word-based estimate
         return len(text.split())
 
-    def chunk(self, text: str, document_title: str | None = None) -> list[ChunkData]:
+    def chunk(self, text: str, document_title: str | None = None, metadata: dict | None = None) -> list[ChunkData]:
         """
         Split text into semantic chunks.
 
         Args:
             text: Full document text.
             document_title: Optional title for context enrichment.
+            metadata: Optional metadata from extraction (e.g. code definitions).
 
         Returns:
             List of ChunkData objects.
         """
         if not text or not text.strip():
             return []
+
+        # [NEW] Check for code definitions
+        if metadata and metadata.get("definitions"):
+            return self._split_from_definitions(text, metadata["definitions"], document_title)
 
         # Step 1: Extract and protect code blocks
         code_blocks = {}
@@ -292,3 +297,62 @@ class SemanticChunker:
             # Word-based fallback
             words = text.split()
             return " ".join(words[-n:]) if len(words) > n else text
+
+    def _split_from_definitions(self, text: str, definitions: list[dict], document_title: str | None) -> list[ChunkData]:
+        """
+        Split text based on pre-parsed definitions from Tree-Sitter.
+        Generates chunks for each definition to ensure they are searchable.
+        """
+        chunks = []
+        lines = text.splitlines(keepends=True)
+        
+        # We iterate through all definitions. 
+        # Note: This may create overlapping chunks (e.g. Class chunk + Method chunk),
+        # which is actually beneficial for RAG (finding both the container and the leaf).
+        
+        current_char_offset = 0
+        # Build line offsets map
+        line_offsets = []
+        acc = 0
+        for line in lines:
+            line_offsets.append(acc)
+            acc += len(line)
+        line_offsets.append(acc) # Sentinel for EOF
+        
+        # Helper to get char range from line numbers (1-indexed)
+        def get_range(start_line, end_line):
+            start_off = line_offsets[start_line - 1]
+            end_off = line_offsets[end_line] # end_line is inclusive, so slice up to next line start
+            return start_off, end_off
+
+        for idx, defn in enumerate(definitions):
+            start = defn["start_line"]
+            end = defn["end_line"]
+            
+            # Clamp to valid range
+            start = max(1, start)
+            end = min(len(lines), end)
+            
+            if start > end: continue
+            
+            start_char, end_char = get_range(start, end)
+            
+            # Extract content directly from text to assume consistency
+            content = text[start_char:end_char]
+            
+            chunks.append(ChunkData(
+                content=content,
+                index=idx,
+                start_char=start_char,
+                end_char=end_char,
+                token_count=self.count_tokens(content),
+                metadata={
+                    "type": defn["type"],
+                    "name": defn["name"],
+                    "start_line": start,
+                    "end_line": end,
+                    "document_title": document_title
+                }
+            ))
+
+        return chunks

@@ -17,8 +17,8 @@ export default function MessageList({ messages }: MessageListProps) {
         <div className="flex-1 overflow-y-auto w-full">
             {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 opacity-50">
-                    <p className="text-lg font-medium">How can I help you today?</p>
-                    <p className="text-sm">Ask anything about your ingested documents.</p>
+                    <p className="text-lg font-medium">Hi, I'm Amber!</p>
+                    <p className="text-sm">Your documents intelligence assistant</p>
                 </div>
             ) : (
                 messages.map((msg) => (

@@ -387,6 +387,14 @@ class MilvusVectorStore:
 
         import asyncio
 
+        # Define output fields explicitly to avoid returning huge vectors
+        output_fields = [
+            self.FIELD_CHUNK_ID,
+            self.FIELD_DOCUMENT_ID,
+            self.FIELD_TENANT_ID,
+            self.FIELD_CONTENT,
+        ]
+
         def _sync_search():
             """Synchronous search call."""
             return self._collection.search(
@@ -395,7 +403,7 @@ class MilvusVectorStore:
                 param=search_params,
                 limit=limit,
                 expr=filter_expr,
-                output_fields=["*"], # Retrieve all dynamic fields
+                output_fields=output_fields,
             )
 
         try:
@@ -413,12 +421,12 @@ class MilvusVectorStore:
                     if score_threshold and hit.score < score_threshold:
                         continue
 
-                    # Extract all fields into metadata
-                    meta = {}
-                    reserved = {self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID, self.FIELD_TENANT_ID, self.FIELD_VECTOR}
-                    for k, v in hit.entity.items():
-                        if k not in reserved:
-                            meta[k] = v
+                    # Extract fields directly from hit.entity using get()
+                    # Note: In pymilvus 2.4+, hit.entity.items() returns internal structure,
+                    # but direct field access via get() or subscript works correctly.
+                    meta = {
+                        self.FIELD_CONTENT: hit.entity.get(self.FIELD_CONTENT, ""),
+                    }
 
                     search_results.append(
                         SearchResult(
@@ -467,6 +475,7 @@ class MilvusVectorStore:
                     self.FIELD_DOCUMENT_ID,
                     self.FIELD_TENANT_ID,
                     self.FIELD_CONTENT,
+                    self.FIELD_VECTOR,
                 ],
             )
             return results
@@ -474,6 +483,31 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Failed to get chunks: {e}")
             return []
+
+    async def delete_chunks(self, chunk_ids: list[str], tenant_id: str) -> int:
+        """Delete specific chunks."""
+        if not chunk_ids:
+            return 0
+
+        await self.connect()
+
+        # quote IDs for expression
+        quoted_ids = [f'"{cid}"' for cid in chunk_ids]
+        expr = f'{self.FIELD_CHUNK_ID} in [{", ".join(quoted_ids)}] && {self.FIELD_TENANT_ID} == "{tenant_id}"'
+
+        try:
+            result = self._collection.delete(expr=expr)
+            self._collection.flush()
+            
+            # PyMilvus delete result handling
+            count = result.delete_count if hasattr(result, "delete_count") else len(chunk_ids) 
+            # Note: delete_count might not be accurate in all milvus metrics but it is best effort
+            logger.info(f"Deleted {count} chunks for tenant {tenant_id}")
+            return count
+
+        except Exception as e:
+            logger.error(f"Failed to delete chunks: {e}")
+            raise
 
     async def delete_by_document(
         self,
@@ -604,11 +638,19 @@ class MilvusVectorStore:
 
         def _sync_hybrid():
             # Use the collection's hybrid_search method
+            # Define output fields explicitly  
+            output_fields = [
+                self.FIELD_CHUNK_ID,
+                self.FIELD_DOCUMENT_ID,
+                self.FIELD_TENANT_ID,
+                self.FIELD_CONTENT,
+            ]
+            
             results = self._collection.hybrid_search(
                 reqs=[dense_req, sparse_req],
                 rerank=ranker,
                 limit=limit,
-                output_fields=["*"]
+                output_fields=output_fields
             )
             return results
 
@@ -622,15 +664,12 @@ class MilvusVectorStore:
             search_results = []
             for hits in results:
                 for hit in hits:
-                     # Extract all fields into metadata
-                     meta = {}
-                     reserved = {
-                         self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID,
-                         self.FIELD_TENANT_ID, self.FIELD_VECTOR, self.FIELD_SPARSE_VECTOR
+                     # Extract fields directly from hit.entity using get()
+                     # Note: In pymilvus 2.4+, hit.entity.items() returns internal structure,
+                     # but direct field access via get() or subscript works correctly.
+                     meta = {
+                         self.FIELD_CONTENT: hit.entity.get(self.FIELD_CONTENT, ""),
                      }
-                     for k, v in hit.entity.items():
-                         if k not in reserved:
-                             meta[k] = v
 
                      search_results.append(
                          SearchResult(

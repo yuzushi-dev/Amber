@@ -103,6 +103,109 @@ class Neo4jClient:
         records = [record.data() async for record in result]
         return records
 
+    async def merge_nodes(self, target_id: str, source_ids: list[str], tenant_id: str) -> bool:
+        """
+        Merge source nodes into target node.
+        Moves relationships and appends descriptions.
+        """
+        # 1. Move incoming edges
+        move_incoming = """
+        MATCH (target:Entity {name: $target_id, tenant_id: $tenant_id})
+        MATCH (source:Entity) WHERE source.name IN $source_ids AND source.tenant_id = $tenant_id
+        MATCH (source)<-[r]-(start)
+        WHERE start.name <> $target_id
+        CALL apoc.refactor.to(r, target) YIELD input, output, error
+        RETURN count(*)
+        """
+        
+        # 2. Move outgoing edges
+        move_outgoing = """
+        MATCH (target:Entity {name: $target_id, tenant_id: $tenant_id})
+        MATCH (source:Entity) WHERE source.name IN $source_ids AND source.tenant_id = $tenant_id
+        MATCH (source)-[r]->(end)
+        WHERE end.name <> $target_id
+        CALL apoc.refactor.from(r, target) YIELD input, output, error
+        RETURN count(*)
+        """
+
+        # 3. Append descriptions and alias names
+        # We store previous names in 'aliases' property or just description
+        merge_props = """
+        MATCH (target:Entity {name: $target_id, tenant_id: $tenant_id})
+        MATCH (source:Entity) WHERE source.name IN $source_ids AND source.tenant_id = $tenant_id
+        WITH target, source
+        ORDER BY source.name
+        WITH target, collect(source.name) as aliases, collect(source.description) as descs
+        SET target.aliases = coalesce(target.aliases, []) + aliases
+        
+        // Append unique descriptions
+        WITH target, descs
+        SET target.description = target.description + "\\n" + 
+            reduce(s = "", d IN [d IN descs WHERE d IS NOT NULL AND NOT target.description CONTAINS d] | s + "\\n" + d)
+        """
+
+        # 4. Delete sources
+        delete_sources = """
+        MATCH (source:Entity) WHERE source.name IN $source_ids AND source.tenant_id = $tenant_id
+        DETACH DELETE source
+        """
+
+        try:
+            # We assume APOC is available. If not, we need a manual Cypher reconstruction fallback.
+            # Checking APOC availability could be done at startup.
+            # For now, we wrap in try-except block.
+            await self.execute_write(move_incoming, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
+            await self.execute_write(move_outgoing, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
+            await self.execute_write(merge_props, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
+            await self.execute_write(delete_sources, {"source_ids": source_ids, "tenant_id": tenant_id})
+            return True
+        except Exception as e:
+            logger.error(f"Merge nodes failed (verify APOC is installed): {e}")
+            # Fallback for manual edge copy could be implemented here
+            return False
+
+    async def find_orphan_nodes(self, tenant_id: str, limit: int = 100) -> list[str]:
+        """Find nodes with no relationships."""
+        query = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        WHERE NOT (n)--()
+        RETURN n.name as id
+        LIMIT $limit
+        """
+        result = await self.execute_read(query, {"tenant_id": tenant_id, "limit": limit})
+        return [r["id"] for r in result]
+
+    async def get_node_context(self, node_id: str, tenant_id: str) -> dict[str, Any]:
+        """
+        Get context for healing: Linked chunks and their node text.
+        """
+        query = """
+        MATCH (e:Entity {name: $node_id, tenant_id: $tenant_id})
+        OPTIONAL MATCH (chunk:Chunk)-[:MENTIONS]->(e)
+        RETURN e.name as name, e.description as description, collect(chunk.id) as chunk_ids
+        """
+        result = await self.execute_read(query, {"node_id": node_id, "tenant_id": tenant_id})
+        if not result or result[0]['name'] is None:
+             # If exact match fails, try ID just in case (migration compatibility)
+             # But strictly speaking we use name.
+             return None
+        return result[0]
+
+    async def get_entities_from_chunks(self, chunk_ids: list[str], tenant_id: str) -> list[dict[str, Any]]:
+        """
+        Find entities mentioned in specific chunks.
+        Used to find candidates from 'similar' chunks during healing.
+        """
+        query = """
+        MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
+        WHERE c.id IN $chunk_ids AND c.tenant_id = $tenant_id
+        RETURN DISTINCT e.name as id, e.name as name, e.type as type, e.description as description, count(c) as frequency
+        ORDER BY frequency DESC
+        LIMIT 50
+        """
+        # Note: chunk_ids usually already scoped by tenant, but we add tenant_id for safety
+        return await self.execute_read(query, {"chunk_ids": chunk_ids, "tenant_id": tenant_id})
+
     async def verify_connectivity(self) -> bool:
         """Check if connected to Neo4j."""
         try:
@@ -114,3 +217,6 @@ class Neo4jClient:
 
 # Global instance
 neo4j_client = Neo4jClient()
+
+
+

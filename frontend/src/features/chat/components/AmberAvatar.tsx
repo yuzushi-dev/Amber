@@ -21,17 +21,14 @@ const sizeClasses = {
 
 export default function AmberAvatar({ size = 'md', className }: AmberAvatarProps) {
     return (
-        <div
+        <img
+            src="/avatar.png"
+            alt="Amber Assistant"
             className={cn(
-                "rounded-full flex items-center justify-center shrink-0 font-bold",
-                "bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-sm",
+                "rounded-full object-cover shadow-sm bg-secondary",
                 sizeClasses[size],
                 className
             )}
-            aria-label="Amber Assistant"
-            role="img"
-        >
-            A
-        </div>
+        />
     )
 }

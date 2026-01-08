@@ -10,7 +10,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.config import settings
@@ -54,6 +54,21 @@ async def lifespan(app: FastAPI):
 
     # Initialize Tracing
     # setup_tracer(service_name=settings.app_name)
+
+    # Pre-warm SPLADE model for hybrid search (runs in background to not block startup)
+    # This eliminates ~85s cold-start delay on first query
+    import asyncio
+    async def prewarm_splade():
+        try:
+            from src.core.services.sparse_embeddings import SparseEmbeddingService
+            service = SparseEmbeddingService()
+            await asyncio.to_thread(service.prewarm)
+            logger.info("SPLADE model pre-warming complete")
+        except Exception as e:
+            logger.warning(f"Failed to prewarm SPLADE model: {e}")
+    
+    # Start prewarm in background (don't await - let startup continue)
+    asyncio.create_task(prewarm_splade())
 
     yield
 
@@ -180,6 +195,13 @@ except ImportError as e:
     logger.warning(f"Documents router not available: {e}")
 
 try:
+    from src.api.routes import folders
+    v1_router.include_router(folders.router, prefix="/folders", tags=["folders"])
+    logger.info("Registered folders router")
+except ImportError as e:
+    logger.warning(f"Folders router not available: {e}")
+
+try:
     from src.api.routes import chunks
     v1_router.include_router(chunks.router)
     logger.info("Registered chunks router")
@@ -199,6 +221,14 @@ try:
     logger.info("Registered communities router")
 except ImportError as e:
     logger.warning(f"Communities router not available: {e}")
+
+try:
+    from src.api.routes import graph_editor
+    v1_router.include_router(graph_editor.router)
+    logger.info("Registered graph_editor router")
+except ImportError as e:
+    logger.warning(f"Graph Editor router not available: {e}")
+
 
 try:
     from src.api.routes import feedback

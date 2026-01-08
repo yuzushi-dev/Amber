@@ -20,9 +20,10 @@ import {
     ChevronRight,
     MessageSquarePlus,
     MessageCircle,
-
+    Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useChatStore } from '@/features/chat/store'
 import { chatHistoryApi, ChatHistoryItem } from '@/lib/api-admin'
 import DatabaseSidebarContent from '@/features/documents/components/DatabaseSidebarContent'
 import UploadWizard from '@/features/documents/components/UploadWizard'
@@ -36,6 +37,7 @@ interface SidebarItem {
     label: string
     icon: React.ComponentType<{ className?: string }>
     to: string
+    variant?: 'default' | 'primary'
 }
 
 // Sidebar configuration for each dock section
@@ -44,7 +46,12 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
         {
             title: 'Conversations',
             items: [
-                { label: 'New Chat', icon: MessageSquarePlus, to: '/admin/chat' },
+                {
+                    label: 'New Chat',
+                    icon: MessageSquarePlus,
+                    to: '/admin/chat',
+                    variant: 'primary'
+                },
             ]
         },
         // Recent conversations will be loaded dynamically
@@ -114,6 +121,8 @@ export default function ContextSidebar() {
 
     const activeSection = getActiveSection()
 
+    const { lastHistoryUpdate } = useChatStore()
+
     // Fetch recent conversations for chat section
     useEffect(() => {
         if (activeSection === 'chat') {
@@ -130,7 +139,7 @@ export default function ContextSidebar() {
             }
             fetchHistory()
         }
-    }, [activeSection])
+    }, [activeSection, lastHistoryUpdate])
 
     const sections = activeSection ? sidebarConfig[activeSection] : null
 
@@ -183,6 +192,7 @@ export default function ContextSidebar() {
                                         const isActive = currentPath === item.to ||
                                             currentPath.startsWith(item.to.split('?')[0])
                                         const Icon = item.icon
+                                        const isPrimary = item.variant === 'primary'
 
                                         return (
                                             <li key={item.to}>
@@ -191,9 +201,11 @@ export default function ContextSidebar() {
                                                     className={cn(
                                                         "flex items-center gap-3 px-3 py-2 rounded-md transition-colors",
                                                         "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1",
-                                                        isActive
-                                                            ? "bg-secondary text-secondary-foreground font-medium"
-                                                            : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+                                                        isPrimary
+                                                            ? "bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-sm"
+                                                            : isActive
+                                                                ? "bg-secondary text-secondary-foreground font-medium"
+                                                                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
                                                         collapsed && "justify-center px-2"
                                                     )}
                                                     title={collapsed ? item.label : undefined}
@@ -237,8 +249,21 @@ export default function ContextSidebar() {
                                             const preview = conversation.query_text || 'Untitled conversation'
                                             const displayText = preview.length > 30 ? preview.substring(0, 30) + '...' : preview
 
+                                            const handleDelete = async (e: React.MouseEvent, id: string) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                if (confirm('Delete this conversation?')) {
+                                                    try {
+                                                        await chatHistoryApi.delete(id)
+                                                        setRecentConversations(prev => prev.filter(c => c.request_id !== id))
+                                                    } catch (err) {
+                                                        console.error('Failed to delete conversation:', err)
+                                                    }
+                                                }
+                                            }
+
                                             return (
-                                                <li key={conversation.request_id}>
+                                                <li key={conversation.request_id} className="group relative">
                                                     <Link
                                                         to="/admin/chat"
                                                         search={{ request_id: conversation.request_id }}
@@ -246,7 +271,8 @@ export default function ContextSidebar() {
                                                             "flex items-start gap-3 px-3 py-2 rounded-md transition-colors",
                                                             "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1",
                                                             "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
-                                                            collapsed && "justify-center px-2"
+                                                            collapsed && "justify-center px-2",
+                                                            !collapsed && "pr-8" // Add padding for delete button
                                                         )}
                                                         title={collapsed ? preview : undefined}
                                                     >
@@ -260,6 +286,16 @@ export default function ContextSidebar() {
                                                             </div>
                                                         )}
                                                     </Link>
+                                                    {!collapsed && (
+                                                        <button
+                                                            onClick={(e) => handleDelete(e, conversation.request_id)}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-100 hover:text-red-600 transition-all"
+                                                            title="Delete conversation"
+                                                            aria-label="Delete conversation"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
                                                 </li>
                                             )
                                         })

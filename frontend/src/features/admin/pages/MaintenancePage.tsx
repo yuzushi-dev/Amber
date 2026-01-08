@@ -11,7 +11,6 @@ import {
     Database,
     HardDrive,
     Trash2,
-    RefreshCw,
     AlertTriangle,
     FileText,
     Box,
@@ -29,7 +28,7 @@ export default function MaintenancePage() {
     const [showConfirm, setShowConfirm] = useState<string | null>(null)
 
     // Use React Query with caching
-    const { data: stats, isLoading: loading, error, refetch } = useQuery({
+    const { data: stats, isLoading: loading, error } = useQuery({
         queryKey: ['maintenance-stats'],
         queryFn: () => maintenanceApi.getStats(),
         staleTime: 30000, // Cache for 30 seconds
@@ -89,14 +88,7 @@ export default function MaintenancePage() {
                         System statistics and maintenance tools
                     </p>
                 </div>
-                <button
-                    onClick={() => refetch()}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
+
             </div>
 
             {error && (
