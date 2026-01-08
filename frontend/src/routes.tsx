@@ -30,7 +30,6 @@ import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 import RagasSubPanel from './features/admin/components/RagasSubPanel'
-import DatabaseOverviewPage from './features/documents/pages/DatabaseOverviewPage'
 import QueryLogPage from './features/admin/pages/QueryLogPage'
 
 // =============================================================================
@@ -126,14 +125,8 @@ const dataIndexRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/data',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/data/overview' })
+        throw redirect({ to: '/admin/data/documents' })
     },
-})
-
-const dataOverviewRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/data/overview',
-    component: () => <DatabaseOverviewPage />,
 })
 
 const dataDocumentsRoute = createRoute({
@@ -273,7 +266,6 @@ const routeTree = rootRoute.addChildren([
         adminQueriesRoute,
         // Data section
         dataIndexRoute,
-        dataOverviewRoute,
         dataDocumentsRoute,
         dataDocumentDetailRoute,
         dataMaintenanceRoute,

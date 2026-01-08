@@ -1,10 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { apiClient } from '@/lib/api-client'
-import { FileText, Plus, Search, RefreshCw, Trash2, BookOpen } from 'lucide-react'
+import { maintenanceApi } from '@/lib/api-admin'
+import {
+    FileText,
+    Plus,
+    Search,
+    Trash2,
+    Box,
+    Users,
+    Share2
+} from 'lucide-react'
 import { useState } from 'react'
 import UploadWizard from './UploadWizard'
-import SampleDataModal from './SampleDataModal'
 import EmptyState from '@/components/ui/EmptyState'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
@@ -27,8 +35,6 @@ type ConfirmAction =
 
 export default function DocumentLibrary() {
     const [isUploadOpen, setIsUploadOpen] = useState(false)
-    const [isSampleOpen, setIsSampleOpen] = useState(false)
-    const [showDemoData, setShowDemoData] = useState(true)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -43,9 +49,14 @@ export default function DocumentLibrary() {
         }
     })
 
-    // Apply demo filter first, then fuzzy search
-    const demoFiltered = documents?.filter(doc => showDemoData || doc.source_type !== 'sample') || []
-    const filteredDocuments = useFuzzySearch(demoFiltered, searchQuery, {
+    const { data: stats } = useQuery({
+        queryKey: ['maintenance-stats'],
+        queryFn: () => maintenanceApi.getStats(),
+        refetchInterval: 30000,
+    })
+
+    // Apply fuzzy search directly
+    const filteredDocuments = useFuzzySearch(documents || [], searchQuery, {
         keys: ['title', 'filename', 'source_type'],
         threshold: 0.4,
     })
@@ -117,11 +128,6 @@ export default function DocumentLibrary() {
 
     const isDeleting = deleteDocumentMutation.isPending || deleteAllDocumentsMutation.isPending
 
-    const handleSampleComplete = () => {
-        setIsSampleOpen(false)
-        refetch()
-    }
-
     // Render empty state with actionable CTAs
     const renderEmptyState = () => (
         <EmptyState
@@ -138,14 +144,6 @@ export default function DocumentLibrary() {
                         <Plus className="w-4 h-4" aria-hidden="true" />
                         <span>Upload Document</span>
                     </button>
-                    <button
-                        onClick={() => setIsSampleOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 border border-primary text-primary rounded-md hover:bg-primary/10 transition-colors"
-                        aria-label="Load sample data"
-                    >
-                        <BookOpen className="w-4 h-4" aria-hidden="true" />
-                        <span>Try Sample Data</span>
-                    </button>
                 </>
             }
         />
@@ -160,20 +158,12 @@ export default function DocumentLibrary() {
                 </div>
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={() => setIsSampleOpen(true)}
-                        className="flex items-center space-x-2 border border-border px-4 py-2 rounded-md hover:bg-muted transition-colors"
-                        aria-label="Load sample data"
-                    >
-                        <BookOpen className="w-4 h-4" aria-hidden="true" />
-                        <span>Sample Data</span>
-                    </button>
-                    <button
                         onClick={() => setIsUploadOpen(true)}
                         className="flex items-center space-x-2 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-90 transition-opacity"
                         aria-label="Upload new document"
                     >
                         <Plus className="w-4 h-4" aria-hidden="true" />
-                        <span>Upload Knowledge</span>
+                        <span>Upload Files</span>
                     </button>
                 </div>
             </header>
@@ -189,6 +179,52 @@ export default function DocumentLibrary() {
                 </Alert>
             )}
 
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                    {
+                        label: 'Documents',
+                        value: stats?.database.documents_total ?? 0,
+                        icon: FileText,
+                        color: 'text-blue-500',
+                        bg: 'bg-blue-500/10'
+                    },
+                    {
+                        label: 'Chunks',
+                        value: stats?.database.chunks_total ?? 0,
+                        icon: Box,
+                        color: 'text-purple-500',
+                        bg: 'bg-purple-500/10'
+                    },
+                    {
+                        label: 'Entities',
+                        value: stats?.database.entities_total ?? 0,
+                        icon: Users,
+                        color: 'text-green-500',
+                        bg: 'bg-green-500/10'
+                    },
+                    {
+                        label: 'Relationships',
+                        value: stats?.database.relationships_total ?? 0,
+                        icon: Share2,
+                        color: 'text-orange-500',
+                        bg: 'bg-orange-500/10'
+                    }
+                ].map((card) => (
+                    <div
+                        key={card.label}
+                        className="p-4 rounded-xl border bg-card text-card-foreground shadow-sm flex items-center gap-3 transition-all hover:shadow-md"
+                    >
+                        <div className={`p-2 rounded-full ${card.bg} ${card.color}`}>
+                            <card.icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
+                            <h2 className="text-2xl font-bold">{card.value.toLocaleString()}</h2>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
             <div className="bg-card border rounded-lg overflow-hidden">
                 <div className="p-4 border-b flex justify-between items-center bg-muted/20">
                     <div className="relative w-64">
@@ -203,15 +239,6 @@ export default function DocumentLibrary() {
                         />
                     </div>
                     <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-sm text-muted-foreground mr-2 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={showDemoData}
-                                onChange={(e) => setShowDemoData(e.target.checked)}
-                                className="rounded border-gray-300 text-primary focus:ring-primary"
-                            />
-                            Show Demo Data
-                        </label>
                         {documents && documents.length > 0 && (
                             <button
                                 onClick={() => setConfirmAction({ type: 'delete-all' })}
@@ -222,13 +249,6 @@ export default function DocumentLibrary() {
                                 <span>Delete All</span>
                             </button>
                         )}
-                        <button
-                            onClick={() => refetch()}
-                            className="p-2 hover:bg-muted rounded-md transition-colors"
-                            aria-label="Refresh document list"
-                        >
-                            <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                        </button>
                     </div>
                 </div>
 
@@ -245,7 +265,7 @@ export default function DocumentLibrary() {
                                 <tr className="border-b bg-muted/10 text-left">
                                     <th className="p-4 font-semibold" scope="col">Document</th>
                                     <th className="p-4 font-semibold" scope="col">Status</th>
-                                    <th className="p-4 font-semibold" scope="col">Ingested At</th>
+                                    <th className="p-4 font-semibold" scope="col">Uploaded At</th>
                                     <th className="p-4 font-semibold text-right" scope="col">Actions</th>
                                 </tr>
                             </thead>
@@ -297,12 +317,6 @@ export default function DocumentLibrary() {
                     refetch()
                 }} />
             )}
-
-            <SampleDataModal
-                isOpen={isSampleOpen}
-                onClose={() => setIsSampleOpen(false)}
-                onComplete={handleSampleComplete}
-            />
 
             {/* Delete Confirmation Dialog */}
             <ConfirmDialog

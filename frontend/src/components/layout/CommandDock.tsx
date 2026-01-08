@@ -156,79 +156,107 @@ export default function CommandDock() {
 
     // Desktop Dock
     return (
-        <nav
-            className="dock"
-            role="navigation"
-            aria-label="Main navigation"
+        <div
+            className="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center justify-end"
+            onMouseEnter={() => setHoveredIndex(null)} // Reset item hover when entering container
             onMouseLeave={() => setHoveredIndex(null)}
         >
-            <div className="flex items-center gap-1">
-                {dockItems.map((item, index) => {
-                    const active = isActive(item)
-                    const Icon = item.icon
-                    const scale = getScale(index)
+            {/* Hover Trigger Area - Invisible but larger to catch hover easily */}
+            <div className="absolute bottom-0 w-64 h-24 z-[-1]" />
 
-                    return (
-                        <Link
-                            key={item.to}
-                            to={item.to}
-                            onMouseEnter={() => setHoveredIndex(index)}
-                            className={cn(
-                                "dock-item group relative flex items-center justify-center",
-                                active && "active"
-                            )}
-                            style={{ transform: `scale(${scale})` }}
-                            aria-current={active ? 'page' : undefined}
-                            activeProps={{ className: '' }}
-                            inactiveProps={{ className: '' }}
-                        >
-                            {/* Tooltip */}
-                            <span className={cn(
-                                "absolute -top-10 left-1/2 -translate-x-1/2",
-                                "px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap",
-                                "bg-popover text-popover-foreground border shadow-md",
-                                "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
-                                "pointer-events-none"
-                            )}>
-                                {item.label}
-                                <span className="ml-1.5 text-muted-foreground">⌘{index + 1}</span>
-                            </span>
-
-                            <Icon className="w-6 h-6" />
-                        </Link>
-                    )
-                })}
-
-                {/* Divider */}
-                <div className="w-px h-6 bg-border mx-1" />
-
-                {/* Client Chat (special accent) */}
-                <Link
-                    to={clientChatItem.to}
-                    onMouseEnter={() => setHoveredIndex(dockItems.length)}
+            <div
+                className="group flex flex-col items-center"
+            >
+                {/* actual nav content */}
+                <nav
                     className={cn(
-                        "dock-item group relative flex items-center justify-center",
-                        "text-primary hover:text-primary"
+                        "transition-all duration-300 ease-out origin-bottom",
+                        // Base styles from .dock but applied conditionally
+                        "bg-surface-900/90 backdrop-blur-xl",
+                        "border border-primary/30 rounded-2xl", // Primary stroke
+                        "px-2 py-1.5",
+                        "shadow-[0_0_30px_rgba(0,0,0,0.3)]",
+                        "flex items-center gap-1",
+                        // Visibility states
+                        "opacity-0 translate-y-4 scale-95 pointer-events-none", // Default hidden state
+                        "group-hover:opacity-100 group-hover:-translate-y-6 group-hover:scale-100 group-hover:pointer-events-auto" // Hover state
                     )}
-                    style={{ transform: `scale(${getScale(dockItems.length)})` }}
-                    activeProps={{ className: '' }}
-                    inactiveProps={{ className: '' }}
+                    role="navigation"
+                    aria-label="Main navigation"
                 >
-                    {/* Tooltip */}
-                    <span className={cn(
-                        "absolute -top-10 left-1/2 -translate-x-1/2",
-                        "px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap",
-                        "bg-popover text-popover-foreground border shadow-md",
-                        "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
-                        "pointer-events-none"
-                    )}>
-                        {clientChatItem.label}
-                        <span className="ml-1.5 text-muted-foreground">⌘4</span>
-                    </span>
+                    {dockItems.map((item, index) => {
+                        const active = isActive(item)
+                        const Icon = item.icon
+                        const scale = getScale(index)
 
-                    <clientChatItem.icon className="w-6 h-6" />
-                </Link>
+                        return (
+                            <Link
+                                key={item.to}
+                                to={item.to}
+                                onMouseEnter={() => setHoveredIndex(index)}
+                                className={cn(
+                                    "dock-item group/item relative flex items-center justify-center",
+                                    active && "active"
+                                )}
+                                style={{ transform: `scale(${scale})` }}
+                                aria-current={active ? 'page' : undefined}
+                                activeProps={{ className: '' }}
+                                inactiveProps={{ className: '' }}
+                            >
+                                {/* Tooltip */}
+                                <span className={cn(
+                                    "absolute -top-10 left-1/2 -translate-x-1/2",
+                                    "px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap",
+                                    "bg-popover text-popover-foreground border shadow-md",
+                                    "opacity-0 group-hover/item:opacity-100 transition-opacity duration-150",
+                                    "pointer-events-none"
+                                )}>
+                                    {item.label}
+                                    <span className="ml-1.5 text-muted-foreground">⌘{index + 1}</span>
+                                </span>
+
+                                <Icon className="w-6 h-6" />
+                            </Link>
+                        )
+                    })}
+
+                    {/* Divider */}
+                    <div className="w-px h-6 bg-border mx-1" />
+
+                    {/* Client Chat (special accent) */}
+                    <Link
+                        to={clientChatItem.to}
+                        onMouseEnter={() => setHoveredIndex(dockItems.length)}
+                        className={cn(
+                            "dock-item group/item relative flex items-center justify-center",
+                            "text-primary hover:text-primary"
+                        )}
+                        style={{ transform: `scale(${getScale(dockItems.length)})` }}
+                        activeProps={{ className: '' }}
+                        inactiveProps={{ className: '' }}
+                    >
+                        {/* Tooltip */}
+                        <span className={cn(
+                            "absolute -top-10 left-1/2 -translate-x-1/2",
+                            "px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap",
+                            "bg-popover text-popover-foreground border shadow-md",
+                            "opacity-0 group-hover/item:opacity-100 transition-opacity duration-150",
+                            "pointer-events-none"
+                        )}>
+                            {clientChatItem.label}
+                            <span className="ml-1.5 text-muted-foreground">⌘4</span>
+                        </span>
+
+                        <clientChatItem.icon className="w-6 h-6" />
+                    </Link>
+                </nav>
+
+                {/* Collapsed Indicator (Primary Stroke) */}
+                <div className={cn(
+                    "absolute bottom-0 w-32 h-1 bg-primary/80 rounded-t-full shadow-[0_0_15px_hsl(var(--primary)/0.6)] backdrop-blur-sm transition-all duration-300 delay-100",
+                    "group-hover:opacity-0 group-hover:translate-y-2 group-hover:scale-50"
+                )} />
             </div>
-        </nav>
+        </div>
     )
 }

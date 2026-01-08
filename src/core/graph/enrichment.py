@@ -1,5 +1,6 @@
+import math
+import itertools
 import logging
-
 from src.core.graph.neo4j_client import neo4j_client
 from src.core.graph.schema import NodeLabel, RelationshipType
 
@@ -23,6 +24,90 @@ class GraphEnricher:
     def __init__(self, vector_store=None):
         self.vector_store = vector_store
 
+    def _calculate_cosine_similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
+        """Calculate cosine similarity between two embeddings."""
+        if len(embedding1) != len(embedding2):
+            return 0.0
+
+        dot_product = sum(a * b for a, b in zip(embedding1, embedding2))
+        magnitude1 = math.sqrt(sum(a * a for a in embedding1))
+        magnitude2 = math.sqrt(sum(a * a for a in embedding2))
+
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+
+        return dot_product / (magnitude1 * magnitude2)
+
+    async def create_intra_document_similarities(self, chunks: list, threshold: float = 0.7, limit: int = 5):
+        """
+        Create SIMILAR_TO edges between chunks of the same document using in-memory comparison.
+        This is robust for ensuring local connectivity.
+        
+        Args:
+            chunks: List of Chunk objects (must have .id and .embedding)
+            threshold: Similarity threshold (0.0 to 1.0)
+            limit: Max connections per chunk (top k)
+        """
+        if len(chunks) < 2:
+            return 0
+            
+        logger.info(f"Computing intra-document similarities for {len(chunks)} chunks...")
+        
+        # Prepare data: (id, embedding)
+        # Filter out chunks without embeddings
+        valid_chunks = []
+        for c in chunks:
+            # Handle if c is object or dict
+            c_id = getattr(c, 'id', None) or c.get('id')
+            emb = getattr(c, 'embedding', None) or c.get('embedding')
+            if c_id and emb:
+                valid_chunks.append((c_id, emb))
+                
+        if len(valid_chunks) < 2:
+            return 0
+            
+        relationships_created = 0
+        
+        # O(N^2) comparison - okay for doc scope (usually < 1000 chunks)
+        # For very large docs, this might need batching or optimization
+        for i in range(len(valid_chunks)):
+            id1, emb1 = valid_chunks[i]
+            candidates = []
+            
+            for j in range(len(valid_chunks)):
+                if i == j: 
+                    continue
+                    
+                id2, emb2 = valid_chunks[j]
+                
+                sim = self._calculate_cosine_similarity(emb1, emb2)
+                if sim >= threshold:
+                    candidates.append((id2, sim))
+            
+            # Sort by score descending and take top K
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            top_k = candidates[:limit]
+            
+            for rank, (id2, score) in enumerate(top_k):
+                 query = f"""
+                 MATCH (c1:{NodeLabel.Chunk.value} {{id: $id1}})
+                 MATCH (c2:{NodeLabel.Chunk.value} {{id: $id2}})
+                 MERGE (c1)-[r:{RelationshipType.SIMILAR_TO.value}]->(c2)
+                 ON CREATE SET r.score = $score, r.rank = $rank, r.created_at = timestamp()
+                 """
+                 # We execute one by one for simplicity and safety, though batching is faster.
+                 # Given async nature and connection pooling, this is acceptable for now.
+                 await neo4j_client.execute_write(query, {
+                     "id1": id1,
+                     "id2": id2,
+                     "score": score,
+                     "rank": rank
+                 })
+                 relationships_created += 1
+        
+        logger.info(f"Created {relationships_created} intra-document similarity edges.")
+        return relationships_created
+
     async def create_similarity_edges(self, chunk_id: str, embedding: list[float], tenant_id: str, threshold: float = 0.7, limit: int = 5):
         """
         Find similar chunks and create SIMILAR_TO edges.
@@ -30,8 +115,15 @@ class GraphEnricher:
         if not self.vector_store:
             # Try to lazy load or fail
             try:
-                from src.core.vector_store.milvus import get_milvus_client
-                self.vector_store = get_milvus_client()
+                from src.api.config import settings
+                from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
+                
+                config = MilvusConfig(
+                    host=settings.db.milvus_host,
+                    port=settings.db.milvus_port,
+                    collection_name=f"amber_{tenant_id}" 
+                )
+                self.vector_store = MilvusVectorStore(config)
             except Exception as e:
                 logger.error(f"Vector store not available: {e}")
                 return
@@ -52,8 +144,9 @@ class GraphEnricher:
 
         # 2. Filter and Create Edges
         for res in results:
-            other_id = res.get("id")
-            score = res.get("score", 0)
+            # Result is SearchResult dataclass, not dict
+            other_id = res.chunk_id
+            score = res.score if hasattr(res, 'score') else 0
 
             if other_id == chunk_id:
                 continue

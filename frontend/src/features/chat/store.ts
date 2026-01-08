@@ -24,6 +24,10 @@ interface ChatState {
     addMessage: (message: Message) => void
     updateLastMessage: (update: Partial<Message>) => void
     clearMessages: () => void
+
+    // History Refresh Trigger
+    lastHistoryUpdate: number
+    triggerHistoryUpdate: () => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -38,4 +42,7 @@ export const useChatStore = create<ChatState>((set) => ({
         return { messages: newMessages }
     }),
     clearMessages: () => set({ messages: [] }),
+
+    lastHistoryUpdate: 0,
+    triggerHistoryUpdate: () => set({ lastHistoryUpdate: Date.now() }),
 }))

@@ -9,7 +9,7 @@ Database model for stored documents.
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import String, Text
+from sqlalchemy import String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,7 @@ from src.core.state.machine import DocumentStatus
 
 if TYPE_CHECKING:
     from src.core.models.chunk import Chunk
+    from src.core.models.folder import Folder
 
 # We use str for ID fields to allow our custom ID types (DocumentId, TenantId) to be stored directly
 # SQLAlchemy will handle them as strings
@@ -59,7 +60,10 @@ class Document(Base, TimestampMixin):
     keywords: Mapped[list] = mapped_column("keywords", JSONB, server_default="[]", nullable=False)  # Extracted keywords
     hashtags: Mapped[list] = mapped_column("hashtags", JSONB, server_default="[]", nullable=False)  # Generated hashtags
 
-    # Relationship to chunks
+    # Folder organization
+    folder_id: Mapped[str | None] = mapped_column(ForeignKey("folders.id"), nullable=True, index=True)
+    folder: Mapped["Folder"] = relationship("Folder", back_populates="documents")
+
     # Relationship to chunks
     chunks: Mapped[list["Chunk"]] = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
 

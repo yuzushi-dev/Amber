@@ -38,9 +38,14 @@ class ExtractorRegistry:
         if "text/plain" in mime_type.lower() or file_extension.lower() in (".txt", ".md", ".markdown"):
             return cls._get_instance("plaintext", PlainTextExtractor)
 
-        # Markdown
         if "text/markdown" in mime_type.lower() or "text/x-markdown" in mime_type.lower():
             return cls._get_instance("plaintext", PlainTextExtractor)
+
+        # Code files (Python, Typescript, JS) - TreeSitter
+        if file_extension.lower() in (".py", ".ts", ".tsx", ".js", ".jsx") or \
+           mime_type.lower() in ("text/x-python", "application/javascript", "application/typescript", "text/javascript"):
+             from src.core.extraction.code.tree_sitter_extractor import TreeSitterExtractor
+             return cls._get_instance("treesitter", TreeSitterExtractor)
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":

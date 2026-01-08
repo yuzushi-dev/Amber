@@ -22,6 +22,7 @@ from src.core.providers.base import (
     RateLimitError,
     TokenUsage,
 )
+from src.core.observability.tracer import trace_span
 from src.shared.context import get_current_tenant, get_request_id
 
 try:
@@ -194,6 +195,32 @@ class OpenAILLMProvider(BaseLLMProvider):
 
             return result
 
+        except Exception as e:
+            self._handle_error(e, model)
+
+    @trace_span("LLM.chat")
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = "auto",
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Direct chat completion with tool support.
+        """
+        model = self.default_model
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                **kwargs,
+            )
+            return response
+            
         except Exception as e:
             self._handle_error(e, model)
 

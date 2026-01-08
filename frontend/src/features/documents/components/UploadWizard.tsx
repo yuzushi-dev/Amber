@@ -228,7 +228,7 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                                 onClick={() => document.getElementById('file-upload')?.click()}
                             >
                                 <Upload className="w-12 h-12 mx-auto text-primary opacity-50 mb-4" />
-                                <p className="text-sm font-medium">Click or drag to upload knowledge</p>
+                                <p className="text-sm font-medium">Click or drag to upload a file</p>
                                 <p className="text-xs text-muted-foreground mt-2">Supports PDF, MD, HTML (max 50MB)</p>
                                 <input
                                     id="file-upload"

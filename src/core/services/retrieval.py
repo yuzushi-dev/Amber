@@ -15,6 +15,8 @@ from src.api.schemas.query import QueryOptions, SearchMode
 from src.core.cache.result_cache import ResultCache, ResultCacheConfig
 from src.core.cache.semantic_cache import CacheConfig, SemanticCache
 from src.core.database.session import async_session_maker
+from src.core.models.chunk import Chunk
+from sqlalchemy import select
 from src.core.graph.neo4j_client import Neo4jClient
 from src.core.observability.tracer import trace_span
 from src.core.providers.base import BaseRerankerProvider
@@ -570,6 +572,34 @@ class RetrievalService:
 
             else:
                 search_results = search_results[:top_k]
+
+            # Fallback: Check for missing content and fetch from DB
+            missing_content_ids = []
+            for r in search_results:
+                if not r.metadata.get("content"):
+                        missing_content_ids.append(r.chunk_id)
+
+            if missing_content_ids:
+                logger.info(f"METRIC: Resilient Content Fallback Triggered for {len(missing_content_ids)} chunks")
+                try:
+                    from opentelemetry import trace
+                    span = trace.get_current_span()
+                    span.add_event("resilient_fallback_triggered", attributes={"chunk_count": len(missing_content_ids)})
+                    span.set_attribute("retrieval.fallback_count", len(missing_content_ids))
+                except ImportError:
+                    pass
+
+                try:
+                    async with async_session_maker() as session:
+                        query = select(Chunk).where(Chunk.id.in_(missing_content_ids))
+                        db_res = await session.execute(query)
+                        db_chunks = {c.id: c.content for c in db_res.scalars().all()}
+                        
+                        for r in search_results:
+                            if r.chunk_id in db_chunks:
+                                r.metadata["content"] = db_chunks[r.chunk_id]
+                except Exception as e:
+                    logger.warning(f"Failed to fetch missing content from DB: {e}")
 
             # Build chunks and cache
             sub_chunks_to_cache = []

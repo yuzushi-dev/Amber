@@ -55,6 +55,25 @@ class SparseEmbeddingService:
             logger.error(f"Failed to load SPLADE model: {e}")
             raise
 
+    def prewarm(self) -> bool:
+        """
+        Pre-load the SPLADE model to avoid cold-start delays on first query.
+        
+        Returns:
+            bool: True if model was loaded successfully, False otherwise.
+        """
+        if not HAS_DEPS:
+            logger.warning("Cannot prewarm SPLADE: torch/transformers not available")
+            return False
+        
+        try:
+            self._load_model()
+            logger.info(f"SPLADE model prewarmed successfully on {self._device}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to prewarm SPLADE model: {e}")
+            return False
+
     def embed_sparse(self, text: str) -> dict[int, float]:
         """
         Generate sparse embedding for a single text.

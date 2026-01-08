@@ -98,6 +98,15 @@ class QueryOptions(BaseModel):
         False,
         description="Stream response tokens (SSE)",
     )
+    agent_mode: bool = Field(
+        False,
+        description="Enable Agentic RAG mode (loop + tools)",
+    )
+    agent_role: str = Field(
+        "knowledge",
+        description="Agent role: 'knowledge' (default, RAG tools only) or 'maintainer' (filesystem access)",
+        pattern="^(knowledge|maintainer)$"
+    )
 
 
 class QueryRequest(BaseModel):
@@ -148,7 +157,7 @@ class TraceStep(BaseModel):
     """A single step in the query execution trace."""
 
     step: str = Field(..., description="Step name")
-    duration_ms: float = Field(..., description="Step duration in milliseconds")
+    duration_ms: float | None = Field(0.0, description="Step duration in milliseconds")
     details: dict[str, Any] | None = Field(None, description="Step-specific details")
 
 

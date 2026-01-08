@@ -251,7 +251,7 @@ class IngestionService:
             from src.shared.identifiers import generate_chunk_id
 
             chunker = SemanticChunker(strategy)
-            chunk_data_list = chunker.chunk(extraction_result.content, document_title=document.filename)
+            chunk_data_list = chunker.chunk(extraction_result.content, document_title=document.filename, metadata=extraction_result.metadata)
 
             logger.info(f"Document {document_id} split into {len(chunk_data_list)} chunks")
 
@@ -371,6 +371,22 @@ class IngestionService:
                         await vector_store.disconnect()
                     except Exception as disconnect_error:
                         logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
+
+            # 8.5. Generate Similarity Edges
+            # Create edges between chunks based on vector similarity
+            try:
+                from src.core.graph.enrichment import graph_enricher
+                
+                logger.info(f"Generating similarity edges for {len(milvus_data)} chunks")
+                for data in milvus_data:
+                    # We pass the embedding from milvus_data to the enricher
+                    await graph_enricher.create_similarity_edges(
+                        chunk_id=data["chunk_id"],
+                        embedding=data["embedding"],
+                        tenant_id=document.tenant_id
+                    )
+            except Exception as e:
+                logger.error(f"Similarity edge generation failed: {e}")
 
             # 9. Build Knowledge Graph (Phase 3)
             # Update Status -> GRAPH_SYNC
