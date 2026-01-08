@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 
 from src.shared.context import set_current_tenant, set_permissions
 from src.shared.identifiers import TenantId
-from src.shared.security import lookup_api_key, mask_api_key
+from src.shared.security import mask_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +106,21 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 origin
             )
 
-        # Look up the API key
-        key_metadata = lookup_api_key(api_key)
+        # Validate API key via Service
+        from src.api.deps import get_db_session
+        from src.core.services.api_key_service import ApiKeyService
 
-        if not key_metadata:
+        valid_key = None
+        try:
+            async for session in get_db_session():
+                service = ApiKeyService(session)
+                valid_key = await service.validate_key(api_key)
+                break
+        except Exception as e:
+            logger.error(f"Auth DB Error: {e}")
+            return _cors_error_response(500, "INTERNAL_ERROR", "Authentication failed", origin)
+
+        if not valid_key:
             logger.warning(f"Invalid API key {mask_api_key(api_key)} for {request.method} {path}")
             return _cors_error_response(
                 401,
@@ -119,8 +130,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
         # Set context variables
-        tenant_id = TenantId(key_metadata.get("tenant_id", "default"))
-        permissions = key_metadata.get("permissions", [])
+        # For Phase 1, we assume single tenant using "default"
+        # In future, ApiKey model could have a tenant_id field
+        tenant_id = TenantId("default")
+        permissions = valid_key.scopes or []
 
         set_current_tenant(tenant_id)
         set_permissions(permissions)
@@ -128,10 +141,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # Store in request state for easy access
         request.state.tenant_id = tenant_id
         request.state.permissions = permissions
-        request.state.api_key_name = key_metadata.get("name", "Unknown")
+        request.state.api_key_name = valid_key.name
 
         logger.debug(
-            f"Authenticated: tenant={tenant_id}, key={key_metadata.get('name')}, "
+            f"Authenticated: tenant={tenant_id}, key={valid_key.name}, "
             f"path={request.method} {path}"
         )
 
