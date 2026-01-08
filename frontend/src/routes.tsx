@@ -21,8 +21,9 @@ import MainLayout from './components/layout/MainLayout'
 import ClientLayout from './components/layout/ClientLayout'
 import ChatContainer from './features/chat/components/ChatContainer'
 import DocumentLibrary from './features/documents/components/DocumentLibrary'
-import JobsPage from './features/admin/pages/JobsPage'
-import QueuesPage from './features/admin/pages/QueuesPage'
+// import JobsPage from './features/admin/pages/JobsPage' // Deprecated
+// import QueuesPage from './features/admin/pages/QueuesPage' // Deprecated
+import JobsAndQueuesPage from './features/admin/pages/JobsAndQueuesPage'
 import TuningPage from './features/admin/pages/TuningPage'
 import CurationPage from './features/admin/pages/CurationPage'
 import MaintenancePage from './features/admin/pages/MaintenancePage'
@@ -31,6 +32,8 @@ import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 import RagasSubPanel from './features/admin/components/RagasSubPanel'
 import QueryLogPage from './features/admin/pages/QueryLogPage'
+import ApiKeyPage from './features/admin/pages/ApiKeyPage'
+import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
 
 // =============================================================================
 // Root Route
@@ -154,50 +157,68 @@ const dataVectorsRoute = createRoute({
 })
 
 // =============================================================================
-// Operations Section (/admin/ops/*)
+// Settings Section (/admin/settings/*)
 // =============================================================================
 
-const opsIndexRoute = createRoute({
+const settingsIndexRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/ops',
+    path: '/settings',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/ops/jobs' })
+        throw redirect({ to: '/admin/settings/tuning' })
     },
 })
 
-const opsJobsRoute = createRoute({
+const settingsTuningRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/ops/jobs',
-    component: () => <JobsPage />,
-})
-
-const opsQueuesRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/ops/queues',
-    component: () => <QueuesPage />,
-})
-
-const opsTuningRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/ops/tuning',
+    path: '/settings/tuning',
     component: () => <TuningPage />,
 })
 
-const opsCurationRoute = createRoute({
+const settingsFeaturesRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/ops/curation',
+    path: '/settings/features',
+    component: () => <OptionalFeaturesPage />,
+})
+
+const settingsKeysRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/keys',
+    component: () => <ApiKeyPage />,
+})
+
+const settingsCurationRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/curation',
     component: () => <CurationPage />,
 })
 
-const opsMetricsRoute = createRoute({
+// =============================================================================
+// Metrics Section (/admin/metrics/*)
+// =============================================================================
+
+const metricsIndexRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/ops/metrics',
+    path: '/metrics',
+    beforeLoad: () => {
+        throw redirect({ to: '/admin/metrics/tokens' })
+    },
+})
+
+const metricsSystemRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/metrics/system',
+    component: () => <JobsAndQueuesPage />,
+})
+
+const metricsTokensRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/metrics/tokens',
     component: () => <TokenMetricsPage />,
 })
 
-const opsRagasRoute = createRoute({
+const metricsRagasRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
-    path: '/ops/ragas',
+    path: '/metrics/ragas',
     component: () => <div className="p-6"><RagasSubPanel /></div>,
 })
 
@@ -205,6 +226,44 @@ const opsRagasRoute = createRoute({
 // Legacy route redirects (for backwards compatibility)
 // =============================================================================
 
+// Ops redirects
+const opsIndexRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops',
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+})
+const opsJobsRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/jobs',
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+})
+const opsQueuesRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/queues',
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+})
+const opsTuningRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/tuning',
+    beforeLoad: () => { throw redirect({ to: '/admin/settings/tuning' }) },
+})
+const opsCurationRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/curation',
+    beforeLoad: () => { throw redirect({ to: '/admin/settings/curation' }) },
+})
+const opsMetricsRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/metrics',
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/tokens' }) },
+})
+const opsRagasRedirect = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/ops/ragas',
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/ragas' }) },
+})
+
+// Old legacy redirects
 const legacyDocumentsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/documents',
@@ -225,7 +284,7 @@ const legacyJobsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/jobs',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/ops/jobs' })
+        throw redirect({ to: '/admin/metrics/system' })
     },
 })
 
@@ -233,7 +292,7 @@ const legacyQueuesRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/queues',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/ops/queues' })
+        throw redirect({ to: '/admin/metrics/system' })
     },
 })
 
@@ -241,7 +300,7 @@ const legacyTuningRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/tuning',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/ops/tuning' })
+        throw redirect({ to: '/admin/settings/tuning' })
     },
 })
 
@@ -249,7 +308,7 @@ const legacyCurationRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/curation',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/ops/curation' })
+        throw redirect({ to: '/admin/settings/curation' })
     },
 })
 
@@ -270,15 +329,25 @@ const routeTree = rootRoute.addChildren([
         dataDocumentDetailRoute,
         dataMaintenanceRoute,
         dataVectorsRoute,
-        // Operations section
-        opsIndexRoute,
-        opsJobsRoute,
-        opsQueuesRoute,
-        opsTuningRoute,
-        opsCurationRoute,
-        opsMetricsRoute,
-        opsRagasRoute,
+        // Settings section
+        settingsIndexRoute,
+        settingsTuningRoute,
+        settingsFeaturesRoute,
+        settingsKeysRoute,
+        settingsCurationRoute,
+        // Metrics section
+        metricsIndexRoute,
+        metricsSystemRoute,
+        metricsTokensRoute,
+        metricsRagasRoute,
         // Legacy redirects
+        opsIndexRedirect,
+        opsJobsRedirect,
+        opsQueuesRedirect,
+        opsTuningRedirect,
+        opsCurationRedirect,
+        opsMetricsRedirect,
+        opsRagasRedirect,
         legacyDocumentsRoute,
         legacyDatabaseRoute,
         legacyJobsRoute,

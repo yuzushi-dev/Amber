@@ -14,7 +14,8 @@ import {
     Settings2,
     MessageCircle,
     Menu,
-    X
+    X,
+    Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,7 +30,8 @@ interface DockItem {
 const dockItems: DockItem[] = [
     { label: 'Chat', icon: MessageSquare, to: '/admin/chat', matchPrefix: '/admin/chat' },
     { label: 'Data', icon: Database, to: '/admin/data', matchPrefix: '/admin/data' },
-    { label: 'Operations', icon: Settings2, to: '/admin/ops', matchPrefix: '/admin/ops' },
+    { label: 'Metrics', icon: Activity, to: '/admin/metrics', matchPrefix: '/admin/metrics' },
+    { label: 'Settings', icon: Settings2, to: '/admin/settings', matchPrefix: '/admin/settings' },
 ]
 
 const clientChatItem: DockItem = {
@@ -56,7 +58,7 @@ export default function CommandDock() {
     // Keyboard shortcuts: Cmd/Ctrl + 1-4
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '4') {
+            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '5') {
                 e.preventDefault()
                 const index = parseInt(e.key) - 1
                 const allItems = [...dockItems, clientChatItem]
@@ -244,7 +246,7 @@ export default function CommandDock() {
                             "pointer-events-none"
                         )}>
                             {clientChatItem.label}
-                            <span className="ml-1.5 text-muted-foreground">⌘4</span>
+                            <span className="ml-1.5 text-muted-foreground">⌘5</span>
                         </span>
 
                         <clientChatItem.icon className="w-6 h-6" />
@@ -253,7 +255,7 @@ export default function CommandDock() {
 
                 {/* Collapsed Indicator (Primary Stroke) */}
                 <div className={cn(
-                    "absolute bottom-0 w-32 h-1 bg-primary/80 rounded-t-full shadow-[0_0_15px_hsl(var(--primary)/0.6)] backdrop-blur-sm transition-all duration-300 delay-100",
+                    "absolute bottom-0 w-32 h-1 bg-primary/50 rounded-t-full shadow-[0_0_10px_hsl(var(--primary)/0.3)] backdrop-blur-sm transition-all duration-300 delay-100",
                     "group-hover:opacity-0 group-hover:translate-y-2 group-hover:scale-50"
                 )} />
             </div>
