@@ -88,7 +88,7 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
-                                        {row.generation.success ? (
+                                        {row.success ? (
                                             <Badge variant="outline" className="border-green-500/30 text-green-400 bg-green-500/10">
                                                 <CheckCircle className="w-3 h-3 mr-1" />
                                                 OK
@@ -106,44 +106,44 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                                         <div className="font-medium truncate" title={row.query}>
                                             {row.query}
                                         </div>
-                                        {row.generation.error_message && (
-                                            <div className="text-xs text-red-400 mt-1 truncate" title={row.generation.error_message}>
-                                                {row.generation.error_message}
+                                        {row.error_message && (
+                                            <div className="text-xs text-red-400 mt-1 truncate" title={row.error_message}>
+                                                {row.error_message}
                                             </div>
                                         )}
-                                        {row.generation.conversation_id && (
+                                        {row.conversation_id && (
                                             <div className="text-[10px] text-neutral-500 mt-0.5 truncate font-mono">
-                                                Conv: {row.generation.conversation_id}
+                                                Conv: {row.conversation_id}
                                             </div>
                                         )}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="font-mono text-xs">
-                                        <span className={row.latency.total_ms > 2000 ? 'text-amber-400' : ''}>
-                                            {Math.round(row.latency.total_ms)}ms
+                                        <span className={row.total_latency_ms > 2000 ? 'text-amber-400' : ''}>
+                                            {Math.round(row.total_latency_ms)}ms
                                         </span>
                                     </div>
                                     <div className="text-[10px] text-neutral-500">
-                                        Ret: {Math.round(row.latency.retrieval_ms)} / Gen: {Math.round(row.latency.generation_ms)}
+                                        Ret: {Math.round(row.retrieval_latency_ms)} / Gen: {Math.round(row.generation_latency_ms)}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="font-mono text-xs">
-                                        {row.generation.tokens_used.toLocaleString()}
+                                        {row.tokens_used.toLocaleString()}
                                     </div>
                                     <div className="text-[10px] text-neutral-500" title="Input / Output">
-                                        {row.generation.input_tokens.toLocaleString()} / {row.generation.output_tokens.toLocaleString()}
+                                        {row.input_tokens.toLocaleString()} / {row.output_tokens.toLocaleString()}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <div className={`font-mono text-xs ${row.generation.cost_estimate > 0.01 ? 'text-amber-400' : 'text-neutral-300'}`}>
-                                        €{row.generation.cost_estimate.toFixed(4)}
+                                    <div className={`font-mono text-xs ${row.cost_estimate > 0.01 ? 'text-amber-400' : 'text-neutral-300'}`}>
+                                        ${row.cost_estimate.toFixed(4)}
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    <div className="text-xs font-medium">{row.generation.model || '-'}</div>
-                                    <div className="text-[10px] text-neutral-500">{row.generation.provider || '-'}</div>
+                                    <div className="text-xs font-medium">{row.model || '-'}</div>
+                                    <div className="text-[10px] text-neutral-500">{row.provider || '-'}</div>
                                 </TableCell>
                             </TableRow>
                         ))}

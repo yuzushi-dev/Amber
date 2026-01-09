@@ -31,7 +31,7 @@ class BenchmarkRun(Base, TimestampMixin):
     tenant_id = Column(String, index=True, nullable=False)
     dataset_name = Column(String, nullable=False)  # e.g., "golden_dataset.json"
     status = Column(
-        Enum(BenchmarkStatus),
+        Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x]),
         default=BenchmarkStatus.PENDING,
         nullable=False
     )

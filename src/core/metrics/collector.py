@@ -22,6 +22,11 @@ class QueryMetrics:
     tenant_id: str
     query: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
+    
+    # Operation type: rag_query, chat_query, summarization, extraction
+    operation: str = "rag_query"
+    # Response text (for display)
+    response: str = ""
 
     # Latency breakdown (ms)
     embedding_latency_ms: float = 0.0
@@ -51,39 +56,37 @@ class QueryMetrics:
     answer_length: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for storage."""
+        """Convert to flat dictionary for storage (matches frontend interface)."""
         return {
             "query_id": self.query_id,
             "tenant_id": self.tenant_id,
             "query": self.query,
             "timestamp": self.timestamp.isoformat(),
-            "latency": {
-                "embedding_ms": self.embedding_latency_ms,
-                "retrieval_ms": self.retrieval_latency_ms,
-                "reranking_ms": self.reranking_latency_ms,
-                "generation_ms": self.generation_latency_ms,
-                "total_ms": self.total_latency_ms,
-            },
-            "retrieval": {
-                "chunks_retrieved": self.chunks_retrieved,
-                "chunks_used": self.chunks_used,
-                "cache_hit": self.cache_hit,
-            },
-            "generation": {
-                "tokens_used": self.tokens_used,
-                "input_tokens": self.input_tokens,
-                "output_tokens": self.output_tokens,
-                "cost_estimate": self.cost_estimate,
-                "model": self.model,
-                "provider": self.provider,
-                "success": self.success,
-                "error_message": self.error_message,
-                "conversation_id": self.conversation_id,
-            },
-            "quality": {
-                "sources_cited": self.sources_cited,
-                "answer_length": self.answer_length,
-            },
+            "operation": self.operation,
+            "response": self.response,
+            # Latency (flat)
+            "embedding_latency_ms": self.embedding_latency_ms,
+            "retrieval_latency_ms": self.retrieval_latency_ms,
+            "reranking_latency_ms": self.reranking_latency_ms,
+            "generation_latency_ms": self.generation_latency_ms,
+            "total_latency_ms": self.total_latency_ms,
+            # Retrieval (flat)
+            "chunks_retrieved": self.chunks_retrieved,
+            "chunks_used": self.chunks_used,
+            "cache_hit": self.cache_hit,
+            # Generation (flat)
+            "tokens_used": self.tokens_used,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cost_estimate": self.cost_estimate,
+            "model": self.model,
+            "provider": self.provider,
+            "success": self.success,
+            "error_message": self.error_message,
+            "conversation_id": self.conversation_id,
+            # Quality (flat)
+            "sources_cited": self.sources_cited,
+            "answer_length": self.answer_length,
         }
 
 
@@ -282,12 +285,92 @@ class MetricsCollector:
         tenant_id: str | None = None,
         limit: int = 100,
     ) -> list[QueryMetrics]:
-        """Get recent query metrics."""
-        relevant = [
-            m for m in reversed(self._buffer)
-            if tenant_id is None or m.tenant_id == tenant_id
-        ]
-        return relevant[:limit]
+        if not self.enable_persistence:
+            # Fallback to buffer if persistence disabled
+            relevant = [
+                m for m in reversed(self._buffer)
+                if tenant_id is None or m.tenant_id == tenant_id
+            ]
+            return relevant[:limit]
+
+        # Fetch from Redis
+        client = await self._get_client()
+        if not client:
+             # Fallback if Redis fails
+            relevant = [
+                m for m in reversed(self._buffer)
+                if tenant_id is None or m.tenant_id == tenant_id
+            ]
+            return relevant[:limit]
+
+        try:
+            # Use tenant-specific list if provided
+            list_key = f"metrics:queries:{tenant_id}" if tenant_id else "metrics:queries:default"
+            
+            # Fetch most recent query IDs
+            query_ids = await client.lrange(list_key, 0, limit - 1)
+            
+            if not query_ids:
+                return []
+
+            # Fetch details for each query
+            metrics_keys = [f"metrics:query:{qid}" for qid in query_ids]
+            raw_data = await client.mget(metrics_keys)
+            
+            results = []
+            import json
+            
+            for data in raw_data:
+                if data:
+                    try:
+                        d = json.loads(data)
+                        # Reconstruct QueryMetrics from dict
+                        # We need to parse nested dicts manually or update constructor
+                        # For simplicity, we assume robust parsing or simple reconstruction here
+                        # Ideally, QueryMetrics should have a `from_dict` method.
+                        
+                        m = QueryMetrics(
+                            query_id=d["query_id"],
+                            tenant_id=d["tenant_id"],
+                            query=d["query"],
+                            timestamp=datetime.fromisoformat(d["timestamp"]),
+                            operation=d.get("operation", "rag_query"),
+                            response=d.get("response", ""),
+                            embedding_latency_ms=d.get("embedding_latency_ms", 0),
+                            retrieval_latency_ms=d.get("retrieval_latency_ms", 0),
+                            reranking_latency_ms=d.get("reranking_latency_ms", 0),
+                            generation_latency_ms=d.get("generation_latency_ms", 0),
+                            total_latency_ms=d.get("total_latency_ms", 0),
+                            chunks_retrieved=d.get("chunks_retrieved", 0),
+                            chunks_used=d.get("chunks_used", 0),
+                            cache_hit=d.get("cache_hit", False),
+                            tokens_used=d.get("tokens_used", 0),
+                            input_tokens=d.get("input_tokens", 0),
+                            output_tokens=d.get("output_tokens", 0),
+                            cost_estimate=d.get("cost_estimate", 0.0),
+                            model=d.get("model", ""),
+                            provider=d.get("provider", ""),
+                            success=d.get("success", True),
+                            error_message=d.get("error_message"),
+                            conversation_id=d.get("conversation_id"),
+                            sources_cited=d.get("sources_cited", 0),
+                            answer_length=d.get("answer_length", 0),
+                        )
+                        results.append(m)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse metric: {e}")
+                        continue
+            
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to get recent metrics from Redis: {e}")
+            # Fallback to buffer
+            relevant = [
+                m for m in reversed(self._buffer)
+                if tenant_id is None or m.tenant_id == tenant_id
+            ]
+            return relevant[:limit]
 
     async def close(self) -> None:
         """Close connections."""

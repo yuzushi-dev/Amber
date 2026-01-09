@@ -8,6 +8,7 @@ import ApiKeyModal from './features/auth/components/ApiKeyModal'
 import { SetupWizard } from './features/setup'
 import { useSetupStatus } from './features/setup/hooks/useSetupStatus'
 import { Loader2 } from 'lucide-react'
+import { Toaster } from 'sonner'
 
 function LoadingScreen() {
   return (
@@ -52,6 +53,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <AppContent />
+        <Toaster richColors position="top-right" closeButton />
       </ErrorBoundary>
     </QueryClientProvider>
   )

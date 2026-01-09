@@ -9,16 +9,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
     Zap,
-    DollarSign,
+    Euro,
     MessageSquare,
     Calculator,
     RefreshCw,
     TrendingUp,
-    TrendingDown
+    TrendingDown,
+    ChessQueen,
+    ChessPawn,
+    PlugZap
 } from 'lucide-react'
-import { chatHistoryApi, ChatHistoryItem } from '@/lib/api-admin'
+import { chatHistoryApi, ChatHistoryItem, maintenanceApi, QueryMetrics } from '@/lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import RecentActivityTable from '../components/RecentActivityTable'
 
 interface TokenMetrics {
     totalTokens: number
@@ -31,14 +35,19 @@ interface TokenMetrics {
 
 export default function TokenMetricsPage() {
     const [conversations, setConversations] = useState<ChatHistoryItem[]>([])
+    const [recentActivity, setRecentActivity] = useState<QueryMetrics[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const fetchData = useCallback(async () => {
         try {
             setLoading(true)
-            const data = await chatHistoryApi.list({ limit: 100 })
-            setConversations(data.conversations)
+            const [convData, queryData] = await Promise.all([
+                chatHistoryApi.list({ limit: 100 }),
+                maintenanceApi.getQueryMetrics(50)
+            ])
+            setConversations(convData.conversations)
+            setRecentActivity(queryData)
             setError(null)
         } catch (err) {
             setError('Failed to load token metrics')
@@ -52,55 +61,57 @@ export default function TokenMetricsPage() {
         fetchData()
     }, [fetchData])
 
-    // Aggregate metrics from conversations
+    // Aggregate metrics from QueryMetrics (recentActivity) for accurate data
     const metrics: TokenMetrics = useMemo(() => {
         const byModel: Record<string, { tokens: number; cost: number; count: number }> = {}
         const byProvider: Record<string, { tokens: number; cost: number; count: number }> = {}
         let totalTokens = 0
         let totalCost = 0
 
-        for (const conv of conversations) {
-            totalTokens += conv.total_tokens || 0
-            totalCost += conv.cost || 0
+        for (const query of recentActivity) {
+            totalTokens += query.tokens_used || 0
+            totalCost += query.cost_estimate || 0
 
             // By model
-            const model = conv.model || 'unknown'
+            const model = query.model || 'unknown'
             if (!byModel[model]) {
                 byModel[model] = { tokens: 0, cost: 0, count: 0 }
             }
-            byModel[model].tokens += conv.total_tokens || 0
-            byModel[model].cost += conv.cost || 0
+            byModel[model].tokens += query.tokens_used || 0
+            byModel[model].cost += query.cost_estimate || 0
             byModel[model].count += 1
 
             // By provider
-            const provider = conv.provider || 'unknown'
+            const provider = query.provider || 'unknown'
             if (!byProvider[provider]) {
                 byProvider[provider] = { tokens: 0, cost: 0, count: 0 }
             }
-            byProvider[provider].tokens += conv.total_tokens || 0
-            byProvider[provider].cost += conv.cost || 0
+            byProvider[provider].tokens += query.tokens_used || 0
+            byProvider[provider].cost += query.cost_estimate || 0
             byProvider[provider].count += 1
         }
 
         return {
             totalTokens,
             totalCost,
-            conversationCount: conversations.length,
-            avgTokensPerQuery: conversations.length > 0
-                ? Math.round(totalTokens / conversations.length)
+            conversationCount: recentActivity.length,
+            avgTokensPerQuery: recentActivity.length > 0
+                ? Math.round(totalTokens / recentActivity.length)
                 : 0,
             byModel,
             byProvider,
         }
-    }, [conversations])
+    }, [recentActivity])
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', {
+        // Convert USD to EUR (approximate rate)
+        const eurValue = value * 0.92
+        return new Intl.NumberFormat('de-DE', {
             style: 'currency',
-            currency: 'USD',
+            currency: 'EUR',
             minimumFractionDigits: 4,
             maximumFractionDigits: 4,
-        }).format(value)
+        }).format(eurValue)
     }
 
     const formatNumber = (value: number) => {
@@ -123,7 +134,7 @@ export default function TokenMetricsPage() {
     }
 
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto">
+        <div className="p-6 pb-16 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Token Usage & Costs</h1>
@@ -157,11 +168,11 @@ export default function TokenMetricsPage() {
                     subLabel="Input + Output"
                 />
                 <StatCard
-                    icon={DollarSign}
+                    icon={Euro}
                     label="Total Cost"
                     value={formatCurrency(metrics.totalCost)}
                     isString
-                    subLabel="Estimated USD"
+                    subLabel={`Estimated EUR • $${metrics.totalCost.toFixed(4)} USD`}
                 />
                 <StatCard
                     icon={MessageSquare}
@@ -179,12 +190,12 @@ export default function TokenMetricsPage() {
             </div>
 
             {/* Breakdown Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 {/* By Provider */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-primary" />
+                            <ChessQueen className="w-5 h-5 text-primary" />
                             Usage by Provider
                         </CardTitle>
                     </CardHeader>
@@ -194,6 +205,7 @@ export default function TokenMetricsPage() {
                         ) : (
                             <div className="space-y-4">
                                 {Object.entries(metrics.byProvider)
+                                    .filter(([, data]) => data.tokens > 0)
                                     .sort((a, b) => b[1].tokens - a[1].tokens)
                                     .map(([provider, data]) => (
                                         <div key={provider} className="space-y-2">
@@ -226,7 +238,7 @@ export default function TokenMetricsPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <TrendingDown className="w-5 h-5 text-primary" />
+                            <ChessPawn className="w-5 h-5 text-primary" />
                             Usage by Model
                         </CardTitle>
                     </CardHeader>
@@ -236,6 +248,7 @@ export default function TokenMetricsPage() {
                         ) : (
                             <div className="space-y-4">
                                 {Object.entries(metrics.byModel)
+                                    .filter(([, data]) => data.tokens > 0)
                                     .sort((a, b) => b[1].tokens - a[1].tokens)
                                     .map(([model, data]) => (
                                         <div key={model} className="space-y-2">
@@ -265,11 +278,16 @@ export default function TokenMetricsPage() {
                 </Card>
             </div>
 
-            {/* Data disclaimer */}
-            <p className="mt-8 text-center text-sm text-muted-foreground">
-                Showing data from the last {metrics.conversationCount} conversations.
-                Token counts and costs are estimates based on tracked API calls.
-            </p>
+            {/* Recent Activity */}
+            <div>
+                <div className="flex items-center gap-2 mb-4">
+                    <PlugZap size={18} className="text-primary" />
+                    <h3 className="text-lg font-bold">Recent Activity</h3>
+                </div>
+                <div>
+                    <RecentActivityTable records={recentActivity} isLoading={loading} />
+                </div>
+            </div>
         </div>
     )
 }

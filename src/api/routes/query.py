@@ -351,6 +351,9 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
                 query_metrics.provider = gen_result.provider
                 query_metrics.sources_cited = len(gen_result.sources)
                 query_metrics.answer_length = len(answer)
+                # Set operation type and response for tracking
+                query_metrics.operation = "rag_query"
+                query_metrics.response = answer[:500] if len(answer) > 500 else answer
 
                 # Build source citations
                 sources = [

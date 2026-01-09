@@ -122,14 +122,30 @@ class DocumentSummarizer:
             system_prompt = self._build_system_prompt(max_summary_length)
             user_prompt = self._build_user_prompt(full_content, document_title, max_summary_length)
 
-            # Generate response
+            # Generate response with metrics tracking
+            from src.api.config import settings
+            from src.core.metrics.collector import MetricsCollector
+            from src.shared.identifiers import generate_query_id
+            
             llm = self._get_llm()
-            result = await llm.generate(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=0.3,
-                max_tokens=800
-            )
+            query_id = generate_query_id()
+            collector = MetricsCollector(redis_url=settings.db.redis_url)
+            
+            async with collector.track_query(query_id, "system", f"Summarize: {document_title}") as qm:
+                qm.operation = "summarization"
+                result = await llm.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=0.3,
+                    max_tokens=800
+                )
+                qm.tokens_used = result.usage.total_tokens if hasattr(result, 'usage') else 0
+                qm.input_tokens = result.usage.input_tokens if hasattr(result, 'usage') else 0
+                qm.output_tokens = result.usage.output_tokens if hasattr(result, 'usage') else 0
+                qm.cost_estimate = result.cost_estimate if hasattr(result, 'cost_estimate') else 0.0
+                qm.model = result.model if hasattr(result, 'model') else ""
+                qm.provider = result.provider if hasattr(result, 'provider') else ""
+                qm.response = result.text[:500] if len(result.text) > 500 else result.text
 
             # Parse JSON response
             parsed = self._parse_response(result.text)

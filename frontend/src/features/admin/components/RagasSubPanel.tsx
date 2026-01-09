@@ -5,11 +5,12 @@
  * Sub-panel for viewing and running Ragas evaluation benchmarks.
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { BarChart3, Play, RefreshCw, Upload, CheckCircle, XCircle, Clock, FileJson } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { BarChart3, CheckCircle, Clock, FileJson, Play, RefreshCw, Upload, XCircle, Trash2 } from 'lucide-react'
 import { ragasApi, RagasStats, RagasDataset, BenchmarkRunSummary } from '../../../lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 import {
     Table,
     TableBody,
@@ -101,6 +102,67 @@ export function RagasSubPanel() {
         }
     }
 
+    const handleDeleteRun = async (runId: string) => {
+        if (!confirm('Are you sure you want to delete this benchmark run?')) return
+
+        try {
+            await ragasApi.deleteRun(runId)
+            fetchData()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to delete run')
+        }
+    }
+
+    const handleDeleteDataset = async () => {
+        if (!selectedDataset) return
+        if (!confirm(`Are you sure you want to delete dataset "${selectedDataset}"?`)) return
+
+        try {
+            await ragasApi.deleteDataset(selectedDataset)
+            setSelectedDataset('')
+            fetchData()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to delete dataset')
+        }
+    }
+
+    // Polling for active runs + detect failures and show toasts
+    const shownErrors = React.useRef<Set<string>>(new Set())
+
+    useEffect(() => {
+        const hasActive = runs.some(r => r.status === 'running' || r.status === 'pending')
+        if (hasActive) {
+            const interval = setInterval(fetchData, 1000)
+            return () => clearInterval(interval)
+        }
+
+        // Check for new failures and show toasts
+        runs.filter(r => r.status === 'failed').forEach(run => {
+            if (!shownErrors.current.has(run.id)) {
+                shownErrors.current.add(run.id)
+                const errorMsg = run.error_message || 'Unknown error'
+
+                // Categorize error type for appropriate toast
+                if (errorMsg.toLowerCase().includes('quota') || errorMsg.includes('429')) {
+                    toast.error('OpenAI Quota Exceeded', {
+                        description: 'Please check your billing at platform.openai.com',
+                        duration: 10000,
+                    })
+                } else if (errorMsg.toLowerCase().includes('max_tokens') || errorMsg.toLowerCase().includes('incomplete')) {
+                    toast.error('Output Truncated', {
+                        description: 'The response was cut off. Check token limits.',
+                        duration: 8000,
+                    })
+                } else {
+                    toast.error('Benchmark Failed', {
+                        description: errorMsg.slice(0, 100),
+                        duration: 8000,
+                    })
+                }
+            }
+        })
+    }, [runs])
+
     const formatScore = (score: number | null) => {
         if (score === null || score === undefined) return '—'
         return `${(score * 100).toFixed(1)}%`
@@ -186,21 +248,31 @@ export function RagasSubPanel() {
                 <div className="flex flex-wrap gap-4 items-end">
                     <div className="flex-1 min-w-[200px]">
                         <label className="block text-sm text-muted-foreground mb-2">Dataset</label>
-                        <select
-                            value={selectedDataset}
-                            onChange={(e) => setSelectedDataset(e.target.value)}
-                            className="w-full bg-background border border-input rounded-md px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                            disabled={isRunning}
-                        >
-                            {datasets.length === 0 && (
-                                <option value="">No datasets available</option>
-                            )}
-                            {datasets.map((ds) => (
-                                <option key={ds.name} value={ds.name}>
-                                    {ds.name} ({ds.sample_count} samples)
-                                </option>
-                            ))}
-                        </select>
+                        <div className="flex gap-2">
+                            <select
+                                value={selectedDataset}
+                                onChange={(e) => setSelectedDataset(e.target.value)}
+                                className="w-full bg-background border border-input rounded-md px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                disabled={isRunning}
+                            >
+                                {datasets.length === 0 && (
+                                    <option value="">No datasets available</option>
+                                )}
+                                {datasets.map((ds) => (
+                                    <option key={ds.name} value={ds.name}>
+                                        {ds.name} ({ds.sample_count} samples)
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={handleDeleteDataset}
+                                disabled={!selectedDataset || isRunning}
+                                className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors disabled:opacity-50"
+                                title="Delete Dataset"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
 
                     <button
@@ -226,12 +298,28 @@ export function RagasSubPanel() {
                         <span className="text-sm">Upload Dataset</span>
                         <input
                             type="file"
-                            accept=".json"
+                            accept=".json,.csv"
                             onChange={handleFileUpload}
                             className="hidden"
                         />
                     </label>
                 </div>
+
+                {/* Active Run Progress */}
+                {isRunning && (
+                    <div className="mt-6 w-full">
+                        <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                            <span>Running benchmark...</span>
+                            <span>{runs.find(r => r.status === 'running')?.metrics?.progress || 0}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-primary transition-all duration-500 ease-in-out"
+                                style={{ width: `${runs.find(r => r.status === 'running')?.metrics?.progress || 0}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Recent Runs Table */}
@@ -254,6 +342,7 @@ export function RagasSubPanel() {
                                 <TableHead>Faithfulness</TableHead>
                                 <TableHead>Relevancy</TableHead>
                                 <TableHead>Created</TableHead>
+                                <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -277,13 +366,22 @@ export function RagasSubPanel() {
                                     <TableCell className="text-muted-foreground">
                                         {new Date(run.created_at).toLocaleString()}
                                     </TableCell>
+                                    <TableCell>
+                                        <button
+                                            onClick={() => handleDeleteRun(run.id)}
+                                            className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                                            title="Delete Run"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
                     </Table>
                 )}
             </div>
-        </div>
+        </div >
     )
 }
 

@@ -70,8 +70,8 @@ class RetrievalConfig:
     enable_reranking: bool = True
     rerank_model: str = "ms-marco-MiniLM-L-12-v2"
 
-    # Hybrid Search
-    enable_hybrid: bool = True
+    # Hybrid Search - DISABLED: Milvus 2.5.x has intermittent type mismatch errors with hybrid AnnSearchRequest
+    enable_hybrid: bool = False
 
     # Caching
     enable_embedding_cache: bool = True

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+logging.getLogger("ragas").setLevel(logging.DEBUG)
 
 # Check if ragas is available
 try:
@@ -64,14 +65,24 @@ class RagasService:
 
         if RAGAS_AVAILABLE and llm_client:
             try:
-                self._llm = llm_factory(model_name, client=llm_client)
+                from langchain_openai import OpenAIEmbeddings
+                
+                # Increase max_tokens to prevent truncation errors during evaluation
+                self._llm = llm_factory(model_name, client=llm_client, max_tokens=4096)
+                
+                # Create LangChain-compatible embeddings wrapper using the client's API key
+                api_key = llm_client.api_key if hasattr(llm_client, 'api_key') else None
+                self._embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+                
                 self._faithfulness = Faithfulness(llm=self._llm)
-                self._response_relevancy = ResponseRelevancy(llm=self._llm)
+                self._response_relevancy = ResponseRelevancy(llm=self._llm, embeddings=self._embeddings)
                 self._metrics_initialized = True
                 logger.info("RagasService initialized with official Ragas metrics")
             except Exception as e:
-                logger.error(f"Failed to initialize Ragas metrics: {e}")
+                logger.error(f"Failed to initialize Ragas metrics: {e}", exc_info=True)
                 self._metrics_initialized = False
+        else:
+             logger.warning(f"Ragas Init Skipped - Available: {RAGAS_AVAILABLE}, Client: {bool(llm_client)}")
 
     @property
     def is_available(self) -> bool:
@@ -96,21 +107,27 @@ class RagasService:
             Faithfulness score (0.0 to 1.0)
         """
         if not self.is_available:
-            return await self._fallback_faithfulness(query, context, response)
+            raise RuntimeError("Ragas is not initialized and fallback is disabled.")
 
         try:
+            from ragas.dataset_schema import SingleTurnSample
             # Ragas expects contexts as a list
             contexts = [context] if isinstance(context, str) else context
-
-            result = await self._faithfulness.ascore(
+            
+            logger.info(f"Evaluating Faithfulness - Query: {query[:50]}..., Context Len: {len(context)}, Response Len: {len(response)}")
+            
+            sample = SingleTurnSample(
                 user_input=query,
                 response=response,
                 retrieved_contexts=contexts
             )
-            return result.value if hasattr(result, 'value') else float(result)
+
+            result = await self._faithfulness.single_turn_ascore(sample)
+            logger.info(f"Faithfulness Score: {result}")
+            return result
         except Exception as e:
-            logger.error(f"Ragas faithfulness evaluation failed: {e}")
-            return await self._fallback_faithfulness(query, context, response)
+            logger.error(f"Ragas faithfulness evaluation failed: {e}", exc_info=True)
+            raise
 
     async def evaluate_response_relevancy(
         self,
@@ -128,17 +145,22 @@ class RagasService:
             Relevancy score (0.0 to 1.0)
         """
         if not self.is_available:
-            return await self._fallback_relevance(query, response)
+            raise RuntimeError("Ragas is not initialized and fallback is disabled.")
 
         try:
-            result = await self._response_relevancy.ascore(
+            from ragas.dataset_schema import SingleTurnSample
+            
+            sample = SingleTurnSample(
                 user_input=query,
                 response=response
             )
-            return result.value if hasattr(result, 'value') else float(result)
+
+            result = await self._response_relevancy.single_turn_ascore(sample)
+            logger.info(f"Relevancy Score: {result}")
+            return result
         except Exception as e:
-            logger.error(f"Ragas relevancy evaluation failed: {e}")
-            return await self._fallback_relevance(query, response)
+            logger.error(f"Ragas relevancy evaluation failed: {e}", exc_info=True)
+            raise
 
     async def evaluate_sample(
         self,
@@ -208,8 +230,8 @@ class RagasService:
             from src.core.providers.factory import ProviderFactory
 
             factory = ProviderFactory(
-                openai_api_key=settings.providers.openai_api_key,
-                anthropic_api_key=settings.providers.anthropic_api_key
+                openai_api_key=settings.openai_api_key,
+                anthropic_api_key=settings.anthropic_api_key
             )
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()
@@ -234,8 +256,8 @@ class RagasService:
             from src.core.providers.factory import ProviderFactory
 
             factory = ProviderFactory(
-                openai_api_key=settings.providers.openai_api_key,
-                anthropic_api_key=settings.providers.anthropic_api_key
+                openai_api_key=settings.openai_api_key,
+                anthropic_api_key=settings.anthropic_api_key
             )
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()

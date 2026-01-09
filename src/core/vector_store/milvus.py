@@ -610,7 +610,7 @@ class MilvusVectorStore:
         # Dense
         dense_req = milvus["AnnSearchRequest"](
             data=[dense_vector],
-            ann_field=self.FIELD_VECTOR,
+            anns_field=self.FIELD_VECTOR,
             param={"metric_type": self.config.metric_type, "params": {"ef": 128}},
             limit=limit,
             expr=filter_expr
@@ -625,7 +625,7 @@ class MilvusVectorStore:
 
         sparse_req = milvus["AnnSearchRequest"](
             data=[sparse_vector],
-            ann_field=self.FIELD_SPARSE_VECTOR,
+            anns_field=self.FIELD_SPARSE_VECTOR,
             param={"metric_type": "IP", "params": {"drop_ratio_build": 0.2}}, # IP usually for Sparse
             limit=limit,
             expr=filter_expr

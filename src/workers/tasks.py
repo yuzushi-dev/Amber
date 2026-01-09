@@ -17,6 +17,8 @@ from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
 from src.core.models.document import Document
+from src.core.models.folder import Folder
+from src.core.models.chunk import Chunk
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
 
@@ -394,7 +396,8 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
     from sqlalchemy.orm import sessionmaker
 
     from src.api.config import settings
-    from src.core.evaluation.ragas_service import RagasService
+    # Defer heavy imports to after status update
+    # from src.core.evaluation.ragas_service import RagasService
     from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
 
     # Create async session
@@ -416,61 +419,145 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             # Update status to RUNNING
             benchmark.status = BenchmarkStatus.RUNNING
             benchmark.started_at = datetime.utcnow()
+            benchmark.metrics = {"progress": 5}
             await session.commit()
-            _publish_benchmark_status(benchmark_run_id, "running", 0)
+            _publish_benchmark_status(benchmark_run_id, "running", 5)
 
             # Load golden dataset
-            dataset_path = f"src/core/evaluation/{benchmark.dataset_name}"
-            try:
-                with open(dataset_path) as f:
-                    dataset = json.load(f)
-            except FileNotFoundError:
-                # Try in tests/data
-                dataset_path = f"tests/data/{benchmark.dataset_name}"
-                with open(dataset_path) as f:
-                    dataset = json.load(f)
+            # 1. Try uploads dir
+            # 2. Try src/core/evaluation
+            # 3. Try tests/data
+            
+            # Note: We need to handle potential path persistence issues.
+            # Ideally benchmark.dataset_name is just the filename.
+            
+            potential_paths = [
+                f"/app/uploads/datasets/{benchmark.dataset_name}",
+                f"src/core/evaluation/{benchmark.dataset_name}",
+                f"tests/data/{benchmark.dataset_name}"
+            ]
+            
+            dataset = None
+            for p in potential_paths:
+                try:
+                    with open(p) as f:
+                        dataset = json.load(f)
+                    logger.info(f"Loaded dataset from {p}")
+                    break
+                except FileNotFoundError:
+                    continue
+                    
+            if not dataset:
+                 raise FileNotFoundError(f"Dataset {benchmark.dataset_name} not found in any search path")
+            
+            # Update progress: Dataset loaded
+            benchmark.metrics = {"progress": 10}
+            await session.commit()
+            _publish_benchmark_status(benchmark_run_id, "running", 10)
 
-            # Initialize RagasService
-            try:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=settings.providers.openai_api_key)
-                ragas_service = RagasService(llm_client=client)
-            except Exception as e:
-                logger.warning(f"Could not initialize with OpenAI client: {e}")
-                ragas_service = RagasService()
+            # Initialize RAG Services
+            from src.core.services.generation import GenerationService
+            from src.core.services.retrieval import RetrievalConfig, RetrievalService
+            from openai import AsyncOpenAI
+            from src.core.evaluation.ragas_service import RagasService
+            
+            # Initialize Ragas
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            ragas_service = RagasService(llm_client=client)
+
+            # Initialize RAG Pipeline
+            retrieval_config = RetrievalConfig(
+                milvus_host=settings.db.milvus_host,
+                milvus_port=settings.db.milvus_port,
+            )
+            retrieval_service = RetrievalService(
+                openai_api_key=settings.openai_api_key,
+                anthropic_api_key=settings.anthropic_api_key,
+                redis_url=settings.db.redis_url,
+                config=retrieval_config,
+            )
+            generation_service = GenerationService(
+                openai_api_key=settings.openai_api_key,
+                anthropic_api_key=settings.anthropic_api_key,
+            )
+
+            # Update progress: Services initialized
+            benchmark.metrics = {"progress": 15}
+            await session.commit()
+            _publish_benchmark_status(benchmark_run_id, "running", 15)
 
             # Run evaluation on each sample
             details = []
             total_samples = len(dataset)
+            
+            logger.info(f"Starting benchmark execution for {total_samples} samples...")
 
             for i, sample in enumerate(dataset):
                 query = sample.get("query", sample.get("question", ""))
-                ideal_context = sample.get("ideal_context", sample.get("context", ""))
-                ideal_answer = sample.get("ideal_answer", sample.get("answer", ""))
+                
+                # Check mapping for standard Ragas keys
+                ground_truth = sample.get("ground_truth", sample.get("ideal_answer", sample.get("answer", "")))
 
+                # 1. Execute Retrieval
+                retrieval_result = await retrieval_service.retrieve(
+                    query=query,
+                    tenant_id=tenant_id,
+                    top_k=5
+                )
+                
+                # 2. Execute Generation
+                if retrieval_result.chunks:
+                    gen_result = await generation_service.generate(
+                        query=query,
+                        candidates=retrieval_result.chunks
+                    )
+                    generated_answer = gen_result.answer
+                    retrieved_contexts = [c.get("content", "") for c in retrieval_result.chunks]
+                else:
+                    generated_answer = "I couldn't find any relevant information."
+                    retrieved_contexts = []
+
+                logger.info(f"Processing Sample {i+1}/{total_samples} - Query: {query[:30]}...")
+                
                 # Evaluate using RagasService
+                # Pass GENERATED answer and RETRIEVED contexts (this is the real benchmark)
                 eval_result = await ragas_service.evaluate_sample(
                     query=query,
-                    context=ideal_context,
-                    response=ideal_answer
+                    context=retrieved_contexts, # Pass list of strings
+                    response=generated_answer
                 )
+
+                import math
+                def clean_score(score):
+                    if score is None:
+                        return None
+                    if isinstance(score, float) and (math.isnan(score) or math.isinf(score)):
+                        return None
+                    return score
 
                 details.append({
                     "query": query,
-                    "faithfulness": eval_result.faithfulness,
-                    "response_relevancy": eval_result.response_relevancy,
-                    "context_precision": eval_result.context_precision,
-                    "context_recall": eval_result.context_recall
+                    "faithfulness": clean_score(eval_result.faithfulness),
+                    "response_relevancy": clean_score(eval_result.response_relevancy),
+                    "context_precision": clean_score(eval_result.context_precision),
+                    "context_recall": clean_score(eval_result.context_recall)
                 })
 
-                # Publish progress
-                progress = int((i + 1) / total_samples * 100)
-                _publish_benchmark_status(benchmark_run_id, "running", progress)
+                # Publish progress (Scale 15% to 100%)
+                metrics_progress = 15 + int((i + 1) / total_samples * 85)
+                _publish_benchmark_status(benchmark_run_id, "running", metrics_progress)
+                
+                # Update progress in DB for polling UI
+                benchmark.metrics = {"progress": metrics_progress}
+                await session.commit()
 
             # Aggregate metrics
+            faith_scores = [d["faithfulness"] for d in details if d["faithfulness"] is not None]
+            rel_scores = [d["response_relevancy"] for d in details if d["response_relevancy"] is not None]
+            
             metrics = {
-                "faithfulness": sum(d["faithfulness"] or 0 for d in details) / len(details) if details else 0,
-                "response_relevancy": sum(d["response_relevancy"] or 0 for d in details) / len(details) if details else 0,
+                "faithfulness": sum(faith_scores) / len(faith_scores) if faith_scores else 0.0,
+                "response_relevancy": sum(rel_scores) / len(rel_scores) if rel_scores else 0.0,
                 "samples_evaluated": len(details)
             }
 

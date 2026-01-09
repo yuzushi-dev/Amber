@@ -22,6 +22,9 @@ from src.workers.tasks import run_ragas_benchmark
 
 logger = logging.getLogger(__name__)
 
+# Define writable path for uploads
+DATASETS_UPLOAD_DIR = "/app/uploads/datasets"
+
 # Fix: Protect all ragas routes with admin check
 router = APIRouter(
     prefix="/ragas",
@@ -124,7 +127,7 @@ async def get_ragas_stats(
         # Completed runs
         completed_result = await session.execute(
             select(func.count(BenchmarkRun.id)).where(
-                BenchmarkRun.status == BenchmarkStatus.COMPLETED
+                BenchmarkRun.status == BenchmarkStatus.COMPLETED.value
             )
         )
         completed_runs = completed_result.scalar() or 0
@@ -132,7 +135,7 @@ async def get_ragas_stats(
         # Failed runs
         failed_result = await session.execute(
             select(func.count(BenchmarkRun.id)).where(
-                BenchmarkRun.status == BenchmarkStatus.FAILED
+                BenchmarkRun.status == BenchmarkStatus.FAILED.value
             )
         )
         failed_runs = failed_result.scalar() or 0
@@ -140,7 +143,7 @@ async def get_ragas_stats(
         # Average metrics from completed runs
         completed_runs_result = await session.execute(
             select(BenchmarkRun).where(
-                BenchmarkRun.status == BenchmarkStatus.COMPLETED
+                BenchmarkRun.status == BenchmarkStatus.COMPLETED.value
             )
         )
         completed_benchmarks = completed_runs_result.scalars().all()
@@ -197,17 +200,28 @@ async def list_datasets():
     paths_to_check = [
         "src/core/evaluation",
         "tests/data",
+        DATASETS_UPLOAD_DIR
     ]
 
     for base_path in paths_to_check:
         if os.path.exists(base_path):
             for filename in os.listdir(base_path):
-                if filename.endswith(".json") and ("golden" in filename.lower() or "dataset" in filename.lower()):
+                is_valid_ext = filename.endswith(".json") or filename.endswith(".csv")
+                # For uploads, we don't enforce "golden" or "dataset" in name
+                is_upload_dir = base_path == DATASETS_UPLOAD_DIR
+                is_dataset = is_upload_dir or "golden" in filename.lower() or "dataset" in filename.lower()
+                
+                if is_valid_ext and is_dataset:
                     full_path = os.path.join(base_path, filename)
                     try:
-                        with open(full_path) as f:
-                            data = json.load(f)
-                            sample_count = len(data) if isinstance(data, list) else 0
+                        if filename.endswith(".json"):
+                            with open(full_path) as f:
+                                data = json.load(f)
+                                sample_count = len(data) if isinstance(data, list) else 0
+                        else:
+                            # CSV: count lines minus header
+                            with open(full_path) as f:
+                                sample_count = sum(1 for _ in f) - 1
                     except Exception:
                         sample_count = 0
 
@@ -225,29 +239,131 @@ async def upload_dataset(
     file: UploadFile = File(...)
 ):
     """
-    Upload a new golden dataset (JSON file).
+    Upload a new golden dataset (JSON or CSV file).
+    
+    Expected columns/fields:
+    - query/question: The input question
+    - ground_truth/ground_truths: Expected correct answer(s)
+    - Optional: contexts (for pre-computed retrieval)
     """
-    # Fix: Validate filename to prevent path traversal
-    if ".." in file.filename or "/" in file.filename or "\\" in file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid filename"
-        )
-    if not file.filename.endswith(".json"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dataset must be a JSON file"
-        )
-
-    # Read and validate content
     try:
-        content = await file.read()
-        data = json.loads(content)
-
-        if not isinstance(data, list):
+        # Validate filename
+        filename = file.filename or "dataset"
+        lower_filename = filename.lower()
+        if ".." in filename or "/" in filename or "\\" in filename:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Dataset must be a JSON array"
+                detail="Invalid filename"
+            )
+        
+        is_json = lower_filename.endswith(".json")
+        is_csv = lower_filename.endswith(".csv")
+        
+        if not is_json and not is_csv:
+            logger.warning(f"Invalid dataset file extension: {filename}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dataset must be a JSON or CSV file"
+            )
+
+        # Read file content
+        content = await file.read()
+        
+        data = []
+        if is_json:
+            # Parse JSON
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid JSON: {str(e)}"
+                )
+                
+            if isinstance(parsed, list):
+                data = parsed
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Dataset must be a JSON array"
+                )
+        else:
+            # Parse CSV
+            try:
+                # Import here is fine, but cleaner at top. Moving imports to header via separate edit if needed,
+                # but for minimal diff keeping them local or standard.
+                # Actually, standard library imports are safe.
+                import csv
+                import io
+                
+                text_content = content.decode("utf-8")
+                # Skip empty lines
+                text_content = text_content.strip()
+                
+                reader = csv.DictReader(io.StringIO(text_content))
+                
+                logger.info(f"CSV Headers: {reader.fieldnames}")
+                
+                for row in reader:
+                    sample = {}
+                    # Map query
+                    if row.get("query"):
+                        sample["query"] = row["query"]
+                    elif row.get("question"):
+                        sample["query"] = row["question"]
+                    elif row.get("user_input"):
+                        sample["query"] = row["user_input"]
+                    
+                    # Map ground truth
+                    if row.get("ground_truth"):
+                        sample["ground_truth"] = row["ground_truth"]
+                    elif row.get("ground_truths"):
+                        sample["ground_truth"] = row["ground_truths"]
+                    elif row.get("expected_answer"):
+                        sample["ground_truth"] = row["expected_answer"]
+                    elif row.get("answer"):
+                        sample["ground_truth"] = row["answer"]
+                    elif row.get("reference"):
+                        sample["ground_truth"] = row["reference"]
+                    
+                    # Map contexts
+                    ctx = None
+                    if row.get("contexts"):
+                        ctx = row["contexts"]
+                    elif row.get("retrieved_contexts"):
+                        ctx = row["retrieved_contexts"]
+
+                    if ctx:
+                        # Handle if it's a string representation of a list or typical separator
+                        if ctx.startswith("[") and ctx.endswith("]"):
+                            try:
+                                sample["contexts"] = json.loads(ctx)
+                            except:
+                                sample["contexts"] = [c.strip() for c in ctx.strip("[]").split(",")]
+                        else:
+                            sample["contexts"] = ctx.split(";") if ctx else []
+                    else:
+                         sample["contexts"] = []
+                    
+                    data.append(sample)
+                    
+            except UnicodeDecodeError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid CSV encoding. Please use UTF-8. Error: {str(e)}"
+                )
+            except Exception as e:
+                logger.error(f"CSV Parse Error: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to parse CSV: {str(e)}"
+                )
+
+        if not data:
+             logger.warning("Dataset empty after parsing")
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dataset is empty"
             )
 
         # Validate structure
@@ -258,29 +374,65 @@ async def upload_dataset(
                     detail=f"Sample {i} must be an object"
                 )
             if "query" not in sample and "question" not in sample:
+                logger.warning(f"Sample {i} missing query. Found: {list(sample.keys())}")
+                msg = f"Sample {i} must have 'query' or 'question' field"
+                # Check for is_json variable availability or infer
+                if filename.endswith(".csv"):
+                     msg += ". Check CSV headers."
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Sample {i} must have 'query' or 'question' field"
+                    detail=msg
                 )
-    except json.JSONDecodeError as e:
+
+        # Save as JSON
+        save_filename = filename if is_json else filename.replace(".csv", ".json")
+        save_path = f"{DATASETS_UPLOAD_DIR}/{save_filename}"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        with open(save_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+        return {
+            "filename": save_filename,
+            "original_format": "json" if is_json else "csv",
+            "samples": len(data),
+            "path": save_path,
+            "message": "Dataset uploaded successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error during dataset upload")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON: {e}"
-        ) from e
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
 
-    # Save to evaluation directory
-    save_path = f"src/core/evaluation/{file.filename}"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    with open(save_path, "wb") as f:
-        f.write(content)
-
-    return {
-        "filename": file.filename,
-        "samples": len(data),
-        "path": save_path,
-        "message": "Dataset uploaded successfully"
-    }
+@router.delete("/datasets/{filename}")
+async def delete_dataset(filename: str):
+    """
+    Delete an uploaded dataset.
+    """
+    validate_safe_filename(filename)
+    
+    file_path = f"{DATASETS_UPLOAD_DIR}/{filename}"
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset {filename} not found"
+        )
+        
+    try:
+        os.remove(file_path)
+        return {"message": f"Dataset {filename} deleted"}
+    except Exception as e:
+        logger.error(f"Failed to delete dataset {filename}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete dataset: {str(e)}"
+        )
 
 
 @router.post("/run-benchmark", response_model=RunBenchmarkResponse)
@@ -312,8 +464,8 @@ async def run_benchmark(
     session.add(benchmark)
     await session.commit()
 
-    # Dispatch Celery task
-    task = run_ragas_benchmark.delay(benchmark_id, "default")
+    # Dispatch Celery task with delay to ensure DB commit visibility
+    task = run_ragas_benchmark.apply_async(args=[benchmark_id, "default"], countdown=1)
 
     return RunBenchmarkResponse(
         benchmark_run_id=benchmark_id,
@@ -321,6 +473,31 @@ async def run_benchmark(
         status="pending",
         message=f"Benchmark run started for dataset '{request.dataset_name}'"
     )
+
+
+@router.delete("/runs/{run_id}")
+async def delete_benchmark_run(
+    run_id: str,
+    session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Delete a benchmark run.
+    """
+    result = await session.execute(
+        select(BenchmarkRun).where(BenchmarkRun.id == run_id)
+    )
+    benchmark = result.scalars().first()
+
+    if not benchmark:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Benchmark run {run_id} not found"
+        )
+
+    await session.delete(benchmark)
+    await session.commit()
+
+    return {"message": f"Benchmark run {run_id} deleted"}
 
 
 @router.get("/job/{job_id}", response_model=BenchmarkRunDetail)
