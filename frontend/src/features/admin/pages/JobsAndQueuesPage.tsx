@@ -34,9 +34,9 @@ export default function JobsAndQueuesPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
-    const fetchData = async () => {
+    const fetchData = async (showLoading = false) => {
         try {
-            setLoading(true)
+            if (showLoading) setLoading(true)
             const [jobsResponse, queuesResponse] = await Promise.all([
                 jobsApi.list({ limit: 50 }),
                 jobsApi.getQueues()
@@ -60,8 +60,8 @@ export default function JobsAndQueuesPage() {
     }
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 5000)
+        fetchData(true) // Show loading only on initial fetch
+        const interval = setInterval(() => fetchData(false), 15000) // 15s silent refresh
         return () => clearInterval(interval)
     }, [])
 
@@ -113,7 +113,7 @@ export default function JobsAndQueuesPage() {
                     </p>
                 </div>
                 <button
-                    onClick={fetchData}
+                    onClick={() => fetchData(true)}
                     disabled={loading}
                     className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                 >

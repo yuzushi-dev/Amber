@@ -64,11 +64,28 @@ class GraphExtractor:
         all_entities: list[Entity] = []
         all_relationships: list[Relationship] = []
 
+        # Metrics tracking for extraction
+        from src.api.config import settings
+        from src.core.metrics.collector import MetricsCollector
+        from src.shared.identifiers import generate_query_id
+        
+        query_id = generate_query_id()
+        collector = MetricsCollector(redis_url=settings.db.redis_url)
+
         try:
-            response = await provider.generate(
-                prompt=full_text_prompt,
-                temperature=0.1 # Low temp for stability
-            )
+            async with collector.track_query(query_id, "system", f"Extract: {chunk_id}") as qm:
+                qm.operation = "extraction"
+                response = await provider.generate(
+                    prompt=full_text_prompt,
+                    temperature=0.1 # Low temp for stability
+                )
+                qm.tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
+                qm.input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
+                qm.output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
+                qm.cost_estimate = response.cost_estimate if hasattr(response, 'cost_estimate') else 0.0
+                qm.model = response.model if hasattr(response, 'model') else ""
+                qm.provider = response.provider if hasattr(response, 'provider') else ""
+                qm.response = response.text[:500] if len(response.text) > 500 else response.text
 
             # Parse result
             parse_result = self.parser.parse(response.text)

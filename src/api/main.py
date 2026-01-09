@@ -55,20 +55,16 @@ async def lifespan(app: FastAPI):
     # Initialize Tracing
     # setup_tracer(service_name=settings.app_name)
 
-    # Pre-warm SPLADE model for hybrid search (runs in background to not block startup)
-    # This eliminates ~85s cold-start delay on first query
+    # Pre-warm SPLADE model for hybrid search (blocking to ensure readiness)
+    # This ensures the API doesn't accept traffic until models are ready
     import asyncio
-    async def prewarm_splade():
-        try:
-            from src.core.services.sparse_embeddings import SparseEmbeddingService
-            service = SparseEmbeddingService()
-            await asyncio.to_thread(service.prewarm)
-            logger.info("SPLADE model pre-warming complete")
-        except Exception as e:
-            logger.warning(f"Failed to prewarm SPLADE model: {e}")
-    
-    # Start prewarm in background (don't await - let startup continue)
-    asyncio.create_task(prewarm_splade())
+    try:
+        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        service = SparseEmbeddingService()
+        await asyncio.to_thread(service.prewarm)
+        logger.info("SPLADE model pre-warming complete - API ready")
+    except Exception as e:
+        logger.warning(f"Failed to prewarm SPLADE model: {e}")
 
     # Bootstrap API Key
     try:

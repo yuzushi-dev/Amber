@@ -53,6 +53,7 @@ services:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
       - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
     depends_on:
       postgres:
@@ -102,6 +103,7 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
       - AMBER_RUNTIME=docker
+    command: celery -A src.workers.celery_app worker --loglevel=info -Q celery,ingestion,extraction,evaluation
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro

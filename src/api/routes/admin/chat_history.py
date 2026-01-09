@@ -115,15 +115,34 @@ async def list_chat_history(
 
         # Build response
         conversations = []
+        
+        # Fetch QueryMetrics for cost/token data
+        from src.api.config import settings
+        from src.core.metrics.collector import MetricsCollector
+        
+        collector = MetricsCollector(redis_url=settings.db.redis_url)
+        all_metrics = await collector.get_recent(tenant_id=tenant_id, limit=500)
+        
+        # Build a lookup by conversation_id
+        metrics_by_conv: dict[str, dict] = {}
+        for m in all_metrics:
+            if m.conversation_id:
+                if m.conversation_id not in metrics_by_conv:
+                    metrics_by_conv[m.conversation_id] = {
+                        "total_tokens": 0,
+                        "cost": 0.0,
+                        "model": m.model,
+                        "provider": m.provider,
+                    }
+                metrics_by_conv[m.conversation_id]["total_tokens"] += m.tokens_used
+                metrics_by_conv[m.conversation_id]["cost"] += m.cost_estimate
+        
         for conv in rows:
             # Extract query/response from metadata
             metadata = conv.metadata_ or {}
             query_text = metadata.get("query")
             response_text = metadata.get("answer")
             model = metadata.get("model", "default")
-            
-            # Use title from model or fallback
-            # conv.title should be populated
             
             # Create preview
             response_preview = None
@@ -132,15 +151,23 @@ async def list_chat_history(
             elif conv.summary:
                 response_preview = conv.summary[:100]
 
+            # Get metrics from lookup
+            conv_metrics = metrics_by_conv.get(conv.id, {})
+            total_tokens = conv_metrics.get("total_tokens", 0)
+            cost = conv_metrics.get("cost", 0.0)
+            if conv_metrics.get("model"):
+                model = conv_metrics["model"]
+            provider = conv_metrics.get("provider", "openai")
+
             conversations.append(ChatHistoryItem(
                 request_id=conv.id,
                 tenant_id=conv.tenant_id,
                 query_text=query_text or conv.title,
                 response_preview=response_preview,
                 model=model,
-                provider="openai", # Placeholder
-                total_tokens=0, # Metrics not linked yet
-                cost=0.0,
+                provider=provider,
+                total_tokens=total_tokens,
+                cost=cost,
                 has_feedback=False,
                 feedback_score=None,
                 created_at=conv.created_at,
