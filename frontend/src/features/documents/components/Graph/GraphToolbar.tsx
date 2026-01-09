@@ -5,8 +5,7 @@ import {
     Wand2,
     Scissors,
     Download,
-    Upload,
-    HelpCircle
+    Upload
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {

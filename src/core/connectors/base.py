@@ -80,6 +80,21 @@ class BaseConnector(ABC):
         """
         pass
 
+    @abstractmethod
+    async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list["ConnectorItem"], bool]:
+        """
+        List items from the external service.
+
+        Args:
+            page: Page number (1-indexed).
+            page_size: Number of items per page.
+            search: Optional search query.
+
+        Returns:
+            Tuple of (list of items, has_more flag).
+        """
+        pass
+
     async def test_connection(self) -> bool:
         """
         Test if the connection to the external service is working.

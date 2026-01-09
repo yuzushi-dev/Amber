@@ -102,6 +102,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             items: [
                 { label: 'Optional Features', icon: Package, to: '/admin/settings/features' },
                 { label: 'API Key', icon: Key, to: '/admin/settings/keys' },
+                { label: 'Connectors', icon: MessageCircle, to: '/admin/settings/connectors' },
             ]
         }
     ]

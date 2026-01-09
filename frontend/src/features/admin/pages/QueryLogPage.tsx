@@ -33,7 +33,7 @@ export default function QueryLogPage() {
     const filteredQueries = queries.filter(q =>
         q.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
         q.query_id.includes(searchTerm) ||
-        (q.generation.conversation_id && q.generation.conversation_id.includes(searchTerm))
+        (q.conversation_id && q.conversation_id.includes(searchTerm))
     )
 
     return (

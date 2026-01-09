@@ -34,6 +34,8 @@ import RagasSubPanel from './features/admin/components/RagasSubPanel'
 import QueryLogPage from './features/admin/pages/QueryLogPage'
 import ApiKeyPage from './features/admin/pages/ApiKeyPage'
 import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
+import ConnectorsPage from './features/admin/pages/ConnectorsPage'
+import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
 
 // =============================================================================
 // Root Route
@@ -192,6 +194,18 @@ const settingsCurationRoute = createRoute({
     component: () => <CurationPage />,
 })
 
+const settingsConnectorsRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/connectors',
+    component: () => <ConnectorsPage />,
+})
+
+const settingsConnectorDetailRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/connectors/$connectorType',
+    component: () => <ConnectorDetailPage />,
+})
+
 // =============================================================================
 // Metrics Section (/admin/metrics/*)
 // =============================================================================
@@ -334,8 +348,12 @@ const routeTree = rootRoute.addChildren([
         settingsTuningRoute,
         settingsFeaturesRoute,
         settingsKeysRoute,
+
         settingsCurationRoute,
+        settingsConnectorsRoute,
+        settingsConnectorDetailRoute,
         // Metrics section
+
         metricsIndexRoute,
         metricsSystemRoute,
         metricsTokensRoute,
