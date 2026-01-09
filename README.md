@@ -1,4 +1,6 @@
-# Amber 2.0
+# Amber 
+
+<img width="1533" height="447" alt="amber_avatar" src="https://github.com/user-attachments/assets/102873b7-5bc6-4a91-b688-3ef565d7c0d6" />
 
 > **Preserving Context, Revealing Insight**
 
@@ -54,6 +56,8 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 ---
 
 ## Key Features
+
+<img width="1533" height="447" alt="architecture" src="https://github.com/user-attachments/assets/e4c4967b-b927-46f8-a9cf-93b3413ac7ae" />
 
 ### Intelligent Multi-Mode Retrieval
 
@@ -314,7 +318,9 @@ Amber follows a microservices architecture designed for scalability, resilience,
 
 ---
 
-## Technical Deep Dive
+## Technical 
+
+<img width="1536" height="447" alt="api" src="https://github.com/user-attachments/assets/047813df-68d9-4532-ba48-f8b3e6ab44b4" />
 
 ### 1. Ingestion & Semantic Processing
 
@@ -395,6 +401,8 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
 ---
 
 ## Getting Started
+
+<img width="1536" height="447" alt="pipeline" src="https://github.com/user-attachments/assets/f2792587-d68f-421f-83cb-a01ec260f91f" />
 
 ### Prerequisites
 
