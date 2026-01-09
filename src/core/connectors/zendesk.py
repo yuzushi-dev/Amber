@@ -138,3 +138,55 @@ class ZendeskConnector(BaseConnector):
 
     def get_connector_type(self) -> str:
         return "zendesk"
+
+    async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list[ConnectorItem], bool]:
+        """
+        List items from Zendesk.
+        """
+        if not self._authenticated:
+            raise RuntimeError("Not authenticated. Call authenticate() first.")
+
+        params = {"page": page, "per_page": page_size}
+        
+        if search:
+            url = f"{self.base_url}/help_center/articles/search.json"
+            params["query"] = search
+        else:
+            url = f"{self.base_url}/help_center/articles.json"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                params=params,
+                auth=(f"{self.email}/token", self.api_token)
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            items = []
+            # 'results' for search, 'articles' for list
+            raw_items = data.get("results", []) if search else data.get("articles", [])
+
+            for article in raw_items:
+                # Basic validation to ensure we have an ID and Title
+                if "id" not in article:
+                    continue
+                    
+                items.append(ConnectorItem(
+                    id=str(article["id"]),
+                    title=article.get("name", article.get("title", "Untitled")),
+                    url=article.get("html_url", ""),
+                    updated_at=datetime.fromisoformat(article["updated_at"].replace("Z", "+00:00")),
+                    content_type="text/html",
+                    metadata={
+                        "section_id": article.get("section_id"),
+                        "author_id": article.get("author_id"),
+                        "draft": article.get("draft", False),
+                        "promoted": article.get("promoted", False),
+                        "vote_sum": article.get("vote_sum", 0),
+                    }
+                ))
+
+            # Check for next page
+            has_more = bool(data.get("next_page"))
+            return items, has_more
