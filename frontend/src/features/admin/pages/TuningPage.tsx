@@ -6,8 +6,10 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Save, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react'
+import { Save, RotateCcw, CheckCircle } from 'lucide-react'
 import { configApi, ConfigSchema, TenantConfig, ConfigSchemaField } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 
 const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
@@ -126,9 +128,9 @@ export default function TuningPage() {
     if (error || !schema) {
         return (
             <div className="p-6">
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
-                </div>
+                <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             </div>
         )
     }
@@ -143,37 +145,35 @@ export default function TuningPage() {
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <button
+                    <Button
+                        variant="outline"
                         onClick={handleReset}
                         disabled={saving || !hasChanges}
-                        className="flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
                     >
-                        <RotateCcw className="w-4 h-4" />
+                        <RotateCcw className="w-4 h-4 mr-2" />
                         Reset
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={handleSave}
                         disabled={saving || !hasChanges}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
                     >
                         {saveStatus === 'success' ? (
-                            <CheckCircle className="w-4 h-4" />
+                            <CheckCircle className="w-4 h-4 mr-2" />
                         ) : (
-                            <Save className="w-4 h-4" />
+                            <Save className="w-4 h-4 mr-2" />
                         )}
                         {saving ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Changes'}
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             {/* Weights Warning */}
             {!weightsValid && (
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6 flex items-center gap-3">
-                    <AlertCircle className="w-5 h-5 text-yellow-600" />
-                    <span className="text-yellow-800 dark:text-yellow-400">
+                <Alert variant="warning" className="mb-6">
+                    <AlertDescription>
                         Fusion weights sum to {weightsSum.toFixed(2)}. For best results, weights should sum to 1.0.
-                    </span>
-                </div>
+                    </AlertDescription>
+                </Alert>
             )}
 
             {/* Form Sections */}

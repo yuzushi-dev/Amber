@@ -97,7 +97,7 @@ export function useChatStream() {
             try {
                 const text = JSON.parse(e.data)
                 updateLastMessage({ thinking: text })
-            } catch (err) {
+            } catch {
                 // Fallback for legacy/error messages
                 updateLastMessage({ thinking: e.data })
             }
@@ -110,7 +110,7 @@ export function useChatStream() {
                     thinking: null,
                     content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + token
                 })
-            } catch (err) {
+            } catch {
                 // Fallback
                 updateLastMessage({
                     thinking: null,
@@ -127,7 +127,7 @@ export function useChatStream() {
                     thinking: null,
                     content: fullMessage
                 })
-            } catch (err) {
+            } catch {
                 // Fallback: use raw data
                 updateLastMessage({
                     thinking: null,
@@ -172,7 +172,7 @@ export function useChatStream() {
             }))
             stopStream()
         })
-    }, [addMessage, updateLastMessage, stopStream, state.conversationId])
+    }, [addMessage, updateLastMessage, stopStream])
 
     const setConversationId = useCallback((id: string | null) => {
         conversationIdRef.current = id  // Sync ref

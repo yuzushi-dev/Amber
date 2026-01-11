@@ -35,8 +35,9 @@ function AppContent() {
     return <LoadingScreen />
   }
 
-  // 3. Setup not complete → Show Setup Wizard
-  if (setupStatus && !setupStatus.setup_complete) {
+  // 3. Setup not complete → Show Setup Wizard (unless all features installed)
+  const allFeaturesInstalled = setupStatus?.summary.installed === setupStatus?.summary.total
+  if (setupStatus && !setupStatus.setup_complete && !allFeaturesInstalled) {
     return (
       <SetupWizard
         onComplete={() => refetch()}

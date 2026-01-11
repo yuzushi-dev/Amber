@@ -74,10 +74,12 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
         }
     }
 
+    // Refetch on page/search/pageSize change
     useEffect(() => {
         fetchItems()
         // Clear selection on page/search change
         setSelectedIds(new Set())
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [page, search, pageSize])
 
     const handleSearch = (e: React.FormEvent) => {
@@ -112,8 +114,9 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
             await connectorsApi.ingestItems(type, Array.from(selectedIds))
             toast.success(`Started ingestion for ${selectedIds.size} items`)
             setSelectedIds(new Set())
-        } catch (err: any) {
-            toast.error(err.response?.data?.detail || 'Ingestion failed')
+        } catch (err: unknown) {
+            const error = err as { response?: { data?: { detail?: string } } }
+            toast.error(error.response?.data?.detail || 'Ingestion failed')
         } finally {
             setIngesting(false)
         }

@@ -258,7 +258,7 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                     ) : (
                         <div className="space-y-4 py-8">
                             {status === 'ready' ? (
-                                <CheckCircle2 className="w-16 h-16 mx-auto text-green-500 animate-in zoom-in duration-300" />
+                                <CheckCircle2 className="w-16 h-16 mx-auto text-success animate-in zoom-in duration-300" />
                             ) : status === 'failed' ? (
                                 <div className="text-destructive">
                                     <AlertCircle className="w-16 h-16 mx-auto mb-4" />
