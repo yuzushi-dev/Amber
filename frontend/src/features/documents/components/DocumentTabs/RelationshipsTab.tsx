@@ -66,6 +66,7 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
         if (documentId) {
             fetchRelationships();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [documentId]);
 
     // Handle Mode Changes

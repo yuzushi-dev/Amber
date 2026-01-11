@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     Table,
     TableBody,
@@ -44,13 +44,18 @@ interface RecentActivityTableProps {
 }
 
 export default function RecentActivityTable({ records, isLoading = false }: RecentActivityTableProps) {
+    // Use records.length as key to reset page when records change
+    const recordsKey = records?.length ?? 0;
     const [page, setPage] = useState(1);
-    const pageSize = 5;
+    const [prevRecordsKey, setPrevRecordsKey] = useState(recordsKey);
 
-    // Reset to page 1 when records change
-    useEffect(() => {
+    // Reset page when records change (before render, not in effect)
+    if (recordsKey !== prevRecordsKey) {
         setPage(1);
-    }, [records?.length]);
+        setPrevRecordsKey(recordsKey);
+    }
+
+    const pageSize = 5;
 
     const totalPages = Math.ceil((records?.length || 0) / pageSize);
     const paginatedRecords = useMemo(() => {

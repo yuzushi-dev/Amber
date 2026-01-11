@@ -47,13 +47,13 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq, req, res) => {
+          proxy.on('proxyReq', (_, req) => {
             // Log proxy requests to verify matching
             if (req.url?.includes('/query')) {
               console.log('Proxying Chat Request (via /v1):', req.url);
             }
           });
-          proxy.on('proxyRes', (proxyRes, req, res) => {
+          proxy.on('proxyRes', (proxyRes, req) => {
             if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
               console.log('Disabling buffering for SSE (main /v1 rule):', req.url);
               proxyRes.headers['cache-control'] = 'no-cache'

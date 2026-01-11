@@ -46,7 +46,7 @@ export default function ConnectorsList() {
             await connectorsApi.sync(type)
             toast.success('Sync started')
             fetchData()
-        } catch (err) {
+        } catch {
             toast.error('Failed to start sync')
         }
     }

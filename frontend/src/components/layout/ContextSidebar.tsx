@@ -295,7 +295,7 @@ export default function ContextSidebar() {
                                                     {!collapsed && (
                                                         <button
                                                             onClick={(e) => handleDelete(e, conversation.request_id)}
-                                                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-100 hover:text-red-600 transition-all"
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-all"
                                                             title="Delete conversation"
                                                             aria-label="Delete conversation"
                                                         >
