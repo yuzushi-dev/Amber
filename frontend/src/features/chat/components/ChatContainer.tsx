@@ -8,7 +8,8 @@ import { chatHistoryApi } from '@/lib/api-admin'
 
 export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
-    const { startStream, isStreaming } = useChatStream()
+    // Load history when request_id changes
+    const { startStream, isStreaming, resetConversation, setConversationId } = useChatStream()
     const routerState = useRouterState()
     // Type casting for search params
     const searchParams = routerState.location.search as { request_id?: string }
@@ -18,9 +19,13 @@ export default function ChatContainer() {
     const [title, setTitle] = useState('New Conversation')
 
     // Load history when request_id changes
+
     useEffect(() => {
         let ignore = false
         if (requestId) {
+            // Check if we need to sync the ID to valid conversation flow
+            setConversationId(requestId)
+
             const loadHistory = async () => {
                 try {
                     // Fetch full conversation details
@@ -29,30 +34,56 @@ export default function ChatContainer() {
                     if (!ignore && initialDetail) {
                         clearMessages()
 
-                        // Reconstruct messages
-                        // 1. User Message
-                        if (initialDetail.query_text) {
-                            addMessage({
-                                id: `user-${requestId}`,
-                                role: 'user',
-                                content: initialDetail.query_text,
-                                timestamp: initialDetail.created_at
+                        // Check if we have full history in metadata
+                        const history = initialDetail.metadata?.history
+                        if (Array.isArray(history) && history.length > 0) {
+                            // Reconstruct ALL messages from history array
+                            history.forEach((turn: { query: string; answer: string; timestamp?: string }, idx: number) => {
+                                // User message
+                                if (turn.query) {
+                                    addMessage({
+                                        id: `user-${requestId}-${idx}`,
+                                        role: 'user',
+                                        content: turn.query,
+                                        timestamp: turn.timestamp || initialDetail.created_at
+                                    })
+                                }
+                                // Assistant message
+                                if (turn.answer) {
+                                    addMessage({
+                                        id: `assistant-${requestId}-${idx}`,
+                                        role: 'assistant',
+                                        content: turn.answer,
+                                        timestamp: turn.timestamp || initialDetail.created_at
+                                    })
+                                }
                             })
+                        } else {
+                            // Fallback: Single-turn conversation (legacy or first message)
+                            if (initialDetail.query_text) {
+                                addMessage({
+                                    id: `user-${requestId}`,
+                                    role: 'user',
+                                    content: initialDetail.query_text,
+                                    timestamp: initialDetail.created_at
+                                })
+                            }
+                            if (initialDetail.response_text) {
+                                addMessage({
+                                    id: `assistant-${requestId}`,
+                                    role: 'assistant',
+                                    content: initialDetail.response_text,
+                                    timestamp: initialDetail.created_at
+                                })
+                            }
                         }
 
-                        // 2. Assistant Message
-                        if (initialDetail.response_text) {
-                            addMessage({
-                                id: `assistant-${requestId}`,
-                                role: 'assistant',
-                                content: initialDetail.response_text,
-                                timestamp: initialDetail.created_at
-                            })
-                        }
-
-                        // Title from query if available
-                        const derivedTitle = initialDetail.query_text
-                            ? (initialDetail.query_text.length > 50 ? initialDetail.query_text.substring(0, 50) + '...' : initialDetail.query_text)
+                        // Title from first query (use already-typed history variable)
+                        const firstQuery = (Array.isArray(history) && history.length > 0)
+                            ? history[0].query
+                            : initialDetail.query_text
+                        const derivedTitle = firstQuery
+                            ? (firstQuery.length > 50 ? firstQuery.substring(0, 50) + '...' : firstQuery)
                             : initialDetail.request_id
                         setTitle(derivedTitle)
                     }
@@ -66,11 +97,12 @@ export default function ChatContainer() {
             loadHistory()
             return () => { ignore = true }
         } else {
-            // New chat - clear messages
+            // New chat - clear messages AND reset conversation threading
             clearMessages()
+            resetConversation()
             setTitle('New Conversation')
         }
-    }, [requestId, clearMessages, addMessage])
+    }, [requestId, clearMessages, addMessage, resetConversation, setConversationId])
 
     // Update title based on current messages if in new chat flow
     useEffect(() => {

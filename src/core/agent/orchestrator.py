@@ -39,14 +39,31 @@ class AgentOrchestrator:
         self.max_steps = max_steps
 
     @trace_span("AgentOrchestrator.run")
-    async def run(self, query: str, conversation_id: str | None = None) -> QueryResponse:
+    async def run(
+        self, 
+        query: str, 
+        conversation_id: str | None = None,
+        conversation_history: list[dict] | None = None
+    ) -> QueryResponse:
         """
         Execute the agent loop for a given query.
+        
+        Args:
+            query: The user's current query
+            conversation_id: Optional ID for threading
+            conversation_history: Optional list of previous messages [{"role": "user/assistant", "content": "..."}]
         """
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": query}
         ]
+        
+        # Insert previous conversation history for context
+        if conversation_history:
+            for msg in conversation_history:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+        
+        # Add current user query
+        messages.append({"role": "user", "content": query})
         
         trace = []
         steps_taken = 0
@@ -66,13 +83,15 @@ class AgentOrchestrator:
             # 2. Check for Tool Calls
             if not message.tool_calls:
                 # Agent is done, returned a final answer
-                return QueryResponse(
+                result = QueryResponse(
                     answer=message.content,
                     sources=[], # TODO: Extract sources from tool outputs
                     timing=TimingInfo(total_ms=0, retrieval_ms=0, generation_ms=0), # TODO: Track timing
                     conversation_id=conversation_id,
                     trace=trace 
                 )
+                logger.info(f"Agent finished with answer. Result: {result.answer[:50]}...")
+                return result
             
             # 3. Act (Execute Tools)
             for tool_call in message.tool_calls:
@@ -108,12 +127,14 @@ class AgentOrchestrator:
             
             steps_taken += 1
             
-        return QueryResponse(
+        result = QueryResponse(
             answer="I reached the maximum number of steps without finding a definitive answer.",
             conversation_id=conversation_id,
             trace=trace,
             timing=TimingInfo(total_ms=0, retrieval_ms=0, generation_ms=0)
         )
+        logger.info(f"Agent finished max steps. Result: {result.answer[:50]}...")
+        return result
 
     def _get_tool_definitions(self) -> list[dict]:
         """Return the tool schemas for the LLM."""
