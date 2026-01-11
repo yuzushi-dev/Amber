@@ -509,6 +509,29 @@ async def query_stream(
         # Yield immediately so client knows connection is alive
         yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
 
+        # =========================================================================
+        # STICKY MODE CHECK
+        # =========================================================================
+        # Check if this is a continuation of an AGENT conversation
+        if request.conversation_id and not (request.options and request.options.agent_mode):
+            try:
+                from src.core.models.memory import ConversationSummary
+                from src.api.deps import _async_session_maker
+                
+                async with _async_session_maker() as session:
+                    existing_conv = await session.get(ConversationSummary, request.conversation_id)
+                    if existing_conv and existing_conv.metadata_:
+                        mode = existing_conv.metadata_.get("mode")
+                        if mode == "agent":
+                            logger.info(f"Auto-switching conversation {request.conversation_id} to Agent Mode (Sticky)")
+                            if not request.options:
+                                from src.api.schemas.query import QueryOptions
+                                request.options = QueryOptions(agent_mode=True)
+                            else:
+                                request.options.agent_mode = True
+            except Exception as e:
+                logger.warning(f"Failed to check stickiness: {e}")
+
         try:
             # =========================================================================
             # AGENTIC MODE SUPPORT
@@ -517,6 +540,13 @@ async def query_stream(
                 yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
                 
                 try:
+                    # Determine ID upfront
+                    import uuid
+                    agent_conversation_id = request.conversation_id or str(uuid.uuid4())
+                    # Emit availability immediately
+                    logger.info(f"EMITTING Agent conversation_id SSE event upfront: {agent_conversation_id}")
+                    yield f"event: conversation_id\ndata: {json.dumps(agent_conversation_id)}\n\n"
+
                     from src.core.agent.orchestrator import AgentOrchestrator
                     from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
                     from src.core.tools.retrieval import create_retrieval_tool
@@ -615,23 +645,20 @@ async def query_stream(
                     # Run Agent with context
                     agent_response = await agent.run(
                         query=request.query,
-                        conversation_id=request.conversation_id,
+                        conversation_id=agent_conversation_id, # Use pre-calculated ID
                         conversation_history=conversation_history if conversation_history else None
                     )
                     
                     logger.info("Agent Run Complete.")
 
-                    # Stream the result as if it were tokens
-                    # (AgentOrchestrator returns full answer currently)
-                    yield f"event: message\ndata: {json.dumps(agent_response.answer)}\n\n"
-
                     # SAVE AGENT INTERACTION TO HISTORY
+                    # We do this BEFORE yielding to client to ensure persistence even if client disconnects
                     try:
                         full_answer = agent_response.answer
                         summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
                         title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
                         
-                        import uuid
+                        from datetime import datetime
                         from src.core.models.memory import ConversationSummary
                         from src.api.deps import _async_session_maker
                         
@@ -639,7 +666,7 @@ async def query_stream(
                             # Try to find existing conversation
                             existing_summary = None
                             if request.conversation_id:
-                                existing_summary = await session.get(ConversationSummary, request.conversation_id)
+                                existing_summary = await session.get(ConversationSummary, agent_conversation_id)
 
                             if existing_summary:
                                 # UPDATE existing conversation
@@ -664,12 +691,10 @@ async def query_stream(
                                 session.add(existing_summary)
                                 await session.commit()
                                 logger.info(f"Updated AGENT conversation history: {existing_summary.id}")
-                                # Emit conversation_id to frontend for threading
-                                yield f"event: conversation_id\ndata: {json.dumps(existing_summary.id)}\n\n"
                             else:
                                 # INSERT new conversation
                                 new_summary = ConversationSummary(
-                                    id=request.conversation_id or str(uuid.uuid4()),
+                                    id=agent_conversation_id,
                                     tenant_id=tenant_id,
                                     user_id="user", # Default user
                                     title=title_text,
@@ -694,11 +719,13 @@ async def query_stream(
                                 session.add(new_summary)
                                 await session.commit()
                                 logger.info(f"Saved AGENT conversation history: {new_summary.id}")
-                                # Emit conversation_id to frontend for threading
-                                yield f"event: conversation_id\ndata: {json.dumps(new_summary.id)}\n\n"
                             
                     except Exception as e:
                         logger.error(f"Failed to save AGENT conversation history: {e}")
+
+                    # Stream the result as if it were tokens
+                    # (AgentOrchestrator returns full answer currently)
+                    yield f"event: message\ndata: {json.dumps(agent_response.answer)}\n\n"
 
                     yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
                     return
