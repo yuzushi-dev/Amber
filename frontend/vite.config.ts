@@ -42,9 +42,25 @@ export default defineConfig({
           })
         },
       },
+      // SSE endpoint for chat query - needs special handling
       '/v1': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            // Log proxy requests to verify matching
+            if (req.url?.includes('/query')) {
+              console.log('Proxying Chat Request (via /v1):', req.url);
+            }
+          });
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              console.log('Disabling buffering for SSE (main /v1 rule):', req.url);
+              proxyRes.headers['cache-control'] = 'no-cache'
+              proxyRes.headers['connection'] = 'keep-alive'
+            }
+          })
+        },
       },
       '/api': {
         target: 'http://localhost:8000',
