@@ -9,6 +9,7 @@ Phase 2: Baseline RAG implementation with vector retrieval and LLM generation.
 import json
 import logging
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -454,6 +455,8 @@ async def query_stream(
     http_request: Request,
     request: QueryRequest = None,
     query: str = None,
+    agent_mode: bool = False,
+    conversation_id: str = None,  # Added for threading support
 ):
     """
     Stream the query response.
@@ -468,7 +471,13 @@ async def query_stream(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Query parameter 'query' is required for GET requests",
             )
-        request = QueryRequest(query=query)
+        
+        from src.api.schemas.query import QueryOptions
+        request = QueryRequest(
+            query=query,
+            options=QueryOptions(agent_mode=agent_mode),
+            conversation_id=conversation_id  # Pass through for threading
+        )
 
     # Handle POST request body (FastAPI dependency injection)
     if request is None and http_request.method == "POST":
@@ -501,6 +510,205 @@ async def query_stream(
         yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
 
         try:
+            # =========================================================================
+            # AGENTIC MODE SUPPORT
+            # =========================================================================
+            if request.options and request.options.agent_mode:
+                yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
+                
+                try:
+                    from src.core.agent.orchestrator import AgentOrchestrator
+                    from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
+                    from src.core.tools.retrieval import create_retrieval_tool
+                    from src.core.tools.filesystem import create_filesystem_tools
+                    from src.core.tools.graph import GRAPH_TOOLS, query_graph
+
+                    # Initialize Tools
+                    retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
+                    tool_map = {
+                        retrieval_tool_def["name"]: retrieval_tool_def["func"]
+                    }
+                    tool_schemas = [retrieval_tool_def["schema"]]
+
+                    # Add Graph Tool
+                    tool_map["query_graph"] = query_graph
+                    tool_schemas.extend(GRAPH_TOOLS)
+                    
+                    # Add Filesystem Tools (Maintainer only)
+                    if request.options.agent_role == "maintainer":
+                        fs_tools = create_filesystem_tools(base_path=".") 
+                        for t in fs_tools:
+                            tool_map[t["name"]] = t["func"]
+                            tool_schemas.append(t["schema"])
+                    
+                    # Add Connector Tools (e.g. Carbonio) - DYNAMICALLY LOAD
+                    logger.info("Starting Agent Mode Setup...")
+                    # We need to fetch active credentials from the database
+                    from src.api.routes.connectors import CONNECTOR_REGISTRY
+                    from src.core.models.connector_state import ConnectorState
+                    from src.api.deps import _async_session_maker
+                    from sqlalchemy import select
+
+                    c_tools_count = 0
+                    async with _async_session_maker() as session:
+                        logger.info("DB Session created for Agent Setup")
+                        result = await session.execute(
+                            select(ConnectorState).where(
+                                ConnectorState.tenant_id == tenant_id,
+                                ConnectorState.connector_type == "carbonio"
+                            )
+                        )
+                        c_state = result.scalar_one_or_none()
+                        
+                        if c_state and c_state.sync_cursor:
+                             logger.info("Found Carbonio state, initializing connector...")
+                             # Instantiate and auth
+                             ConnectorClass = CONNECTOR_REGISTRY["carbonio"]
+                             creds = c_state.sync_cursor
+                             connector_instance = ConnectorClass(host=creds.get("host", ""))
+                             await connector_instance.authenticate(creds)
+                             logger.info("Carbonio authenticated.")
+                             
+                             c_tools = connector_instance.get_agent_tools()
+                             c_tools_count = len(c_tools)
+                             for t in c_tools:
+                                tool_map[t["name"]] = t["func"]
+                                tool_schemas.append(t["schema"])
+                        else:
+                            logger.info("No active Carbonio state found.")
+                    
+                    logger.info(f"Agent tools loaded. Total extra tools: {c_tools_count}")
+                    
+                    # Initialize Agent
+                    agent = AgentOrchestrator(
+                        generation_service=generation_service,
+                        tools=tool_map,
+                        tool_schemas=tool_schemas,
+                        system_prompt=AGENT_SYSTEM_PROMPT
+                    )
+
+                    logger.info("AgentOrchestrator initialized. Starting Run...")
+
+                    # Load previous conversation history if continuing a thread
+                    conversation_history = []
+                    if request.conversation_id:
+                        try:
+                            from src.core.models.memory import ConversationSummary  # Import here for history loading
+                            async with _async_session_maker() as history_session:
+                                existing_conv = await history_session.get(ConversationSummary, request.conversation_id)
+                                if existing_conv and existing_conv.metadata_:
+                                    saved_history = existing_conv.metadata_.get("history", [])
+                                    for entry in saved_history:
+                                        # Convert saved history to message format
+                                        conversation_history.append({
+                                            "role": "user",
+                                            "content": entry.get("query", "")
+                                        })
+                                        conversation_history.append({
+                                            "role": "assistant", 
+                                            "content": entry.get("answer", "")
+                                        })
+                                    logger.info(f"Loaded {len(saved_history)} previous exchanges for threading")
+                        except Exception as e:
+                            logger.warning(f"Failed to load conversation history: {e}")
+
+                    # Run Agent with context
+                    agent_response = await agent.run(
+                        query=request.query,
+                        conversation_id=request.conversation_id,
+                        conversation_history=conversation_history if conversation_history else None
+                    )
+                    
+                    logger.info("Agent Run Complete.")
+
+                    # Stream the result as if it were tokens
+                    # (AgentOrchestrator returns full answer currently)
+                    yield f"event: message\ndata: {json.dumps(agent_response.answer)}\n\n"
+
+                    # SAVE AGENT INTERACTION TO HISTORY
+                    try:
+                        full_answer = agent_response.answer
+                        summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                        title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
+                        
+                        import uuid
+                        from src.core.models.memory import ConversationSummary
+                        from src.api.deps import _async_session_maker
+                        
+                        async with _async_session_maker() as session:
+                            # Try to find existing conversation
+                            existing_summary = None
+                            if request.conversation_id:
+                                existing_summary = await session.get(ConversationSummary, request.conversation_id)
+
+                            if existing_summary:
+                                # UPDATE existing conversation
+                                # 1. Append to history in metadata
+                                history = existing_summary.metadata_.get("history", [])
+                                history.append({
+                                    "query": request.query, 
+                                    "answer": full_answer,
+                                    "timestamp": datetime.utcnow().isoformat()
+                                })
+                                existing_summary.metadata_["history"] = history
+                                
+                                # 2. Update top-level metadata to reflect LATEST turn
+                                existing_summary.metadata_["query"] = request.query
+                                existing_summary.metadata_["answer"] = full_answer
+                                existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
+                                
+                                # 3. Flag as modified for SQLAlchemy
+                                from sqlalchemy.orm.attributes import flag_modified
+                                flag_modified(existing_summary, "metadata_")
+                                
+                                session.add(existing_summary)
+                                await session.commit()
+                                logger.info(f"Updated AGENT conversation history: {existing_summary.id}")
+                                # Emit conversation_id to frontend for threading
+                                yield f"event: conversation_id\ndata: {json.dumps(existing_summary.id)}\n\n"
+                            else:
+                                # INSERT new conversation
+                                new_summary = ConversationSummary(
+                                    id=request.conversation_id or str(uuid.uuid4()),
+                                    tenant_id=tenant_id,
+                                    user_id="user", # Default user
+                                    title=title_text,
+                                    summary=summary_text,
+                                    metadata_={
+                                        "query": request.query,
+                                        "answer": full_answer,
+                                        "model": "agent-default",
+                                        "mode": "agent",
+                                        # Extract tool names safely (handle OpenAI format {"function": {"name": ...}})
+                                        "tools_used": [
+                                            t.get("function", {}).get("name", t.get("name", "unknown")) 
+                                            for t in tool_schemas
+                                        ],
+                                        "history": [{
+                                            "query": request.query, 
+                                            "answer": full_answer,
+                                            "timestamp": datetime.utcnow().isoformat()
+                                        }]
+                                    }
+                                )
+                                session.add(new_summary)
+                                await session.commit()
+                                logger.info(f"Saved AGENT conversation history: {new_summary.id}")
+                                # Emit conversation_id to frontend for threading
+                                yield f"event: conversation_id\ndata: {json.dumps(new_summary.id)}\n\n"
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to save AGENT conversation history: {e}")
+
+                    yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
+                    return
+
+                except Exception as e:
+                    logger.error(f"Agent stream failed: {e}")
+                    yield f"event: error\ndata: {json.dumps(f'Agent error: {str(e)}')}\n\n"
+                    return
+
+            # STANDARD RAG PIPELINE
             # First, retrieve relevant chunks
             document_ids = request.filters.document_ids if request.filters else None
             max_chunks = request.options.max_chunks if request.options else 10
@@ -566,7 +774,7 @@ async def query_stream(
                         metadata_={
                             "query": request.query,
                             "answer": full_answer,
-                            "model": request.options.model if request.options else "default"
+                            "model": "rag-default"  # QueryOptions doesn't have model attr
                         }
                     )
                     session.add(new_summary)

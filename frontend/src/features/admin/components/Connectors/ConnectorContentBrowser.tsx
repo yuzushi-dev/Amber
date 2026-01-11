@@ -107,6 +107,7 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
                             <TableHead className="w-[50px]"></TableHead>
                             <TableHead>Title</TableHead>
                             <TableHead>Updated</TableHead>
+                            {type === 'carbonio' && <TableHead>Sender</TableHead>}
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -133,14 +134,29 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
                                         />
                                     </TableCell>
                                     <TableCell className="font-medium">
-                                        {item.title}
-                                        <div className="text-xs text-muted-foreground truncate max-w-[300px]">
-                                            {item.url}
+                                        <div className="flex flex-col gap-0.5">
+                                            <span>{item.title}</span>
+                                            {item.metadata?.snippet && (
+                                                <span className="text-xs text-muted-foreground line-clamp-1">
+                                                    {item.metadata.snippet}
+                                                </span>
+                                            )}
+                                            {/* Hide URL for Carbonio as it's less useful, keep for others */}
+                                            {type !== 'carbonio' && (
+                                                <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+                                                    {item.url}
+                                                </div>
+                                            )}
                                         </div>
                                     </TableCell>
                                     <TableCell>
                                         {new Date(item.updated_at).toLocaleDateString()}
                                     </TableCell>
+                                    {type === 'carbonio' && (
+                                        <TableCell>
+                                            {item.metadata?.sender || '-'}
+                                        </TableCell>
+                                    )}
                                     <TableCell className="text-right">
                                         <a
                                             href={item.url}

@@ -2,6 +2,7 @@ import { useParams } from '@tanstack/react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ZendeskConfigForm from '../components/Connectors/ZendeskConfigForm'
 import { ConfluenceConfigForm } from '../components/Connectors/ConfluenceConfigForm'
+import CarbonioConfigForm from '../components/Connectors/CarbonioConfigForm'
 import ConnectorContentBrowser from '../components/Connectors/ConnectorContentBrowser'
 import { useQuery } from '@tanstack/react-query'
 import { connectorsApi } from '@/lib/api-connectors'
@@ -42,7 +43,8 @@ export default function ConnectorDetailPage() {
                     <div className="max-w-xl">
                         {connectorType === 'zendesk' && <ZendeskConfigForm onSuccess={refetch} />}
                         {connectorType === 'confluence' && <ConfluenceConfigForm onSuccess={refetch} />}
-                        {!['zendesk', 'confluence'].includes(connectorType!) && (
+                        {connectorType === 'carbonio' && <CarbonioConfigForm onSuccess={refetch} />}
+                        {!['zendesk', 'confluence', 'carbonio'].includes(connectorType!) && (
                             <div className="p-4 border rounded-md text-muted-foreground">
                                 Configuration form for {connectorType} not implemented.
                             </div>

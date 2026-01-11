@@ -47,7 +47,9 @@ export default function ConnectorCard({ type, status, onSync }: ConnectorCardPro
                 <div className="flex flex-col gap-1">
                     <CardTitle className="text-lg capitalize">{type}</CardTitle>
                     <CardDescription>
-                        {type === 'zendesk' ? 'Help Center Articles' : 'External Data Source'}
+                        {type === 'zendesk' ? 'Help Center Articles' :
+                            type === 'carbonio' ? 'Mail, Calendar & Chats' :
+                                'External Data Source'}
                     </CardDescription>
                 </div>
                 {getIcon()}

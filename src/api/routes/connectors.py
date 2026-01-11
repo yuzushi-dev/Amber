@@ -19,6 +19,7 @@ from src.api.deps import get_db_session
 from src.api.schemas.base import ResponseSchema
 from src.core.connectors.zendesk import ZendeskConnector
 from src.core.connectors.confluence import ConfluenceConnector
+from src.core.connectors.carbonio import CarbonioConnector
 from src.core.models.connector_state import ConnectorState
 from src.core.services.ingestion import IngestionService
 from src.shared.context import get_current_tenant
@@ -61,6 +62,7 @@ class SyncJobResponse(BaseModel):
 CONNECTOR_REGISTRY = {
     "zendesk": ZendeskConnector,
     "confluence": ConfluenceConnector,
+    "carbonio": CarbonioConnector,
 }
 
 
@@ -122,7 +124,7 @@ async def get_connector_status(
         data=ConnectorStatusResponse(
             connector_type=state.connector_type,
             status=state.status,
-            is_authenticated=state.last_sync_at is not None,  # Approximation
+            is_authenticated=bool(state.sync_cursor),  # Connected if we have credentials
             last_sync_at=state.last_sync_at,
             items_synced=0,  # Would need to count from documents
             error_message=state.error_message
@@ -171,6 +173,14 @@ async def authenticate_connector(
                      detail="Confluence requires 'base_url' in credentials"
                  )
              connector = ConnectorClass(base_url=base_url)
+        elif connector_type == "carbonio":
+             host = request.credentials.get("host")
+             if not host:
+                  raise HTTPException(
+                      status_code=status.HTTP_400_BAD_REQUEST,
+                      detail="Carbonio requires 'host' in credentials"
+                  )
+             connector = ConnectorClass(host=host)
         else:
             connector = ConnectorClass()
 
@@ -358,7 +368,7 @@ async def list_connector_items(
     # ... Continuing assuming credentials will be available in sync_cursor ...
     
     config = state.sync_cursor
-    if not config or "api_token" not in config:
+    if not config or ("api_token" not in config and "password" not in config):
          raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail="Connector not configured or credentials missing. Please re-authenticate."
@@ -377,7 +387,15 @@ async def list_connector_items(
          auth_params = {
             "email": config.get("email"),
             "api_token": config.get("api_token"),
+            "api_token": config.get("api_token"),
             "base_url": config.get("base_url") 
+         }
+    elif connector_type == "carbonio":
+         connector = ConnectorClass(host=config.get("host", ""))
+         auth_params = {
+            "email": config.get("email"),
+            "password": config.get("password"),
+            "host": config.get("host")
          }
     
     auth_success = await connector.authenticate(auth_params)
@@ -439,6 +457,8 @@ async def run_selective_ingestion(
              connector = ConnectorClass(subdomain=config.get("subdomain", ""))
         elif connector_type == "confluence":
              connector = ConnectorClass(base_url=config.get("base_url", ""))
+        elif connector_type == "carbonio":
+             connector = ConnectorClass(host=config.get("host", ""))
         
         await connector.authenticate(config)
         
@@ -469,6 +489,8 @@ async def run_selective_ingestion(
                         filename = f"zendesk_{item_id}.html"
                     elif connector_type == "confluence":
                         filename = f"confluence_{item_id}.html"
+                    elif connector_type == "carbonio":
+                        filename = f"carbonio_{item_id}.html"
                     else:
                          filename = f"doc_{item_id}.html"
                     
@@ -523,7 +545,7 @@ async def ingest_selected_items(
     
     # Store credentials check
     config = state.sync_cursor
-    if not config or "api_token" not in config:
+    if not config or ("api_token" not in config and "password" not in config):
          raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail="Connector not configured. Please re-authenticate."

@@ -5,12 +5,14 @@ import { v4 as uuidv4 } from 'uuid'
 interface StreamState {
     isStreaming: boolean
     error: Error | null
+    conversationId: string | null  // Track conversation for threading
 }
 
 export function useChatStream() {
     const [state, setState] = useState<StreamState>({
         isStreaming: false,
         error: null,
+        conversationId: null,
     })
 
     const { addMessage, updateLastMessage } = useChatStore()
@@ -22,6 +24,11 @@ export function useChatStream() {
             eventSourceRef.current = null
         }
         setState((prev) => ({ ...prev, isStreaming: false }))
+    }, [])
+
+    // Reset conversation when starting a new chat
+    const resetConversation = useCallback(() => {
+        setState((prev) => ({ ...prev, conversationId: null }))
     }, [])
 
     const startStream = useCallback(async (query: string) => {
@@ -45,17 +52,38 @@ export function useChatStream() {
             timestamp: new Date().toISOString(),
         })
 
-        setState({
+        setState((prev) => ({
+            ...prev,
             isStreaming: true,
             error: null,
-        })
+        }))
 
         const apiKey = localStorage.getItem('api_key')
         // Build URL for proxy (configured in vite.config.ts)
         const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
         const url = new URL(`${apiBaseUrl}/query/stream`)
-        url.searchParams.set('query', query)
+
+        // Trigger Logic: Check for @agent or /agent
+        let finalQuery = query
+        let isAgentMode = false
+
+        if (query.startsWith('@agent') || query.startsWith('/agent') || query.startsWith('/carbonio')) {
+            isAgentMode = true
+            // Remove trigger from query sent to backend
+            finalQuery = query.replace(/^(@agent|\/agent|\/carbonio)\s*/, '')
+        }
+
+        url.searchParams.set('query', finalQuery)
         url.searchParams.set('api_key', apiKey || '')
+
+        if (isAgentMode) {
+            url.searchParams.set('agent_mode', 'true')
+        }
+
+        // Pass conversation_id for threading (if we have one from previous messages)
+        if (state.conversationId) {
+            url.searchParams.set('conversation_id', state.conversationId)
+        }
 
         const eventSource = new EventSource(url.toString())
         eventSourceRef.current = eventSource
@@ -86,12 +114,40 @@ export function useChatStream() {
             }
         })
 
+        // Handle 'message' event from Agent mode (complete answer at once)
+        eventSource.addEventListener('message', (e) => {
+            try {
+                const fullMessage = JSON.parse(e.data)
+                updateLastMessage({
+                    thinking: null,
+                    content: fullMessage
+                })
+            } catch (err) {
+                // Fallback: use raw data
+                updateLastMessage({
+                    thinking: null,
+                    content: e.data
+                })
+            }
+        })
+
         eventSource.addEventListener('sources', (e) => {
             try {
                 const sources: Source[] = JSON.parse(e.data)
                 updateLastMessage({ sources })
             } catch (err) {
                 console.error('Failed to parse sources', err)
+            }
+        })
+
+        // Listen for conversation_id from backend (for threading)
+        eventSource.addEventListener('conversation_id', (e) => {
+            try {
+                const convId = JSON.parse(e.data)
+                setState((prev) => ({ ...prev, conversationId: convId }))
+                console.log('Received conversation_id for threading:', convId)
+            } catch (err) {
+                console.error('Failed to parse conversation_id', err)
             }
         })
 
@@ -110,7 +166,11 @@ export function useChatStream() {
             }))
             stopStream()
         })
-    }, [addMessage, updateLastMessage, stopStream])
+    }, [addMessage, updateLastMessage, stopStream, state.conversationId])
 
-    return { ...state, startStream, stopStream }
+    const setConversationId = useCallback((id: string | null) => {
+        setState((prev) => ({ ...prev, conversationId: id }))
+    }, [])
+
+    return { ...state, startStream, stopStream, resetConversation, setConversationId }
 }
