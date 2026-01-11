@@ -107,7 +107,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **PDF**: PyMuPDF4LLM, Marker-PDF, and Unstructured fallback
 - **Markdown**: Native parsing with structure preservation
 - **Text**: Direct ingestion
-- **Future-ready**: Extensible connector architecture (Zendesk included)
+- **External Sources**: Connectors for Carbonio (Mail/Calendar/Chat), Confluence, Zendesk
 
 #### Intelligent Chunking
 - **Semantic Chunking**: Respects document structure (headers, paragraphs, code blocks)
@@ -157,6 +157,14 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Database Overview**: Graph statistics and health metrics
 - **Vector Store Inspection**: Collection stats and memory usage
 - **PDF Viewer**: In-browser PDF viewing with page navigation
+
+#### External Connectors (`/admin/connectors`)
+- **Carbonio**: Integrate with Zextras Mail, Calendar, and Chats (includes Agent tools)
+- **Confluence**: Sync wiki pages from Atlassian Confluence Cloud
+- **Zendesk**: Ingest Help Center articles from Zendesk
+- **Content Browser**: Browse and selectively ingest items from connected services
+- **Incremental Sync**: Efficient updates using `since` timestamps
+- See [docs/CONNECTORS.md](docs/CONNECTORS.md) for configuration details
 
 #### Job Management (`/admin/ops`)
 - **Job Dashboard**: Monitor active, pending, and completed tasks
@@ -658,6 +666,17 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 | `POST` | `/v1/admin/jobs/{id}/cancel`               | Cancel a job                |
 | `POST` | `/v1/admin/maintenance/communities/detect` | Trigger community detection |
 | `POST` | `/v1/admin/ragas/benchmark/run`            | Run evaluation              |
+
+### Connector Endpoints
+
+| Method | Endpoint                        | Description                        |
+| ------ | ------------------------------- | ---------------------------------- |
+| `GET`  | `/v1/connectors`                | List available connector types     |
+| `GET`  | `/v1/connectors/{type}/status`  | Get connector status               |
+| `POST` | `/v1/connectors/{type}/connect` | Authenticate with credentials      |
+| `POST` | `/v1/connectors/{type}/sync`    | Trigger sync (full or incremental) |
+| `GET`  | `/v1/connectors/{type}/items`   | Browse content from connector      |
+| `POST` | `/v1/connectors/{type}/ingest`  | Ingest selected items by ID        |
 
 ---
 
