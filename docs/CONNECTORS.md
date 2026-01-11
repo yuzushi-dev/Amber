@@ -12,7 +12,58 @@ All connectors extend `BaseConnector` (`src/core/connectors/base.py`) and implem
 | `fetch_items(since)`                  | Fetch items for RAG ingestion (supports incremental sync) |
 | `get_item_content(item_id)`           | Retrieve full content of a specific item                  |
 | `list_items(page, page_size, search)` | Paginated listing for UI display                          |
+| `test_connection()`                   | Verify the connection is healthy                          |
 | `get_agent_tools()`                   | Return tools for the Agent orchestrator                   |
+
+---
+
+## API Endpoints
+
+All connector endpoints are available at `/v1/connectors`.
+
+| Endpoint                     | Method | Description                        |
+| ---------------------------- | ------ | ---------------------------------- |
+| `/connectors`                | `GET`  | List all available connector types |
+| `/connectors/{type}/status`  | `GET`  | Get status of a specific connector |
+| `/connectors/{type}/connect` | `POST` | Authenticate with credentials      |
+| `/connectors/{type}/sync`    | `POST` | Trigger sync (full or incremental) |
+| `/connectors/{type}/items`   | `GET`  | Browse content from the connector  |
+| `/connectors/{type}/ingest`  | `POST` | Ingest specific items by ID        |
+
+### Request/Response Examples
+
+**Authenticate:**
+```json
+POST /v1/connectors/carbonio/connect
+{
+  "credentials": {
+    "host": "https://mail.example.com",
+    "email": "user@example.com",
+    "password": "secret"
+  }
+}
+```
+
+**Trigger Sync:**
+```json
+POST /v1/connectors/carbonio/sync
+{
+  "full_sync": false
+}
+```
+
+**List Items:**
+```
+GET /v1/connectors/carbonio/items?page=1&page_size=20&search=invoice
+```
+
+**Ingest Selected:**
+```json
+POST /v1/connectors/carbonio/ingest
+{
+  "item_ids": ["msg-123", "msg-456"]
+}
+```
 
 ---
 
@@ -29,21 +80,23 @@ All connectors extend `BaseConnector` (`src/core/connectors/base.py`) and implem
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search_chats`     | Search chat conversations by person name. Handles disambiguation when multiple people match.                                                          |
 | `get_chat_history` | Retrieve message history from a specific chat. Supports date filtering (e.g., "January 9") and keyword search. Uses XMPP/WebSocket for real messages. |
-| `search_mail`      | Search emails by query.                                                                                                                               |
-| `get_calendar`     | Retrieve calendar events for a date range.                                                                                                            |
+| `search_mail`      | Search emails by query (subject, sender, etc.)                                                                                                        |
+| `get_calendar`     | Retrieve calendar events for a date range or specific date.                                                                                           |
 
 **Configuration:**
-```env
-# Set via ConnectorState in database
-host: https://mail.example.com
-email: user@example.com
-password: <password>
+```json
+{
+  "host": "https://mail.example.com",
+  "email": "user@example.com",
+  "password": "<password>"
+}
 ```
 
 **Technical Notes:**
 - Uses hybrid protocol: XML SOAP for auth, JSON REST for data
 - Chat history retrieval uses XMPP/WebSocket connection with XEP-0313 (MAM)
 - Date-aware filtering: queries like "January 9" match message timestamps
+- Real-time XMPP handled by `carbonio_xmpp.py`
 
 ---
 
@@ -59,10 +112,12 @@ password: <password>
 - Retrieves page content in storage format (HTML-like)
 
 **Configuration:**
-```env
-CONFLUENCE_BASE_URL=https://domain.atlassian.net/wiki
-CONFLUENCE_EMAIL=user@example.com
-CONFLUENCE_API_TOKEN=<token>
+```json
+{
+  "base_url": "https://domain.atlassian.net/wiki",
+  "email": "user@example.com",
+  "api_token": "<token>"
+}
 ```
 
 **Agent Tools:** None (data ingestion only)
@@ -81,10 +136,12 @@ CONFLUENCE_API_TOKEN=<token>
 - Includes metadata: section, author, votes, draft status
 
 **Configuration:**
-```env
-ZENDESK_SUBDOMAIN=mycompany
-ZENDESK_EMAIL=admin@example.com
-ZENDESK_API_TOKEN=<token>
+```json
+{
+  "subdomain": "mycompany",
+  "email": "admin@example.com",
+  "api_token": "<token>"
+}
 ```
 
 **Agent Tools:** None (data ingestion only)
@@ -96,7 +153,8 @@ ZENDESK_API_TOKEN=<token>
 1. Create `src/core/connectors/myservice.py`
 2. Extend `BaseConnector` and implement all abstract methods
 3. Register in `src/core/connectors/__init__.py`
-4. (Optional) Add Agent tools via `get_agent_tools()` method
+4. Add to `CONNECTOR_REGISTRY` in `src/api/routes/connectors.py`
+5. (Optional) Add Agent tools via `get_agent_tools()` method
 
 ```python
 from src.core.connectors.base import BaseConnector, ConnectorItem
@@ -121,6 +179,10 @@ class MyServiceConnector(BaseConnector):
         # Return (items, has_more)
         pass
     
+    async def test_connection(self) -> bool:
+        # Test if connection is healthy
+        return True
+    
     def get_agent_tools(self):
         # Return tool definitions for Agent
         return []
@@ -139,7 +201,14 @@ Connector credentials are stored encrypted in the `connector_states` table:
 | `last_sync`      | Timestamp of last successful sync    |
 | `enabled`        | Active/inactive toggle               |
 
-API Endpoints:
-- `GET /v1/connectors` - List configured connectors
-- `POST /v1/connectors/{type}/connect` - Initialize/reconnect
-- `DELETE /v1/connectors/{type}` - Remove connector
+---
+
+## UI Integration
+
+The frontend Connector Management UI (`/admin/connectors`) provides:
+
+- **Connector Cards**: Visual status for each connector type
+- **Authentication Forms**: Service-specific credential input
+- **Content Browser**: Browse and select items for ingestion
+- **Sync Controls**: Trigger full or incremental sync
+- **Status Indicators**: Real-time sync progress and error reporting
