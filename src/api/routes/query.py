@@ -735,6 +735,12 @@ async def query_stream(
                 return
 
 
+            # Emit conversation_id IMMEDIATELY for threading (to match Agent behavior)
+            import uuid
+            final_conversation_id = request.conversation_id or str(uuid.uuid4())
+            logger.info(f"EMITTING conversation_id SSE event upfront: {final_conversation_id}")
+            yield f"event: conversation_id\ndata: {json.dumps(final_conversation_id)}\n\n"
+
             # Stream the answer
             full_answer = ""
             async for event_dict in generation_service.generate_stream(
@@ -760,31 +766,66 @@ async def query_stream(
                 summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
                 title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
                 
-                import uuid
+                from datetime import datetime
                 from src.core.models.memory import ConversationSummary
                 from src.api.deps import _async_session_maker
                 
                 async with _async_session_maker() as session:
-                    new_summary = ConversationSummary(
-                        id=str(uuid.uuid4()),
-                        tenant_id=tenant_id,
-                        user_id="user", # Default user
-                        title=title_text,
-                        summary=summary_text,
-                        metadata_={
-                            "query": request.query,
+                    # Try to find existing conversation (for threading)
+                    existing_summary = None
+                    if request.conversation_id:
+                        existing_summary = await session.get(ConversationSummary, final_conversation_id)
+
+                    if existing_summary:
+                        # UPDATE existing conversation
+                        # 1. Append to history
+                        history = existing_summary.metadata_.get("history", [])
+                        history.append({
+                            "query": request.query, 
                             "answer": full_answer,
-                            "model": "rag-default"  # QueryOptions doesn't have model attr
-                        }
-                    )
-                    session.add(new_summary)
-                    await session.commit()
-                    logger.info(f"Saved conversation history: {new_summary.id}")
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                        existing_summary.metadata_["history"] = history
+                        
+                        # 2. Update top-level metadata
+                        existing_summary.metadata_["query"] = request.query
+                        existing_summary.metadata_["answer"] = full_answer
+                        existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
+                        
+                        # 3. Flag as modified for SQLAlchemy
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(existing_summary, "metadata_")
+                        
+                        session.add(existing_summary)
+                        await session.commit()
+                        logger.info(f"Updated RAG conversation history: {existing_summary.id}")
+                    else:
+                        # INSERT new conversation
+                        # Use the final_conversation_id we generated at the start
+                        new_summary = ConversationSummary(
+                            id=final_conversation_id,
+                            tenant_id=tenant_id,
+                            user_id="user",
+                            title=title_text,
+                            summary=summary_text,
+                            metadata_={
+                                "query": request.query,
+                                "answer": full_answer,
+                                "model": "rag-default",
+                                "mode": "rag",
+                                "history": [{
+                                    "query": request.query, 
+                                    "answer": full_answer,
+                                    "timestamp": datetime.utcnow().isoformat()
+                                }]
+                            }
+                        )
+                        session.add(new_summary)
+                        await session.commit()
+                        logger.info(f"Saved RAG conversation history: {new_summary.id}")
                     
             except Exception as e:
-                logger.error(f"Failed to save conversation history: {e}")
-                    
-
+                logger.error(f"Failed to save RAG conversation history: {e}")
 
             yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
 

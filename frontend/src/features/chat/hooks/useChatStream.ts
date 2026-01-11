@@ -18,6 +18,9 @@ export function useChatStream() {
     const { addMessage, updateLastMessage } = useChatStore()
     const eventSourceRef = useRef<EventSource | null>(null)
 
+    // Use ref to always access current conversationId (avoids stale closure)
+    const conversationIdRef = useRef<string | null>(null)
+
     const stopStream = useCallback(() => {
         if (eventSourceRef.current) {
             eventSourceRef.current.close()
@@ -28,6 +31,7 @@ export function useChatStream() {
 
     // Reset conversation when starting a new chat
     const resetConversation = useCallback(() => {
+        conversationIdRef.current = null
         setState((prev) => ({ ...prev, conversationId: null }))
     }, [])
 
@@ -81,8 +85,9 @@ export function useChatStream() {
         }
 
         // Pass conversation_id for threading (if we have one from previous messages)
-        if (state.conversationId) {
-            url.searchParams.set('conversation_id', state.conversationId)
+        // Use ref to avoid stale closure issue
+        if (conversationIdRef.current) {
+            url.searchParams.set('conversation_id', conversationIdRef.current)
         }
 
         const eventSource = new EventSource(url.toString())
@@ -144,6 +149,7 @@ export function useChatStream() {
         eventSource.addEventListener('conversation_id', (e) => {
             try {
                 const convId = JSON.parse(e.data)
+                conversationIdRef.current = convId  // Update ref immediately
                 setState((prev) => ({ ...prev, conversationId: convId }))
                 console.log('Received conversation_id for threading:', convId)
             } catch (err) {
@@ -169,6 +175,7 @@ export function useChatStream() {
     }, [addMessage, updateLastMessage, stopStream, state.conversationId])
 
     const setConversationId = useCallback((id: string | null) => {
+        conversationIdRef.current = id  // Sync ref
         setState((prev) => ({ ...prev, conversationId: id }))
     }, [])
 
