@@ -107,3 +107,13 @@ class BaseConnector(ABC):
             return await self.authenticate({})
         except Exception:
             return False
+
+    def get_agent_tools(self) -> list[dict[str, Any]]:
+        """
+        Get tools provided by this connector for the Agent.
+
+        Returns:
+            List of tool definitions compatible with AgentOrchestrator.
+            Each dict should contain: 'name', 'func', 'schema'.
+        """
+        return []
