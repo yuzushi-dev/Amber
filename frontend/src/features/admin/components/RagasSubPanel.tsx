@@ -161,6 +161,7 @@ export function RagasSubPanel() {
                 }
             }
         })
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchData is stable, polling is intentional
     }, [runs])
 
     const formatScore = (score: number | null) => {

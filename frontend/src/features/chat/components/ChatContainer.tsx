@@ -100,6 +100,7 @@ export default function ChatContainer() {
             // New chat - clear messages AND reset conversation threading
             clearMessages()
             resetConversation()
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset title on route change
             setTitle('New Conversation')
         }
     }, [requestId, clearMessages, addMessage, resetConversation, setConversationId])
@@ -112,6 +113,7 @@ export default function ChatContainer() {
                 const newTitle = firstUserContent.length > 50
                     ? firstUserContent.substring(0, 50) + '...'
                     : firstUserContent
+                // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: derive title from messages
                 setTitle(newTitle)
             }
         }

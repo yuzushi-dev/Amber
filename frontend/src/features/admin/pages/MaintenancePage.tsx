@@ -162,7 +162,7 @@ export default function MaintenancePage() {
                         </div>
                         <div>
                             <div className="text-sm text-muted-foreground">Hit Rate</div>
-                            <div className="text-xl font-bold text-green-600">
+                            <div className="text-xl font-bold text-success">
                                 {stats?.cache.hit_rate != null ? `${stats.cache.hit_rate}%` : '—'}
                             </div>
                         </div>

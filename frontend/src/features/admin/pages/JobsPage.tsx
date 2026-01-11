@@ -8,6 +8,9 @@
 import { useState, useEffect } from 'react'
 import { Play, X, RefreshCw, Clock, AlertCircle, CheckCircle } from 'lucide-react'
 import { jobsApi, JobInfo } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function JobsPage() {
     const [jobs, setJobs] = useState<JobInfo[]>([])
@@ -55,36 +58,36 @@ export default function JobsPage() {
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'SUCCESS':
-                return <CheckCircle className="w-4 h-4 text-green-500" />
+                return <CheckCircle className="w-4 h-4 text-success" />
             case 'FAILURE':
-                return <AlertCircle className="w-4 h-4 text-red-500" />
+                return <AlertCircle className="w-4 h-4 text-destructive" />
             case 'STARTED':
             case 'PROGRESS':
-                return <Play className="w-4 h-4 text-blue-500 animate-pulse" />
+                return <Play className="w-4 h-4 text-info animate-pulse" />
             case 'PENDING':
-                return <Clock className="w-4 h-4 text-yellow-500" />
+                return <Clock className="w-4 h-4 text-warning" />
             case 'REVOKED':
-                return <X className="w-4 h-4 text-gray-500" />
+                return <X className="w-4 h-4 text-muted-foreground" />
             default:
-                return <Clock className="w-4 h-4 text-gray-400" />
+                return <Clock className="w-4 h-4 text-muted-foreground" />
         }
     }
 
     const getStatusClass = (status: string) => {
         switch (status) {
             case 'SUCCESS':
-                return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                return 'bg-success-muted text-success-foreground border-success/30'
             case 'FAILURE':
-                return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                return 'bg-[hsl(var(--destructive)_/_0.1)] text-destructive border-destructive/30'
             case 'STARTED':
             case 'PROGRESS':
-                return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                return 'bg-info-muted text-info-foreground border-info/30'
             case 'PENDING':
-                return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                return 'bg-warning-muted text-warning-foreground border-warning/30'
             case 'REVOKED':
-                return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                return 'bg-muted text-muted-foreground border-border'
             default:
-                return 'bg-gray-100 text-gray-800'
+                return 'bg-muted text-muted-foreground'
         }
     }
 
@@ -97,26 +100,26 @@ export default function JobsPage() {
                         Monitor and control background tasks
                     </p>
                 </div>
-                <button
+                <Button
+                    variant="secondary"
                     onClick={fetchJobs}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
                     aria-label="Refresh jobs"
                 >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div className="bg-card border rounded-lg p-4">
                     <div className="text-sm text-muted-foreground">Active Tasks</div>
-                    <div className="text-2xl font-bold text-blue-600">{activeCount}</div>
+                    <div className="text-2xl font-bold text-info">{activeCount}</div>
                 </div>
                 <div className="bg-card border rounded-lg p-4">
                     <div className="text-sm text-muted-foreground">Queued Tasks</div>
-                    <div className="text-2xl font-bold text-yellow-600">{reservedCount}</div>
+                    <div className="text-2xl font-bold text-warning">{reservedCount}</div>
                 </div>
                 <div className="bg-card border rounded-lg p-4">
                     <div className="text-sm text-muted-foreground">Total Listed</div>
@@ -125,9 +128,9 @@ export default function JobsPage() {
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
-                </div>
+                <Alert variant="destructive" className="mb-6">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {/* Jobs Table */}
@@ -135,11 +138,11 @@ export default function JobsPage() {
                 <table className="w-full">
                     <thead className="bg-muted/50">
                         <tr>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Task</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Progress</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Retries</th>
-                            <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                            <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Task</th>
+                            <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                            <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Progress</th>
+                            <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Retries</th>
+                            <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -199,15 +202,17 @@ export default function JobsPage() {
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                     {(job.status === 'STARTED' || job.status === 'PENDING' || job.status === 'PROGRESS') && (
-                                        <button
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
                                             onClick={() => handleCancel(job.task_id)}
                                             disabled={cancellingId === job.task_id}
-                                            className="inline-flex items-center gap-1 px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                             aria-label={`Cancel task ${job.task_id}`}
                                         >
-                                            <X className="w-4 h-4" />
+                                            <X className="w-4 h-4 mr-1" />
                                             Cancel
-                                        </button>
+                                        </Button>
                                     )}
                                 </td>
                             </tr>

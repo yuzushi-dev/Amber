@@ -49,9 +49,10 @@ export default function ZendeskConfigForm({ onSuccess }: ZendeskConfigFormProps)
             await connectorsApi.authenticate('zendesk', values)
             toast.success('Successfully authenticated with Zendesk')
             onSuccess()
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err)
-            const errorMsg = err.response?.data?.detail || 'Authentication failed'
+            const error = err as { response?: { data?: { detail?: string } } }
+            const errorMsg = error.response?.data?.detail || 'Authentication failed'
             setTestError(errorMsg)
             toast.error(errorMsg)
         } finally {

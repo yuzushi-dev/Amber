@@ -202,13 +202,24 @@ class CarbonioConnector(BaseConnector):
         return b"Pass"
 
     async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list[ConnectorItem], bool]:
-        """List items for the UI."""
-        items = []
+        """List items for the UI with proper pagination."""
+        all_items = []
+        # Fetch enough items to know if there are more
+        items_to_fetch = (page * page_size) + 1  # +1 to check for has_more
+        
         async for item in self.fetch_items():
-            items.append(item)
-            if len(items) >= page_size:
+            all_items.append(item)
+            if len(all_items) >= items_to_fetch:
                 break
-        return items, False
+        
+        # Calculate pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        
+        page_items = all_items[start_idx:end_idx]
+        has_more = len(all_items) > end_idx
+        
+        return page_items, has_more
 
     # --- Agent Tools ---
 

@@ -51,10 +51,11 @@ export function ConfluenceConfigForm({ onSuccess }: ConfluenceConfigFormProps) {
             })
             toast.success('Successfully connected to Confluence')
             onSuccess()
-        } catch (error: any) {
+        } catch (err: unknown) {
+            const error = err as { response?: { data?: { detail?: string } } }
             const errorMsg = error.response?.data?.detail || 'Authentication failed'
             setTestError(errorMsg)
-            console.error(error)
+            console.error(err)
         }
     }
 

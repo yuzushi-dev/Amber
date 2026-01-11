@@ -51,28 +51,33 @@ interface ThreeGraphProps {
 }
 
 // Transform nodes/edges to force-graph format
+interface ForceGraphNode {
+    id: string;
+    label: string;
+    color: string;
+    community_id?: number | null;
+    type?: string | null;
+    degree?: number;
+    val: number;
+    x?: number;
+    y?: number;
+    z?: number;
+}
+
+interface ForceGraphLink {
+    source: string;
+    target: string;
+    weight: number;
+    type?: string | null;
+}
+
 interface GraphData {
-    nodes: Array<{
-        id: string;
-        label: string;
-        color: string;
-        community_id?: number | null;
-        type?: string | null;
-        degree?: number;
-        val: number;
-        x?: number;
-        y?: number;
-        z?: number;
-    }>;
-    links: Array<{
-        source: string;
-        target: string;
-        weight: number;
-        type?: string | null;
-    }>;
+    nodes: ForceGraphNode[];
+    links: ForceGraphLink[];
 }
 
 export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProps) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ForceGraph3D ref type is complex
     const fgRef = useRef<any>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
@@ -112,7 +117,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
     }, [nodes, edges]);
 
     // Handle node click
-    const handleNodeClick = useCallback((node: any) => {
+    const handleNodeClick = useCallback((node: ForceGraphNode) => {
         if (onNodeClick) {
             onNodeClick({
                 id: node.id,
@@ -124,7 +129,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
         }
 
         // Zoom to node with smooth animation
-        if (fgRef.current) {
+        if (fgRef.current && node.x !== undefined && node.y !== undefined && node.z !== undefined) {
             const distance = 150;
             const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
 
@@ -137,7 +142,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
     }, [onNodeClick]);
 
     // Custom node rendering with premium glass-like glow effect
-    const nodeThreeObject = useCallback((node: any) => {
+    const nodeThreeObject = useCallback((node: ForceGraphNode) => {
         const group = new THREE.Group();
         const baseSize = node.val || 4;
 

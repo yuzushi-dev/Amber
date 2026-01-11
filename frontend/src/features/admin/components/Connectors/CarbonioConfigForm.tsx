@@ -49,9 +49,10 @@ export default function CarbonioConfigForm({ onSuccess }: CarbonioConfigFormProp
             await connectorsApi.authenticate('carbonio', values)
             toast.success('Successfully authenticated with Carbonio')
             onSuccess()
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err)
-            const errorMsg = err.response?.data?.detail || 'Authentication failed'
+            const error = err as { response?: { data?: { detail?: string } } }
+            const errorMsg = error.response?.data?.detail || 'Authentication failed'
             setTestError(errorMsg)
             toast.error(errorMsg)
         } finally {

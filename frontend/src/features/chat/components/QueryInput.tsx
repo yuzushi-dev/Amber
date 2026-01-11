@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { SendHorizontal, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface QueryInputProps {
     onSend: (query: string) => void
@@ -60,14 +61,11 @@ export default function QueryInput({ onSend, disabled }: QueryInputProps) {
                     aria-describedby="query-hint"
                     aria-busy={disabled}
                 />
-                <button
+                <Button
                     type="submit"
+                    size="icon"
                     disabled={!query.trim() || disabled}
-                    className={cn(
-                        "p-3 rounded-lg bg-primary text-primary-foreground transition-all duration-200",
-                        "disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 active:scale-95",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                    )}
+                    className="shrink-0"
                     aria-label={disabled ? "Processing query" : "Send query"}
                 >
                     {disabled ? (
@@ -75,7 +73,7 @@ export default function QueryInput({ onSend, disabled }: QueryInputProps) {
                     ) : (
                         <SendHorizontal className="w-5 h-5" aria-hidden="true" />
                     )}
-                </button>
+                </Button>
             </div>
             <p id="query-hint" className="text-[10px] text-center mt-2 text-muted-foreground opacity-50">
                 Shift + Enter for new line. Amber can make mistakes. Check important info.

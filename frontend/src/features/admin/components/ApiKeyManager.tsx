@@ -8,8 +8,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth, maskApiKey } from '@/features/auth'
 import ApiKeyModal from '@/features/auth/components/ApiKeyModal'
-import { Key, LogOut, Plus, Trash, Copy, Check, Shield, AlertTriangle } from 'lucide-react'
+import { Key, LogOut, Plus, Trash, Copy, Check, Shield } from 'lucide-react'
 import { keysApi, ApiKeyResponse, CreatedKeyResponse } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function ApiKeyManager() {
     const { apiKey, clearApiKey } = useAuth()
@@ -102,35 +104,34 @@ export default function ApiKeyManager() {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <button
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setShowKeyModal(true)}
-                        className="px-3 py-1.5 text-sm border rounded-md hover:bg-accent transition-colors"
                     >
                         Switch Key
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                             if (confirm('Are you sure you want to logout?')) {
                                 clearApiKey()
                                 window.location.reload()
                             }
                         }}
-                        className="px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded-md transition-colors flex items-center gap-1"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
-                        <LogOut className="w-3 h-3" />
+                        <LogOut className="w-3 h-3 mr-1" />
                         Logout
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             {error && (
-                <div className="p-4 bg-red-500/10 text-red-600 border border-red-500/20 rounded-md flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>{error}</span>
-                    </div>
-                    <button onClick={() => setError(null)}>×</button>
-                </div>
+                <Alert variant="destructive" dismissible onDismiss={() => setError(null)}>
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {/* Create New Key */}
@@ -148,45 +149,37 @@ export default function ApiKeyManager() {
                             disabled={creating}
                         />
                     </div>
-                    <button
+                    <Button
                         type="submit"
                         disabled={!newName.trim() || creating}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                     >
-                        <Plus className="w-4 h-4" />
+                        <Plus className="w-4 h-4 mr-2" />
                         {creating ? 'Generating...' : 'Generate Key'}
-                    </button>
+                    </Button>
                 </form>
 
                 {createdKey && (
-                    <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-md animate-in fade-in slide-in-from-top-2">
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-green-700 font-semibold flex items-center gap-2">
-                                <Check className="w-4 h-4" /> Key Created Successfully
-                            </h3>
-                            <button
-                                onClick={() => setCreatedKey(null)}
-                                className="text-xs text-green-700 hover:underline"
-                            >
-                                Close
-                            </button>
+                    <Alert variant="success" className="mt-4" dismissible onDismiss={() => setCreatedKey(null)}>
+                        <div className="font-semibold flex items-center gap-2 mb-2">
+                            <Check className="w-4 h-4" /> Key Created Successfully
                         </div>
-                        <p className="text-sm text-green-700/80 mb-3">
-                            Copy this key now. It will never be shown again.
-                        </p>
-                        <div className="flex items-center gap-2">
-                            <code className="flex-1 bg-background p-3 rounded border font-mono text-sm break-all">
-                                {createdKey.key}
-                            </code>
-                            <button
-                                onClick={() => navigator.clipboard.writeText(createdKey.key)}
-                                className="p-2 text-green-700 hover:bg-green-500/10 rounded transition-colors"
-                                title="Copy to clipboard"
-                            >
-                                <Copy className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
+                        <AlertDescription>
+                            <p className="mb-3">Copy this key now. It will never be shown again.</p>
+                            <div className="flex items-center gap-2">
+                                <code className="flex-1 bg-background p-3 rounded border font-mono text-sm break-all">
+                                    {createdKey.key}
+                                </code>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => navigator.clipboard.writeText(createdKey.key)}
+                                    title="Copy to clipboard"
+                                >
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
                 )}
             </div>
 
@@ -204,15 +197,15 @@ export default function ApiKeyManager() {
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-muted/40 text-muted-foreground uppercase text-xs">
+                        <table className="w-full">
+                            <thead className="bg-muted/50">
                                 <tr>
-                                    <th className="px-6 py-3">Name</th>
-                                    <th className="px-6 py-3">Prefix</th>
-                                    <th className="px-6 py-3">Ending</th>
-                                    <th className="px-6 py-3">Created</th>
-                                    <th className="px-6 py-3">Last Used</th>
-                                    <th className="px-6 py-3 text-right">Actions</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Prefix</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Ending</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Created</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Used</th>
+                                    <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -228,13 +221,15 @@ export default function ApiKeyManager() {
                                             {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never'}
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <button
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
                                                 onClick={() => handleRevoke(key.id)}
-                                                className="text-destructive hover:text-destructive/80 transition-colors inline-flex items-center gap-1 text-xs font-medium"
+                                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                                 title="Revoke Key"
                                             >
-                                                <Trash className="w-3 h-3" /> Revoke
-                                            </button>
+                                                <Trash className="w-3 h-3 mr-1" /> Revoke
+                                            </Button>
                                         </td>
                                     </tr>
                                 ))}
