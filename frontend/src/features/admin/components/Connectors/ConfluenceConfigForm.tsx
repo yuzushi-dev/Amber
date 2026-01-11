@@ -1,11 +1,11 @@
-
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Button } from '@/components/ui/button';
-import { useConnectors } from '@/lib/api-connectors';
-import { toast } from 'sonner';
-import { Input } from '@/components/ui/input';
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import * as z from 'zod'
+import { Button } from '@/components/ui/button'
+import { useConnectors } from '@/lib/api-connectors'
+import { toast } from 'sonner'
+import { Input } from '@/components/ui/input'
 import {
     Form,
     FormControl,
@@ -14,20 +14,25 @@ import {
     FormItem,
     FormLabel,
     FormMessage,
-} from '@/components/ui/form';
+} from '@/components/ui/form'
+import { BaseConfigForm } from './BaseConfigForm'
+import { Loader2, Eye, EyeOff, ExternalLink } from 'lucide-react'
 
 const formSchema = z.object({
     base_url: z.string().url("Must be a valid URL (e.g. https://domain.atlassian.net/wiki)"),
     email: z.string().email("Invalid email address"),
     api_token: z.string().min(1, "API Token is required"),
-});
+})
 
 interface ConfluenceConfigFormProps {
-    onSuccess: () => void;
+    onSuccess: () => void
 }
 
 export function ConfluenceConfigForm({ onSuccess }: ConfluenceConfigFormProps) {
-    const { authenticate } = useConnectors();
+    const { authenticate } = useConnectors()
+    const [showToken, setShowToken] = useState(false)
+    const [testError, setTestError] = useState<string | null>(null)
+
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -35,32 +40,31 @@ export function ConfluenceConfigForm({ onSuccess }: ConfluenceConfigFormProps) {
             email: '',
             api_token: '',
         },
-    });
+    })
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         try {
+            setTestError(null)
             await authenticate.mutateAsync({
                 type: 'confluence',
                 credentials: values,
-            });
-            toast.success('Successfully connected to Confluence');
-            onSuccess();
-        } catch (error) {
-            // Error handled by mutation
-            console.error(error);
+            })
+            toast.success('Successfully connected to Confluence')
+            onSuccess()
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.detail || 'Authentication failed'
+            setTestError(errorMsg)
+            console.error(error)
         }
     }
 
     return (
-        <div className="max-w-md space-y-6">
-            <div className="space-y-2">
-                <h3 className="text-lg font-medium">Confluence Configuration</h3>
-                <p className="text-sm text-muted-foreground">
-                    Connect your Atlassian Confluence Cloud instance.
-                    You need your email and an API Token.
-                </p>
-            </div>
-
+        <BaseConfigForm
+            connectorType="confluence"
+            title="Confluence Configuration"
+            description="Connect your Atlassian Confluence Cloud instance to sync pages."
+            errorMessage={testError ?? undefined}
+        >
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <FormField
@@ -104,21 +108,57 @@ export function ConfluenceConfigForm({ onSuccess }: ConfluenceConfigFormProps) {
                             <FormItem>
                                 <FormLabel>API Token</FormLabel>
                                 <FormControl>
-                                    <Input type="password" placeholder="Atlassian API Token" {...field} />
+                                    <div className="relative">
+                                        <Input
+                                            type={showToken ? 'text' : 'password'}
+                                            placeholder="Enter your Atlassian API Token"
+                                            className="pr-10"
+                                            {...field}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                                            onClick={() => setShowToken(!showToken)}
+                                        >
+                                            {showToken ? (
+                                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                                <Eye className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                            <span className="sr-only">
+                                                {showToken ? 'Hide token' : 'Show token'}
+                                            </span>
+                                        </Button>
+                                    </div>
                                 </FormControl>
                                 <FormDescription>
-                                    Generate one at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener noreferrer" className="underline">id.atlassian.com</a>
+                                    <a
+                                        href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                                    >
+                                        Generate one at id.atlassian.com
+                                        <ExternalLink className="w-3 h-3" />
+                                    </a>
                                 </FormDescription>
                                 <FormMessage />
                             </FormItem>
                         )}
                     />
 
-                    <Button type="submit" disabled={authenticate.isPending}>
-                        {authenticate.isPending ? 'Connecting...' : 'Connect Confluence'}
-                    </Button>
+                    <div className="pt-2">
+                        <Button type="submit" disabled={authenticate.isPending}>
+                            {authenticate.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                            {authenticate.isPending ? 'Connecting...' : 'Connect Confluence'}
+                        </Button>
+                    </div>
                 </form>
             </Form>
-        </div>
-    );
+        </BaseConfigForm>
+    )
 }
+
+export default ConfluenceConfigForm
