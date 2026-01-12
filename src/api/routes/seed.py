@@ -12,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db
+from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
 from src.shared.context import get_current_tenant
 

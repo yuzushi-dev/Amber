@@ -27,15 +27,33 @@ _async_session_maker = async_sessionmaker(
 )
 
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that yields a database session.
-
-    Yields:
-        AsyncSession: Database session that auto-closes.
+    
+    Injects the current tenant ID into the session for RLS.
+    Sets app.is_super_admin if the user has the 'super_admin' scope.
     """
     async with _async_session_maker() as session:
         try:
+            # Inject current tenant into session configuration
+            from sqlalchemy import text
+            from src.shared.context import get_current_tenant
+            
+            tenant_id = get_current_tenant()
+            if tenant_id:
+                await session.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+                    {"tenant_id": str(tenant_id)}
+                )
+            
+            # Check for super admin privilege from request state
+            permissions = getattr(request.state, "permissions", [])
+            if "super_admin" in permissions:
+                 await session.execute(
+                    text("SELECT set_config('app.is_super_admin', 'true', false)")
+                )
+            
             yield session
             await session.commit()
         except Exception:
@@ -50,9 +68,16 @@ async def verify_admin(request: Request):
     # Check permissions from request state (set by AuthMiddleware)
     permissions = getattr(request.state, "permissions", [])
 
-    # In Phase 1/MVP, we might use a simple check or specific permission string
     if "admin" not in permissions:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required"
         )
+
+
+def get_current_tenant_id(request: Request) -> str:
+    """
+    Dependency to retrieve the current tenant ID.
+    Derived from request state set by AuthenticationMiddleware.
+    """
+    return str(getattr(request.state, "tenant_id", "default"))

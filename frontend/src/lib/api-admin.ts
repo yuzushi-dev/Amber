@@ -551,6 +551,7 @@ export interface ApiKeyResponse {
     prefix: string
     is_active: boolean
     scopes: string[]
+    tenants: Array<{ id: string; name: string }>
     last_chars: string
     created_at: string
     last_used_at: string | null
@@ -566,6 +567,12 @@ export interface CreateKeyRequest {
     prefix?: string
 }
 
+export interface MeResponse {
+    name: string
+    scopes: string[]
+    tenant_id: string | null
+}
+
 export const keysApi = {
     list: async () => {
         const response = await apiClient.get<ApiKeyResponse[]>('/admin/keys')
@@ -579,5 +586,77 @@ export const keysApi = {
 
     revoke: async (keyId: string) => {
         await apiClient.delete(`/admin/keys/${keyId}`)
+    },
+
+    me: async () => {
+        const response = await apiClient.get<MeResponse>('/admin/keys/me')
+        return response.data
+    },
+
+    update: async (keyId: string, data: { name?: string; scopes?: string[] }) => {
+        const response = await apiClient.patch<ApiKeyResponse>(`/admin/keys/${keyId}`, data)
+        return response.data
+    },
+
+    linkTenant: async (keyId: string, tenantId: string, role = 'user') => {
+        await apiClient.post(`/admin/keys/${keyId}/tenants`, { tenant_id: tenantId, role })
+    },
+
+    unlinkTenant: async (keyId: string, tenantId: string) => {
+        await apiClient.delete(`/admin/keys/${keyId}/tenants/${tenantId}`)
+    },
+}
+
+// =============================================================================
+// Tenant Management API
+// =============================================================================
+
+export interface Tenant {
+    id: string
+    name: string
+    api_key_prefix: string | null
+    is_active: boolean
+    config: Record<string, unknown>
+    created_at: string | null
+    api_keys: Array<{
+        id: string
+        name: string
+        prefix: string
+        last_chars: string
+        is_active: boolean
+        scopes: string[]
+    }>
+    document_count: number
+}
+
+export interface TenantCreate {
+    name: string
+    api_key_prefix?: string
+    config?: Record<string, unknown>
+}
+
+export const tenantsApi = {
+    list: async (params?: { skip?: number; limit?: number }) => {
+        const response = await apiClient.get<Tenant[]>('/admin/tenants', { params })
+        return response.data
+    },
+
+    create: async (data: TenantCreate) => {
+        const response = await apiClient.post<Tenant>('/admin/tenants', data)
+        return response.data
+    },
+
+    get: async (tenantId: string) => {
+        const response = await apiClient.get<Tenant>(`/admin/tenants/${tenantId}`)
+        return response.data
+    },
+
+    update: async (tenantId: string, data: Partial<TenantCreate> & { is_active?: boolean }) => {
+        const response = await apiClient.patch<Tenant>(`/admin/tenants/${tenantId}`, data)
+        return response.data
+    },
+
+    delete: async (tenantId: string) => {
+        await apiClient.delete(`/admin/tenants/${tenantId}`)
     },
 }

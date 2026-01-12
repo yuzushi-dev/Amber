@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db
+from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
 from src.core.database.session import async_session_maker
 from src.core.models.feedback import Feedback

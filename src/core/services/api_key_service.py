@@ -111,6 +111,31 @@ class ApiKeyService:
         await self.session.commit()
         return result.rowcount > 0
 
+    async def update_key(
+        self,
+        key_id: str,
+        name: Optional[str] = None,
+        scopes: Optional[List[str]] = None
+    ) -> Optional[ApiKey]:
+        """
+        Update an existing API key's name or scopes.
+        """
+        query = select(ApiKey).where(ApiKey.id == key_id)
+        result = await self.session.execute(query)
+        key_record = result.scalars().first()
+        
+        if not key_record:
+            return None
+            
+        if name is not None:
+            key_record.name = name
+        if scopes is not None:
+            key_record.scopes = scopes
+            
+        await self.session.commit()
+        await self.session.refresh(key_record)
+        return key_record
+
     async def ensure_bootstrap_key(self, raw_key: str, name: str = "Bootstrap Key"):
         """
         Ensure a specific key hash exists in the DB (for migrations/env vars).

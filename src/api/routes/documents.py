@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from src.api.config import settings
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session as get_db_session
 from src.core.graph.neo4j_client import neo4j_client
 from src.core.models.document import Document
 from src.core.services.ingestion import IngestionService

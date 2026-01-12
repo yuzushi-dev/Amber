@@ -13,7 +13,7 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # Import and include sub-routers
-from src.api.routes.admin import chat_history, config, curation, jobs, keys, maintenance, ragas
+from src.api.routes.admin import chat_history, config, curation, jobs, keys, maintenance, ragas, tenants
 
 router.include_router(jobs.router)
 router.include_router(config.router)
@@ -22,4 +22,5 @@ router.include_router(maintenance.router)
 router.include_router(chat_history.router)
 router.include_router(ragas.router)
 router.include_router(keys.router)
+router.include_router(tenants.router)
 

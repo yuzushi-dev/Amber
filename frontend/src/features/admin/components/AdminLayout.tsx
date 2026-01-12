@@ -13,7 +13,8 @@ import {
     Database,
     Flag,
     ChevronLeft,
-    Gauge
+    Gauge,
+    Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -24,7 +25,8 @@ interface AdminLayoutProps {
 const adminNavItems = [
     { label: 'Jobs', icon: Activity, to: '/admin/jobs' },
     { label: 'Queues', icon: Gauge, to: '/admin/queues' },
-    { label: 'Tuning', icon: Settings2, to: '/admin/tuning' },
+    { label: 'API Keys', icon: Settings2, to: '/admin/settings/apikeys' },
+    { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
     { label: 'Curation', icon: Flag, to: '/admin/curation' },
     { label: 'Database', icon: Database, to: '/admin/database' },
 ]

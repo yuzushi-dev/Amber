@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
 
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session as get_db_session, get_current_tenant_id
 from src.core.models.folder import Folder
 from src.core.models.document import Document
 
@@ -33,10 +33,10 @@ class FolderResponse(BaseModel):
 @router.get("", response_model=List[FolderResponse])
 async def list_folders(
     session: AsyncSession = Depends(get_db_session),
-    # Assuming single tenant for experimental context, or derived from user
-    tenant_id: str = "default"
+    tenant_id: str = Depends(get_current_tenant_id)
 ):
     """List all folders for the tenant."""
+    # RLS filters automatically, but we add explicit filter for safety/clarity
     query = select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
     result = await session.execute(query)
     return result.scalars().all()
@@ -45,10 +45,11 @@ async def list_folders(
 async def create_folder(
     folder_in: FolderCreate,
     session: AsyncSession = Depends(get_db_session),
-    tenant_id: str = "default"
+    tenant_id: str = Depends(get_current_tenant_id)
 ):
     """Create a new folder."""
-    # Check for duplicate names? (Optional for now)
+    # RLS will enforce insertion only into current tenant (if check_option=CASCASE/LOCAL is used, strict RLS)
+    # Even without strict insertion check, we must insert with the correct tenant_id.
     
     new_folder = Folder(
         id=str(uuid.uuid4()),
@@ -63,29 +64,24 @@ async def create_folder(
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_folder(
     folder_id: str,
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
+    tenant_id: str = Depends(get_current_tenant_id)
 ):
     """
     Delete a folder. 
-    Documents in this folder should be unfiled (folder_id set to NULL).
+    Documents in this folder are unfiled.
     """
-    folder = await session.get(Folder, folder_id)
+    # Explicity check tenant_id in query for consistency (RLS also handles it)
+    query = select(Folder).where(Folder.id == folder_id, Folder.tenant_id == tenant_id)
+    result = await session.execute(query)
+    folder = result.scalar_one_or_none()
+    
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    # Unfile documents is handled by ORM if we didn't use cascade delete.
-    # But wait, in the model I set `cascade="all, delete-orphan"` on `Folder.documents`.
-    # Wait, that would DELETE the documents! That's dangerous. 
-    # The user said "I cannot delete them also". Usually deleting a folder usually 
-    # implies unfiling or recursive delete. 
-    # Standard safe behavior: Unfile documents.
-    # I should UPDATE the model relationship or manually nullify here.
-    # Let's inspect the model I defined earlier.
-    # `documents: Mapped[List["Document"]] = relationship("Document", back_populates="folder", cascade="all, delete-orphan")`
-    # This WILL delete documents. I should fix the model first to NOT delete documents by default. 
-    # Or I should strictly nullify them here before deleting the folder object to avoid cascade trigger.
-    
-    # Let's nullify explicitly to be safe.
+    # Unfile documents
+    # Using explicit query to update documents belonging to this folder AND this tenant (though folder_id is unique globally usually)
+    # RLS on documents ensures we only update our own documents.
     from sqlalchemy import update
     stmt = update(Document).where(Document.folder_id == folder_id).values(folder_id=None)
     await session.execute(stmt)

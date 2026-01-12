@@ -21,9 +21,17 @@ function LoadingScreen() {
   )
 }
 
+import { useEffect } from 'react'
+
 function AppContent() {
-  const { isAuthenticated, apiKey } = useAuth()
+  const { isAuthenticated, apiKey, initialFetch } = useAuth()
   const { data: setupStatus, isLoading, refetch } = useSetupStatus()
+
+  useEffect(() => {
+    if (isAuthenticated && apiKey) {
+      initialFetch()
+    }
+  }, [isAuthenticated, apiKey, initialFetch])
 
   // 1. Not authenticated → Show API Key modal
   if (!isAuthenticated || !apiKey) {

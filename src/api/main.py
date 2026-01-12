@@ -68,14 +68,13 @@ async def lifespan(app: FastAPI):
 
     # Bootstrap API Key
     try:
-        from src.api.deps import get_db_session
+        from src.api.deps import _async_session_maker
         from src.core.services.api_key_service import ApiKeyService
 
         dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
-        async for session in get_db_session():
+        async with _async_session_maker() as session:
             service = ApiKeyService(session)
             await service.ensure_bootstrap_key(dev_key, name="Development Key")
-            break
         logger.info("Bootstrapped API key")
     except Exception as e:
         logger.error(f"Failed to bootstrap API key: {e}")

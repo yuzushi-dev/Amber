@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth, maskApiKey } from '../hooks/useAuth'
-import { KeyRound, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
+import { KeyRound, Eye, EyeOff, Loader2, AlertCircle, Crown } from 'lucide-react'
 
 interface ApiKeyModalProps {
     onSuccess?: () => void
@@ -15,7 +15,7 @@ export default function ApiKeyModal({
     onClose,
     mode = 'initial'
 }: ApiKeyModalProps) {
-    const { setApiKey, isValidating, error, apiKey } = useAuth()
+    const { setApiKey, isValidating, error, apiKey, isSuperAdmin } = useAuth()
     const [inputKey, setInputKey] = useState('')
     const [showKey, setShowKey] = useState(false)
 
@@ -58,6 +58,9 @@ export default function ApiKeyModal({
                         <div className="p-3 bg-muted/50 rounded-lg text-sm">
                             <span className="text-muted-foreground">Current key: </span>
                             <code className="font-mono">{maskApiKey(apiKey)}</code>
+                            {isSuperAdmin && (
+                                <Crown className="inline-block ml-2 w-3.5 h-3.5 text-amber-500" />
+                            )}
                         </div>
                     )}
 

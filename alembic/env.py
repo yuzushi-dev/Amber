@@ -20,7 +20,19 @@ from src.core.models.base import Base
 
 # Import all models so they are registered with Base metadata
 from src.core.models.api_key import ApiKey
+from src.core.models.tenant import Tenant
 from src.core.models.connector_state import ConnectorState
+from src.core.models.document import Document
+from src.core.models.chunk import Chunk
+from src.core.models.folder import Folder
+from src.core.models.benchmark_run import BenchmarkRun
+from src.core.models.usage import UsageLog
+from src.core.models.flag import Flag
+from src.core.models.memory import UserFact, ConversationSummary
+from src.core.models.audit import AuditLog
+from src.core.models.feedback import Feedback
+from src.core.models.candidate import Candidate
+# from src.core.models.kg import ... # Check if KG has models
 
 # Alembic Config object
 config = context.config

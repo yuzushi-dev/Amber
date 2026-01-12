@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session as get_db_session
 from src.api.schemas.base import ResponseSchema
 from src.core.connectors.zendesk import ZendeskConnector
 from src.core.connectors.confluence import ConfluenceConnector

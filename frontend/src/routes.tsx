@@ -36,6 +36,7 @@ import ApiKeyPage from './features/admin/pages/ApiKeyPage'
 import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
 import ConnectorsPage from './features/admin/pages/ConnectorsPage'
 import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
+import TenantsPage from './features/admin/pages/TenantsPage'
 
 // =============================================================================
 // Root Route
@@ -206,6 +207,13 @@ const settingsConnectorDetailRoute = createRoute({
     component: () => <ConnectorDetailPage />,
 })
 
+const settingsTenantsRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/tenants',
+    component: () => <TenantsPage />,
+})
+
+
 // =============================================================================
 // Metrics Section (/admin/metrics/*)
 // =============================================================================
@@ -352,6 +360,7 @@ const routeTree = rootRoute.addChildren([
         settingsCurationRoute,
         settingsConnectorsRoute,
         settingsConnectorDetailRoute,
+        settingsTenantsRoute,
         // Metrics section
 
         metricsIndexRoute,
