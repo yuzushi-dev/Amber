@@ -81,6 +81,9 @@
     },
     "three-forcegraph": {
       "three": "0.160.0"
+    },
+    "3d-force-graph": {
+      "three": "0.160.0"
     }
   }
 }
