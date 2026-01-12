@@ -107,15 +107,14 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
         # Validate API key via Service
-        from src.api.deps import get_db_session
+        from src.api.deps import _async_session_maker
         from src.core.services.api_key_service import ApiKeyService
 
         valid_key = None
         try:
-            async for session in get_db_session():
+            async with _async_session_maker() as session:
                 service = ApiKeyService(session)
                 valid_key = await service.validate_key(api_key)
-                break
         except Exception as e:
             logger.error(f"Auth DB Error: {e}")
             return _cors_error_response(500, "INTERNAL_ERROR", "Authentication failed", origin)
@@ -129,10 +128,43 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 origin
             )
 
-        # Set context variables
-        # For Phase 1, we assume single tenant using "default"
-        # In future, ApiKey model could have a tenant_id field
-        tenant_id = TenantId("default")
+        # Resolve Tenant Context
+        header_tenant_id = request.headers.get("X-Tenant-ID")
+        allowed_tenants = {t.id for t in valid_key.tenants}
+        tenant_id = None
+
+        if header_tenant_id:
+            # Client requested specific tenant
+            if header_tenant_id in allowed_tenants:
+                tenant_id = TenantId(header_tenant_id)
+            elif not allowed_tenants:
+                 # Legacy/Bootstrap: If key has no specific links, allow 'default' if requested
+                 # This ensures unmigrated keys still work for default tenant
+                 if header_tenant_id == "default":
+                     tenant_id = TenantId("default")
+                 else:
+                     logger.warning(f"Access denied for key {valid_key.name} to tenant {header_tenant_id} (No links)")
+                     return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
+            else:
+                logger.warning(f"Access denied for key {valid_key.name} to tenant {header_tenant_id}")
+                return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
+        else:
+            # No tenant specified
+            if len(allowed_tenants) == 1:
+                # Ambiguity resolved: exact one match
+                tenant_id = TenantId(list(allowed_tenants)[0])
+            elif not allowed_tenants:
+                # Fallback to default
+                tenant_id = TenantId("default")
+            else:
+                # Ambiguous
+                return _cors_error_response(
+                    400,
+                    "BAD_REQUEST",
+                    "Multiple tenants available. Specify X-Tenant-ID header.",
+                    origin
+                )
+
         permissions = valid_key.scopes or []
 
         set_current_tenant(tenant_id)

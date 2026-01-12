@@ -8,6 +8,7 @@ Stores tenant-specific information and dynamic configuration (e.g., retrieval we
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, Column, String
+from sqlalchemy.orm import relationship
 
 from src.core.models.base import Base, TimestampMixin
 
@@ -29,6 +30,9 @@ class Tenant(Base, TimestampMixin):
 
     # Metadata
     metadata_json = Column(JSON, default=dict)
+
+    # Many-to-Many relationship with ApiKey
+    api_keys = relationship("ApiKey", secondary="api_key_tenants", back_populates="tenants", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Tenant(id={self.id}, name={self.name})>"

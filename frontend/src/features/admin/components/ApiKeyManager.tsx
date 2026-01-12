@@ -8,10 +8,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth, maskApiKey } from '@/features/auth'
 import ApiKeyModal from '@/features/auth/components/ApiKeyModal'
-import { Key, LogOut, Plus, Trash, Copy, Check, Shield } from 'lucide-react'
+import { Key, LogOut, Plus, Trash, Copy, Check, Shield, Crown } from 'lucide-react'
 import { keysApi, ApiKeyResponse, CreatedKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+
+import TenantLinkingModal from './TenantLinkingModal'
 
 export default function ApiKeyManager() {
     const { apiKey, clearApiKey } = useAuth()
@@ -21,9 +23,12 @@ export default function ApiKeyManager() {
     const [keys, setKeys] = useState<ApiKeyResponse[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [linkingKey, setLinkingKey] = useState<ApiKeyResponse | null>(null)
 
-    // Create State
+    // ... (keep fetchKeys, handleCreate, handleRevoke same) ...
+
     const [newName, setNewName] = useState('')
+    const [isSuperAdminToggle, setIsSuperAdminToggle] = useState(false)
     const [creating, setCreating] = useState(false)
     const [createdKey, setCreatedKey] = useState<CreatedKeyResponse | null>(null)
 
@@ -54,9 +59,14 @@ export default function ApiKeyManager() {
         setCreatedKey(null)
 
         try {
-            const result = await keysApi.create({ name: newName })
+            const scopes = ["admin", "active_user"]
+            if (isSuperAdminToggle) {
+                scopes.push("super_admin")
+            }
+            const result = await keysApi.create({ name: newName, scopes })
             setCreatedKey(result)
             setNewName('')
+            setIsSuperAdminToggle(false)
             fetchKeys() // Refresh list
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : "Failed to create key"
@@ -137,25 +147,27 @@ export default function ApiKeyManager() {
             {/* Create New Key */}
             <div className="bg-card border rounded-lg p-6 space-y-4">
                 <h2 className="text-lg font-semibold">Generate New Key</h2>
-                <form onSubmit={handleCreate} className="flex gap-4 items-end">
-                    <div className="flex-1 space-y-1">
-                        <label className="text-sm font-medium">Key Name</label>
-                        <input
-                            type="text"
-                            value={newName}
-                            onChange={(e) => setNewName(e.target.value)}
-                            placeholder="e.g. CI/CD Pipeline, Python Script..."
-                            className="w-full px-3 py-2 bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            disabled={creating}
-                        />
+                <form onSubmit={handleCreate} className="space-y-4">
+                    <div className="flex gap-4 items-end">
+                        <div className="flex-1 space-y-1">
+                            <label className="text-sm font-medium">Key Name</label>
+                            <input
+                                type="text"
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                placeholder="e.g. CI/CD Pipeline, Python Script..."
+                                className="w-full px-3 py-2 bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                disabled={creating}
+                            />
+                        </div>
+                        <Button
+                            type="submit"
+                            disabled={!newName.trim() || creating}
+                        >
+                            <Plus className="w-4 h-4 mr-2" />
+                            {creating ? 'Generating...' : 'Generate Key'}
+                        </Button>
                     </div>
-                    <Button
-                        type="submit"
-                        disabled={!newName.trim() || creating}
-                    >
-                        <Plus className="w-4 h-4 mr-2" />
-                        {creating ? 'Generating...' : 'Generate Key'}
-                    </Button>
                 </form>
 
                 {createdKey && (
@@ -176,7 +188,6 @@ export default function ApiKeyManager() {
                                         if (navigator.clipboard && navigator.clipboard.writeText) {
                                             await navigator.clipboard.writeText(createdKey.key);
                                         } else {
-                                            // Fallback for insecure contexts
                                             const textArea = document.createElement("textarea");
                                             textArea.value = createdKey.key;
                                             document.body.appendChild(textArea);
@@ -214,33 +225,62 @@ export default function ApiKeyManager() {
                                 <tr>
                                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
                                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Prefix</th>
-                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Ending</th>
+                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Tenants</th>
                                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Created</th>
-                                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Used</th>
                                     <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {keys.map((key) => (
                                     <tr key={key.id} className="hover:bg-muted/40 transition-colors">
-                                        <td className="px-6 py-4 font-medium">{key.name}</td>
-                                        <td className="px-6 py-4 font-mono text-xs">{key.prefix}</td>
-                                        <td className="px-6 py-4 font-mono text-xs text-muted-foreground">...{key.last_chars}</td>
-                                        <td className="px-6 py-4 text-muted-foreground">
+                                        <td className="px-6 py-4 font-medium">
+                                            <div className="flex items-center gap-2">
+                                                {key.name}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-xs">{key.prefix}...{key.last_chars}</td>
+                                        <td className="px-6 py-4 text-sm">
+                                            <div className="flex flex-wrap gap-1 items-center max-w-[250px]">
+                                                {key.scopes.includes('super_admin') && (
+                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-bold border border-amber-500/20 mr-1" title="System-wide access (Bypasses RLS)">
+                                                        <Crown className="w-2.5 h-2.5" />
+                                                        SUPER
+                                                    </span>
+                                                )}
+                                                {key.tenants?.length > 0 ? (
+                                                    <>
+                                                        <span key={key.tenants[0].id} className="inline-flex items-center gap-1 bg-primary/10 text-primary text-[10px] font-medium rounded px-1.5 py-0.5" title={key.tenants[0].id}>
+                                                            {key.tenants[0].name}
+                                                        </span>
+                                                        {key.tenants.length > 1 && (
+                                                            <span className="inline-flex items-center bg-muted text-muted-foreground text-[10px] font-medium rounded px-1.5 py-0.5" title={key.tenants.slice(1).map(t => t.name).join(', ')}>
+                                                                + {key.tenants.length - 1} more
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                ) : !key.scopes.includes('super_admin') && (
+                                                    <span className="text-muted-foreground italic text-xs" title="Has access to 'default' tenant only">Default</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-muted-foreground text-sm">
                                             {new Date(key.created_at).toLocaleDateString()}
                                         </td>
-                                        <td className="px-6 py-4 text-muted-foreground">
-                                            {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never'}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
+                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setLinkingKey(key)}
+                                            >
+                                                Manage Access
+                                            </Button>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 onClick={() => handleRevoke(key.id)}
                                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                title="Revoke Key"
                                             >
-                                                <Trash className="w-3 h-3 mr-1" /> Revoke
+                                                <Trash className="w-3 h-3" />
                                             </Button>
                                         </td>
                                     </tr>
@@ -257,6 +297,17 @@ export default function ApiKeyManager() {
                     isOpen={showKeyModal}
                     onClose={() => setShowKeyModal(false)}
                     onSuccess={() => setShowKeyModal(false)}
+                />
+            )}
+
+            {linkingKey && (
+                <TenantLinkingModal
+                    apiKey={linkingKey}
+                    isOpen={!!linkingKey}
+                    onClose={() => setLinkingKey(null)}
+                    onSuccess={() => {
+                        fetchKeys() // Refresh to show updated count
+                    }}
                 />
             )}
         </div>

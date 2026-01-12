@@ -5,12 +5,15 @@ interface AuthState {
     apiKey: string | null
     isAuthenticated: boolean
     isValidating: boolean
+    permissions: string[]
+    isSuperAdmin: boolean
     error: string | null
 
     // Actions
     setApiKey: (key: string) => Promise<boolean>
     clearApiKey: () => void
     validateKey: (key: string) => Promise<boolean>
+    initialFetch: () => Promise<void>
 }
 
 export const useAuth = create<AuthState>()(
@@ -19,6 +22,8 @@ export const useAuth = create<AuthState>()(
             apiKey: null,
             isAuthenticated: false,
             isValidating: false,
+            permissions: [],
+            isSuperAdmin: false,
             error: null,
 
             setApiKey: async (key: string) => {
@@ -27,15 +32,35 @@ export const useAuth = create<AuthState>()(
                 const isValid = await get().validateKey(key)
 
                 if (isValid) {
-                    set({
-                        apiKey: key,
-                        isAuthenticated: true,
-                        isValidating: false,
-                        error: null
-                    })
-                    // Also store in localStorage for axios interceptor
-                    localStorage.setItem('api_key', key)
-                    return true
+                    // Fetch permissions
+                    try {
+                        const { keysApi } = await import('@/lib/api-admin')
+                        // We need to set the key in localStorage FIRST so the API client uses it
+                        localStorage.setItem('api_key', key)
+
+                        const info = await keysApi.me()
+                        const isSuper = info.scopes.includes('super_admin')
+
+                        set({
+                            apiKey: key,
+                            isAuthenticated: true,
+                            isValidating: false,
+                            permissions: info.scopes,
+                            isSuperAdmin: isSuper,
+                            error: null
+                        })
+                        return true
+                    } catch (err) {
+                        console.error("Failed to fetch permissions", err)
+                        // Fallback: key is valid but couldn't get scopes (shouldn't happen)
+                        set({
+                            apiKey: key,
+                            isAuthenticated: true,
+                            isValidating: false,
+                            error: null
+                        })
+                        return true
+                    }
                 } else {
                     set({
                         isValidating: false,
@@ -50,23 +75,43 @@ export const useAuth = create<AuthState>()(
                 set({
                     apiKey: null,
                     isAuthenticated: false,
+                    permissions: [],
+                    isSuperAdmin: false,
                     error: null
                 })
             },
 
             validateKey: async (key: string): Promise<boolean> => {
                 try {
-                    // Try to access a protected endpoint with this key
-                    const response = await fetch('/v1/documents', {
-                        method: 'GET',
-                        headers: {
-                            'X-API-Key': key,
-                            'Content-Type': 'application/json'
-                        }
+                    // Use a simple endpoint to check validity
+                    const response = await fetch('/api/health')
+                    if (!response.ok) return false
+
+                    // Try to access whoami to verify key
+                    const keysResponse = await fetch('/api/v1/admin/keys/me', {
+                        headers: { 'X-API-Key': key }
                     })
-                    return response.ok
+                    return keysResponse.ok
                 } catch {
                     return false
+                }
+            },
+
+            initialFetch: async () => {
+                const key = get().apiKey
+                if (!key) return
+
+                try {
+                    const { keysApi } = await import('@/lib/api-admin')
+                    const info = await keysApi.me()
+                    set({
+                        permissions: info.scopes,
+                        isSuperAdmin: info.scopes.includes('super_admin')
+                    })
+                } catch (err) {
+                    console.error("Initial fetch failed", err)
+                    // If me() fails, key might be revoked, but we keep the session for now
+                    // clearApiKey() if we want to be strict
                 }
             }
         }),
