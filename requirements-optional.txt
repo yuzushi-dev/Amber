@@ -66,6 +66,16 @@
 #   tree-sitter-languages>=1.10.0
 
 # -----------------------------------------------------------------------------
+# [ocr] - Advanced OCR with Marker (~3.0 GB)
+# For high-precision PDF/Image extraction using deep learning
+# -----------------------------------------------------------------------------
+# Install with: pip install marker-pdf>=0.2.0
+#
+# Packages:
+#   marker-pdf>=0.2.0
+#   surya-ocr>=0.5.0
+
+# -----------------------------------------------------------------------------
 # Feature Definitions (for setup_service.py reference)
 # -----------------------------------------------------------------------------
 # FEATURES = {
@@ -109,6 +119,13 @@
 #         "description": "Structural code analysis using Tree-Sitter",
 #         "packages": ["tree-sitter>=0.20.0", "tree-sitter-languages>=1.10.0"],
 #         "size_mb": 50,
+#         "pip_extra_args": []
+#     },
+#     "ocr": {
+#         "name": "Advanced OCR (Marker)",
+#         "description": "Deep learning PDF extraction",
+#         "packages": ["marker-pdf>=0.2.0", "surya-ocr>=0.5.0"],
+#         "size_mb": 3000,
 #         "pip_extra_args": []
 #     }
 # }

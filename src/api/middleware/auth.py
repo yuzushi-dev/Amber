@@ -25,10 +25,7 @@ PUBLIC_PATHS = {
     "/docs",
     "/redoc",
     "/openapi.json",
-    "/api/setup/status",
-    "/api/setup/install",
-    "/api/setup/skip",
-    "/api/setup/check-required",
+    "/openapi.json",
 }
 
 
@@ -39,9 +36,6 @@ def _is_public_path(path: str) -> bool:
         return True
     # Prefix matches for documentation paths
     if path.startswith("/docs") or path.startswith("/redoc"):
-        return True
-    # Setup paths are public
-    if path.startswith("/api/setup"):
         return True
     # Health checks under /api
     if path.startswith("/api/health"):
