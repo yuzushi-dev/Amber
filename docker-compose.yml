@@ -16,6 +16,27 @@ version: '3.8'
 
 services:
   # ---------------------------------------------------------------------------
+  # Frontend - React Application
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: graphrag-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_TARGET=http://api:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  # ---------------------------------------------------------------------------
   # API Server - FastAPI application
   # ---------------------------------------------------------------------------
   api:

@@ -211,3 +211,8 @@ changelog.md
 backend_lint.txt
 frontend/frontend_lint.txt
 frontend/frontend_lint_final.txt
+/tools
+.~lock.Amber_Stakeholder_Presentation.pptx\#
+/docs/internal
+.github/
+.ruff_cache

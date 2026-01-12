@@ -18,10 +18,11 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    host: true, // Listen on all addresses
     proxy: {
       // SSE/events endpoint - needs special handling for streaming
       '/v1/documents': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
         configure: (proxy) => {
           // Disable response body buffering for SSE
@@ -44,7 +45,7 @@ export default defineConfig({
       },
       // SSE endpoint for chat query - needs special handling
       '/v1': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyReq', (_, req) => {
@@ -63,7 +64,7 @@ export default defineConfig({
         },
       },
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
       },
     },
