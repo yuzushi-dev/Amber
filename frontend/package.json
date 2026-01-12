@@ -76,6 +76,11 @@
     "vitest": "^4.0.16"
   },
   "overrides": {
-    "three": "$three"
+    "three-render-objects": {
+      "three": "0.160.0"
+    },
+    "three-forcegraph": {
+      "three": "0.160.0"
+    }
   }
 }
