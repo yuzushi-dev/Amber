@@ -28,7 +28,7 @@ router = APIRouter(prefix="/keys", tags=["admin-keys"])
 class CreateKeyRequest(BaseModel):
     """Request to create a new API key."""
     name: str = Field(..., min_length=1, max_length=100)
-    scopes: List[str] = Field(default=["active_user"])
+    scopes: List[str] = Field(default=["admin", "active_user"])
     prefix: str = Field("amber", min_length=2, max_length=10)
 
 

@@ -172,7 +172,19 @@ export default function ApiKeyManager() {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => navigator.clipboard.writeText(createdKey.key)}
+                                    onClick={async () => {
+                                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                                            await navigator.clipboard.writeText(createdKey.key);
+                                        } else {
+                                            // Fallback for insecure contexts
+                                            const textArea = document.createElement("textarea");
+                                            textArea.value = createdKey.key;
+                                            document.body.appendChild(textArea);
+                                            textArea.select();
+                                            document.execCommand("copy");
+                                            document.body.removeChild(textArea);
+                                        }
+                                    }}
                                     title="Copy to clipboard"
                                 >
                                     <Copy className="w-4 h-4" />
