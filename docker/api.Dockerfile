@@ -27,6 +27,8 @@ COPY src/ /app/src/
 COPY config/ /app/config/
 COPY alembic/ /app/alembic/
 COPY alembic.ini /app/
+COPY docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Create non-root user and packages directory
 RUN useradd --create-home --shell /bin/bash appuser && \
@@ -40,10 +42,6 @@ EXPOSE 8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
-
-# Copy entrypoint script
-COPY docker/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
 
 # Run the application
 ENTRYPOINT ["/app/entrypoint.sh"]
