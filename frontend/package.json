@@ -76,6 +76,6 @@
     "vitest": "^4.0.16"
   },
   "overrides": {
-    "three": "0.160.0"
+    "three": "$three"
   }
 }
