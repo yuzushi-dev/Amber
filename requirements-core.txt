@@ -46,6 +46,11 @@ tenacity>=8.2.0
 # Object Storage
 minio>=7.2.0
 
+# Extraction
+pymupdf4llm>=0.0.1
+mistralai>=0.1.0
+tiktoken>=0.5.0
+
 # Observability & Tracing
 opentelemetry-api>=1.22.0
 opentelemetry-sdk>=1.22.0

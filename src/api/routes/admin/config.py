@@ -60,6 +60,10 @@ class TenantConfigResponse(BaseModel):
     # Custom prompts
     system_prompt_override: str | None = None
 
+    # Ingestion Settings
+    hybrid_ocr_enabled: bool = True
+    ocr_text_density_threshold: int = 50
+
 
 class TenantConfigUpdate(BaseModel):
     """Tenant configuration update request."""
@@ -82,6 +86,10 @@ class TenantConfigUpdate(BaseModel):
 
     # Custom prompts
     system_prompt_override: str | None = None
+
+    # Ingestion Settings
+    hybrid_ocr_enabled: bool | None = None
+    ocr_text_density_threshold: int | None = Field(None, ge=0, le=1000)
 
 
 class ConfigSchemaField(BaseModel):
@@ -117,6 +125,83 @@ async def get_config_schema():
     for rendering the tuning panel UI.
     """
     fields = [
+        # Ingestion Settings
+        ConfigSchemaField(
+            name="hybrid_ocr_enabled",
+            type="boolean",
+            label="Enable Hybrid OCR",
+            description="Use OCR only for image-heavy pages (slower but more accurate)",
+            default=True,
+            group="ingestion"
+        ),
+        ConfigSchemaField(
+            name="ocr_text_density_threshold",
+            type="number",
+            label="OCR Trigger Threshold",
+            description="Minimum character count per page to avoid OCR (lower triggers OCR)",
+            default=50,
+            min=0,
+            max=1000,
+            step=10,
+            group="ingestion"
+        ),
+
+        # Model Settings
+        ConfigSchemaField(
+            name="embedding_model",
+            type="select",
+            label="Embedding Model",
+            description="Model for generating embeddings",
+            default="text-embedding-3-small",
+            options=[
+                "text-embedding-3-small",
+                "text-embedding-3-large",
+                "voyage-3.5-lite",
+                "bge-m3"
+            ],
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="generation_model",
+            type="select",
+            label="Generation Model",
+            description="LLM for answer generation",
+            default="gpt-4o-mini",
+            options=[
+                "gpt-4o-mini",
+                "gpt-4o",
+                "claude-sonnet-4-20250514",
+                "claude-3-5-haiku-20241022"
+            ],
+            group="models"
+        ),
+
+        # Feature Toggles
+        ConfigSchemaField(
+            name="reranking_enabled",
+            type="boolean",
+            label="Enable Reranking",
+            description="Use cross-encoder reranking for better precision",
+            default=True,
+            group="features"
+        ),
+        ConfigSchemaField(
+            name="hyde_enabled",
+            type="boolean",
+            label="Enable HyDE",
+            description="Generate hypothetical documents for retrieval",
+            default=False,
+            group="features"
+        ),
+        ConfigSchemaField(
+            name="graph_expansion_enabled",
+            type="boolean",
+            label="Enable Graph Expansion",
+            description="Expand results using knowledge graph relationships",
+            default=True,
+            group="features"
+        ),
+
         # Retrieval Parameters
         ConfigSchemaField(
             name="top_k",
@@ -187,62 +272,6 @@ async def get_config_schema():
             group="weights"
         ),
 
-        # Feature Toggles
-        ConfigSchemaField(
-            name="reranking_enabled",
-            type="boolean",
-            label="Enable Reranking",
-            description="Use cross-encoder reranking for better precision",
-            default=True,
-            group="features"
-        ),
-        ConfigSchemaField(
-            name="hyde_enabled",
-            type="boolean",
-            label="Enable HyDE",
-            description="Generate hypothetical documents for retrieval",
-            default=False,
-            group="features"
-        ),
-        ConfigSchemaField(
-            name="graph_expansion_enabled",
-            type="boolean",
-            label="Enable Graph Expansion",
-            description="Expand results using knowledge graph relationships",
-            default=True,
-            group="features"
-        ),
-
-        # Model Settings
-        ConfigSchemaField(
-            name="embedding_model",
-            type="select",
-            label="Embedding Model",
-            description="Model for generating embeddings",
-            default="text-embedding-3-small",
-            options=[
-                "text-embedding-3-small",
-                "text-embedding-3-large",
-                "voyage-3.5-lite",
-                "bge-m3"
-            ],
-            group="models"
-        ),
-        ConfigSchemaField(
-            name="generation_model",
-            type="select",
-            label="Generation Model",
-            description="LLM for answer generation",
-            default="gpt-4o-mini",
-            options=[
-                "gpt-4o-mini",
-                "gpt-4o",
-                "claude-sonnet-4-20250514",
-                "claude-3-5-haiku-20241022"
-            ],
-            group="models"
-        ),
-
         # Custom Prompts
         ConfigSchemaField(
             name="system_prompt_override",
@@ -256,7 +285,7 @@ async def get_config_schema():
 
     return ConfigSchemaResponse(
         fields=fields,
-        groups=["retrieval", "weights", "features", "models", "prompts"]
+        groups=["ingestion", "models", "features", "retrieval", "weights", "prompts"]
     )
 
 
@@ -294,6 +323,8 @@ async def get_tenant_config(tenant_id: str):
             embedding_model=config.get("embedding_model", "text-embedding-3-small"),
             generation_model=config.get("generation_model", "gpt-4o-mini"),
             system_prompt_override=config.get("system_prompt_override"),
+            hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
+            ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
         )
 
     except Exception as e:

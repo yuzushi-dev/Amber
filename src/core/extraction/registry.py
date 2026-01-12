@@ -11,6 +11,7 @@ from src.core.extraction.config import extraction_settings
 from src.core.extraction.local.plaintext_extractor import PlainTextExtractor
 from src.core.extraction.local.pymupdf_extractor import PyMuPDFExtractor
 from src.core.extraction.local.unstructured_extractor import UnstructuredExtractor
+from src.core.extraction.local.hybrid_extractor import HybridMarkerExtractor
 
 
 class ExtractorRegistry:
@@ -49,7 +50,11 @@ class ExtractorRegistry:
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":
-            # Prefer PyMuPDF if enabled
+            # Hybrid OCR (Marker + PyMuPDF)
+            if extraction_settings.hybrid_ocr_enabled:
+                return cls._get_instance("hybrid", HybridMarkerExtractor)
+
+            # PyMuPDF Standard
             if extraction_settings.pymupdf_enabled:
                 return cls._get_instance("pymupdf", PyMuPDFExtractor)
 
