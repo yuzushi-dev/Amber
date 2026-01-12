@@ -19,6 +19,7 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true, // Listen on all addresses
+    allowedHosts: true, // Allow all hosts (needed for remote access)
     proxy: {
       // SSE/events endpoint - needs special handling for streaming
       '/v1/documents': {
