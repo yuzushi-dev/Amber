@@ -170,7 +170,7 @@ services:
     image: postgres:16-alpine
     container_name: graphrag-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-graphrag}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-graphrag}
