@@ -1,0 +1,9 @@
+# =============================================================================
+# Optional OCR Dependencies (Marker PDF)
+# =============================================================================
+# Install via: docker compose build api --build-arg MARKER=true
+# Size: ~3GB (includes PyTorch models)
+# =============================================================================
+
+marker-pdf>=0.2.0
+surya-ocr>=0.5.0

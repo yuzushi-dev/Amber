@@ -65,6 +65,8 @@ export interface TenantConfig {
     embedding_model: string
     generation_model: string
     system_prompt_override: string | null
+    hybrid_ocr_enabled: boolean
+    ocr_text_density_threshold: number
     weights?: {
         vector_weight: number
         graph_weight: number

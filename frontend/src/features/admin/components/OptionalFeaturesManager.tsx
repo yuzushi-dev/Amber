@@ -59,6 +59,12 @@ const FEATURE_DETAILS: Record<string, string[]> = {
         'Packages: ragas, datasets',
         'Size: ~150 MB',
         'Purpose: Automated faithfulness and relevancy scoring'
+    ],
+    'ocr': [
+        'Engine: Marker PDF & Surya OCR',
+        'Packages: marker-pdf, surya-ocr',
+        'Size: ~3.0 GB',
+        'Purpose: Deep learning PDF extraction'
     ]
 }
 
@@ -79,7 +85,10 @@ export default function OptionalFeaturesManager() {
 
     const fetchStatus = useCallback(async () => {
         try {
-            const response = await fetch('/api/setup/status')
+            const apiKey = localStorage.getItem('api_key') || ''
+            const response = await fetch('/api/setup/status', {
+                headers: { 'X-API-Key': apiKey }
+            })
             if (!response.ok) throw new Error('Failed to fetch status')
             const data: SetupStatus = await response.json()
             setStatus(data)
@@ -115,10 +124,14 @@ export default function OptionalFeaturesManager() {
             // 30 minute timeout for large downloads
             const controller = new AbortController()
             const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000)
+            const apiKey = localStorage.getItem('api_key') || ''
 
             const response = await fetch('/api/setup/install', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
                 body: JSON.stringify({ feature_ids: [featureId] }),
                 signal: controller.signal
             })

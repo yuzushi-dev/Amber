@@ -22,12 +22,19 @@ export function useSetupStatus() {
     return useQuery<SetupStatus>({
         queryKey: ['setup-status'],
         queryFn: async () => {
-            const response = await fetch('/api/setup/status')
+            const apiKey = localStorage.getItem('api_key')
+            const response = await fetch('/api/setup/status', {
+                headers: {
+                    'X-API-Key': apiKey || '',
+                    'Content-Type': 'application/json'
+                }
+            })
             if (!response.ok) {
                 throw new Error('Failed to fetch setup status')
             }
             return response.json()
         },
+        enabled: !!localStorage.getItem('api_key'),
         // Don't refetch automatically - we'll handle this manually
         staleTime: Infinity,
         retry: false

@@ -52,7 +52,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
     const fetchStatus = useCallback(async () => {
         try {
-            const response = await fetch(`${apiBaseUrl}/api/setup/status`);
+            const apiKey = localStorage.getItem('api_key') || '';
+            const response = await fetch(`${apiBaseUrl}/api/setup/status`, {
+                headers: { 'X-API-Key': apiKey }
+            });
             if (!response.ok) throw new Error('Failed to fetch setup status');
             const data: SetupStatus = await response.json();
             setStatus(data);
@@ -125,7 +128,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
             const response = await fetch(`${apiBaseUrl}/api/setup/install`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': localStorage.getItem('api_key') || ''
+                },
                 body: JSON.stringify({ feature_ids: Array.from(selectedFeatures) }),
                 signal: controller.signal,
             });
@@ -164,6 +170,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         try {
             const response = await fetch(`${apiBaseUrl}/api/setup/skip`, {
                 method: 'POST',
+                headers: { 'X-API-Key': localStorage.getItem('api_key') || '' }
             });
 
             if (!response.ok) throw new Error('Failed to skip setup');
@@ -179,6 +186,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             // Ensure backend knows setup is complete
             await fetch(`${apiBaseUrl}/api/setup/skip`, {
                 method: 'POST',
+                headers: { 'X-API-Key': localStorage.getItem('api_key') || '' }
             });
         } catch (err) {
             console.error('Failed to mark setup complete', err);
@@ -356,7 +364,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                             ? 'bg-green-100/10 dark:bg-green-900/20 border-green-200/50 dark:border-green-800/50 opacity-100'
                                             : ''
                                         }
-                                        ${feature.status === 'installing' ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}
+                                        ${feature.status === 'installing' ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800' : ''}
                                     `}
                                 >
                                     {/* Checkbox */}
@@ -385,15 +393,26 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-medium">{feature.name}</h3>
+                                            <h3 className={`font-medium ${feature.status === 'installing'
+                                                    ? 'text-blue-900 dark:text-blue-100'
+                                                    : 'text-foreground'
+                                                }`}>
+                                                {feature.name}
+                                            </h3>
                                             {getStatusBadge(feature)}
                                         </div>
-                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                        <p className={`text-sm mt-0.5 ${feature.status === 'installing'
+                                                ? 'text-blue-700 dark:text-blue-300'
+                                                : 'text-muted-foreground'
+                                            }`}>
                                             {feature.description}
                                         </p>
                                         {feature.packages && feature.packages.length > 0 && (
-                                            <div className="mt-2 text-xs text-muted-foreground/80">
-                                                <span className="font-medium text-muted-foreground">Packages: </span>
+                                            <div className={`mt-2 text-xs ${feature.status === 'installing'
+                                                    ? 'text-blue-600/80 dark:text-blue-400/80'
+                                                    : 'text-muted-foreground/80'
+                                                }`}>
+                                                <span className="font-medium">Packages: </span>
                                                 {feature.packages.join(', ')}
                                             </div>
                                         )}

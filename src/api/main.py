@@ -271,7 +271,7 @@ except ImportError as e:
 # Setup routes (for on-demand dependency installation)
 try:
     from src.api.routes import setup
-    app.include_router(setup.router)  # Register at root level, not under /v1
+    app.include_router(setup.router, prefix="/api")  # Register at root level, not under /v1
     logger.info("Registered setup router")
 except ImportError as e:
     logger.warning(f"Setup router not available: {e}")

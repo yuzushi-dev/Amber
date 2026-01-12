@@ -44,7 +44,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
     "local_embeddings": Feature(
         id="local_embeddings",
         name="Local Embeddings",
-        description="Generate embeddings locally with Sentence Transformers (no API calls)",
+        description="Generate embeddings locally (Est. ~5 mins)",
         packages=["torch", "sentence-transformers>=2.7.0"],
         size_mb=2100,
         check_import="sentence_transformers",
@@ -53,7 +53,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
     "reranking": Feature(
         id="reranking",
         name="FlashRank Reranking",
-        description="High-quality result reranking for better search accuracy",
+        description="High-quality result reranking (Est. <1 min)",
         packages=["flashrank>=0.2.0"],
         size_mb=50,
         check_import="flashrank",
@@ -61,7 +61,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
     "community_detection": Feature(
         id="community_detection",
         name="Community Detection",
-        description="Leiden algorithm for knowledge graph community analysis",
+        description="Leiden algorithm for community analysis (Est. ~1 min)",
         packages=["cdlib>=0.3.0", "leidenalg>=0.10.0", "python-igraph>=0.11.0"],
         size_mb=150,
         check_import="leidenalg",
@@ -69,7 +69,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
     "document_processing": Feature(
         id="document_processing",
         name="Document Processing",
-        description="Parse PDFs, DOCX, HTML, and other document formats",
+        description="Parse PDFs, DOCX, HTML (Est. ~2 mins)",
         packages=["unstructured>=0.11.0", "python-magic>=0.4.27", "pymupdf4llm>=0.0.1"],
         size_mb=800,
         check_import="unstructured",
@@ -77,10 +77,18 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
     "ragas": Feature(
         id="ragas",
         name="RAGAS Evaluation",
-        description="Systematic RAG evaluation with Faithfulness and Relevancy metrics",
+        description="Systematic RAG evaluation metrics (Est. ~1 min)",
         packages=["ragas>=0.2.0"],
         size_mb=150,
         check_import="ragas",
+    ),
+    "ocr": Feature(
+        id="ocr",
+        name="Advanced OCR (Marker)",
+        description="Deep learning PDF extraction (Est. ~10 mins)",
+        packages=["marker-pdf>=0.2.0", "surya-ocr>=0.5.0"],
+        size_mb=3000,
+        check_import="marker",
     ),
 }
 
