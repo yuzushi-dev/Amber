@@ -260,6 +260,7 @@ class IngestionService:
             for cd in chunk_data_list:
                 chunk = Chunk(
                     id=generate_chunk_id(document.id, cd.index),
+                    tenant_id=document.tenant_id,
                     document_id=document.id,
                     index=cd.index,
                     content=cd.content,
