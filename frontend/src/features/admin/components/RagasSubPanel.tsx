@@ -19,6 +19,13 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 export function RagasSubPanel() {
     const [stats, setStats] = useState<RagasStats | null>(null)
@@ -250,21 +257,25 @@ export function RagasSubPanel() {
                     <div className="flex-1 min-w-[200px]">
                         <label className="block text-sm text-muted-foreground mb-2">Dataset</label>
                         <div className="flex gap-2">
-                            <select
+                            <Select
                                 value={selectedDataset}
-                                onChange={(e) => setSelectedDataset(e.target.value)}
-                                className="w-full bg-background border border-input rounded-md px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                onValueChange={(val) => setSelectedDataset(val)}
                                 disabled={isRunning}
                             >
-                                {datasets.length === 0 && (
-                                    <option value="">No datasets available</option>
-                                )}
-                                {datasets.map((ds) => (
-                                    <option key={ds.name} value={ds.name}>
-                                        {ds.name} ({ds.sample_count} samples)
-                                    </option>
-                                ))}
-                            </select>
+                                <SelectTrigger className="w-full min-w-[200px]">
+                                    <SelectValue placeholder="Select a dataset" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {datasets.length === 0 && (
+                                        <SelectItem value="none" disabled>No datasets available</SelectItem>
+                                    )}
+                                    {datasets.map((ds) => (
+                                        <SelectItem key={ds.name} value={ds.name}>
+                                            {ds.name} ({ds.sample_count} samples)
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                             <button
                                 onClick={handleDeleteDataset}
                                 disabled={!selectedDataset || isRunning}

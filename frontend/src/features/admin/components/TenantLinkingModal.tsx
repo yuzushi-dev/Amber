@@ -224,16 +224,18 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
                                             >
                                                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                                                 <span className="text-sm font-medium">{t.name}</span>
-                                                <button
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
                                                     onClick={() => handleRemove(t.id)}
                                                     disabled={loading}
                                                     className={cn(
-                                                        "ml-1 p-1 rounded-full text-muted-foreground/50",
+                                                        "ml-1 h-5 w-5 rounded-full text-muted-foreground/50",
                                                         "hover:bg-destructive hover:text-destructive-foreground transition-all duration-200"
                                                     )}
                                                 >
                                                     <X className="w-3 h-3" />
-                                                </button>
+                                                </Button>
                                             </motion.div>
                                         ))}
                                     </AnimatePresence>

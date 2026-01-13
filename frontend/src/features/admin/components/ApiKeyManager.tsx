@@ -11,6 +11,7 @@ import ApiKeyModal from '@/features/auth/components/ApiKeyModal'
 import { Key, LogOut, Plus, Trash, Copy, Check, Shield, Crown } from 'lucide-react'
 import { keysApi, ApiKeyResponse, CreatedKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 import TenantLinkingModal from './TenantLinkingModal'
@@ -151,12 +152,12 @@ export default function ApiKeyManager() {
                     <div className="flex gap-4 items-end">
                         <div className="flex-1 space-y-1">
                             <label className="text-sm font-medium">Key Name</label>
-                            <input
+                            <Input
                                 type="text"
                                 value={newName}
                                 onChange={(e) => setNewName(e.target.value)}
                                 placeholder="e.g. CI/CD Pipeline, Python Script..."
-                                className="w-full px-3 py-2 bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                className="px-3 py-2 bg-background focus-visible:ring-offset-0"
                                 disabled={creating}
                             />
                         </div>

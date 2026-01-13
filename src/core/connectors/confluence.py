@@ -259,3 +259,155 @@ class ConfluenceConnector(BaseConnector):
                 "version": page.get("version", {}).get("number"),
             }
         )
+
+    # --- Agent Tools ---
+
+    def get_agent_tools(self) -> list[dict[str, Any]]:
+        return [
+            self._tool_search_pages(),
+            self._tool_get_page(),
+            self._tool_add_comment(),
+        ]
+
+    def _tool_search_pages(self):
+        async def search_pages(query: str, limit: int = 5) -> str:
+            """Search Confluence pages using CQL."""
+            if not self._authenticated: return "Error: Not authenticated."
+            
+            # CQL Search
+            cql = f"text ~ \"{query}\" AND type=page"
+            
+            try:
+                # Reuse list_items logic effectively but tailored for agent output
+                params = {
+                    "cql": cql, 
+                    "limit": limit,
+                }
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.base_url}/rest/api/content/search",
+                        params=params,
+                        auth=(self.email, self.api_token)
+                    )
+                    data = response.json()
+                    results = data.get("results", [])
+                    
+                    if not results: return "No pages found."
+                    
+                    output = []
+                    for p in results:
+                        pid = p.get("id")
+                        title = p.get("title")
+                        link = self.base_url + p.get("_links", {}).get("webui", "")
+                        output.append(f"- [{pid}] {title} ({link})")
+                    
+                    return "\n".join(output)
+            except Exception as e:
+                return f"Exception: {e}"
+
+        return {
+            "name": "search_pages",
+            "func": search_pages,
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "search_pages",
+                    "description": "Search Confluence pages.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search terms"},
+                            "limit": {"type": "integer", "default": 5}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+        }
+
+    def _tool_get_page(self):
+        async def get_page(page_id: str) -> str:
+            """Get content of a page."""
+            if not self._authenticated: return "Error: Not authenticated."
+            
+            try:
+                # Use storage format
+                content_bytes = await self.get_item_content(page_id)
+                content = content_bytes.decode("utf-8")
+                
+                # It's HTML, might be verbose. Agent can handle it, or we could strip tags.
+                # For Agent reading, raw HTML is often okay if not massive.
+                return content[:10000] # Limit size
+            except Exception as e:
+                return f"Exception: {e}"
+
+        return {
+            "name": "get_page",
+            "func": get_page,
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "get_page",
+                    "description": "Read a Confluence page.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "page_id": {"type": "string"}
+                        },
+                        "required": ["page_id"]
+                    }
+                }
+            }
+        }
+
+    def _tool_add_comment(self):
+        async def add_comment(page_id: str, comment: str) -> str:
+            """Add a footer comment to a page."""
+            if not self._authenticated: return "Error: Not authenticated."
+            
+            body = {
+                "type": "comment",
+                "container": {
+                    "type": "page",
+                    "id": page_id
+                },
+                "body": {
+                    "storage": {
+                        "value": f"<p>{comment}</p>",
+                        "representation": "storage"
+                    }
+                }
+            }
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{self.base_url}/rest/api/content",
+                        json=body,
+                        auth=(self.email, self.api_token)
+                    )
+                    if response.status_code != 200:
+                         return f"Error: {response.text}"
+                    return "Comment added."
+            except Exception as e:
+                return f"Exception: {e}"
+
+        return {
+            "name": "add_comment",
+            "func": add_comment,
+            "schema": {
+                "type": "function",
+                "function": {
+                    "name": "add_comment",
+                    "description": "Add a comment to a Confluence page.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "page_id": {"type": "string"},
+                            "comment": {"type": "string"}
+                        },
+                        "required": ["page_id", "comment"]
+                    }
+                }
+            }
+        }

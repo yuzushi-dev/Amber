@@ -8,6 +8,7 @@
 import { Layers, Box, HardDrive, RefreshCw, Database } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { vectorStoreApi } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
 import { StatCard } from '@/components/ui/StatCard'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -64,14 +65,15 @@ export default function VectorStorePage() {
                         Vector database collections and statistics
                     </p>
                 </div>
-                <button
+                <Button
+                    variant="secondary"
                     onClick={() => refetch()}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
+                    className="gap-2"
                 >
                     <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {error && (

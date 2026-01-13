@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useAuth, type AuthState } from '@/features/auth'
 
 interface SetupStatus {
     initialized: boolean
@@ -19,10 +20,11 @@ interface SetupStatus {
 }
 
 export function useSetupStatus() {
+    const apiKey = useAuth((state: AuthState) => state.apiKey)
+
     return useQuery<SetupStatus>({
         queryKey: ['setup-status'],
         queryFn: async () => {
-            const apiKey = localStorage.getItem('api_key')
             const response = await fetch('/api/setup/status', {
                 headers: {
                     'X-API-Key': apiKey || '',
@@ -30,11 +32,17 @@ export function useSetupStatus() {
                 }
             })
             if (!response.ok) {
+                // Return null or throw - if throw, useQuery goes to error state
+                if (response.status === 401) {
+                    // We could listen to this in App to logout, 
+                    // or just throw and let the UI handle it
+                    throw new Error('Unauthorized')
+                }
                 throw new Error('Failed to fetch setup status')
             }
             return response.json()
         },
-        enabled: !!localStorage.getItem('api_key'),
+        enabled: !!apiKey,
         // Don't refetch automatically - we'll handle this manually
         staleTime: Infinity,
         retry: false

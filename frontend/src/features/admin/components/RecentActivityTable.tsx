@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { QueryMetrics } from '@/lib/api-admin';
 import { ChevronLeft, ChevronRight, FileText, MessageSquare, Database, Zap, CheckCircle, XCircle } from 'lucide-react';
 
@@ -196,23 +197,27 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                         Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, records.length)} of {records.length}
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setPage(p => Math.max(1, p - 1))}
                             disabled={page === 1}
-                            className="p-1 rounded hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="h-8 w-8"
                         >
                             <ChevronLeft className="w-4 h-4" />
-                        </button>
+                        </Button>
                         <span className="text-xs text-neutral-400">
                             Page {page} of {totalPages}
                         </span>
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                             disabled={page === totalPages}
-                            className="p-1 rounded hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="h-8 w-8"
                         >
                             <ChevronRight className="w-4 h-4" />
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}

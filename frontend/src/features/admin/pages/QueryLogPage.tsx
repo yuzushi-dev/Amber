@@ -3,6 +3,13 @@ import { motion } from 'framer-motion'
 import { RefreshCw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 import { maintenanceApi, QueryMetrics } from '@/lib/api-admin'
 import { QueryLogTable } from '../components/QueryLogTable'
 
@@ -69,16 +76,20 @@ export default function QueryLogPage() {
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
                     />
                 </div>
-                <select
-                    className="h-10 rounded-md border border-neutral-800 bg-neutral-900/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    value={limit}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setLimit(Number(e.target.value))}
+                <Select
+                    value={limit.toString()}
+                    onValueChange={(val) => setLimit(Number(val))}
                 >
-                    <option value={50}>Last 50</option>
-                    <option value={100}>Last 100</option>
-                    <option value={500}>Last 500</option>
-                    <option value={1000}>Last 1000</option>
-                </select>
+                    <SelectTrigger className="w-[180px] bg-neutral-900/50 border-neutral-800">
+                        <SelectValue placeholder="Limit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="50">Last 50</SelectItem>
+                        <SelectItem value="100">Last 100</SelectItem>
+                        <SelectItem value="500">Last 500</SelectItem>
+                        <SelectItem value="1000">Last 1000</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
 
             <motion.div

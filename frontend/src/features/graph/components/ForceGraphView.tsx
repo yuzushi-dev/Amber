@@ -91,7 +91,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
         graphData: processedData,
         nodeLabel: 'name',
         nodeColor: 'color',
-        onNodeClick: onNodeClick,
+        onNodeClick: onNodeClick as any,
         width: width,
         height: height,
         backgroundColor: backgroundColor,

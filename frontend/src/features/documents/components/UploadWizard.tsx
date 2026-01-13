@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 import { AnimatedProgress } from '@/components/ui/animated-progress'
+import { Button } from '@/components/ui/button'
 import { SSEManager } from '@/lib/sse'
 
 interface UploadWizardProps {
@@ -215,9 +216,9 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             <div className="bg-card border shadow-2xl rounded-xl w-full max-w-lg overflow-hidden">
                 <header className="p-4 border-b flex justify-between items-center bg-muted/30">
                     <h3 className="font-semibold text-lg">Knowledge Ingestion</h3>
-                    <button onClick={onClose} className="p-2 hover:bg-muted rounded-full">
+                    <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-muted">
                         <X className="w-5 h-5" />
-                    </button>
+                    </Button>
                 </header>
 
                 <div className="p-12 text-center space-y-6">
@@ -246,12 +247,12 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                             {file && (
                                 <div className="bg-muted p-4 rounded-lg flex items-center justify-between">
                                     <span className="text-sm font-medium truncate max-w-xs">{file.name}</span>
-                                    <button
+                                    <Button
                                         onClick={handleUpload}
-                                        className="bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm hover:opacity-90"
+                                        className="bg-primary text-primary-foreground hover:opacity-90"
                                     >
                                         Start Ingestion
-                                    </button>
+                                    </Button>
                                 </div>
                             )}
                         </>

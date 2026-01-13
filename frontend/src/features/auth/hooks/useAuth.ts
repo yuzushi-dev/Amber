@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-interface AuthState {
+export interface AuthState {
     apiKey: string | null
     isAuthenticated: boolean
     isValidating: boolean

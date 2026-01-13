@@ -255,7 +255,7 @@ export default function CommandDock() {
 
                 {/* Collapsed Indicator (Primary Stroke) */}
                 <div className={cn(
-                    "absolute bottom-0 w-32 h-1 bg-primary/50 rounded-t-full shadow-[0_0_10px_hsl(var(--primary)/0.3)] backdrop-blur-sm transition-all duration-300 delay-100",
+                    "absolute bottom-0 w-32 h-1.5 bg-primary rounded-t-full shadow-[0_0_15px_hsl(var(--primary)/0.6)] backdrop-blur-sm transition-all duration-300 delay-100",
                     "group-hover:opacity-0 group-hover:translate-y-2 group-hover:scale-50"
                 )} />
             </div>

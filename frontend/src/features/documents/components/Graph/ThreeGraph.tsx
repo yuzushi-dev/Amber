@@ -235,7 +235,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
                 backgroundColor={THEME.background}
                 showNavInfo={false}
                 onNodeClick={handleNodeClick}
-                onNodeHover={(node) => setHoveredNode(node?.id || null)}
+                onNodeHover={(node: ForceGraphNode | null) => setHoveredNode(node?.id || null)}
                 d3AlphaDecay={0.02}
                 d3VelocityDecay={0.3}
                 warmupTicks={100}

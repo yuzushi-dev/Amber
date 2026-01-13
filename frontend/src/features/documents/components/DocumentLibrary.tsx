@@ -15,6 +15,8 @@ import { useState } from 'react'
 import UploadWizard from './UploadWizard'
 import EmptyState from '@/components/ui/EmptyState'
 import { ConfirmDialog } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import LiveStatusBadge from './LiveStatusBadge'
@@ -136,14 +138,14 @@ export default function DocumentLibrary() {
             description="Upload your first document or try our sample datasets to explore Amber's capabilities."
             actions={
                 <>
-                    <button
+                    <Button
                         onClick={() => setIsUploadOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity"
+                        className="gap-2"
                         aria-label="Upload a document"
                     >
                         <Plus className="w-4 h-4" aria-hidden="true" />
                         <span>Upload Document</span>
-                    </button>
+                    </Button>
                 </>
             }
         />
@@ -157,14 +159,14 @@ export default function DocumentLibrary() {
                     <p className="text-muted-foreground">Manage your ingested knowledge sources.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
+                    <Button
                         onClick={() => setIsUploadOpen(true)}
-                        className="flex items-center space-x-2 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-90 transition-opacity"
+                        className="space-x-2"
                         aria-label="Upload new document"
                     >
                         <Plus className="w-4 h-4" aria-hidden="true" />
                         <span>Upload Files</span>
-                    </button>
+                    </Button>
                 </div>
             </header>
 
@@ -229,25 +231,26 @@ export default function DocumentLibrary() {
                 <div className="p-4 border-b flex justify-between items-center bg-muted/20">
                     <div className="relative w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                        <input
+                        <Input
                             type="text"
                             placeholder="Filter documents..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full bg-background border rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+                            className="w-full pl-10 pr-4 focus-visible:ring-offset-1"
                             aria-label="Filter documents"
                         />
                     </div>
                     <div className="flex items-center gap-2">
                         {documents && documents.length > 0 && (
-                            <button
+                            <Button
+                                variant="outline"
                                 onClick={() => setConfirmAction({ type: 'delete-all' })}
-                                className="flex items-center gap-2 px-3 py-2 text-sm text-destructive border border-destructive/30 rounded-md hover:bg-destructive/10 transition-colors"
+                                className="flex items-center gap-2 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                                 aria-label="Delete all documents"
                             >
                                 <Trash2 className="w-4 h-4" aria-hidden="true" />
                                 <span>Delete All</span>
-                            </button>
+                            </Button>
                         )}
                     </div>
                 </div>
@@ -295,13 +298,15 @@ export default function DocumentLibrary() {
                                             {new Date(doc.created_at).toLocaleDateString()}
                                         </td>
                                         <td className="p-4 text-right">
-                                            <button
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
-                                                className="p-2 text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                                                 aria-label={`Delete ${doc.title}`}
                                             >
                                                 <Trash2 className="w-4 h-4" aria-hidden="true" />
-                                            </button>
+                                            </Button>
                                         </td>
                                     </tr>
                                 ))}

@@ -3,6 +3,7 @@ import { Message } from '../store'
 import { cn } from '@/lib/utils'
 import { User, Loader2 } from 'lucide-react'
 import AmberAvatar from './AmberAvatar'
+import { Button } from '@/components/ui/button'
 import { useEvidenceStore } from '../../evidence/stores/useEvidenceStore'
 
 interface MessageItemProps {
@@ -50,14 +51,16 @@ export default function MessageItem({ message }: MessageItemProps) {
                 {message.sources && message.sources.length > 0 && (
                     <div className="mt-4 pt-4 border-t flex flex-wrap gap-2">
                         {message.sources.map((source, idx) => (
-                            <button
+                            <Button
                                 key={source.chunk_id}
+                                variant="outline"
+                                size="sm"
                                 onClick={() => useEvidenceStore.getState().selectSource(source.chunk_id)}
-                                className="text-xs px-2 py-1 rounded bg-muted hover:bg-accent transition-colors border"
+                                className="h-6 text-xs bg-muted/50 hover:bg-accent border-muted-foreground/20"
                                 title={source.content_preview}
                             >
                                 [{idx + 1}] {source.title}
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 )}

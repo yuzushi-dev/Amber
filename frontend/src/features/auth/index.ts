@@ -1,2 +1,2 @@
 export { default as ApiKeyModal } from './components/ApiKeyModal'
-export { useAuth, maskApiKey } from './hooks/useAuth'
+export { useAuth, maskApiKey, type AuthState } from './hooks/useAuth'

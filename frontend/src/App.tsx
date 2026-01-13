@@ -25,13 +25,22 @@ import { useEffect } from 'react'
 
 function AppContent() {
   const { isAuthenticated, apiKey, initialFetch } = useAuth()
-  const { data: setupStatus, isLoading, refetch } = useSetupStatus()
+  const { data: setupStatus, isLoading, isError, error, refetch } = useSetupStatus()
+  const { clearApiKey } = useAuth()
 
   useEffect(() => {
     if (isAuthenticated && apiKey) {
       initialFetch()
     }
   }, [isAuthenticated, apiKey, initialFetch])
+
+  // Handle 401 from setup status (invalid key despite auth state)
+  useEffect(() => {
+    if (isError && error?.message === 'Unauthorized') {
+      console.warn("Unauthorized access detected in App. Logging out.")
+      clearApiKey()
+    }
+  }, [isError, error, clearApiKey])
 
   // 1. Not authenticated → Show API Key modal
   if (!isAuthenticated || !apiKey) {

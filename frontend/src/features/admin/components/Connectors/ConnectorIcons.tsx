@@ -30,6 +30,8 @@ export function ConnectorIcon({ type, className, size = 'md' }: ConnectorIconPro
             return <ConfluenceIcon className={baseClasses} />
         case 'carbonio':
             return <CarbonioIcon className={baseClasses} />
+        case 'jira':
+            return <JiraIcon className={baseClasses} />
         default:
             return <GenericConnectorIcon className={baseClasses} type={type} />
     }
@@ -123,6 +125,41 @@ function ConfluenceIcon({ className }: { className?: string }) {
                 <line x1="18" y1="20" x2="30" y2="20" stroke="hsl(30, 12%, 5%)" strokeWidth="2" strokeLinecap="round" />
                 <line x1="18" y1="25" x2="28" y2="25" stroke="hsl(30, 12%, 5%)" strokeWidth="2" strokeLinecap="round" />
                 <line x1="18" y1="30" x2="24" y2="30" stroke="hsl(30, 12%, 5%)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+        </div>
+    )
+}
+
+/**
+ * Jira: Issue/Tracking icon
+ * stylized square with issue nodes
+ */
+function JiraIcon({ className }: { className?: string }) {
+    return (
+        <div className={cn('relative', className)}>
+            <svg viewBox="0 0 48 48" fill="none" className="w-full h-full">
+                <defs>
+                    <linearGradient id="jira-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="hsl(200, 90%, 60%)" />
+                        <stop offset="100%" stopColor="hsl(220, 90%, 50%)" />
+                    </linearGradient>
+                    <filter id="jira-glow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                        <feMerge>
+                            <feMergeNode in="coloredBlur" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                </defs>
+                {/* Main Diamond Shape */}
+                <path
+                    d="M24 6l18 18-18 18-18-18z"
+                    fill="url(#jira-gradient)"
+                    filter="url(#jira-glow)"
+                    className="opacity-90"
+                />
+                {/* Inner details */}
+                <circle cx="24" cy="24" r="6" fill="hsl(220, 90%, 20%)" />
             </svg>
         </div>
     )
