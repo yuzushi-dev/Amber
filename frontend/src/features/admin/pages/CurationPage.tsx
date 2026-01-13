@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Flag, Check, X, GitMerge, RefreshCw, Eye } from 'lucide-react'
 import { curationApi, FlagDetail } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
 
 export default function CurationPage() {
     const queryClient = useQueryClient()
@@ -89,14 +90,15 @@ export default function CurationPage() {
                         Review and resolve analyst-reported issues
                     </p>
                 </div>
-                <button
+                <Button
                     onClick={() => refetchFlags()}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
+                    variant="secondary"
+                    className="gap-2"
                 >
                     <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {/* Stats Cards */}
@@ -132,16 +134,14 @@ export default function CurationPage() {
             {/* Filter Tabs */}
             <div className="flex gap-2 mb-4">
                 {['pending', 'accepted', 'rejected', 'merged'].map(status => (
-                    <button
+                    <Button
                         key={status}
                         onClick={() => setStatusFilter(status)}
-                        className={`px-4 py-2 rounded-md capitalize transition-colors ${statusFilter === status
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted hover:bg-muted/80'
-                            }`}
+                        variant={statusFilter === status ? 'default' : 'ghost'}
+                        className="capitalize"
                     >
                         {status}
-                    </button>
+                    </Button>
                 ))}
             </div>
 
@@ -190,31 +190,37 @@ export default function CurationPage() {
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                     <div className="flex items-center justify-end gap-1">
-                                        <button
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
                                             onClick={() => handleViewFlag(flag.id)}
-                                            className="p-2 hover:bg-muted rounded transition-colors"
+                                            className="px-2"
                                             title="View details"
                                         >
                                             <Eye className="w-4 h-4" />
-                                        </button>
+                                        </Button>
                                         {flag.status === 'pending' && (
                                             <>
-                                                <button
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
                                                     onClick={() => handleResolve(flag.id, 'accept')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                                                    className="px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
                                                     title="Accept"
                                                 >
                                                     <Check className="w-4 h-4" />
-                                                </button>
-                                                <button
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
                                                     onClick={() => handleResolve(flag.id, 'reject')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                                    className="px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                                                     title="Reject"
                                                 >
                                                     <X className="w-4 h-4" />
-                                                </button>
+                                                </Button>
                                             </>
                                         )}
                                     </div>
@@ -259,12 +265,13 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                 <div className="p-6">
                     <div className="flex items-center justify-between mb-6">
                         <h2 className="text-lg font-semibold">Flag Details</h2>
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={onClose}
-                            className="p-2 hover:bg-muted rounded transition-colors"
                         >
                             <X className="w-5 h-5" />
-                        </button>
+                        </Button>
                     </div>
 
                     {/* Flag Info */}
@@ -329,31 +336,31 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                     {/* Actions */}
                     {flag.status === 'pending' && (
                         <div className="flex gap-2">
-                            <button
+                            <Button
                                 onClick={() => onResolve(flag.id, 'accept')}
                                 disabled={resolving}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+                                className="flex-1 gap-2 bg-green-600 hover:bg-green-700 text-white"
                             >
                                 <Check className="w-4 h-4" />
                                 Accept
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 onClick={() => onResolve(flag.id, 'reject')}
                                 disabled={resolving}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
+                                className="flex-1 gap-2 bg-red-600 hover:bg-red-700 text-white"
                             >
                                 <X className="w-4 h-4" />
                                 Reject
-                            </button>
+                            </Button>
                             {(flag.type === 'duplicate_entity' || flag.type === 'merge_suggestion') && (
-                                <button
+                                <Button
                                     onClick={() => onResolve(flag.id, 'merge')}
                                     disabled={resolving}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                    className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
                                 >
                                     <GitMerge className="w-4 h-4" />
                                     Merge
-                                </button>
+                                </Button>
                             )}
                         </div>
                     )}

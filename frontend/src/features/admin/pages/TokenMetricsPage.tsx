@@ -18,6 +18,7 @@ import {
     ChessQueen
 } from 'lucide-react'
 import { chatHistoryApi, ChatHistoryItem, maintenanceApi, QueryMetrics } from '@/lib/api-admin'
+import { Button } from '@/components/ui/button'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import RecentActivityTable from '../components/RecentActivityTable'
@@ -140,14 +141,15 @@ export default function TokenMetricsPage() {
                         LLM usage analytics from recent conversations
                     </p>
                 </div>
-                <button
+                <Button
+                    variant="secondary"
                     onClick={fetchData}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
+                    className="gap-2"
                 >
                     <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {error && (

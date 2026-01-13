@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { SendHorizontal, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 
 interface QueryInputProps {
     onSend: (query: string) => void
@@ -45,7 +46,7 @@ export default function QueryInput({ onSend, disabled }: QueryInputProps) {
                 <label htmlFor="query-input" className="sr-only">
                     Enter your question
                 </label>
-                <textarea
+                <Textarea
                     id="query-input"
                     ref={textareaRef}
                     value={query}
@@ -53,8 +54,8 @@ export default function QueryInput({ onSend, disabled }: QueryInputProps) {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask Amber..."
                     className={cn(
-                        "flex-1 w-full bg-background border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 resize-none",
-                        "min-h-[48px] max-h-[200px]"
+                        "flex-1 w-full min-h-[48px] max-h-[200px] resize-none pr-12 scrollbar-hide py-3",
+                        "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
                     )}
                     disabled={disabled}
                     rows={1}

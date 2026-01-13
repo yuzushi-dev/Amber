@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth, maskApiKey } from '@/features/auth'
 import ApiKeyModal from '@/features/auth/components/ApiKeyModal'
+import { Button } from '@/components/ui/button'
 import { Key, LogOut, Cog, Package } from 'lucide-react'
 
 export default function SettingsPage() {
@@ -35,27 +36,27 @@ export default function SettingsPage() {
                                 {apiKey ? maskApiKey(apiKey) : 'Not set'}
                             </code>
                         </div>
-                        <button
+                        <Button
                             onClick={() => setShowKeyModal(true)}
-                            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
                         >
                             Change Key
-                        </button>
+                        </Button>
                     </div>
 
                     <div className="pt-4 border-t">
-                        <button
+                        <Button
+                            variant="ghost"
                             onClick={() => {
                                 if (confirm('Are you sure you want to logout?')) {
                                     clearApiKey()
                                     window.location.reload()
                                 }
                             }}
-                            className="flex items-center gap-2 px-4 py-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         >
-                            <LogOut className="w-4 h-4" />
+                            <LogOut className="w-4 h-4 mr-2" />
                             Logout
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>

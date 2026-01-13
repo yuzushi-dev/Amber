@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { tenantsApi, Tenant, keysApi, ApiKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Building2, Plus, Trash, RefreshCw, Layers, Key, Crown, Shield } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -119,23 +120,23 @@ export default function TenantManager() {
                         <form onSubmit={handleCreate} className="w-full md:w-auto flex flex-col sm:flex-row gap-3 items-end bg-background/50 p-4 rounded-xl border backdrop-blur-sm">
                             <div className="space-y-1.5 w-full sm:w-64">
                                 <label className="text-xs font-semibold text-foreground/80 ml-1">Tenant Name</label>
-                                <input
+                                <Input
                                     type="text"
                                     value={newName}
                                     onChange={(e) => setNewName(e.target.value)}
                                     placeholder="Acme Corp"
-                                    className="w-full px-4 py-2.5 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                                    className="px-4 py-2.5 bg-background focus-visible:ring-offset-0"
                                     disabled={creating}
                                 />
                             </div>
                             <div className="space-y-1.5 w-full sm:w-40">
                                 <label className="text-xs font-semibold text-foreground/80 ml-1">Prefix (Opt)</label>
-                                <input
+                                <Input
                                     type="text"
                                     value={newPrefix}
                                     onChange={(e) => setNewPrefix(e.target.value)}
                                     placeholder="acme"
-                                    className="w-full px-4 py-2.5 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono text-sm"
+                                    className="px-4 py-2.5 bg-background font-mono text-sm focus-visible:ring-offset-0"
                                     disabled={creating}
                                 />
                             </div>

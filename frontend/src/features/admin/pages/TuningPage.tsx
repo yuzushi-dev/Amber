@@ -23,6 +23,17 @@ import {
     CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Slider } from "@/components/ui/slider"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { toast } from "sonner"
 
 const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
 
@@ -108,16 +119,14 @@ export default function TuningPage() {
             }
 
             await configApi.updateTenant(DEFAULT_TENANT_ID, configValues as Partial<TenantConfig>)
-            setSaveStatus('success')
+            toast.success("Settings saved successfully")
 
             // Update initial values to match new saved state
             setInitialValues(formValues)
-
-            // Reset success after 3s
-            setTimeout(() => setSaveStatus('idle'), 3000)
+            setSaveStatus('idle')
         } catch (err) {
-            setSaveStatus('error')
             console.error('Failed to save:', err)
+            toast.error("Failed to save settings. Please try again.")
         } finally {
             setSaving(false)
         }
@@ -266,16 +275,15 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                         </span>
                     </div>
                     <div className="pt-2">
-                        <input
-                            type="range"
+                        <Slider
                             min={field.min ?? 0}
                             max={field.max ?? 100}
                             step={field.step ?? 1}
-                            value={value as number ?? field.default as number}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/90 transition-all"
+                            value={[value as number ?? field.default as number]}
+                            onValueChange={(vals: number[]) => onChange(vals[0])}
+                            showValue={true}
                         />
-                        <div className="flex justify-between text-xs text-muted-foreground mt-1 px-1">
+                        <div className="flex justify-between text-xs text-muted-foreground mt-2 px-1">
                             <span>{field.min}</span>
                             <span>{field.max}</span>
                         </div>
@@ -299,17 +307,10 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                             </Tooltip>
                         </TooltipProvider>
                     </div>
-                    <button
-                        type="button"
-                        role="switch"
-                        aria-checked={value as boolean}
-                        onClick={() => onChange(!value)}
-                        className={`relative w-11 h-6 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${value ? 'bg-primary' : 'bg-muted'}`}
-                    >
-                        <span
-                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-background rounded-full shadow-sm transition-transform ${value ? 'translate-x-5' : 'translate-x-0'}`}
-                        />
-                    </button>
+                    <Switch
+                        checked={value as boolean}
+                        onCheckedChange={(checked) => onChange(checked)}
+                    />
                 </div>
             )
 
@@ -317,15 +318,16 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
             return (
                 <div>
                     <LabelWithTooltip label={field.label} description={field.description} />
-                    <select
-                        value={value as string ?? field.default as string}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange(e.target.value)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {field.options?.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                    </select>
+                    <Select value={value as string} onValueChange={(val) => onChange(val)}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select an option" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {field.options?.map(opt => (
+                                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
             )
 
@@ -334,11 +336,11 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
             return (
                 <div>
                     <LabelWithTooltip label={field.label} description={field.description} />
-                    <textarea
+                    <Textarea
                         value={value as string ?? ''}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
+                        onChange={(e) => onChange(e.target.value)}
                         rows={isSystemPrompt ? 12 : 3}
-                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                        className="font-mono"
                         placeholder={isSystemPrompt ? DEFAULT_SYSTEM_PROMPT : field.description}
                     />
                     {isSystemPrompt && (value === '' || value === null) && (

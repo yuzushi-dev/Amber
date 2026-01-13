@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Download, Check, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
 interface Feature {
     id: string;
@@ -295,18 +296,19 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                     </div>
 
                     <div className="p-6 border-t bg-muted/30 flex gap-3">
-                        <button
+                        <Button
                             onClick={() => setShowConfirmSkip(false)}
-                            className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
+                            className="flex-1"
                         >
                             Go Back & Install
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                            variant="outline"
                             onClick={handleConfirmSkip}
-                            className="flex-1 px-4 py-3 border rounded-lg hover:bg-muted transition-colors"
+                            className="flex-1"
                         >
                             Skip Anyway
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -394,23 +396,23 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
                                             <h3 className={`font-medium ${feature.status === 'installing'
-                                                    ? 'text-blue-900 dark:text-blue-100'
-                                                    : 'text-foreground'
+                                                ? 'text-blue-900 dark:text-blue-100'
+                                                : 'text-foreground'
                                                 }`}>
                                                 {feature.name}
                                             </h3>
                                             {getStatusBadge(feature)}
                                         </div>
                                         <p className={`text-sm mt-0.5 ${feature.status === 'installing'
-                                                ? 'text-blue-700 dark:text-blue-300'
-                                                : 'text-muted-foreground'
+                                            ? 'text-blue-700 dark:text-blue-300'
+                                            : 'text-muted-foreground'
                                             }`}>
                                             {feature.description}
                                         </p>
                                         {feature.packages && feature.packages.length > 0 && (
                                             <div className={`mt-2 text-xs ${feature.status === 'installing'
-                                                    ? 'text-blue-600/80 dark:text-blue-400/80'
-                                                    : 'text-muted-foreground/80'
+                                                ? 'text-blue-600/80 dark:text-blue-400/80'
+                                                : 'text-muted-foreground/80'
                                                 }`}>
                                                 <span className="font-medium">Packages: </span>
                                                 {feature.packages.join(', ')}
@@ -447,46 +449,47 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
                 {/* Footer */}
                 <div className="p-6 border-t bg-muted/30 flex gap-3 shrink-0">
-                    <button
+                    <Button
+                        variant="outline"
                         onClick={handleSkipAttempt}
                         disabled={isInstalling}
-                        className="px-4 py-3 border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                        className="h-12 px-6"
                     >
                         Skip for now
-                    </button>
+                    </Button>
 
                     <div className="flex-1" />
 
                     {selectedFeatures.size > 0 && !isInstalling && !allInstalled ? (
-                        <button
+                        <Button
                             onClick={handleInstall}
-                            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2 font-medium"
+                            className="gap-2 h-12 px-6"
                         >
                             <Download className="w-4 h-4" />
                             Install Selected ({selectedFeatures.size})
-                        </button>
+                        </Button>
                     ) : isInstalling ? (
-                        <button
+                        <Button
                             disabled
-                            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg opacity-50 flex items-center gap-2"
+                            className="gap-2 h-12 px-6 opacity-50"
                         >
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Installing...
-                        </button>
+                        </Button>
                     ) : allInstalled ? (
-                        <button
+                        <Button
                             onClick={handleContinue}
-                            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
+                            className="h-12 px-6"
                         >
                             Continue to App →
-                        </button>
+                        </Button>
                     ) : (
-                        <button
+                        <Button
                             onClick={handleContinue}
-                            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
+                            className="h-12 px-6"
                         >
                             Continue →
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>

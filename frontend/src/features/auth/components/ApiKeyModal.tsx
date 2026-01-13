@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useAuth, maskApiKey } from '../hooks/useAuth'
 import { KeyRound, Eye, EyeOff, Loader2, AlertCircle, Crown } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 interface ApiKeyModalProps {
     onSuccess?: () => void
@@ -69,27 +71,29 @@ export default function ApiKeyModal({
                             API Key
                         </label>
                         <div className="relative">
-                            <input
+                            <Input
                                 id="api-key"
                                 type={showKey ? 'text' : 'password'}
                                 value={inputKey}
                                 onChange={(e) => setInputKey(e.target.value)}
                                 placeholder="Enter your API key..."
-                                className="w-full px-4 py-3 pr-12 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+                                className="px-4 py-3 pr-12 bg-background focus-visible:ring-offset-1"
                                 autoFocus
                                 disabled={isValidating}
                             />
-                            <button
+                            <Button
                                 type="button"
+                                variant="ghost"
+                                size="icon"
                                 onClick={() => setShowKey(!showKey)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-muted"
                             >
                                 {showKey ? (
                                     <EyeOff className="w-4 h-4 text-muted-foreground" />
                                 ) : (
                                     <Eye className="w-4 h-4 text-muted-foreground" />
                                 )}
-                            </button>
+                            </Button>
                         </div>
                     </div>
 
@@ -102,19 +106,20 @@ export default function ApiKeyModal({
 
                     <div className="flex gap-3 pt-2">
                         {mode === 'change' && onClose && (
-                            <button
+                            <Button
                                 type="button"
+                                variant="outline"
                                 onClick={onClose}
-                                className="flex-1 px-4 py-3 border rounded-lg hover:bg-muted transition-colors"
+                                className="flex-1"
                                 disabled={isValidating}
                             >
                                 Cancel
-                            </button>
+                            </Button>
                         )}
-                        <button
+                        <Button
                             type="submit"
                             disabled={!inputKey.trim() || isValidating}
-                            className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="flex-1 gap-2"
                         >
                             {isValidating ? (
                                 <>
@@ -124,7 +129,7 @@ export default function ApiKeyModal({
                             ) : (
                                 'Connect'
                             )}
-                        </button>
+                        </Button>
                     </div>
 
                     {mode === 'initial' && (
