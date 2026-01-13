@@ -97,19 +97,15 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             return
         }
 
-        // Construct absolute URL for EventSource (doesn't use Vite proxy)
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
-        const baseUrl = eventsUrl || `${apiBaseUrl}/documents/${documentId}/events`
-
-        // Use absolute URL for SSE to bypass Vite proxy
-        const finalUrl = (baseUrl.startsWith('/') && apiBaseUrl.startsWith('http'))
-            ? new URL(apiBaseUrl).origin + baseUrl
-            : baseUrl
+        // Use relative path for SSE so it goes through the Vite proxy (or Nginx in prod)
+        // This ensures it works on remote servers (e.g., cph-01) where localhost is incorrect.
+        // We use /api/v1 prefix which the Vite proxy rewrites to the VITE_API_TARGET
+        const baseUrl = eventsUrl || `/api/v1/documents/${documentId}/events`
 
         // Append API key preserving existing query params if any
-        const monitorUrl = finalUrl.includes('?')
-            ? `${finalUrl}&api_key=${encodeURIComponent(apiKey)}`
-            : `${finalUrl}?api_key=${encodeURIComponent(apiKey)}`
+        const monitorUrl = baseUrl.includes('?')
+            ? `${baseUrl}&api_key=${encodeURIComponent(apiKey)}`
+            : `${baseUrl}?api_key=${encodeURIComponent(apiKey)}`
 
         console.log('Connecting to SSE:', monitorUrl)
 
