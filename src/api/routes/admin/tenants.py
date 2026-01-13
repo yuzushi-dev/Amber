@@ -38,7 +38,7 @@ class TenantResponse(BaseModel):
     name: str
     api_key_prefix: Optional[str]
     is_active: bool
-    config: dict
+    config: dict = {}
     created_at: Optional[datetime] = None
     api_keys: List[TenantKeySummary] = []
     document_count: int = 0
