@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { Pencil, Trash2, Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 
@@ -146,8 +147,8 @@ const ChunksTab: React.FC<ChunksTabProps> = ({ documentId }) => {
 
                                     {isEditing ? (
                                         <div className="space-y-3">
-                                            <textarea
-                                                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                                            <Textarea
+                                                className="min-h-[120px] font-mono"
                                                 value={editContent}
                                                 onChange={(e) => setEditContent(e.target.value)}
                                                 disabled={isLoading}

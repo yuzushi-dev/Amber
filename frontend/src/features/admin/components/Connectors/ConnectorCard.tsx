@@ -31,6 +31,8 @@ function getConnectorDescription(type: string): string {
             return 'Wiki & Documentation'
         case 'carbonio':
             return 'Mail, Calendar & Chats'
+        case 'jira':
+            return 'Issue Tracking & Projects'
         default:
             return 'External Data Source'
     }

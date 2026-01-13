@@ -120,13 +120,18 @@ POST /v1/connectors/carbonio/ingest
 }
 ```
 
-**Agent Tools:** None (data ingestion only)
+**Agent Tools:**
+| Tool           | Description                               |
+| -------------- | ----------------------------------------- |
+| `search_pages` | Search Confluence pages by CQL query      |
+| `get_page`     | Retrieve content of a specific page by ID |
+| `add_comment`  | Add a comment to a specific page          |
 
 ---
 
 ### 3. Zendesk (`zendesk`)
 
-**Purpose:** Integrates with Zendesk Help Center for support articles.
+**Purpose:** Integrates with Zendesk Help Center for support articles and Support for ticket management.
 
 **Authentication:** API token authentication.
 
@@ -134,6 +139,7 @@ POST /v1/connectors/carbonio/ingest
 - Fetches articles from Help Center
 - Supports incremental sync via `updated_after` filter
 - Includes metadata: section, author, votes, draft status
+- Full ticket management via Agent tools
 
 **Configuration:**
 ```json
@@ -144,7 +150,46 @@ POST /v1/connectors/carbonio/ingest
 }
 ```
 
-**Agent Tools:** None (data ingestion only)
+**Agent Tools:**
+| Tool                    | Description                                     |
+| ----------------------- | ----------------------------------------------- |
+| `get_tickets`           | List/search tickets with filtering              |
+| `get_ticket`            | Get details of a specific ticket                |
+| `create_ticket`         | Create a new support ticket                     |
+| `update_ticket`         | Update ticket status or assignee                |
+| `get_ticket_comments`   | Read conversation history of a ticket           |
+| `create_ticket_comment` | Add a public reply or internal note to a ticket |
+
+---
+
+### 4. Jira (`jira`)
+
+**Purpose:** Integrates with Jira Cloud for issue tracking and project management.
+
+**Authentication:** Basic Auth with email + API token.
+
+**Features:**
+- Comprehensive issue management
+- JQL search capabilities
+- Commenting and collaboration
+
+**Configuration:**
+```json
+{
+  "base_url": "https://domain.atlassian.net",
+  "email": "user@example.com",
+  "api_token": "<token>"
+}
+```
+
+**Agent Tools:**
+| Tool            | Description                                      |
+| --------------- | ------------------------------------------------ |
+| `search_issues` | Search issues using JQL (Jira Query Language)    |
+| `get_issue`     | Retrieve details of a specific issue by key      |
+| `create_issue`  | Create a new issue (Bug, Task, Story, etc.)      |
+| `update_issue`  | Update issue fields (summary, description, etc.) |
+| `add_comment`   | Add a comment to an issue                        |
 
 ---
 

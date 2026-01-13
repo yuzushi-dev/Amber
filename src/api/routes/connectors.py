@@ -20,6 +20,7 @@ from src.api.schemas.base import ResponseSchema
 from src.core.connectors.zendesk import ZendeskConnector
 from src.core.connectors.confluence import ConfluenceConnector
 from src.core.connectors.carbonio import CarbonioConnector
+from src.core.connectors.jira import JiraConnector
 from src.core.models.connector_state import ConnectorState
 from src.core.services.ingestion import IngestionService
 from src.shared.context import get_current_tenant
@@ -63,6 +64,7 @@ CONNECTOR_REGISTRY = {
     "zendesk": ZendeskConnector,
     "confluence": ConfluenceConnector,
     "carbonio": CarbonioConnector,
+    "jira": JiraConnector,
 }
 
 
@@ -181,6 +183,14 @@ async def authenticate_connector(
                       detail="Carbonio requires 'host' in credentials"
                   )
              connector = ConnectorClass(host=host)
+        elif connector_type == "jira":
+             base_url = request.credentials.get("base_url")
+             if not base_url:
+                 raise HTTPException(
+                     status_code=status.HTTP_400_BAD_REQUEST,
+                     detail="Jira requires 'base_url' in credentials"
+                 )
+             connector = ConnectorClass(base_url=base_url)
         else:
             connector = ConnectorClass()
 
@@ -396,6 +406,13 @@ async def list_connector_items(
             "email": config.get("email"),
             "password": config.get("password"),
             "host": config.get("host")
+         }
+    elif connector_type == "jira":
+         connector = ConnectorClass(base_url=config.get("base_url", ""))
+         auth_params = {
+            "email": config.get("email"),
+            "api_token": config.get("api_token"),
+            "base_url": config.get("base_url")
          }
     
     auth_success = await connector.authenticate(auth_params)

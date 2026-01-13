@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
 import { Download, Check, AlertCircle, Loader2, RefreshCw, Package, ChevronUp, ChevronDown } from 'lucide-react'
 
 interface Feature {
@@ -212,17 +213,18 @@ export default function OptionalFeaturesManager() {
                         Install additional ML capabilities for enhanced functionality.
                     </p>
                 </div>
-                <button
+                <Button
+                    variant="outline"
                     onClick={() => {
                         setLoading(true)
                         fetchStatus()
                     }}
-                    className="flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-muted transition-colors"
+                    className="gap-2"
                     title="Refresh status"
                 >
                     <RefreshCw className="w-4 h-4" />
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {error && (
@@ -260,17 +262,19 @@ export default function OptionalFeaturesManager() {
                                     {/* Detailed Download List (Expandable) */}
                                     {hasDetails && (
                                         <div className="mt-2">
-                                            <button
+                                            <Button
+                                                variant="link"
+                                                size="sm"
                                                 onClick={() => toggleFeature(feature.id)}
-                                                className="text-xs flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors"
+                                                className="h-auto p-0 text-xs flex items-center gap-1 text-primary hover:text-primary/80 font-medium"
                                             >
                                                 {isExpanded ? 'Hide Details' : 'Show Details'}
                                                 {isExpanded ? (
-                                                    <ChevronUp className="w-3 h-3" />
+                                                    <ChevronUp className="w-3 h-3 ml-1" />
                                                 ) : (
-                                                    <ChevronDown className="w-3 h-3" />
+                                                    <ChevronDown className="w-3 h-3 ml-1" />
                                                 )}
-                                            </button>
+                                            </Button>
 
                                             {isExpanded && (
                                                 <div className="mt-2 bg-muted/50 rounded-md p-3 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -293,25 +297,26 @@ export default function OptionalFeaturesManager() {
 
                                 <div className="ml-4 flex-shrink-0">
                                     {feature.status === 'not_installed' && (
-                                        <button
+                                        <Button
                                             onClick={() => handleInstall(feature.id)}
                                             disabled={installing !== null}
-                                            className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                            className="gap-2"
                                         >
                                             <Download className="w-4 h-4" />
                                             Install
-                                        </button>
+                                        </Button>
                                     )}
 
                                     {feature.status === 'failed' && (
-                                        <button
+                                        <Button
+                                            variant="outline"
                                             onClick={() => handleInstall(feature.id)}
                                             disabled={installing !== null}
-                                            className="flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+                                            className="gap-2"
                                         >
                                             <RefreshCw className="w-4 h-4" />
                                             Retry
-                                        </button>
+                                        </Button>
                                     )}
                                 </div>
                             </div>

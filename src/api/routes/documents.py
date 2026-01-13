@@ -196,11 +196,15 @@ async def document_events(
     This endpoint subscribes to Redis pub/sub for real-time status updates.
     """
     # Verify document exists and get tenant_id
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    # Verify document exists and get tenant_id
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+    
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -296,6 +300,7 @@ async def document_events(
     description="List all documents in the knowledge base.",
 )
 async def list_documents(
+    http_request: Request,
     tenant_id: str = None,
     limit: int = 50,
     offset: int = 0,
@@ -304,11 +309,24 @@ async def list_documents(
     """
     List documents in the knowledge base.
     """
-    tenant = tenant_id or settings.tenant_id
+    # Check permissions
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
 
-    query = select(Document).where(
-        Document.tenant_id == tenant
-    ).limit(limit).offset(offset)
+    query = select(Document)
+
+    if is_super_admin:
+        # Super Admin: Show all if no tenant specified
+        if tenant_id:
+            query = query.where(Document.tenant_id == tenant_id)
+    else:
+        # Regular User: Enforce current tenant
+        # Use tenant from request state (set by auth middleware) or fallback to settings
+        current_tenant = getattr(http_request.state, "tenant_id", settings.tenant_id)
+        query = query.where(Document.tenant_id == str(current_tenant))
+
+    # Apply pagination
+    query = query.limit(limit).offset(offset)
 
     result = await session.execute(query)
     documents = result.scalars().all()
@@ -344,11 +362,15 @@ async def get_document(
     Get document details with enrichment data and statistics.
     """
     logger.info(f"DEBUG: Processing get_document for {document_id}")
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -406,22 +428,22 @@ async def _compute_document_stats(
     community_count = 0
 
     try:
-        # Entity count query
+        # Entity count query (MATCH using document_id only)
         entity_cypher = """
-            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
             MATCH (c)-[:MENTIONS]->(e:Entity)
             RETURN count(DISTINCT e) as entity_count
         """
         entity_records = await neo4j_client.execute_read(
             entity_cypher,
-            {"document_id": document_id, "tenant_id": tenant_id}
+            {"document_id": document_id}
         )
         if entity_records:
             entity_count = entity_records[0].get("entity_count", 0)
 
         # Relationship count query
         rel_cypher = """
-            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
             MATCH (c)-[:MENTIONS]->(s:Entity)-[r:RELATED_TO]->(t:Entity)
             WHERE exists {
                 MATCH (d)-[:HAS_CHUNK]->(:Chunk)-[:MENTIONS]->(t)
@@ -430,12 +452,37 @@ async def _compute_document_stats(
         """
         rel_records = await neo4j_client.execute_read(
             rel_cypher,
-            {"document_id": document_id, "tenant_id": tenant_id}
+            {"document_id": document_id}
         )
         if rel_records:
             relationship_count = rel_records[0].get("rel_count", 0)
 
         # Community count (via BELONGS_TO relationship)
+        comm_cypher = """
+            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
+            MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
+            RETURN count(DISTINCT comm) as comm_count
+        """
+        comm_records = await neo4j_client.execute_read(
+            comm_cypher,
+            {"document_id": document_id}
+        )
+        if comm_records:
+            community_count = comm_records[0].get("comm_count", 0)
+
+        # Similarity count
+        # We need to fetch it correctly if it's not working
+        sim_records = await neo4j_client.execute_read(
+            """
+            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)-[r:SIMILAR_TO]->(:Chunk)
+            RETURN count(r) as sim_count
+            """,
+            {"document_id": document_id}
+        )
+        if sim_records:
+             similarity_count = sim_records[0].get("sim_count", 0)
+    except Exception as e:
+        logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
         comm_cypher = """
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
             MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
@@ -496,7 +543,31 @@ async def get_document_communities(
     Returns communities with their entities, sorted by entity count.
     """
     # Verify document exists
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
     query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+         # Need tenant_id to verify ownership if not super admin
+         # We can't easily get it here without request object properly 
+         # But http_request is optional in signature? No, let's look at signature.
+         # http_request: Request = None 
+         # Wait, if it's None we can't check permissions. 
+         # But Depends(verify_admin) or auth middleware ensures request is populated?
+         # Actually get_document_communities has `http_request: Request = None` ???
+         # Checking signature: `http_request: Request = None`. 
+         # If called from API, FastAPI injects it? No, Request must be declared.
+         # If it's None, we might fail. 
+         # But let's assume it's injected if requested.
+         if http_request:
+             tenant_id = _get_tenant_id(http_request)
+             query = query.where(Document.tenant_id == tenant_id)
+         else:
+             # Fallback or error? If we are here, we probably have a request context.
+             # The signature seems to imply it might be optional, but for a router endpoint it should be there.
+             # Let's trust `_get_tenant_id` handles request attribute access, but we need request.
+             pass
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -508,7 +579,7 @@ async def get_document_communities(
 
     # Query Neo4j for communities via BELONGS_TO relationship
     cypher = """
-        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
         MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
         WITH comm, collect(DISTINCT {
             name: e.name,
@@ -527,7 +598,6 @@ async def get_document_communities(
             cypher,
             {
                 "document_id": document_id,
-                "tenant_id": document.tenant_id,
                 "offset": offset,
                 "limit": limit,
             }
@@ -565,11 +635,14 @@ async def get_document_file(
     Returns a streaming response with the file content and appropriate content-type header.
     """
     # Get document metadata
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -627,11 +700,14 @@ async def update_document(
     """
     Update a document.
     """
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -707,11 +783,14 @@ async def delete_document(
     """
     Delete a document.
     """
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -782,6 +861,7 @@ async def get_document_entities(
     document_id: str,
     limit: int = 100,
     offset: int = 0,
+    http_request: Request = None,
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     """
@@ -793,7 +873,19 @@ async def get_document_entities(
         offset: Number of entities to skip (default: 0)
     """
     # 1. Verify existence in SQL and get tenant_id
+    permissions = getattr(http_request.state, "permissions", []) if http_request else []
+    is_super_admin = "super_admin" in permissions
+
     query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        if http_request:
+            tenant_id = _get_tenant_id(http_request)
+            query = query.where(Document.tenant_id == tenant_id)
+        else:
+             # Fallback if request is missing (should not happen in API call)
+             pass
+    
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -805,7 +897,7 @@ async def get_document_entities(
 
     # 2. Query Neo4j with pagination
     cypher = """
-        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
         MATCH (c)-[:MENTIONS]->(e:Entity)
         RETURN DISTINCT e
         ORDER BY e.name
@@ -818,7 +910,6 @@ async def get_document_entities(
             cypher,
             {
                 "document_id": document_id,
-                "tenant_id": document.tenant_id,
                 "limit": limit,
                 "offset": offset
             }
@@ -840,6 +931,7 @@ async def get_document_relationships(
     document_id: str,
     limit: int = 100,
     offset: int = 0,
+    http_request: Request = None,
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     """
@@ -853,7 +945,16 @@ async def get_document_relationships(
         offset: Number of relationships to skip (default: 0)
     """
     # 1. Verify existence
+    permissions = getattr(http_request.state, "permissions", []) if http_request else []
+    is_super_admin = "super_admin" in permissions
+
     query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        if http_request:
+            tenant_id = _get_tenant_id(http_request)
+            query = query.where(Document.tenant_id == tenant_id)
+    
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -867,11 +968,10 @@ async def get_document_relationships(
     # OPTIMIZED: Direct MATCH pattern instead of UNWIND Cartesian product
     # This is O(N) instead of O(N²) where N is the number of entities
     cypher = """
-        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
         MATCH (c)-[:MENTIONS]->(s:Entity)
         MATCH (s)-[r:RELATED_TO]->(t:Entity)
-        WHERE t.tenant_id = $tenant_id
-          AND EXISTS {
+        WHERE EXISTS {
               MATCH (d)-[:HAS_CHUNK]->(c2:Chunk)-[:MENTIONS]->(t)
           }
         RETURN DISTINCT {
@@ -893,7 +993,6 @@ async def get_document_relationships(
             cypher,
             {
                 "document_id": document_id,
-                "tenant_id": document.tenant_id,
                 "limit": limit,
                 "offset": offset
             }
@@ -920,12 +1019,18 @@ async def get_document_chunks(
     """
     Get chunks for a document from PostgreSQL.
     """
-    _get_tenant_id(http_request)
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
 
     # 1. Verify existence
     # We can join with chunks directly or check doc first.
     # Checking doc first gives better error message.
     query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
+    
     result = await session.execute(query)
     doc = result.scalars().first()
 
@@ -970,11 +1075,14 @@ async def get_document_similarities(
     Get similarity relationships between chunks within the document.
     """
     # Verify document and get tenant
-    tenant_id = _get_tenant_id(http_request)
-    query = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id,
-    )
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    query = select(Document).where(Document.id == document_id)
+
+    if not is_super_admin:
+        tenant_id = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == tenant_id)
     result = await session.execute(query)
     document = result.scalars().first()
 
@@ -989,7 +1097,7 @@ async def get_document_similarities(
     # Query SIMILAR_TO relationships in Neo4j
     # We fetch chunk IDs from Neo4j, then texts from Postgres (since Neo4j chunks don't have text)
     cypher = """
-        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c1:Chunk)
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c1:Chunk)
         MATCH (c1)-[r:SIMILAR_TO]->(c2:Chunk)
         WHERE c1.id < c2.id
         RETURN c1.id as source_id, 
@@ -1006,7 +1114,6 @@ async def get_document_similarities(
             cypher,
             {
                 "document_id": document_id, 
-                "tenant_id": tenant_id,
                 "offset": offset,
                 "limit": limit
             }

@@ -571,9 +571,10 @@ async def query_stream(
                             tool_map[t["name"]] = t["func"]
                             tool_schemas.append(t["schema"])
                     
-                    # Add Connector Tools (e.g. Carbonio) - DYNAMICALLY LOAD
+                    
+                    # Add Connector Tools - DYNAMICALLY LOAD
                     logger.info("Starting Agent Mode Setup...")
-                    # We need to fetch active credentials from the database
+                    # Fetch active credentials for ALL active connectors
                     from src.api.routes.connectors import CONNECTOR_REGISTRY
                     from src.core.models.connector_state import ConnectorState
                     from src.api.deps import _async_session_maker
@@ -582,30 +583,55 @@ async def query_stream(
                     c_tools_count = 0
                     async with _async_session_maker() as session:
                         logger.info("DB Session created for Agent Setup")
+                        # Select all active connectors for this tenant
                         result = await session.execute(
                             select(ConnectorState).where(
-                                ConnectorState.tenant_id == tenant_id,
-                                ConnectorState.connector_type == "carbonio"
+                                ConnectorState.tenant_id == tenant_id
                             )
                         )
-                        c_state = result.scalar_one_or_none()
+                        c_states = result.scalars().all()
                         
-                        if c_state and c_state.sync_cursor:
-                             logger.info("Found Carbonio state, initializing connector...")
-                             # Instantiate and auth
-                             ConnectorClass = CONNECTOR_REGISTRY["carbonio"]
-                             creds = c_state.sync_cursor
-                             connector_instance = ConnectorClass(host=creds.get("host", ""))
-                             await connector_instance.authenticate(creds)
-                             logger.info("Carbonio authenticated.")
-                             
-                             c_tools = connector_instance.get_agent_tools()
-                             c_tools_count = len(c_tools)
-                             for t in c_tools:
-                                tool_map[t["name"]] = t["func"]
-                                tool_schemas.append(t["schema"])
-                        else:
-                            logger.info("No active Carbonio state found.")
+                        for c_state in c_states:
+                            if not c_state.sync_cursor:
+                                continue
+                                
+                            c_type = c_state.connector_type
+                            if c_type in CONNECTOR_REGISTRY:
+                                try:
+                                    logger.info(f"Initializing connector: {c_type}")
+                                    ConnectorClass = CONNECTOR_REGISTRY[c_type]
+                                    creds = c_state.sync_cursor
+                                    
+                                    # Initialize with specific params based on type if needed, 
+                                    # but BaseConnector usually takes kwargs or we rely on authenticated() 
+                                    # to set state. 
+                                    # Actually, Zendesk needs subdomain in init, Carbonio needs host.
+                                    # We can try to pass relevant args from creds to init.
+                                    
+                                    init_kwargs = {}
+                                    if c_type == "zendesk":
+                                        init_kwargs["subdomain"] = creds.get("subdomain", "")
+                                    elif c_type == "confluence":
+                                        init_kwargs["base_url"] = creds.get("base_url", "")
+                                    elif c_type == "carbonio":
+                                        init_kwargs["host"] = creds.get("host", "")
+                                    
+                                    connector_instance = ConnectorClass(**init_kwargs)
+                                    
+                                    # Authenticate
+                                    auth_success = await connector_instance.authenticate(creds)
+                                    if auth_success:
+                                        c_tools = connector_instance.get_agent_tools()
+                                        for t in c_tools:
+                                            tool_map[t["name"]] = t["func"]
+                                            tool_schemas.append(t["schema"])
+                                            c_tools_count += 1
+                                        logger.info(f"Loaded {len(c_tools)} tools from {c_type}")
+                                    else:
+                                        logger.warning(f"Failed to authenticate {c_type} during agent setup")
+                                except Exception as e:
+                                    logger.error(f"Error loading connector {c_type}: {e}")
+
                     
                     logger.info(f"Agent tools loaded. Total extra tools: {c_tools_count}")
                     
