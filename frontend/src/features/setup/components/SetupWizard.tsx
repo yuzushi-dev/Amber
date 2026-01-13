@@ -54,7 +54,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     const fetchStatus = useCallback(async () => {
         try {
             const apiKey = localStorage.getItem('api_key') || '';
-            const response = await fetch(`${apiBaseUrl}/api/setup/status`, {
+            const response = await fetch(`${apiBaseUrl}/api/v1/setup/status`, {
                 headers: { 'X-API-Key': apiKey }
             });
             if (!response.ok) throw new Error('Failed to fetch setup status');
@@ -127,7 +127,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000);
 
-            const response = await fetch(`${apiBaseUrl}/api/setup/install`, {
+            const response = await fetch(`${apiBaseUrl}/api/v1/setup/install`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -169,7 +169,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
     const handleConfirmSkip = async () => {
         try {
-            const response = await fetch(`${apiBaseUrl}/api/setup/skip`, {
+            const response = await fetch(`${apiBaseUrl}/api/v1/setup/skip`, {
                 method: 'POST',
                 headers: { 'X-API-Key': localStorage.getItem('api_key') || '' }
             });
@@ -185,7 +185,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     const handleContinue = async () => {
         try {
             // Ensure backend knows setup is complete
-            await fetch(`${apiBaseUrl}/api/setup/skip`, {
+            await fetch(`${apiBaseUrl}/api/v1/setup/skip`, {
                 method: 'POST',
                 headers: { 'X-API-Key': localStorage.getItem('api_key') || '' }
             });
