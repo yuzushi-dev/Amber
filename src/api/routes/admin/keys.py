@@ -42,7 +42,7 @@ class ApiKeyResponse(BaseModel):
     name: str
     prefix: str
     is_active: bool
-    scopes: List[str]
+    scopes: List[str] = []
     tenants: List[ApiKeyTenantInfo] = []
     last_chars: str
     created_at: datetime
@@ -63,7 +63,7 @@ class UpdateKeyRequest(BaseModel):
 class MeResponse(BaseModel):
     """Current API key information including scopes."""
     name: str
-    scopes: List[str]
+    scopes: List[str] = []
     tenant_id: Optional[str] = None
 
 

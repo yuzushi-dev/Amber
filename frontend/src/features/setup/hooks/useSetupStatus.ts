@@ -25,7 +25,7 @@ export function useSetupStatus() {
     return useQuery<SetupStatus>({
         queryKey: ['setup-status'],
         queryFn: async () => {
-            const response = await fetch('/api/setup/status', {
+            const response = await fetch('/api/v1/setup/status', {
                 headers: {
                     'X-API-Key': apiKey || '',
                     'Content-Type': 'application/json'

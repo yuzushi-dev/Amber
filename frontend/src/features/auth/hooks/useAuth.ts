@@ -84,7 +84,7 @@ export const useAuth = create<AuthState>()(
             validateKey: async (key: string): Promise<boolean> => {
                 try {
                     // Use a simple endpoint to check validity
-                    const response = await fetch('/api/health')
+                    const response = await fetch('/api/v1/health')
                     if (!response.ok) return false
 
                     // Try to access whoami to verify key

@@ -22,9 +22,10 @@ logger = logging.getLogger(__name__)
 PUBLIC_PATHS = {
     "/health",
     "/health/ready",
+    "/v1/health",
+    "/v1/health/ready",
     "/docs",
     "/redoc",
-    "/openapi.json",
     "/openapi.json",
 }
 
@@ -37,8 +38,8 @@ def _is_public_path(path: str) -> bool:
     # Prefix matches for documentation paths
     if path.startswith("/docs") or path.startswith("/redoc"):
         return True
-    # Health checks under /api
-    if path.startswith("/api/health"):
+    # Health checks under /v1 or /api
+    if path.startswith("/v1/health") or path.startswith("/api/health"):
         return True
     return False
 
