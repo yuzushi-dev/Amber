@@ -63,9 +63,14 @@ export function useChatStream() {
         }))
 
         const apiKey = localStorage.getItem('api_key')
-        // Build URL for proxy (configured in vite.config.ts)
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
-        const url = new URL(`${apiBaseUrl}/query/stream`)
+        // Use relative path for SSE to leverage Vite proxy / Nginx
+        // This ensures it works on remote deployments (e.g. cph-01)
+        const baseUrl = `/api/v1/query/stream`
+        // We use window.location.origin to form a valid URL object if needed, 
+        // but EventSource can take a relative path string directly usually. 
+        // However, constructing URL object requires a base if path is relative. 
+        // We can just use string concatenation for params to keep it simple and relative.
+        const url = new URL(baseUrl, window.location.origin)
 
         // Trigger Logic: Check for @agent or /agent
         let finalQuery = query
