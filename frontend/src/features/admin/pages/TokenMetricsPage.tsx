@@ -195,7 +195,6 @@ export default function TokenMetricsPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <ChessQueen className="w-5 h-5 text-primary" />
                             Usage by Provider
                         </CardTitle>
                     </CardHeader>
@@ -238,7 +237,6 @@ export default function TokenMetricsPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <ChessPawn className="w-5 h-5 text-primary" />
                             Usage by Model
                         </CardTitle>
                     </CardHeader>
