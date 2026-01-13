@@ -9,13 +9,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
     Zap,
-    ChessPawn,
     PlugZap,
     Euro,
     MessageSquare,
     Calculator,
-    RefreshCw,
-    ChessQueen
+    RefreshCw
 } from 'lucide-react'
 import { chatHistoryApi, ChatHistoryItem, maintenanceApi, QueryMetrics } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
