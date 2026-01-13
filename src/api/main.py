@@ -182,17 +182,13 @@ register_exception_handlers(app)
 # Register Routes
 # =============================================================================
 
-# Health endpoints (no prefix, no auth required)
-app.include_router(health.router)
-# Also mount under /api for frontend proxies that prefix everything
-app.include_router(health.router, prefix="/api")
-
 # API v1 routes
 # from fastapi import APIRouter # Moved to top
 
 v1_router = APIRouter(prefix="/v1")
 
 # Core routes (always available)
+v1_router.include_router(health.router)
 v1_router.include_router(query.router)
 
 # Optional routes (require database/Phase 1 dependencies)
@@ -271,7 +267,7 @@ except ImportError as e:
 # Setup routes (for on-demand dependency installation)
 try:
     from src.api.routes import setup
-    app.include_router(setup.router, prefix="/api")  # Register at root level, not under /v1
+    v1_router.include_router(setup.router)  # Move under /v1
     logger.info("Registered setup router")
 except ImportError as e:
     logger.warning(f"Setup router not available: {e}")

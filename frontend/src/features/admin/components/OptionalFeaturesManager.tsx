@@ -87,7 +87,7 @@ export default function OptionalFeaturesManager() {
     const fetchStatus = useCallback(async () => {
         try {
             const apiKey = localStorage.getItem('api_key') || ''
-            const response = await fetch('/api/setup/status', {
+            const response = await fetch('/api/v1/setup/status', {
                 headers: { 'X-API-Key': apiKey }
             })
             if (!response.ok) throw new Error('Failed to fetch status')
@@ -127,7 +127,7 @@ export default function OptionalFeaturesManager() {
             const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000)
             const apiKey = localStorage.getItem('api_key') || ''
 
-            const response = await fetch('/api/setup/install', {
+            const response = await fetch('/api/v1/setup/install', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
