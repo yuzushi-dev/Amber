@@ -26,7 +26,8 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete,
         }
 
         const apiKey = localStorage.getItem('api_key')
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
+        // Use relative path for SSE to leverage Vite proxy / Nginx
+        const apiBaseUrl = '/api/v1'
         const monitorUrl = `${apiBaseUrl}/documents/${documentId}/events?api_key=${encodeURIComponent(apiKey || '')}`
 
         const manager = new SSEManager(
