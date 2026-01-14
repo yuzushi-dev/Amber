@@ -1,14 +1,14 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { feedbackApi, FeedbackItem } from '@/lib/api-admin'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -19,7 +19,7 @@ import {
     CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { FormatDate } from '@/components/ui/date-format'
-import { ThumbsUp, ThumbsDown, Check, X, Download, Loader2, Eye, MessageSquare, ChevronDown, Trash2, Power } from 'lucide-react'
+import { ThumbsUp, Check, X, Download, Loader2, MessageSquare, ChevronDown, Trash2, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
@@ -108,66 +108,92 @@ export default function FeedbackPage() {
         if (pendingLoading) {
             return (
                 <div className="flex justify-center p-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-6 w-6 animate-spin text-primary/50" />
                 </div>
             )
         }
 
         if (pendingFeedback.length === 0) {
             return (
-                <div className="flex flex-col items-center justify-center p-24 text-center text-muted-foreground space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                        <Check className="h-8 w-8 text-green-500" />
+                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center space-y-6">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full opacity-20" />
+                        <div className="relative p-6 bg-gradient-to-br from-background to-muted rounded-2xl border border-white/5 shadow-2xl ring-1 ring-white/10">
+                            <Check className="h-10 w-10 text-primary/80" />
+                        </div>
                     </div>
-                    <div>
-                        <p className="text-xl font-medium text-foreground">All caught up!</p>
-                        <p className="text-sm">No pending feedback to review.</p>
+                    <div className="space-y-1">
+                        <h3 className="text-xl font-display font-medium text-foreground tracking-tight">All Caught Up</h3>
+                        <p className="text-sm text-muted-foreground/60 font-mono tracking-wide">No pending feedback tickets to review</p>
                     </div>
                 </div>
             )
         }
 
         return (
-            <div className="flex flex-col h-full">
-                <div className="grid grid-cols-[180px_1fr_120px_150px] bg-muted/60 border-b border-border flex-shrink-0">
-                    <div className="h-12 px-4 pl-6 flex items-center text-sm font-medium text-muted-foreground">Date</div>
-                    <div className="h-12 px-4 flex items-center text-sm font-medium text-muted-foreground">Request ID</div>
-                    <div className="h-12 px-4 flex items-center text-sm font-medium text-muted-foreground">Score</div>
-                    <div className="h-12 px-4 pr-6 flex items-center justify-end text-sm font-medium text-muted-foreground">Actions</div>
-                </div>
-                <div className="flex-1 overflow-y-auto min-h-0">
-                    {pendingFeedback.map((item) => (
-                        <div
+            <div className="flex flex-col h-full bg-muted/5 p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {pendingFeedback.map((item: FeedbackItem, index: number) => (
+                        <motion.div
                             key={item.id}
-                            className="grid grid-cols-[180px_1fr_120px_150px] border-b border-border cursor-pointer hover:bg-muted/50 transition-colors group"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="group relative bg-card hover:bg-muted/40 border border-white/5 hover:border-primary/20 rounded-xl p-5 transition-all duration-300 hover:shadow-lg cursor-pointer flex flex-col gap-4"
                             onClick={() => setSelectedItem(item)}
                         >
-                            <div className="p-4 pl-6 font-medium">
-                                <FormatDate date={item.created_at} mode="short" />
-                            </div>
-                            <div className="p-4 font-mono text-xs text-muted-foreground flex items-center">
-                                {item.request_id}
-                            </div>
-                            <div className="p-4 flex items-center">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                                    <ThumbsUp className="h-3 w-3" /> {item.score}
+                            <div className="flex items-start justify-between">
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
+                                            {item.request_id.slice(0, 8)}
+                                        </span>
+                                        <FormatDate date={item.created_at} mode="short" className="text-[10px] text-muted-foreground/50" />
+                                    </div>
+                                    <h4 className="font-medium text-sm text-foreground/90 line-clamp-1 group-hover:text-primary transition-colors">
+                                        {item.query || "No query text"}
+                                    </h4>
+                                </div>
+                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/10 text-green-500 ring-1 ring-green-500/20">
+                                    <ThumbsUp className="w-3 h-3" />
                                 </span>
                             </div>
-                            <div className="p-4 pr-6 flex items-center justify-end">
-                                <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSelectedItem(item)}>
-                                        <Eye className="h-4 w-4" />
+
+                            <div className="flex-1">
+                                <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                                    {item.answer || "No answer text"}
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                                <div className="flex items-center gap-2">
+                                    {item.comment && (
+                                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 bg-muted/30 px-2 py-1 rounded-full">
+                                            <MessageSquare className="w-3 h-3" /> Commented
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity translate-y-1 group-hover:translate-y-0 duration-200">
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                        onClick={(e) => { e.stopPropagation(); rejectMutation.mutate(item.id); }}
+                                    >
+                                        <X className="w-3.5 h-3.5" />
                                     </Button>
-                                    <div className="w-px h-4 bg-border my-auto mx-1" />
-                                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0 hover:text-destructive hover:bg-destructive/10" onClick={() => rejectMutation.mutate(item.id)}>
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0 hover:text-primary hover:bg-primary/10" onClick={() => verifyMutation.mutate(item.id)}>
-                                        <Check className="h-4 w-4" />
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10 rounded-lg"
+                                        onClick={(e) => { e.stopPropagation(); verifyMutation.mutate(item.id); }}
+                                    >
+                                        <Check className="w-3.5 h-3.5" />
                                     </Button>
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
                     ))}
                 </div>
             </div>
@@ -178,222 +204,237 @@ export default function FeedbackPage() {
         if (approvedLoading) {
             return (
                 <div className="flex justify-center p-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-6 w-6 animate-spin text-primary/50" />
                 </div>
             )
         }
 
         if (approvedFeedback.length === 0) {
             return (
-                <div className="flex flex-col items-center justify-center p-24 text-center text-muted-foreground space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                        <MessageSquare className="h-8 w-8" />
+                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center space-y-6">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-muted-foreground/10 blur-3xl rounded-full opacity-20" />
+                        <div className="relative p-6 bg-gradient-to-br from-background to-muted rounded-2xl border border-white/5 shadow-2xl ring-1 ring-white/10">
+                            <BookOpen className="h-10 w-10 text-muted-foreground/50" />
+                        </div>
                     </div>
-                    <div>
-                        <p className="text-xl font-medium text-foreground">No Q&A pairs yet</p>
-                        <p className="text-sm">Approve pending feedback to add items here.</p>
+                    <div className="space-y-1">
+                        <h3 className="text-xl font-display font-medium text-foreground tracking-tight">Library Empty</h3>
+                        <p className="text-sm text-muted-foreground/60 font-mono tracking-wide">Approved items will appear here</p>
                     </div>
                 </div>
             )
         }
 
         return (
-            <div className="p-4 space-y-3 overflow-y-auto">
-                {approvedFeedback.map((item) => (
-                    <Card key={item.id} className={cn(
-                        "border transition-all",
-                        item.is_active ? "border-border" : "border-dashed border-muted-foreground/30 opacity-60"
-                    )}>
-                        <Collapsible>
-                            <div className="p-4">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-xs font-medium text-muted-foreground">Question</span>
-                                            <FormatDate date={item.created_at} mode="short" className="text-xs text-muted-foreground" />
+            <div className="p-6 grid grid-cols-1 gap-4 max-w-5xl mx-auto">
+                {approvedFeedback.map((item: FeedbackItem, index: number) => (
+                    <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                    >
+                        <Card className={cn(
+                            "group border transition-all duration-300 overflow-hidden",
+                            item.is_active ? "border-white/5 bg-card/50 hover:bg-card/80 hover:border-primary/20 hover:shadow-md" : "border-dashed border-white/5 bg-muted/10 opacity-60 hover:opacity-100"
+                        )}>
+                            <Collapsible>
+                                <div className="p-5 flex items-start gap-5">
+                                    <CollapsibleTrigger asChild>
+                                        <div className="flex-1 min-w-0 space-y-3 cursor-pointer text-left group/trigger">
+                                            <div className="flex items-center gap-3">
+                                                <span className={cn(
+                                                    "w-1.5 h-1.5 rounded-full transition-colors",
+                                                    item.is_active ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-muted-foreground/30"
+                                                )} />
+                                                <h4 className="font-medium text-foreground text-base truncate pr-4 group-hover/trigger:text-primary transition-colors">
+                                                    {item.query || <span className="text-muted-foreground italic">No query available</span>}
+                                                </h4>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 text-xs text-muted-foreground/60 font-mono">
+                                                <span>ID: {item.id.slice(0, 8)}</span>
+                                                <span className="w-px h-3 bg-white/10" />
+                                                <FormatDate date={item.created_at} mode="short" />
+                                            </div>
                                         </div>
-                                        <p className="font-medium text-foreground truncate">
-                                            {item.query || <span className="text-muted-foreground italic">No query available</span>}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-2">
+                                    </CollapsibleTrigger>
+
+                                    <div className="flex items-center gap-4 shrink-0">
+                                        <div className="flex items-center gap-2 bg-muted/20 p-1 rounded-lg border border-white/5">
                                             <Switch
                                                 checked={item.is_active ?? true}
                                                 onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: item.id, isActive: checked })}
+                                                className="scale-75 data-[state=checked]:bg-emerald-500"
                                             />
                                         </div>
                                         <Button
-                                            size="sm"
+                                            size="icon"
                                             variant="ghost"
-                                            className="h-8 w-8 p-0 hover:text-destructive hover:bg-destructive/10"
+                                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                                             onClick={() => deleteMutation.mutate(item.id)}
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
+                                        <CollapsibleTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-muted/50">
+                                                <ChevronDown className="h-4 w-4 transition-transform duration-300 group-data-[state=open]:rotate-180" />
+                                            </Button>
+                                        </CollapsibleTrigger>
                                     </div>
                                 </div>
 
-                                <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-3 group">
-                                    <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180" />
-                                    View Answer
-                                </CollapsibleTrigger>
-                            </div>
-
-                            <CollapsibleContent>
-                                <div className="px-4 pb-4 pt-0">
-                                    <div className="bg-muted/50 rounded-lg p-4 text-sm">
-                                        <span className="text-xs font-medium text-muted-foreground block mb-2">Answer</span>
-                                        <p className="text-foreground whitespace-pre-wrap">
-                                            {item.answer || <span className="text-muted-foreground italic">No answer available</span>}
-                                        </p>
+                                <CollapsibleContent>
+                                    <div className="px-5 pb-5 pt-0 pl-9">
+                                        <div className="relative">
+                                            <div className="absolute left-0 top-0 bottom-0 w-px bg-white/5" />
+                                            <div className="pl-6 pt-2">
+                                                <div className="p-4 bg-muted/30 rounded-xl border border-white/5 text-sm leading-relaxed text-muted-foreground">
+                                                    {item.answer || <span className="text-muted-foreground italic">No answer available</span>}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </CollapsibleContent>
-                        </Collapsible>
-                    </Card>
+                                </CollapsibleContent>
+                            </Collapsible>
+                        </Card>
+                    </motion.div>
                 ))}
             </div>
         )
     }
 
     return (
-        <div className="flex flex-col space-y-6 p-8 h-[calc(100vh-4rem)] overflow-hidden">
-            <div className="flex justify-between items-start">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-foreground">
-                        Feedback & Q&A Library
+        <div className="flex flex-col h-[calc(100vh-4rem)] bg-background/50 overflow-hidden">
+            {/* Header */}
+            <div className="flex-shrink-0 px-8 py-6 border-b border-border/40 bg-background/95 backdrop-blur-sm z-10 flex items-center justify-between">
+                <div className="space-y-1.5">
+                    <h2 className="text-2xl font-display font-semibold tracking-tight text-foreground flex items-center gap-3">
+                        Verified Q&A
                     </h2>
-                    <p className="text-muted-foreground mt-2 text-lg">
-                        Review feedback and manage verified Q&A examples.
+                    <p className="text-sm text-muted-foreground font-medium max-w-lg">
+                        Curate high-quality examples to improve the assistant's performance through few-shot prompting.
                     </p>
                 </div>
-                <Button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    variant="default"
-                    className="shadow-md"
-                >
-                    {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                    Export Dataset
-                </Button>
+                <div className="flex items-center gap-3">
+                    <Button
+                        onClick={handleExport}
+                        disabled={exporting}
+                        variant="outline"
+                        className="h-9 text-xs font-medium border-border/50 hover:bg-muted/50"
+                    >
+                        {exporting ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
+                        Export JSONL
+                    </Button>
+                </div>
             </div>
 
-            <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border-border bg-card shadow-sm">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
-                    <div className="px-6 py-3 border-b border-border bg-muted/40 flex-shrink-0">
-                        <TabsList className="bg-transparent gap-4 h-auto p-0">
-                            <TabsTrigger
-                                value="pending"
-                                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md px-4 py-2"
-                            >
+            {/* Main Tabs Layout */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+                <div className="px-8 border-b border-border/40 bg-muted/5">
+                    <TabsList className="h-12 bg-transparent gap-6 p-0 w-full justify-start">
+                        <TabsTrigger
+                            value="pending"
+                            className="relative h-12 rounded-none border-b-2 border-transparent px-0 pb-0 pt-0 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground bg-transparent transition-none hover:text-foreground"
+                        >
+                            <span className="flex items-center gap-2 py-4">
                                 Pending Reviews
-                                <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-mono font-bold">
-                                    {pendingFeedback.length}
-                                </span>
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="library"
-                                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md px-4 py-2"
-                            >
-                                Q&A Library
-                                <span className="ml-2 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-mono font-bold">
+                                {pendingFeedback.length > 0 && (
+                                    <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-orange-500/10 text-orange-500 text-[10px] font-mono font-bold border border-orange-500/20">
+                                        {pendingFeedback.length}
+                                    </span>
+                                )}
+                            </span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="library"
+                            className="relative h-12 rounded-none border-b-2 border-transparent px-0 pb-0 pt-0 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground bg-transparent transition-none hover:text-foreground"
+                        >
+                            <span className="flex items-center gap-2 py-4">
+                                Known Library
+                                <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-muted text-muted-foreground text-[10px] font-mono font-bold border border-white/10">
                                     {approvedFeedback.length}
                                 </span>
-                            </TabsTrigger>
-                        </TabsList>
-                    </div>
+                            </span>
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
-                    <TabsContent value="pending" className="flex-1 overflow-hidden m-0">
-                        <CardContent className="p-0 h-full overflow-y-auto">
-                            {renderPendingReviews()}
-                        </CardContent>
+                <div className="flex-1 overflow-hidden relative">
+                    <TabsContent value="pending" className="absolute inset-0 m-0 overflow-y-auto">
+                        {renderPendingReviews()}
                     </TabsContent>
 
-                    <TabsContent value="library" className="flex-1 overflow-hidden m-0">
-                        <CardContent className="p-0 h-full overflow-y-auto">
-                            {renderQALibrary()}
-                        </CardContent>
+                    <TabsContent value="library" className="absolute inset-0 m-0 overflow-y-auto">
+                        {renderQALibrary()}
                     </TabsContent>
-                </Tabs>
-            </Card>
+                </div>
+            </Tabs>
 
             {/* Detail Dialog */}
             <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
-                <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-                    <DialogHeader className="p-6 border-b bg-muted/30 relative">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-4 top-4 h-8 w-8 rounded-full"
-                            onClick={() => setSelectedItem(null)}
-                        >
-                            <X className="h-4 w-4" />
-                            <span className="sr-only">Close</span>
-                        </Button>
-                        <DialogTitle className="text-lg">Review Feedback</DialogTitle>
-                        <DialogDescription>
-                            Request: <span className="font-mono text-xs">{selectedItem?.request_id}</span>
-                        </DialogDescription>
-                        <div className="mt-3">
-                            <span className={cn(
-                                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold",
-                                "bg-primary/10 text-primary border border-primary/30"
-                            )}>
-                                <ThumbsUp className="h-3 w-3" /> Positive Feedback
+                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden bg-zinc-950 border-white/10 shadow-2xl">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                        <div className="flex items-center justify-between pr-8">
+                            <DialogTitle className="text-lg font-display tracking-tight">Review Candidate</DialogTitle>
+                            <span className="font-mono text-[10px] text-muted-foreground bg-white/5 px-2 py-1 rounded border border-white/5">
+                                {selectedItem?.request_id}
                             </span>
                         </div>
                     </DialogHeader>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                                <MessageSquare className="h-4 w-4" /> User Query
-                            </h4>
-                            <div className="bg-muted/50 rounded-lg p-4">
-                                <p className="text-foreground">
-                                    {selectedItem?.query || <span className="text-muted-foreground italic">No query context available</span>}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                                <MessageSquare className="h-4 w-4" /> Assistant Response
-                            </h4>
-                            <div className="bg-muted/50 rounded-lg p-4 max-h-[300px] overflow-y-auto">
-                                <p className="text-foreground whitespace-pre-wrap text-sm">
-                                    {selectedItem?.answer || <span className="text-muted-foreground italic">No response context available</span>}
-                                </p>
-                            </div>
-                        </div>
-
-                        {selectedItem?.comment && (
+                    <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                        {/* Q&A Section */}
+                        <div className="space-y-6">
                             <div className="space-y-2">
-                                <h4 className="text-sm font-medium text-muted-foreground">User Comment</h4>
-                                <div className="bg-primary/5 border border-primary/10 rounded-lg p-4">
-                                    <p className="text-foreground italic">&ldquo;{selectedItem.comment}&rdquo;</p>
+                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                                    <MessageSquare className="w-3 h-3" /> Question
+                                </label>
+                                <div className="text-lg font-medium text-foreground leading-relaxed">
+                                    {selectedItem?.query}
                                 </div>
+                            </div>
+
+                            <div className="relative pl-4 border-l-2 border-primary/20 space-y-2">
+
+                                <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                                    {selectedItem?.answer}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* User Feedback */}
+                        {(selectedItem?.comment) && (
+                            <div className="bg-muted/10 rounded-xl p-5 border border-white/5 space-y-3">
+                                <div className="flex items-center gap-2 text-amber-500/90">
+                                    <MessageSquare className="w-4 h-4" />
+                                    <span className="text-xs font-bold uppercase tracking-wide">User Comment</span>
+                                </div>
+                                <p className="text-sm text-muted-foreground italic">
+                                    "{selectedItem.comment}"
+                                </p>
                             </div>
                         )}
                     </div>
 
-                    <DialogFooter className="p-6 border-t bg-muted/30 gap-3">
+                    <DialogFooter className="p-6 border-t border-white/5 bg-white/[0.02] gap-3">
                         <Button
-                            variant="outline"
+                            variant="ghost"
                             onClick={() => rejectMutation.mutate(selectedItem!.id)}
                             disabled={rejectMutation.isPending}
-                            className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         >
                             <X className="mr-2 h-4 w-4" />
-                            Reject
+                            Discard
                         </Button>
                         <Button
                             onClick={() => verifyMutation.mutate(selectedItem!.id)}
                             disabled={verifyMutation.isPending}
+                            className="bg-primary text-primary-foreground hover:bg-primary/90"
                         >
                             {verifyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                            Add to Q&A Library
+                            Approve & Add to Library
                         </Button>
                     </DialogFooter>
                 </DialogContent>

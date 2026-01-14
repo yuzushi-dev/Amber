@@ -67,7 +67,10 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
                 aria-hidden="true"
             />
             {/* Dialog Container */}
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                onClick={() => onOpenChange(false)}
+            >
                 {children}
             </div>
         </>

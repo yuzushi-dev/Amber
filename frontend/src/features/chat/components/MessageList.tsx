@@ -22,9 +22,23 @@ export default function MessageList({ messages }: MessageListProps) {
                     <p className="text-xs italic">AI can make mistakes, please double check the information.</p>
                 </div>
             ) : (
-                messages.map((msg) => (
-                    <MessageItem key={msg.id} message={msg} />
-                ))
+                messages.map((msg, index) => {
+                    // Find preceding user query for assistant responses
+                    let queryContent: string | undefined;
+                    if (msg.role === 'assistant' && index > 0) {
+                        const prevMsg = messages[index - 1];
+                        if (prevMsg.role === 'user') {
+                            queryContent = prevMsg.content;
+                        }
+                    }
+                    return (
+                        <MessageItem
+                            key={msg.id}
+                            message={msg}
+                            queryContent={queryContent}
+                        />
+                    );
+                })
             )}
             <div ref={bottomRef} className="h-4" />
         </div>

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import { useState } from "react";
+import React from 'react';
 import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import confetti from "canvas-confetti";
@@ -13,18 +14,20 @@ interface FeedbackProps {
     requestId?: string; // Prefer request_id if available
     sessionId?: string;
     content: string; // The message content for the dialog
+    relatedQuery?: string;
 
     // Optional pre-existing state
     initialScore?: number;
 }
 
-export const FeedbackButtons: React.FC<FeedbackProps> = ({
+export const FeedbackButtons = ({
     messageId,
     requestId,
     sessionId,
     content,
+    relatedQuery,
     initialScore
-}) => {
+}: FeedbackProps) => {
     const [submitted, setSubmitted] = useState<number | null>(initialScore ?? null);
     const [loading, setLoading] = useState(false);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -47,7 +50,9 @@ export const FeedbackButtons: React.FC<FeedbackProps> = ({
                 metadata: {
                     session_id: sessionId,
                     message_id: messageId,
-                    selected_snippets: selectedSnippets
+                    selected_snippets: selectedSnippets,
+                    query: relatedQuery,
+                    answer: content
                 }
             });
 
