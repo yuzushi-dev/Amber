@@ -27,6 +27,13 @@ class Feedback(Base, TimestampMixin):
     is_positive = Column(Boolean, default=True)
     comment = Column(String)
 
+    # Golden Dataset Status
+    # NONE: Default
+    # PENDING: Positive feedback waiting for review
+    # VERIFIED: Approved for Golden Dataset
+    # REJECTED: Discarded
+    golden_status = Column(String, default="NONE", index=True)
+
     # Correction data (if provided)
     correction = Column(String)
 

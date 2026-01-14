@@ -124,6 +124,8 @@ class TuningService:
         Analyze feedback to determine if we need to adjust retrieval weights.
         """
         if is_positive:
+            logger.info(f"Positive feedback for {request_id}. Marking as PENDING for Golden Dataset.")
+            # In the future, we could auto-promote high confidence answers here
             return
 
         logger.info(f"Negative feedback received for request {request_id}. Analyzing for tuning...")

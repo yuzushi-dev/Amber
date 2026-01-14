@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+import confetti from "canvas-confetti";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { Button } from "@/components/ui/button";
@@ -61,7 +62,19 @@ export const FeedbackButtons: React.FC<FeedbackProps> = ({
     };
 
     // Thumbs Up: Immediate submit
-    const handleThumbsUp = () => {
+    const handleThumbsUp = (event: React.MouseEvent<HTMLButtonElement>) => {
+        // Trigger confetti from the button's position
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = (rect.left + rect.width / 2) / window.innerWidth;
+        const y = (rect.top + rect.height / 2) / window.innerHeight;
+
+        confetti({
+            origin: { x, y },
+            particleCount: 60,
+            spread: 70,
+            colors: ['#22c55e', '#86efac', '#16a34a'] // Green theme
+        });
+
         handleFeedback(1);
     };
 
