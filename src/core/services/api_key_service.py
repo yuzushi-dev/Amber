@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.models.api_key import ApiKey
+from src.core.models.api_key import ApiKey, ApiKeyTenant
+from src.core.models.tenant import Tenant
 from src.shared.security import generate_api_key, hash_api_key, mask_api_key
 
 
@@ -139,23 +140,65 @@ class ApiKeyService:
     async def ensure_bootstrap_key(self, raw_key: str, name: str = "Bootstrap Key"):
         """
         Ensure a specific key hash exists in the DB (for migrations/env vars).
-        Does NOT return the key, just ensures the hash is there.
+        Also ensures the 'default' (Global Admin) tenant exists and is linked.
         """
         hashed = hash_api_key(raw_key)
         
+        # 1. Ensure Key Exists
         query = select(ApiKey).where(ApiKey.hashed_key == hashed)
         result = await self.session.execute(query)
-        existing = result.scalars().first()
+        key_record = result.scalars().first()
         
-        if not existing:
-            await self.create_key_from_raw(raw_key, name)
+        if not key_record:
+            key_record = await self.create_key_from_raw(raw_key, name)
             
-    async def create_key_from_raw(self, raw_key: str, name: str):
+        # 2. Ensure 'default' Tenant Exists (Global Admin)
+        tenant_query = select(Tenant).where(Tenant.id == 'default')
+        result = await self.session.execute(tenant_query)
+        tenant = result.scalar_one_or_none()
+        
+        if not tenant:
+            tenant = Tenant(
+                id='default',
+                name='Global Admin',
+                api_key_prefix='amber_',
+                is_active=True,
+                config={
+                    "embedding_model": "text-embedding-3-small",
+                    "generation_model": "gpt-4o-mini",
+                    "top_k": 10,
+                    "expansion_depth": 2,
+                    "similarity_threshold": 0.7,
+                    "reranking_enabled": True,
+                    "graph_expansion_enabled": True,
+                    "hybrid_ocr_enabled": True
+                }
+            )
+            self.session.add(tenant)
+            await self.session.commit()
+            
+        # 3. Ensure Linkage
+        link_query = select(ApiKeyTenant).where(
+            ApiKeyTenant.api_key_id == key_record.id,
+            ApiKeyTenant.tenant_id == tenant.id
+        )
+        result = await self.session.execute(link_query)
+        link = result.scalar_one_or_none()
+        
+        if not link:
+            link = ApiKeyTenant(
+                api_key_id=key_record.id,
+                tenant_id=tenant.id,
+                role='admin'
+            )
+            self.session.add(link)
+            await self.session.commit()
+
+    async def create_key_from_raw(self, raw_key: str, name: str) -> ApiKey:
         """
         Manually insert a known key (e.g. from Env).
         """
         hashed = hash_api_key(raw_key)
-        masked = mask_api_key(raw_key)
         
         key_record = ApiKey(
             name=name,
@@ -163,7 +206,8 @@ class ApiKeyService:
             hashed_key=hashed,
             last_chars=raw_key[-4:],
             is_active=True,
-            scopes=["admin", "root"],
+            scopes=["admin", "root", "super_admin"],
         )
         self.session.add(key_record)
         await self.session.commit()
+        return key_record
