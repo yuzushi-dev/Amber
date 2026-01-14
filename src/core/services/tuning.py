@@ -9,6 +9,9 @@ import logging
 from typing import Any
 
 from sqlalchemy.future import select
+import json
+from src.core.providers.factory import get_llm_provider
+from src.core.providers.base import ProviderTier
 
 from src.core.models.audit import AuditLog
 from src.core.models.tenant import Tenant
@@ -109,23 +112,74 @@ class TuningService:
         except Exception as e:
             logger.error(f"Failed to write audit log: {e}")
 
-    async def analyze_feedback_for_tuning(self, tenant_id: str, request_id: str, is_positive: bool):
+    async def analyze_feedback_for_tuning(
+        self, 
+        tenant_id: str, 
+        request_id: str, 
+        is_positive: bool,
+        comment: str | None = None,
+        selected_snippets: list[str] | None = None
+    ):
         """
-        Heuristic: If we get negative feedback on a local search,
-        maybe we should increase the graph weight slightly move.
+        Analyze feedback to determine if we need to adjust retrieval weights.
         """
         if is_positive:
             return
 
-        # Simple heuristic for Phase 8 demonstration
-        # In a real system, this would aggregate over many requests.
         logger.info(f"Negative feedback received for request {request_id}. Analyzing for tuning...")
 
-        # Example: Slightly bump graph weight if it seems relevant
-        # This is a placeholder for a more complex optimization loop (Stage 8.5.2)
-        # current_weights = await self.get_tenant_config(tenant_id)
-        # new_weights = {"graph": 1.1}
-        # await self.update_tenant_weights(tenant_id, new_weights)
+        # If no comment or snippets, we can't do much deep analysis
+        if not comment and not selected_snippets:
+            logger.info("No detailed feedback provided. Skipping analysis.")
+            return
+
+        try:
+            # Stage 1: Get LLM for analysis
+            llm = get_llm_provider(tier=ProviderTier.STANDARD)
+            
+            # Stage 2: Construct Prompt
+            snippets_text = "\n".join([f"- {s}" for s in selected_snippets]) if selected_snippets else "None"
+            prompt = f"""
+            You are an expert RAG system analyzer. A user has provided negative feedback on a generated answer.
+            
+            User Comment: "{comment or 'No comment'}"
+            Flagged Snippets (Incorrect parts):
+            {snippets_text}
+            
+            Task: Determine if this failure is due to:
+            1. RETRIEVAL_FAILURE: The context was missing or irrelevant.
+            2. HALLUCINATION: The context was correct, but the LLM made things up.
+            3. OTHER: User error, style preference, etc.
+            
+            Return JSON only: {{"reason": "RETRIEVAL_FAILURE" | "HALLUCINATION" | "OTHER", "confidence": float, "explanation": string}}
+            """
+
+            # Stage 3: Call LLM
+            # Note: We are using a direct generation call here. In a real system, we might use a structured output mode.
+            response = await llm.generate(prompt)
+            
+            # Parse JSON (naive parsing for now)
+            try:
+                # cleanup markdown code blocks if present
+                clean_response = response.replace("```json", "").replace("```", "").strip()
+                analysis = json.loads(clean_response)
+                
+                logger.info(f"Smart Tuning Analysis: {analysis}")
+
+                # Stage 4: Apply Actions (Heuristic)
+                if analysis.get("reason") == "RETRIEVAL_FAILURE" and analysis.get("confidence", 0) > 0.7:
+                    logger.info("Detected Retrieval Failure. Suggesting weight adjustment.")
+                    # Placeholder for actual adjustment logic
+                    # current = await self.get_tenant_config(tenant_id)
+                    # new_graph_weight = current.get("graph_weight", 1.0) + 0.1
+                    # await self.update_tenant_weights(tenant_id, {"graph_weight": new_graph_weight})
+                    logger.info(f"Would increase graph_weight for tenant {tenant_id}")
+
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse analysis response: {response}")
+
+        except Exception as e:
+            logger.error(f"Failed to run smart tuning analysis: {e}")
 
     def invalidate_cache(self, tenant_id: str):
         """Clear cached config for a tenant."""
