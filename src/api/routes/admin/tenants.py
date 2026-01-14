@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_admin
@@ -29,6 +29,12 @@ class TenantKeySummary(BaseModel):
     last_chars: str
     is_active: bool
     scopes: List[str] = []
+
+    @field_validator('scopes', mode='before')
+    @classmethod
+    def scopes_none_to_list(cls, v):
+        """Convert None to empty list for scopes field."""
+        return v if v is not None else []
 
     class Config:
         from_attributes = True
