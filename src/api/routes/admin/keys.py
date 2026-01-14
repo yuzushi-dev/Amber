@@ -10,7 +10,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_admin
@@ -47,6 +47,12 @@ class ApiKeyResponse(BaseModel):
     last_chars: str
     created_at: datetime
     last_used_at: Optional[datetime] = None
+
+    @field_validator('scopes', mode='before')
+    @classmethod
+    def scopes_none_to_list(cls, v):
+        """Convert None to empty list for scopes field."""
+        return v if v is not None else []
 
 
 class CreatedKeyResponse(ApiKeyResponse):
