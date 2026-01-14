@@ -701,6 +701,7 @@ async def query_stream(
                                 history.append({
                                     "query": request.query, 
                                     "answer": full_answer,
+                                    "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
                                     "timestamp": datetime.utcnow().isoformat()
                                 })
                                 existing_summary.metadata_["history"] = history
@@ -708,6 +709,7 @@ async def query_stream(
                                 # 2. Update top-level metadata to reflect LATEST turn
                                 existing_summary.metadata_["query"] = request.query
                                 existing_summary.metadata_["answer"] = full_answer
+                                existing_summary.metadata_["sources"] = agent_response.sources if hasattr(agent_response, "sources") else []
                                 existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
                                 
                                 # 3. Flag as modified for SQLAlchemy
@@ -738,6 +740,7 @@ async def query_stream(
                                         "history": [{
                                             "query": request.query, 
                                             "answer": full_answer,
+                                            "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
                                             "timestamp": datetime.utcnow().isoformat()
                                         }]
                                     }
@@ -796,6 +799,10 @@ async def query_stream(
 
             # Stream the answer
             full_answer = ""
+            collected_sources = []
+            stream_model = ""
+            stream_start_time = time.perf_counter()  # Track generation latency
+            
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
                 candidates=retrieval_result.chunks,
@@ -807,11 +814,17 @@ async def query_stream(
                 # Accumulate answer for history
                 if event == "token":
                     full_answer += str(data)
+                elif event == "sources":
+                    collected_sources = data
+                elif event == "done" and isinstance(data, dict):
+                    stream_model = data.get("model", "")
 
                 # ALWAYS JSON encode data to preserve newlines and special chars
                 data_str = json.dumps(data)
 
                 yield f"event: {event}\ndata: {data_str}\n\n"
+            
+            stream_latency_ms = (time.perf_counter() - stream_start_time) * 1000
 
             # SAVE INTERACTION TO HISTORY
             try:
@@ -836,6 +849,7 @@ async def query_stream(
                         history.append({
                             "query": request.query, 
                             "answer": full_answer,
+                            "sources": collected_sources,
                             "timestamp": datetime.utcnow().isoformat()
                         })
                         existing_summary.metadata_["history"] = history
@@ -864,11 +878,13 @@ async def query_stream(
                             metadata_={
                                 "query": request.query,
                                 "answer": full_answer,
+                                "sources": collected_sources,
                                 "model": "rag-default",
                                 "mode": "rag",
                                 "history": [{
                                     "query": request.query, 
                                     "answer": full_answer,
+                                    "sources": collected_sources,
                                     "timestamp": datetime.utcnow().isoformat()
                                 }]
                             }
@@ -879,6 +895,78 @@ async def query_stream(
                     
             except Exception as e:
                 logger.error(f"Failed to save RAG conversation history: {e}")
+
+            # RECORD METRICS for streaming queries
+            try:
+                from src.api.config import settings
+                from src.core.metrics.collector import MetricsCollector, QueryMetrics
+                from src.shared.identifiers import generate_query_id
+                from src.core.utils.tokenizer import Tokenizer
+                
+                # Pricing map (USD per 1k tokens) - Keep aligned with providers
+                MODEL_PRICING = {
+                    "gpt-4o": {"input": 0.005, "output": 0.015},
+                    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+                    "claude-3-sonnet": {"input": 0.003, "output": 0.015},
+                    "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
+                    "default": {"input": 0.00015, "output": 0.0006}  # Fallback to mini rates
+                }
+                
+                query_id = generate_query_id()
+                
+                # 1. Count Output Tokens
+                output_tokens = Tokenizer.count_tokens(full_answer, stream_model)
+                
+                # 2. Count Input Tokens (Query + Chunks)
+                # Reconstruct rough context string to estimate input tokens
+                chunk_text = "\n".join([getattr(c, "content", "") for c in retrieval_result.chunks]) if retrieval_result.chunks else ""
+                input_text = f"{request.query}\n{chunk_text}"
+                input_tokens = Tokenizer.count_tokens(input_text, stream_model)
+                
+                # 3. Calculate Cost
+                # Match model to pricing
+                pricing = MODEL_PRICING.get("default")
+                for key, rates in MODEL_PRICING.items():
+                    if key in stream_model.lower():
+                        pricing = rates
+                        break
+                        
+                cost_estimate = (
+                    (input_tokens * pricing["input"] / 1000) + 
+                    (output_tokens * pricing["output"] / 1000)
+                )
+                
+                # Infer provider from model name
+                provider = "openai" if "gpt" in stream_model.lower() else "anthropic" if "claude" in stream_model.lower() else "unknown"
+                
+                metrics_obj = QueryMetrics(
+                    query_id=query_id,
+                    tenant_id=tenant_id,
+                    query=request.query,
+                    operation="rag_query",
+                    response=full_answer[:500] if len(full_answer) > 500 else full_answer,
+                    chunks_retrieved=len(retrieval_result.chunks),
+                    chunks_used=len(retrieval_result.chunks),
+                    cache_hit=retrieval_result.cache_hit,
+                    tokens_used=input_tokens + output_tokens,
+                    output_tokens=output_tokens,
+                    generation_latency_ms=stream_latency_ms,
+                    total_latency_ms=stream_latency_ms,
+                    cost_estimate=cost_estimate,
+                    model=stream_model,
+                    provider=provider,
+                    success=True,
+                    conversation_id=final_conversation_id,
+                    sources_cited=len(collected_sources),
+                    answer_length=len(full_answer),
+                )
+                
+                collector = MetricsCollector(redis_url=settings.db.redis_url)
+                await collector.record(metrics_obj)
+                await collector.close()
+                logger.debug(f"Recorded streaming metrics for query {query_id}")
+            except Exception as e:
+                logger.warning(f"Failed to record streaming metrics: {e}")
 
             yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
 

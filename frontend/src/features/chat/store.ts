@@ -7,13 +7,16 @@ export interface Message {
     thinking?: string | null
     sources?: Source[]
     timestamp: string
+
 }
 
 export interface Source {
     chunk_id: string
+    index?: number
     document_id?: string
     title: string
     content_preview: string
+    text?: string
     score?: number
     page?: number
 }
