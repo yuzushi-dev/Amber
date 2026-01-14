@@ -2,12 +2,15 @@ import { useChatStore } from '../store'
 import { useChatStream } from '../hooks/useChatStream'
 import MessageList from './MessageList'
 import QueryInput from './QueryInput'
+import CitationExplorer from './CitationExplorer'
 import { useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { chatHistoryApi } from '@/lib/api-admin'
+import { useCitationStore } from '../store/citationStore'
 
 export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
+    const { activeConversationId, setActiveConversationId, reset: resetCitations } = useCitationStore()
     // Load history when request_id changes
     const { startStream, isStreaming, resetConversation, setConversationId } = useChatStream()
     const routerState = useRouterState()
@@ -25,6 +28,12 @@ export default function ChatContainer() {
         if (requestId) {
             // Check if we need to sync the ID to valid conversation flow
             setConversationId(requestId)
+
+            // Sync Citation Store Context
+            if (activeConversationId !== requestId) {
+                resetCitations()
+                setActiveConversationId(requestId)
+            }
 
             const loadHistory = async () => {
                 try {
@@ -54,6 +63,11 @@ export default function ChatContainer() {
                                         id: `assistant-${requestId}-${idx}`,
                                         role: 'assistant',
                                         content: turn.answer,
+                                        sources: Array.isArray((turn as any).sources)
+                                            ? (turn as any).sources
+                                            : (typeof (turn as any).sources === 'string'
+                                                ? JSON.parse((turn as any).sources)
+                                                : undefined),
                                         timestamp: turn.timestamp || initialDetail.created_at
                                     })
                                 }
@@ -103,7 +117,7 @@ export default function ChatContainer() {
             // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset title on route change
             setTitle('New Conversation')
         }
-    }, [requestId, clearMessages, addMessage, resetConversation, setConversationId])
+    }, [requestId, clearMessages, addMessage, resetConversation, setConversationId, activeConversationId, resetCitations, setActiveConversationId])
 
     // Update title based on current messages if in new chat flow
     useEffect(() => {
@@ -122,11 +136,11 @@ export default function ChatContainer() {
 
     return (
         <main
-            className="flex flex-col h-full w-full border-x bg-card/10"
+            className="flex h-full w-full border-x bg-card/10 overflow-hidden"
             aria-label="Chat with Amber"
         >
-            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm">
-                <header className="p-4 border-b flex justify-between items-center bg-card">
+            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm min-w-0 transition-all duration-500 ease-in-out">
+                <header className="p-4 border-b flex justify-between items-center bg-card shrink-0">
                     <div>
                         <h1 className="font-semibold">{title}</h1>
                     </div>
@@ -142,18 +156,22 @@ export default function ChatContainer() {
                     )}
                 </header>
 
-                {/* Live region for streaming message updates */}
-                <div
-                    aria-live="polite"
-                    aria-atomic="false"
-                    className="contents"
-                >
-                    <MessageList messages={messages} />
-                </div>
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                    {/* Live region for streaming message updates */}
+                    <div
+                        aria-live="polite"
+                        aria-atomic="false"
+                        className="contents"
+                    >
+                        <MessageList messages={messages} />
+                    </div>
 
-                <QueryInput onSend={startStream} disabled={isStreaming} />
+                    <QueryInput onSend={startStream} disabled={isStreaming} />
+                </div>
             </div>
+
+            {/* Citation Explorer Panel (Right Side - Full Height) */}
+            <CitationExplorer />
         </main>
     )
 }
-
