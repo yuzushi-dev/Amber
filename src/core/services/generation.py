@@ -212,7 +212,8 @@ class GenerationService:
                     getattr(c, "metadata", c).get("document_id", "") if hasattr(c, "metadata") else c.get("document_id", ""),
                     "Untitled"
                 ),
-                "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "...")
+                "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "..."),
+                "text": getattr(c, "content", c.get("content", ""))
             }
             for i, c in enumerate(ctx.used_candidates)
         ]
