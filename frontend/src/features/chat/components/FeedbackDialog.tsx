@@ -56,12 +56,12 @@ const SelectableBlock = ({
             onClick={() => onSelect(content)}
             initial={false}
             animate={{
-                backgroundColor: isSelected ? "rgba(239, 68, 68, 0.08)" : "transparent",
-                borderColor: isSelected ? "rgba(239, 68, 68, 0.5)" : "transparent",
+                backgroundColor: isSelected ? "hsl(var(--destructive) / 0.1)" : "transparent",
+                borderColor: isSelected ? "hsl(var(--destructive) / 0.5)" : "transparent",
             }}
             whileHover={{
-                backgroundColor: isSelected ? "rgba(239, 68, 68, 0.12)" : "rgba(255, 255, 255, 0.03)",
-                borderColor: isSelected ? "rgba(239, 68, 68, 0.6)" : "rgba(255, 255, 255, 0.1)",
+                backgroundColor: isSelected ? "hsl(var(--destructive) / 0.15)" : "hsl(var(--muted) / 0.5)",
+                borderColor: isSelected ? "hsl(var(--destructive) / 0.6)" : "hsl(var(--border))",
             }}
             transition={{ duration: 0.2 }}
             className={cn(
@@ -76,7 +76,7 @@ const SelectableBlock = ({
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0, opacity: 0 }}
-                        className="absolute -right-2 -top-2 bg-red-500 text-white rounded-full p-1 shadow-lg z-10 ring-2 ring-background"
+                        className="absolute -right-2 -top-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-lg z-10 ring-2 ring-background"
                     >
                         <CheckCircle2 size={14} fill="currentColor" className="text-white" />
                     </motion.div>
@@ -141,8 +141,8 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
             <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-white/10 shadow-2xl flex flex-col">
                 <DialogHeader className="p-6 border-b border-white/5 bg-white/5">
                     <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-red-500/10 rounded-lg ring-1 ring-red-500/20">
-                            <AlertCircle className="w-5 h-5 text-red-500" />
+                        <div className="p-2.5 bg-destructive/10 rounded-lg ring-1 ring-destructive/20">
+                            <AlertCircle className="w-5 h-5 text-destructive" />
                         </div>
                         <div>
                             <DialogTitle className="text-xl font-display tracking-tight">Report an Issue</DialogTitle>
@@ -206,12 +206,8 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
                             <Button
                                 onClick={handleSubmit}
                                 disabled={!comment && selectedSnippets.size === 0}
-                                className={cn(
-                                    "flex-[2]",
-                                    selectedSnippets.size > 0
-                                        ? "bg-red-600 hover:bg-red-700 text-white shadow-red-900/20 shadow-lg"
-                                        : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                                )}
+                                variant="default"
+                                className="flex-[2]"
                             >
                                 Submit Feedback
                             </Button>

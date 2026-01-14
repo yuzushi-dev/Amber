@@ -34,6 +34,7 @@ import RagasSubPanel from './features/admin/components/RagasSubPanel'
 import QueryLogPage from './features/admin/pages/QueryLogPage'
 import ApiKeyPage from './features/admin/pages/ApiKeyPage'
 import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
+import FeedbackPage from './features/admin/pages/FeedbackPage'
 import ConnectorsPage from './features/admin/pages/ConnectorsPage'
 import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
 import TenantsPage from './features/admin/pages/TenantsPage'
@@ -250,6 +251,12 @@ const metricsRagasRoute = createRoute({
     component: () => <div className="p-6"><RagasSubPanel /></div>,
 })
 
+const metricsFeedbackRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/metrics/feedback',
+    component: () => <FeedbackPage />,
+})
+
 // =============================================================================
 // Legacy route redirects (for backwards compatibility)
 // =============================================================================
@@ -373,6 +380,7 @@ const routeTree = rootRoute.addChildren([
         metricsSystemRoute,
         metricsTokensRoute,
         metricsRagasRoute,
+        metricsFeedbackRoute,
         // Legacy redirects
         opsIndexRedirect,
         opsJobsRedirect,

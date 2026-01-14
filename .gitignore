@@ -216,3 +216,4 @@ frontend/frontend_lint_final.txt
 /docs/internal
 .github/
 .ruff_cache
+/.venv_mig

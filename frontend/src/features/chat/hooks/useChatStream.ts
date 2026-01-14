@@ -157,6 +157,13 @@ export function useChatStream() {
                 conversationIdRef.current = convId  // Update ref immediately
                 setState((prev) => ({ ...prev, conversationId: convId }))
                 console.log('Received conversation_id for threading:', convId)
+
+                // Update the current assistant message with the session_id
+                updateLastMessage({ session_id: convId })
+
+                // Also retroactively update the user message if possible? 
+                // Difficult because we only have updateLastMessage. 
+                // But usually feedback is on the Assistant message, so this is enough.
             } catch (err) {
                 console.error('Failed to parse conversation_id', err)
             }

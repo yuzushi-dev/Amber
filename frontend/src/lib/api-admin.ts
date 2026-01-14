@@ -662,3 +662,55 @@ export const tenantsApi = {
         await apiClient.delete(`/admin/tenants/${tenantId}`)
     },
 }
+
+// =============================================================================
+// Feedback API
+// =============================================================================
+
+export interface FeedbackItem {
+    id: string
+    request_id: string
+    comment: string | null
+    created_at: string
+    score: number
+    golden_status?: string
+    is_active?: boolean
+    query?: string
+    answer?: string
+}
+
+export const feedbackApi = {
+    getPending: async (params?: { skip?: number; limit?: number }) => {
+        const response = await apiClient.get<{ data: FeedbackItem[] }>('/admin/feedback/pending', { params })
+        return response.data.data
+    },
+
+    getApproved: async (params?: { skip?: number; limit?: number }) => {
+        const response = await apiClient.get<{ data: FeedbackItem[] }>('/admin/feedback/approved', { params })
+        return response.data.data
+    },
+
+    verify: async (feedbackId: string) => {
+        const response = await apiClient.post<{ message: string; data: boolean }>(`/admin/feedback/${feedbackId}/verify`)
+        return response.data
+    },
+
+    reject: async (feedbackId: string) => {
+        const response = await apiClient.post<{ message: string; data: boolean }>(`/admin/feedback/${feedbackId}/reject`)
+        return response.data
+    },
+
+    toggleActive: async (feedbackId: string, isActive: boolean) => {
+        const response = await apiClient.put<{ message: string; data: boolean }>(
+            `/admin/feedback/${feedbackId}/toggle-active`,
+            null,
+            { params: { is_active: isActive } }
+        )
+        return response.data
+    },
+
+    delete: async (feedbackId: string) => {
+        const response = await apiClient.delete<{ message: string; data: boolean }>(`/admin/feedback/${feedbackId}`)
+        return response.data
+    },
+}
