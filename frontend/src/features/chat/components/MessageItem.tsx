@@ -5,7 +5,9 @@ import { User, Loader2, FileText, Code } from 'lucide-react'
 import AmberAvatar from './AmberAvatar'
 import { useCitationStore, Citation } from '../store/citationStore'
 import { useEffect, useMemo } from 'react'
-
+import { FeedbackButtons } from './FeedbackButtons'
+import QualityBadge from './QualityBadge'
+import RoutingBadge from './RoutingBadge'
 
 interface MessageItemProps {
     message: Message
@@ -131,8 +133,28 @@ export default function MessageItem({ message }: MessageItemProps) {
                     </ReactMarkdown>
                 </div>
 
+                {/* Footer Area: Feedback, Routing, Quality */}
+                {isAssistant && !message.thinking && (
+                    <div className="mt-4 pt-2 flex items-center justify-between border-t border-border/40">
+                        <div className="flex items-center gap-4">
+                            <FeedbackButtons
+                                messageId={message.id}
+                                requestId={message.request_id}
+                                sessionId={message.session_id}
+                                content={message.content}
+                                initialScore={undefined} // We don't fetch initial score for now to keep it simple
+                            />
+                            {message.routing_info && (
+                                <RoutingBadge routingInfo={message.routing_info} />
+                            )}
+                        </div>
+
+                        {message.quality_score && (
+                            <QualityBadge score={message.quality_score} />
+                        )}
+                    </div>
+                )}
             </div>
         </div>
-        </div >
-    );
+    )
 }
