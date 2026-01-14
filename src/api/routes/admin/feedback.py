@@ -64,9 +64,12 @@ async def get_pending_feedback(
             query_text = conversation.metadata_.get("query")
             answer_text = conversation.metadata_.get("answer")
             
-        # Fallback to feedback metadata if needed (though it seems we found it empty previously)
+        # Fallback to feedback metadata if needed
         if not query_text and feedback.metadata_json:
              query_text = feedback.metadata_json.get("query")
+             
+        if not answer_text and feedback.metadata_json:
+             answer_text = feedback.metadata_json.get("answer")
              
         data.append({
             "id": feedback.id,
@@ -244,6 +247,9 @@ async def get_approved_feedback(
             
         if not query_text and feedback.metadata_json:
             query_text = feedback.metadata_json.get("query")
+            
+        if not answer_text and feedback.metadata_json:
+            answer_text = feedback.metadata_json.get("answer")
               
         data.append({
             "id": feedback.id,

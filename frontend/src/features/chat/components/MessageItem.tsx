@@ -11,6 +11,7 @@ import RoutingBadge from './RoutingBadge'
 
 interface MessageItemProps {
     message: Message
+    queryContent?: string
 }
 
 function parseCitations(content: string, messageId: string): { processedContent: string, citations: Citation[] } {
@@ -37,7 +38,7 @@ function parseCitations(content: string, messageId: string): { processedContent:
     return { processedContent, citations };
 }
 
-export default function MessageItem({ message }: MessageItemProps) {
+export default function MessageItem({ message, queryContent }: MessageItemProps) {
     const isAssistant = message.role === 'assistant'
     const { registerCitations, setHoveredCitation, selectCitation, hoveredCitationId } = useCitationStore()
 
@@ -142,6 +143,7 @@ export default function MessageItem({ message }: MessageItemProps) {
                                 requestId={message.request_id}
                                 sessionId={message.session_id}
                                 content={message.content}
+                                relatedQuery={queryContent}
                                 initialScore={undefined} // We don't fetch initial score for now to keep it simple
                             />
                             {message.routing_info && (

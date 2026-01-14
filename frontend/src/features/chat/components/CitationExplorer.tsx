@@ -96,42 +96,46 @@ export default function CitationExplorer() {
                     style={{ willChange: 'width, transform, opacity' }}
                 >
                     <div className="w-[450px] shrink-0 h-full flex flex-col">
-                        <header className="p-4 border-b border-white/5 flex items-center justify-between bg-white/5 backdrop-blur-md">
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-1.5 bg-primary/10 rounded-md ring-1 ring-primary/20">
+                        <header className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-white/[0.02] backdrop-blur-xl z-10">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-primary/10 rounded-lg ring-1 ring-primary/20 shadow-[0_0_15px_-3px_rgba(var(--primary),0.3)]">
                                     <Sparkles className="w-4 h-4 text-primary" />
                                 </div>
-                                <div>
+                                <div className="space-y-0.5">
                                     <h2 className="font-display font-semibold text-sm tracking-tight text-foreground/90 leading-none">References</h2>
-                                    <p className="text-[10px] text-muted-foreground font-medium mt-1">{activeCitations.length} sources cited</p>
+                                    <p className="text-[10px] text-muted-foreground font-medium">{activeCitations.length} sources linked</p>
                                 </div>
                             </div>
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive transition-colors rounded-full"
+                                className="h-8 w-8 hover:bg-white/5 rounded-full text-muted-foreground hover:text-foreground transition-all"
                                 onClick={() => setActiveMessageId(null)}
                             >
                                 <X className="w-4 h-4" />
                             </Button>
                         </header>
 
-                        <ScrollArea className="flex-1 p-5">
-                            <div className="space-y-6 pb-20" ref={listRef}>
+                        <ScrollArea className="flex-1 px-2">
+                            <div className="space-y-4 p-4 pb-20" ref={listRef}>
                                 <AnimatePresence mode="popLayout">
                                     {activeCitations.length === 0 ? (
                                         <motion.div
-                                            initial={{ opacity: 0, scale: 0.9 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            className="flex flex-col items-center justify-center py-20 text-center space-y-4"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            className="flex flex-col items-center justify-center py-32 text-center space-y-6 select-none cursor-default opacity-60"
                                         >
-                                            <div className="p-6 bg-muted/20 rounded-full ring-1 ring-white/5">
-                                                <BookOpen className="w-10 h-10 text-muted-foreground/30" />
+                                            <div className="relative">
+                                                <div className="absolute inset-0 bg-primary/20 blur-[40px] rounded-full opacity-20 animate-pulse" />
+                                                <div className="relative w-20 h-20 rounded-full border border-white/5 flex items-center justify-center bg-white/[0.01]">
+                                                    <div className="absolute inset-0 rounded-full border border-primary/10 border-t-primary/30 animate-[spin_3s_linear_infinite]" />
+                                                    <BookOpen className="w-8 h-8 text-muted-foreground/30" />
+                                                </div>
                                             </div>
-                                            <div className="space-y-1">
-                                                <p className="text-foreground/80 font-medium text-sm">No Citations Found</p>
-                                                <p className="text-muted-foreground text-xs leading-relaxed">
-                                                    This message doesn't appear to reference any specific documents.
+                                            <div className="space-y-2 max-w-[200px]">
+                                                <p className="text-foreground/60 font-medium text-xs uppercase tracking-widest">No Citations</p>
+                                                <p className="text-muted-foreground/40 text-[10px] leading-relaxed">
+                                                    This response generated without direct document references.
                                                 </p>
                                             </div>
                                         </motion.div>
@@ -205,30 +209,40 @@ function CitationCard({
             layout
         >
             {/* Header Section */}
-            <div className="p-3.5 flex items-start gap-3 border-b border-white/5 bg-gradient-to-r from-white/5 to-transparent">
-                <div className="mt-0.5 p-1.5 rounded-md bg-black/20 ring-1 ring-white/5 shrink-0">
-                    <FileText className="w-3.5 h-3.5 text-primary/80" />
+            <div className="p-4 flex items-start gap-4 border-b border-white/5 bg-gradient-to-r from-white/[0.03] to-transparent">
+                <div className="mt-0.5 p-2 rounded-lg bg-black/40 ring-1 ring-white/10 shrink-0">
+                    <FileText className="w-4 h-4 text-primary/80" />
                 </div>
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-[10px] font-mono text-primary/70 font-medium tracking-wider uppercase">
-                            Source {citation.value}
+                <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-mono text-primary/60 font-medium tracking-wider uppercase bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
+                            DOC-{citation.value}
                         </span>
+
                         {source?.score && (
-                            <span
-                                className={cn(
-                                    "text-[9px] px-1.5 py-0.5 rounded-full font-medium border",
-                                    source.score > 0.8 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                        source.score > 0.5 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
-                                            "bg-muted text-muted-foreground border-transparent"
-                                )}
-                            >
-                                {Math.round(source.score * 100)}% Match
-                            </span>
+                            <div className="flex items-center gap-1.5" title={`Match Score: ${Math.round(source.score * 100)}%`}>
+                                <div className="h-1.5 w-12 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                                    <div
+                                        className={cn(
+                                            "h-full rounded-full transition-all duration-500",
+                                            source.score > 0.8 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                                                source.score > 0.5 ? "bg-amber-500" : "bg-muted-foreground"
+                                        )}
+                                        style={{ width: `${source.score * 100}%` }}
+                                    />
+                                </div>
+                                <span className={cn(
+                                    "text-[9px] font-mono font-bold",
+                                    source.score > 0.8 ? "text-emerald-500" :
+                                        source.score > 0.5 ? "text-amber-500" : "text-muted-foreground"
+                                )}>
+                                    {Math.round(source.score * 100)}%
+                                </span>
+                            </div>
                         )}
                     </div>
 
-                    <h3 className="font-display text-sm font-medium text-foreground/90 truncate leading-tight" title={source?.title || citation.label}>
+                    <h3 className="font-display text-sm font-medium text-foreground/90 truncate leading-tight pt-0.5" title={source?.title || citation.label}>
                         {source?.title || citation.label}
                     </h3>
                 </div>
