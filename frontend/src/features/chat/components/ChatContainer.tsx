@@ -68,7 +68,9 @@ export default function ChatContainer() {
                                             : (typeof (turn as any).sources === 'string'
                                                 ? JSON.parse((turn as any).sources)
                                                 : undefined),
-                                        timestamp: turn.timestamp || initialDetail.created_at
+                                        timestamp: turn.timestamp || initialDetail.created_at,
+                                        quality_score: (turn as any).quality_score,
+                                        routing_info: (turn as any).routing_info
                                     })
                                 }
                             })
