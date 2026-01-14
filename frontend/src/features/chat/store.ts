@@ -8,6 +8,23 @@ export interface Message {
     sources?: Source[]
     timestamp: string
 
+    // Feedback & Metadata
+    session_id?: string
+    message_id?: string // Legacy or duplicate of id
+    request_id?: string
+    quality_score?: QualityScore
+    routing_info?: RoutingInfo
+}
+
+export interface QualityScore {
+    total: number
+    retrieval: number
+    generation: number
+}
+
+export interface RoutingInfo {
+    categories: string[]
+    confidence: number
 }
 
 export interface Source {
