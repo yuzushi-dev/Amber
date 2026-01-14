@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import * as React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -54,35 +55,49 @@ const SelectableBlock = ({
         <motion.div
             layout
             onClick={() => onSelect(content)}
-            initial={false}
-            animate={{
-                backgroundColor: isSelected ? "hsl(var(--destructive) / 0.1)" : "transparent",
-                borderColor: isSelected ? "hsl(var(--destructive) / 0.5)" : "transparent",
-            }}
-            whileHover={{
-                backgroundColor: isSelected ? "hsl(var(--destructive) / 0.15)" : "hsl(var(--muted) / 0.5)",
-                borderColor: isSelected ? "hsl(var(--destructive) / 0.6)" : "hsl(var(--border))",
-            }}
-            transition={{ duration: 0.2 }}
             className={cn(
-                "relative rounded-xl border-2 transition-colors cursor-pointer p-3 -mx-3 mb-2 group",
-                !isSelected && "border-transparent",
+                "relative rounded-md transition-all duration-200 cursor-pointer p-1 -mx-1 mb-1 group overflow-hidden",
                 className
             )}
         >
+            {/* Highlighter Background */}
+            <motion.div
+                className="absolute inset-0 bg-destructive/10 -z-10"
+                initial={{ scaleX: 0, originX: 0 }}
+                animate={{
+                    scaleX: isSelected ? 1 : 0,
+                    opacity: isSelected ? 1 : 0
+                }}
+                transition={{ type: "spring", stiffness: 400, damping: 40 }}
+            />
+
+            {/* Border/Highlight Line */}
+            <motion.div
+                className="absolute bottom-0 left-0 h-[2px] bg-destructive/40 -z-10"
+                initial={{ width: "0%" }}
+                animate={{ width: isSelected ? "100%" : "0%" }}
+                transition={{ duration: 0.2, delay: isSelected ? 0.1 : 0 }}
+            />
+
+            <div className={cn(
+                "relative transition-opacity",
+                isSelected ? "text-foreground" : "text-foreground/80 group-hover:text-foreground"
+            )}>
+                {children}
+            </div>
+
             <AnimatePresence>
                 {isSelected && (
                     <motion.div
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0, opacity: 0 }}
-                        className="absolute -right-2 -top-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-lg z-10 ring-2 ring-background"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-destructive"
                     >
-                        <CheckCircle2 size={14} fill="currentColor" className="text-white" />
+                        <CheckCircle2 size={16} className="fill-destructive/20" />
                     </motion.div>
                 )}
             </AnimatePresence>
-            {children}
         </motion.div>
     );
 };
