@@ -607,7 +607,7 @@ class RetrievalService:
                 chunk_data = {
                     "chunk_id": r.chunk_id,
                     "document_id": r.document_id,
-                    "score": r.score,
+                    "score": float(r.score),
                     "content": r.metadata.get("content", ""),
                 }
                 sub_chunks_to_cache.append(chunk_data)

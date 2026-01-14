@@ -547,6 +547,9 @@ async def query_stream(
                     logger.info(f"EMITTING Agent conversation_id SSE event upfront: {agent_conversation_id}")
                     yield f"event: conversation_id\ndata: {json.dumps(agent_conversation_id)}\n\n"
 
+                    # Emit Routing Info
+                    yield f"event: routing\ndata: {json.dumps({'categories': ['Agent Tools'], 'confidence': 1.0})}\n\n"
+
                     from src.core.agent.orchestrator import AgentOrchestrator
                     from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
                     from src.core.tools.retrieval import create_retrieval_tool
@@ -741,6 +744,7 @@ async def query_stream(
                                             "query": request.query, 
                                             "answer": full_answer,
                                             "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
+                                            "routing_info": {"categories": ["Agent Tools"], "confidence": 1.0},
                                             "timestamp": datetime.utcnow().isoformat()
                                         }]
                                     }
@@ -789,6 +793,26 @@ async def query_stream(
             if not retrieval_result.chunks:
                 yield f"data: {json.dumps('No relevant documents found.')}\n\n"
                 return
+
+            # Emit Routing Info
+            yield f"event: routing\ndata: {json.dumps({'categories': ['Imported Docs'], 'confidence': 1.0})}\n\n"
+
+            # Emit Quality Score
+            if retrieval_result.chunks:
+                scores = []
+                for c in retrieval_result.chunks:
+                    if isinstance(c, dict):
+                        scores.append(float(c.get("score", 0)))
+                    else:
+                        scores.append(float(getattr(c, "score", 0)))
+                
+                max_score = max(scores) if scores else 0
+                quality_data = {
+                    "total": round(max_score * 100, 1),
+                    "retrieval": round(max_score * 100, 1),
+                    "generation": 0
+                }
+                yield f"event: quality\ndata: {json.dumps(quality_data)}\n\n"
 
 
             # Emit conversation_id IMMEDIATELY for threading (to match Agent behavior)
@@ -842,6 +866,24 @@ async def query_stream(
                     if request.conversation_id:
                         existing_summary = await session.get(ConversationSummary, final_conversation_id)
 
+                    # Prepare stats for persistence
+                    persistence_quality = None
+                    if retrieval_result and retrieval_result.chunks:
+                        p_scores = []
+                        for c in retrieval_result.chunks:
+                            if isinstance(c, dict):
+                                p_scores.append(float(c.get("score", 0)))
+                            else:
+                                p_scores.append(float(getattr(c, "score", 0)))
+                        p_max = max(p_scores) if p_scores else 0
+                        persistence_quality = {
+                            "total": round(p_max * 100, 1),
+                            "retrieval": round(p_max * 100, 1),
+                            "generation": 0
+                        }
+                    
+                    persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
+
                     if existing_summary:
                         # UPDATE existing conversation
                         # 1. Append to history
@@ -850,6 +892,8 @@ async def query_stream(
                             "query": request.query, 
                             "answer": full_answer,
                             "sources": collected_sources,
+                            "quality_score": persistence_quality,
+                            "routing_info": persistence_routing,
                             "timestamp": datetime.utcnow().isoformat()
                         })
                         existing_summary.metadata_["history"] = history
@@ -885,6 +929,8 @@ async def query_stream(
                                     "query": request.query, 
                                     "answer": full_answer,
                                     "sources": collected_sources,
+                                    "quality_score": persistence_quality,
+                                    "routing_info": persistence_routing,
                                     "timestamp": datetime.utcnow().isoformat()
                                 }]
                             }

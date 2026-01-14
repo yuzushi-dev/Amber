@@ -150,6 +150,24 @@ export function useChatStream() {
             }
         })
 
+        eventSource.addEventListener('quality', (e) => {
+            try {
+                const quality = JSON.parse(e.data)
+                updateLastMessage({ quality_score: quality })
+            } catch (err) {
+                console.error('Failed to parse quality score', err)
+            }
+        })
+
+        eventSource.addEventListener('routing', (e) => {
+            try {
+                const routing = JSON.parse(e.data)
+                updateLastMessage({ routing_info: routing })
+            } catch (err) {
+                console.error('Failed to parse routing info', err)
+            }
+        })
+
         // Listen for conversation_id from backend (for threading)
         eventSource.addEventListener('conversation_id', (e) => {
             try {
