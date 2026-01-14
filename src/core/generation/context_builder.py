@@ -72,7 +72,7 @@ class ContextBuilder:
             # Format the candidate part
             header = f"[Source ID: {idx}]"
             if title:
-                header += f" Title: {title}"
+                header += f" [Document: {title}]"
 
             formatted_part = f"{header}\n{content.strip()}"
 
