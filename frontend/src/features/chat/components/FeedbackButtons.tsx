@@ -96,17 +96,17 @@ export const FeedbackButtons: React.FC<FeedbackProps> = ({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                            "h-6 w-6 rounded-full hover:bg-green-500/10 hover:text-green-600 transition-colors",
-                            submitted === 1 && "text-green-600 bg-green-500/10"
+                            "h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary transition-colors",
+                            submitted === 1 && "text-primary bg-primary/10"
                         )}
                         onClick={handleThumbsUp}
                         disabled={loading || submitted !== null}
                         title="Helpful"
                     >
                         {loading && submitted === 1 ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            <ThumbsUp className="h-3.5 w-3.5" />
+                            <ThumbsUp className="h-4 w-4" />
                         )}
                     </Button>
                 </motion.div>
@@ -116,17 +116,17 @@ export const FeedbackButtons: React.FC<FeedbackProps> = ({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                            "h-6 w-6 rounded-full hover:bg-red-500/10 hover:text-red-600 transition-colors",
-                            submitted === -1 && "text-red-600 bg-red-500/10"
+                            "h-7 w-7 rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors",
+                            submitted === -1 && "text-destructive bg-destructive/10"
                         )}
                         onClick={handleThumbsDown}
                         disabled={loading || submitted !== null}
                         title="Not Helpful"
                     >
                         {loading && submitted === -1 ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            <ThumbsDown className="h-3.5 w-3.5" />
+                            <ThumbsDown className="h-4 w-4" />
                         )}
                     </Button>
                 </motion.div>

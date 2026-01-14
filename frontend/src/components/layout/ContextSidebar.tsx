@@ -82,6 +82,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             items: [
                 { label: 'Token Metrics', icon: Activity, to: '/admin/metrics/tokens' },
                 { label: 'RAGAS Evaluation', icon: Gauge, to: '/admin/metrics/ragas' },
+                { label: 'Feedback', icon: MessageSquarePlus, to: '/admin/metrics/feedback' },
             ]
         },
         {
