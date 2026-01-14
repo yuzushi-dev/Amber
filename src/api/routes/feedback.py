@@ -77,7 +77,9 @@ async def create_feedback(
         await tuning.analyze_feedback_for_tuning(
             tenant_id=tenant_id,
             request_id=data.request_id,
-            is_positive=data.is_positive
+            is_positive=data.is_positive,
+            comment=data.comment,
+            selected_snippets=data.metadata.get("selected_snippets")
         )
 
         return ResponseSchema(
