@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Download, Check, AlertCircle, Loader2, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react'
 import { PageHeader } from './PageHeader'
 import { PageSkeleton } from './PageSkeleton'
+import { useInstallProgress } from '../hooks/useInstallProgress'
+import { AnimatedProgress } from '@/components/ui/animated-progress'
 
 interface Feature {
     id: string
@@ -74,10 +76,14 @@ const FEATURE_DETAILS: Record<string, string[]> = {
 export default function OptionalFeaturesManager() {
     const [status, setStatus] = useState<SetupStatus | null>(null)
     const [loading, setLoading] = useState(true)
-    const [installing, setInstalling] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-
     const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({})
+
+    // SSE progress hook
+    const { startInstall, progress, isInstalling, error: installError } = useInstallProgress(() => {
+        // On complete, refresh status
+        fetchStatus()
+    })
 
     const toggleFeature = (featureId: string) => {
         setExpandedFeatures(prev => ({
@@ -107,56 +113,36 @@ export default function OptionalFeaturesManager() {
         fetchStatus()
     }, [fetchStatus])
 
-    // Poll while installing
+    // Combine SSE error with local error
     useEffect(() => {
-        if (!installing) return
-
-        const interval = setInterval(async () => {
-            await fetchStatus()
-            if (status?.features.find(f => f.id === installing)?.status !== 'installing') {
-                setInstalling(null)
-            }
-        }, 2000)
-
-        return () => clearInterval(interval)
-    }, [installing, fetchStatus, status])
-
-    const handleInstall = async (featureId: string) => {
-        try {
-            setInstalling(featureId)
-            // 30 minute timeout for large downloads
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000)
-            const apiKey = localStorage.getItem('api_key') || ''
-
-            const response = await fetch('/api/v1/setup/install', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': apiKey
-                },
-                body: JSON.stringify({ feature_ids: [featureId] }),
-                signal: controller.signal
-            })
-
-            clearTimeout(timeoutId)
-
-            if (!response.ok) {
-                const data = await response.json()
-                throw new Error(data.detail || 'Installation failed')
-            }
-
-            await fetchStatus()
-        } catch (err: unknown) {
-            const error = err as { name?: string; message?: string }
-            const errorMessage = error.name === 'AbortError'
-                ? 'Installation timed out. It may still be running in the background.'
-                : (err instanceof Error ? err.message : 'Installation failed')
-
-            setError(errorMessage)
-            setInstalling(null)
+        if (installError) {
+            setError(installError)
         }
+    }, [installError])
+
+    const handleInstall = (featureId: string) => {
+        setError(null)
+        startInstall([featureId])
     }
+
+    const handleInstallAll = () => {
+        if (!status) return
+
+        const featuresToInstall = status.features
+            .filter(f => f.status === 'not_installed' || f.status === 'failed')
+            .map(f => f.id)
+
+        if (featuresToInstall.length === 0) return
+        setError(null)
+        startInstall(featuresToInstall)
+    }
+
+    const hasInstallableFeatures = status?.features.some(
+        f => f.status === 'not_installed' || f.status === 'failed'
+    ) ?? false
+
+    // Helper to get progress for a feature
+    const getFeatureProgress = (featureId: string) => progress[featureId]
 
     const formatSize = (mb: number) => {
         if (mb >= 1000) return `${(mb / 1000).toFixed(1)} GB`
@@ -205,18 +191,32 @@ export default function OptionalFeaturesManager() {
                 title="Optional Features"
                 description="Install additional ML capabilities for enhanced functionality."
                 actions={
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setLoading(true)
-                            fetchStatus()
-                        }}
-                        className="gap-2 text-xs h-9"
-                        title="Refresh status"
-                    >
-                        <RefreshCw className="w-3.5 h-3.5 mr-2" />
-                        Refresh
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={handleInstallAll}
+                            disabled={isInstalling || !hasInstallableFeatures}
+                            className="gap-2 text-xs h-9"
+                        >
+                            {isInstalling ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <Download className="w-3.5 h-3.5" />
+                            )}
+                            Install All
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setLoading(true)
+                                fetchStatus()
+                            }}
+                            className="gap-2 text-xs h-9"
+                            title="Refresh status"
+                        >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Refresh
+                        </Button>
+                    </div>
                 }
             />
 
@@ -236,6 +236,7 @@ export default function OptionalFeaturesManager() {
                 {status?.features.map(feature => {
                     const hasDetails = (FEATURE_DETAILS[feature.id] || []).length > 0
                     const isExpanded = expandedFeatures[feature.id]
+                    const featureProgress = getFeatureProgress(feature.id)
 
                     return (
                         <div
@@ -251,6 +252,24 @@ export default function OptionalFeaturesManager() {
                                     <p className="text-sm text-muted-foreground mt-1">
                                         {feature.description}
                                     </p>
+
+                                    {/* Inline Progress Bar */}
+                                    {featureProgress && featureProgress.phase !== 'complete' && featureProgress.phase !== 'failed' && (
+                                        <div className="mt-3">
+                                            <AnimatedProgress
+                                                value={featureProgress.progress}
+                                                size="sm"
+                                                stages={[
+                                                    { label: 'Downloading...', threshold: 0 },
+                                                    { label: 'Installing...', threshold: 70 },
+                                                    { label: 'Verifying...', threshold: 90 },
+                                                ]}
+                                            />
+                                            <p className="text-xs text-muted-foreground truncate mt-1.5">
+                                                {featureProgress.message}
+                                            </p>
+                                        </div>
+                                    )}
 
                                     {/* Detailed Download List (Expandable) */}
                                     {hasDetails && (
@@ -289,10 +308,10 @@ export default function OptionalFeaturesManager() {
                                 </div>
 
                                 <div className="ml-4 flex-shrink-0">
-                                    {feature.status === 'not_installed' && (
+                                    {feature.status === 'not_installed' && !featureProgress && (
                                         <Button
                                             onClick={() => handleInstall(feature.id)}
-                                            disabled={installing !== null}
+                                            disabled={isInstalling}
                                             className="gap-2"
                                         >
                                             <Download className="w-4 h-4" />
@@ -300,11 +319,11 @@ export default function OptionalFeaturesManager() {
                                         </Button>
                                     )}
 
-                                    {feature.status === 'failed' && (
+                                    {feature.status === 'failed' && !featureProgress && (
                                         <Button
                                             variant="outline"
                                             onClick={() => handleInstall(feature.id)}
-                                            disabled={installing !== null}
+                                            disabled={isInstalling}
                                             className="gap-2"
                                         >
                                             <RefreshCw className="w-4 h-4" />

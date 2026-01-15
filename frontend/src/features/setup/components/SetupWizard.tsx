@@ -13,6 +13,8 @@ import { Package, Download, Check, Loader2, AlertCircle, AlertTriangle } from 'l
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { useInstallProgress } from '@/features/admin/hooks/useInstallProgress';
+import { AnimatedProgress } from '@/components/ui/animated-progress';
 
 interface Feature {
     id: string;
@@ -47,9 +49,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 }) => {
     const [status, setStatus] = useState<SetupStatus | null>(null);
     const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
-    const [isInstalling, setIsInstalling] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showConfirmSkip, setShowConfirmSkip] = useState(false);
+
+    // SSE progress hook
+    const { startInstall, progress, isInstalling, error: installError } = useInstallProgress(() => {
+        // On complete, refresh status
+        fetchStatus();
+    });
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -66,10 +73,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 .filter(f => f.status === 'not_installed')
                 .map(f => f.id);
             setSelectedFeatures(new Set(notInstalled));
-
-            // Check if any features are installing
-            const installing = data.features.some(f => f.status === 'installing');
-            setIsInstalling(installing);
 
             return data;
         } catch (err) {
@@ -90,19 +93,23 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         init();
     }, [fetchStatus, onComplete]);
 
-    // Poll during installation
+    // Poll during installation to refresh status
     useEffect(() => {
         if (!isInstalling) return;
 
         const interval = setInterval(async () => {
-            const data = await fetchStatus();
-            if (data && !data.features.some(f => f.status === 'installing')) {
-                setIsInstalling(false);
-            }
-        }, 2000);
+            await fetchStatus();
+        }, 5000);
 
         return () => clearInterval(interval);
     }, [isInstalling, fetchStatus]);
+
+    // Combine SSE error with local error
+    useEffect(() => {
+        if (installError) {
+            setError(installError);
+        }
+    }, [installError]);
 
     const handleFeatureToggle = (featureId: string) => {
         if (isInstalling) return;
@@ -116,46 +123,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         setSelectedFeatures(newSelected);
     };
 
-    const handleInstall = async () => {
+    const handleInstall = () => {
         if (selectedFeatures.size === 0) return;
-
-        setIsInstalling(true);
         setError(null);
-
-        try {
-            // 30 minute timeout for large downloads (2GB @ 10Mbps ~= 27 mins)
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000);
-
-            const response = await fetch(`${apiBaseUrl}/api/v1/setup/install`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': localStorage.getItem('api_key') || ''
-                },
-                body: JSON.stringify({ feature_ids: Array.from(selectedFeatures) }),
-                signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || 'Installation failed');
-            }
-
-            // Start polling
-            await fetchStatus();
-        } catch (err: unknown) {
-            const isAbort = err instanceof Error && err.name === 'AbortError';
-            const errorMessage = isAbort
-                ? 'Installation timed out. It may still be running in the background.'
-                : (err instanceof Error ? err.message : 'Installation failed');
-
-            setError(errorMessage);
-            setIsInstalling(false);
-        }
+        startInstall(Array.from(selectedFeatures));
     };
+
+    // Helper to get progress for a feature
+    const getFeatureProgress = (featureId: string) => progress[featureId];
 
     const handleSkipAttempt = () => {
         // If no features selected, show confirmation
@@ -218,7 +193,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 );
             case 'installing':
                 return (
-                    <Badge variant="info" className="gap-1">
+                    <Badge variant="default" className="gap-1">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Installing...
                     </Badge>
@@ -353,25 +328,29 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                         {status.features.map(feature => {
                             const isSelected = selectedFeatures.has(feature.id);
                             const isClickable = feature.status === 'not_installed' && !isInstalling;
+                            const featureProgress = getFeatureProgress(feature.id);
 
                             return (
                                 <div
                                     key={feature.id}
                                     onClick={() => isClickable && handleFeatureToggle(feature.id)}
                                     className={`
-                                        flex items-center gap-4 p-4 border rounded-lg transition-all
-                                        ${isClickable ? 'cursor-pointer hover:border-primary/50' : ''}
-                                        ${isSelected ? 'border-primary bg-primary/5' : 'border-border'}
+                                        flex items-center gap-4 p-4 border rounded-lg transition-all relative overflow-hidden
+                                        ${isClickable ? 'cursor-pointer hover:border-primary/50 hover:bg-muted/30' : ''}
+                                        ${isSelected ? 'border-primary bg-primary/5' : 'border-border bg-card'}
                                         ${feature.status === 'installed'
-                                            ? 'bg-green-100/10 dark:bg-green-900/20 border-green-200/50 dark:border-green-800/50 opacity-100'
+                                            ? '!bg-green-500/10 !border-green-500/30'
                                             : ''
                                         }
-                                        ${feature.status === 'installing' ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800' : ''}
+                                        ${feature.status === 'installing' || featureProgress
+                                            ? '!bg-amber-500/10 !border-amber-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/20'
+                                            : ''
+                                        }
                                     `}
                                 >
                                     {/* Checkbox */}
                                     <div className="shrink-0">
-                                        {feature.status === 'not_installed' ? (
+                                        {feature.status === 'not_installed' && !featureProgress ? (
                                             <div className={`
                                                 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors
                                                 ${isSelected
@@ -385,8 +364,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                             <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
                                                 <Check className="w-3 h-3 text-white" />
                                             </div>
-                                        ) : feature.status === 'installing' ? (
-                                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                        ) : featureProgress || feature.status === 'installing' ? (
+                                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
                                         ) : (
                                             <AlertCircle className="w-5 h-5 text-red-500" />
                                         )}
@@ -395,33 +374,43 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <h3 className={`font-medium ${feature.status === 'installing'
-                                                ? 'text-blue-900 dark:text-blue-100'
-                                                : 'text-foreground'
-                                                }`}>
+                                            <h3 className="font-medium text-foreground">
                                                 {feature.name}
                                             </h3>
                                             {getStatusBadge(feature)}
                                         </div>
-                                        <p className={`text-sm mt-0.5 ${feature.status === 'installing'
-                                            ? 'text-blue-700 dark:text-blue-300'
-                                            : 'text-muted-foreground'
-                                            }`}>
+                                        <p className="text-sm mt-1 text-foreground/80 font-medium leading-relaxed">
                                             {feature.description}
                                         </p>
-                                        {feature.packages && feature.packages.length > 0 && (
-                                            <div className={`mt-2 text-xs ${feature.status === 'installing'
-                                                ? 'text-blue-600/80 dark:text-blue-400/80'
-                                                : 'text-muted-foreground/80'
-                                                }`}>
-                                                <span className="font-medium">Packages: </span>
+
+                                        {/* Inline Progress Bar */}
+                                        {featureProgress && featureProgress.phase !== 'complete' && featureProgress.phase !== 'failed' && (
+                                            <div className="mt-3">
+                                                <AnimatedProgress
+                                                    value={featureProgress.progress}
+                                                    size="sm"
+                                                    stages={[
+                                                        { label: 'Downloading...', threshold: 0 },
+                                                        { label: 'Installing...', threshold: 70 },
+                                                        { label: 'Verifying...', threshold: 90 },
+                                                    ]}
+                                                />
+                                                <p className="text-xs text-foreground/80 truncate mt-2 font-mono ml-0.5">
+                                                    {featureProgress.message}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {feature.packages && feature.packages.length > 0 && !featureProgress && (
+                                            <div className="mt-3 text-xs text-foreground/60 leading-relaxed bg-background/50 p-2 rounded border border-border/50">
+                                                <span className="font-semibold text-foreground/80">Packages: </span>
                                                 {feature.packages.join(', ')}
                                             </div>
                                         )}
                                     </div>
 
                                     {/* Size indicator */}
-                                    {feature.status === 'not_installed' && (
+                                    {feature.status === 'not_installed' && !featureProgress && (
                                         <div className="shrink-0 text-right">
                                             <Download className="w-4 h-4 text-muted-foreground mx-auto mb-1" />
                                             <span className="text-xs text-muted-foreground">

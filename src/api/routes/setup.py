@@ -69,3 +69,49 @@ async def skip_setup():
     except Exception as e:
         logger.error(f"Failed to mark setup complete: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/install/events")
+async def install_events_stream(feature_ids: str):
+    """
+    SSE endpoint for streaming installation progress.
+    
+    Args:
+        feature_ids: Comma-separated list of feature IDs to install.
+    
+    Returns:
+        EventSourceResponse streaming progress events.
+    """
+    import json
+    from sse_starlette.sse import EventSourceResponse
+    
+    # Parse feature IDs
+    ids = [fid.strip() for fid in feature_ids.split(",") if fid.strip()]
+    
+    if not ids:
+        raise HTTPException(status_code=400, detail="No feature IDs provided")
+    
+    async def event_generator():
+        """Generate SSE events from installation progress."""
+        service = get_setup_service()
+        
+        try:
+            async for progress in service.install_features_stream(ids):
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(progress)
+                }
+            
+            # Send completion event
+            yield {
+                "event": "complete",
+                "data": json.dumps({"status": "finished"})
+            }
+        except Exception as e:
+            logger.error(f"Installation stream error: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)})
+            }
+    
+    return EventSourceResponse(event_generator())
