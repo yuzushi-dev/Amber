@@ -45,7 +45,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="local_embeddings",
         name="Local Embeddings",
         description="Generate embeddings locally (Est. ~5 mins)",
-        packages=["torch", "sentence-transformers==2.7.0", "transformers==4.40.1", "huggingface-hub==0.23.0"],
+        packages=["torch", "sentence-transformers>=2.7.0", "transformers>=4.40.1", "huggingface-hub<1.0", "tokenizers"],
         size_mb=2100,
         check_import="sentence_transformers",
         pip_extra_args=["--extra-index-url", "https://download.pytorch.org/whl/cpu"],
@@ -78,7 +78,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="ragas",
         name="RAGAS Evaluation",
         description="Systematic RAG evaluation metrics (Est. ~1 min)",
-        packages=["ragas>=0.2.0"],
+        packages=["ragas>=0.2.0", "huggingface-hub<1.0", "datasets"],
         size_mb=150,
         check_import="ragas",
     ),
@@ -167,7 +167,11 @@ class SetupService:
         try:
             importlib.import_module(feature.check_import)
             return True
-        except ImportError:
+        except ImportError as e:
+            logger.debug(f"Feature '{feature_id}' import check failed: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Feature '{feature_id}' unexpected import error: {e}")
             return False
 
     def get_setup_status(self) -> dict[str, Any]:
@@ -278,6 +282,251 @@ class SetupService:
         for feature_id in feature_ids:
             results[feature_id] = await self.install_feature(feature_id)
         return results
+
+    async def install_features_stream(self, feature_ids: list[str]):
+        """
+        Install features sequentially with streaming progress.
+
+        Yields progress events as dicts:
+        {
+            "feature_id": str,
+            "feature_name": str,
+            "phase": "downloading" | "installing" | "verifying" | "complete" | "failed",
+            "progress": int (0-100),
+            "message": str,
+            "current": int (1-indexed feature number),
+            "total": int (total features to install)
+        }
+        """
+        import os
+        import re
+
+        total = len(feature_ids)
+
+        for idx, feature_id in enumerate(feature_ids, 1):
+            feature = self._features.get(feature_id)
+            if not feature:
+                yield {
+                    "feature_id": feature_id,
+                    "feature_name": "Unknown",
+                    "phase": "failed",
+                    "progress": 0,
+                    "message": f"Unknown feature: {feature_id}",
+                    "current": idx,
+                    "total": total,
+                }
+                continue
+
+            if feature.status == FeatureStatus.INSTALLED:
+                yield {
+                    "feature_id": feature_id,
+                    "feature_name": feature.name,
+                    "phase": "complete",
+                    "progress": 100,
+                    "message": "Already installed",
+                    "current": idx,
+                    "total": total,
+                }
+                continue
+
+            # Start installation
+            feature.status = FeatureStatus.INSTALLING
+            feature.error_message = None
+
+            yield {
+                "feature_id": feature_id,
+                "feature_name": feature.name,
+                "phase": "downloading",
+                "progress": 0,
+                "message": f"Starting installation of {feature.name}...",
+                "current": idx,
+                "total": total,
+            }
+
+            try:
+                # Build pip command with progress output
+                cmd = [
+                    sys.executable, "-m", "pip", "install",
+                    "--upgrade",  # Force upgrade/downgrade to match constraints
+                    "--no-cache-dir",
+                    "--progress-bar", "on",
+                    "--target", self.PACKAGES_DIR,
+                    *feature.pip_extra_args,
+                    *feature.packages,
+                ]
+
+                # Prepare environment
+                env = os.environ.copy()
+                tmp_dir = os.path.join(self.PACKAGES_DIR, ".tmp")
+                env["TMPDIR"] = tmp_dir
+                os.makedirs(tmp_dir, exist_ok=True)
+
+                # CLEANUP: Remove conflicting packages to prevent "ghost" versions in --target
+                # This is crucial for fixing dependency hell (e.g. tokenizers 0.19 vs 0.22)
+                import shutil
+                import glob
+                
+                for pkg_spec in feature.packages:
+                    # Extract package name (e.g. "tokenizers>=0.19" -> "tokenizers")
+                    pkg_name = re.split(r'[<>=!]', pkg_spec)[0].strip()
+                    logger.info(f"Cleaning existing artifacts for {pkg_name}...")
+                    
+                    # Normalize (pip converts - to _)
+                    name_variations = [pkg_name, pkg_name.replace("-", "_")]
+                    
+                    for name in name_variations:
+                        # 1. Remove dist-info (metadata)
+                        # This removes 'ghost' versions like tokenizers-0.22.2.dist-info
+                        for path in glob.glob(os.path.join(self.PACKAGES_DIR, f"{name}-*.dist-info")):
+                            try:
+                                shutil.rmtree(path)
+                                logger.debug(f"Removed ghost metadata: {path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to remove {path}: {e}")
+                                
+                        # 2. Remove package directory (optional, but safer)
+                        # Skip large packages like torch to match original intent, OR clean all for robustness?
+                        # For "fix forever", we clean verification-critical packages
+                        if name in ["tokenizers", "transformers", "huggingface_hub", "sentence_transformers"]:
+                            pkg_dir = os.path.join(self.PACKAGES_DIR, name)
+                            if os.path.isdir(pkg_dir):
+                                try:
+                                    shutil.rmtree(pkg_dir)
+                                    logger.debug(f"Removed package dir: {pkg_dir}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to remove {pkg_dir}: {e}")
+
+                # Build pip command with progress output
+
+                os.makedirs(tmp_dir, exist_ok=True)
+                env["TMPDIR"] = tmp_dir
+                # Force pip to show progress
+                env["PIP_PROGRESS_BAR"] = "on"
+
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout
+                    env=env,
+                )
+
+                logger.info(f"Started pip process for {feature.name}, cmd: {' '.join(cmd[:5])}...")
+
+                current_phase = "downloading"
+                last_progress = 0
+
+                # Read output line by line
+                line_count = 0
+                async for line_bytes in process.stdout:
+                    line = line_bytes.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+
+                    line_count += 1
+                    # DEBUG: Log all pip output
+                    logger.debug(f"PIP [{feature_id}]: {line[:150]}")
+
+                    # Parse pip output for progress
+                    message = line[:100]  # Truncate long lines
+
+                    # Detect phase transitions and estimate progress
+                    if "Collecting" in line or "Downloading" in line:
+                        current_phase = "downloading"
+                        # Increment progress during download (0-65%), cap at 65
+                        # Approximation: each download line = ~0.5% progress (slower for large packages)
+                        last_progress = min(65.0, last_progress + 0.5)
+                    elif "Installing" in line or "Building" in line:
+                        current_phase = "installing"
+                        # Increment during installing phase (70-89)
+                        if last_progress < 70:
+                            last_progress = 70.0
+                        else:
+                            last_progress = min(89.0, last_progress + 0.5)
+                    elif "Successfully installed" in line:
+                        current_phase = "verifying"
+                        last_progress = 90.0
+
+                    yield {
+                        "feature_id": feature_id,
+                        "feature_name": feature.name,
+                        "phase": current_phase,
+                        "progress": int(last_progress),
+                        "message": message,
+                        "current": idx,
+                        "total": total,
+                    }
+
+                await process.wait()
+
+                if process.returncode == 0:
+                    # Verify installation
+                    yield {
+                        "feature_id": feature_id,
+                        "feature_name": feature.name,
+                        "phase": "verifying",
+                        "progress": 95,
+                        "message": "Verifying installation...",
+                        "current": idx,
+                        "total": total,
+                    }
+
+                    if self._check_feature_installed(feature_id):
+                        feature.status = FeatureStatus.INSTALLED
+                        yield {
+                            "feature_id": feature_id,
+                            "feature_name": feature.name,
+                            "phase": "complete",
+                            "progress": 100,
+                            "message": "Installed successfully",
+                            "current": idx,
+                            "total": total,
+                        }
+                    else:
+                        # Try to get actual import error
+                        try:
+                            importlib.import_module(feature.check_import)
+                            error_msg = "Unknown import error"
+                        except Exception as import_error:
+                            error_msg = str(import_error)[:100]
+                        
+                        feature.status = FeatureStatus.FAILED
+                        feature.error_message = f"Import verification failed: {error_msg}"
+                        logger.error(f"Feature '{feature_id}' import failed: {error_msg}")
+                        yield {
+                            "feature_id": feature_id,
+                            "feature_name": feature.name,
+                            "phase": "failed",
+                            "progress": 0,
+                            "message": f"Import failed: {error_msg}",
+                            "current": idx,
+                            "total": total,
+                        }
+                else:
+                    feature.status = FeatureStatus.FAILED
+                    feature.error_message = f"pip exited with code {process.returncode}"
+                    yield {
+                        "feature_id": feature_id,
+                        "feature_name": feature.name,
+                        "phase": "failed",
+                        "progress": 0,
+                        "message": f"Installation failed (exit code {process.returncode})",
+                        "current": idx,
+                        "total": total,
+                    }
+
+            except Exception as e:
+                feature.status = FeatureStatus.FAILED
+                feature.error_message = str(e)
+                logger.exception(f"Error installing feature '{feature_id}'")
+                yield {
+                    "feature_id": feature_id,
+                    "feature_name": feature.name,
+                    "phase": "failed",
+                    "progress": 0,
+                    "message": str(e)[:100],
+                    "current": idx,
+                    "total": total,
+                }
 
     def mark_setup_complete(self) -> None:
         """Mark setup as complete (user skipped or finished)."""
