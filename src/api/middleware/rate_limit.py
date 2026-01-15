@@ -26,6 +26,8 @@ UPLOAD_PATHS = {"/v1/documents"}
 EXCLUDED_PATHS = {
     "/health",
     "/health/ready",
+    "/v1/health",
+    "/v1/health/ready",
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -82,7 +84,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             tenant_id = request.client.host or "anonymous"
 
         # Check rate limit
-        result = await rate_limiter.check(str(tenant_id), category)
+        try:
+            result = await rate_limiter.check(str(tenant_id), category)
+        except Exception as e:
+            # Fail open if rate limiter fails (e.g. Redis down)
+            logger.warning(f"Rate limiter failed (fail open): {e}")
+            return await call_next(request)
 
         if not result.allowed:
             logger.warning(

@@ -83,9 +83,9 @@ async def liveness() -> LivenessResponse:
         503: {"description": "One or more dependencies unhealthy"},
     },
     summary="Readiness Probe",
-    description="Checks all dependencies and returns their status. Used by Kubernetes readiness probes.",
+    description="Checks all dependencies and returns their status. Used by Kubernetes readiness probes. Pass ?silent=true to get 200 OK even if unhealthy (useful for frontend polling).",
 )
-async def readiness() -> ReadinessResponse:
+async def readiness(silent: bool = False) -> ReadinessResponse:
     """
     Readiness probe endpoint.
 
@@ -101,27 +101,45 @@ async def readiness() -> ReadinessResponse:
     Returns:
         ReadinessResponse: Detailed dependency status
     """
-    system_health = await health_checker.check_all()
+    try:
+        system_health = await health_checker.check_all()
+        
+        # Convert to response model
+        dependencies: dict[str, DependencyStatus] = {}
+        for name, dep in system_health.dependencies.items():
+            dependencies[name] = DependencyStatus(
+                status=dep.status.value,
+                latency_ms=dep.latency_ms,
+                error=dep.error,
+            )
 
-    # Convert to response model
-    dependencies: dict[str, DependencyStatus] = {}
-    for name, dep in system_health.dependencies.items():
-        dependencies[name] = DependencyStatus(
-            status=dep.status.value,
-            latency_ms=dep.latency_ms,
-            error=dep.error,
+        response = ReadinessResponse(
+            status="ready" if system_health.is_healthy else "unhealthy",
+            timestamp=datetime.now(UTC).isoformat(),
+            dependencies=dependencies,
         )
-
-    response = ReadinessResponse(
-        status="ready" if system_health.is_healthy else "unhealthy",
-        timestamp=datetime.now(UTC).isoformat(),
-        dependencies=dependencies,
-    )
+    except Exception as e:
+        # Fallback if health checker itself fails (e.g. startup race conditions)
+        from src.core.health import HealthStatus # Import locally to avoid circulars if needed
+        
+        response = ReadinessResponse(
+            status="unhealthy",
+            timestamp=datetime.now(UTC).isoformat(),
+            dependencies={
+                "system": DependencyStatus(
+                    status="down",
+                    error=f"Health check failed: {str(e)}"
+                )
+            }
+        )
+        system_health = None # Marker that it failed
 
     # Note: We return the response with appropriate status code
     # The actual status code is set by the route decorator's responses
     # FastAPI will use 200 by default, we need to raise for 503
-    if not system_health.is_healthy:
+    is_healthy = system_health.is_healthy if system_health else False
+    
+    if not is_healthy and not silent:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(

@@ -66,11 +66,33 @@ function AppContent() {
   return <RouterProvider router={router} />
 }
 
+import { useSystemReady } from './features/setup/hooks/useSystemReady'
+
+function AppContentWrapper() {
+  const { data: systemReady, isLoading } = useSystemReady()
+  const isReady = systemReady?.status === 'ready'
+
+  if (isLoading || !isReady) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground">
+            {isLoading ? "Connecting to server..." : "Waiting for services..."}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return <AppContent />
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <AppContent />
+        <AppContentWrapper />
         <Toaster richColors position="top-right" closeButton />
       </ErrorBoundary>
     </QueryClientProvider>
