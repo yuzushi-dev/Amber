@@ -61,13 +61,13 @@ export function AnimatedProgress({
                             key={currentStage.label}
                             initial={{ opacity: 0, y: -5 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="text-muted-foreground font-medium"
+                            className="text-foreground/90 font-medium"
                         >
                             {currentStage.label}
                         </motion.span>
                     )}
                     {showPercentage && (
-                        <span className="text-primary font-mono text-xs">
+                        <span className="text-foreground/90 font-mono text-xs">
                             {Math.round(clampedValue)}%
                         </span>
                     )}
