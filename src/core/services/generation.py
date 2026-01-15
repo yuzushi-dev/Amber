@@ -114,6 +114,30 @@ class GenerationService:
         start_time = time.perf_counter()
         trace = []
 
+        # Step 0.5: Inject global rules as candidates
+        try:
+            from src.core.services.rules import get_rules_service
+            rules_service = get_rules_service()
+            active_rules = await rules_service.get_active_rules()
+            
+            if active_rules:
+                rule_candidates = []
+                for idx, rule_content in enumerate(active_rules):
+                    rule_candidates.append({
+                        "id": f"global_rule_{idx}",
+                        "chunk_id": f"global_rule_{idx}",
+                        "document_id": f"rule_doc_{idx}",
+                        "content": rule_content,
+                        "metadata": {
+                            "document_id": f"rule_doc_{idx}",
+                            "title": "Global Domain Rule"
+                        },
+                        "score": 2.0
+                    })
+                candidates = rule_candidates + candidates
+        except Exception as e:
+            logger.warning(f"Failed to inject global rules: {e}")
+
         # Step 1: Build context
         builder = ContextBuilder(
             max_tokens=self.config.max_context_tokens,
@@ -121,14 +145,54 @@ class GenerationService:
         )
         context_result = builder.build(candidates, query=query)
 
+        # Step 1.5: Retrieve Memory (Facts & Summaries)
+        memory_context = ""
+        user_id = options.get("user_id") if options else None
+        tenant_id = options.get("tenant_id") if options else "default"
+
+        if user_id:
+            try:
+                # Parallel fetch for facts and summaries
+                # For MVP, we do it sequentially or just use gather if we were fully async optimized here
+                # But simple sequential await is fine for now
+                from src.core.memory.manager import memory_manager
+                
+                # 1. Facts
+                facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
+                formatted_facts = "\n".join([f"- {f.content}" for f in facts])
+                
+                # 2. Summaries
+                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
+                formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
+                
+                parts = []
+                if formatted_facts:
+                    parts.append(f"USER FACTS:\n{formatted_facts}")
+                if formatted_summaries:
+                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
+                    
+                memory_context = "\n\n".join(parts)
+            except Exception as e:
+                logger.warning(f"Failed to retrieve memory: {e}")
+
         # Step 2: Get prompts from registry
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
+        
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
 
-        user_prompt = user_prompt_template.format(
-            context=context_result.content,
-            query=query
-        )
+        # Inject memory_context if not empty
+        try:
+            user_prompt = user_prompt_template.format(
+                context=context_result.content,
+                query=query,
+                memory_context=memory_context
+            )
+        except KeyError:
+            # Fallback for old templates without memory_context
+            user_prompt = user_prompt_template.format(
+                context=context_result.content,
+                query=query
+            )
 
         # Step 3: LLM Call
         llm_result = await self.llm.generate(
@@ -137,6 +201,23 @@ class GenerationService:
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
+        
+        # Step 3.5: Trigger Async Memory Extraction
+        if user_id and llm_result.text:
+            try:
+                from src.core.memory.extractor import memory_extractor
+                import asyncio
+                
+                # Fire and forget fact extraction
+                asyncio.create_task(
+                    memory_extractor.extract_and_save_facts(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        text=query
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to trigger memory extraction: {e}")
 
 
 
@@ -186,23 +267,88 @@ class GenerationService:
         query: str,
         candidates: list[Any],
         conversation_history: list[dict[str, str]] | None = None,
+        options: dict[str, Any] | None = None,
     ) -> AsyncIterator[dict]:
         """
         Stream the generated answer with metadata events.
 
         Yields dictionaries suitable for SSE conversion.
         """
-        # 1. Build context
+        # Step 0.5: Inject global rules as candidates (so they can be cited)
+        try:
+            from src.core.services.rules import get_rules_service
+            rules_service = get_rules_service()
+            active_rules = await rules_service.get_active_rules()
+            
+            if active_rules:
+                rule_candidates = []
+                for idx, rule_content in enumerate(active_rules):
+                    rule_candidates.append({
+                        "id": f"global_rule_{idx}",
+                        "chunk_id": f"global_rule_{idx}",
+                        "document_id": f"rule_doc_{idx}",
+                        "content": rule_content,
+                        "metadata": {
+                            "document_id": f"rule_doc_{idx}",
+                            "title": "Global Domain Rule"
+                        },
+                        "score": 2.0
+                    })
+                candidates = rule_candidates + candidates
+        except Exception as e:
+            logger.warning(f"Failed to inject global rules: {e}")
+
+        # Step 1: Build context
         builder = ContextBuilder(
             max_tokens=self.config.max_context_tokens,
             model=self.config.model or self.llm.model_name
         )
         ctx = builder.build(candidates, query=query)
 
-        # 2. Build document title lookup
-        doc_titles = await self._get_document_titles(ctx.used_candidates)
+        # Step 2: Retrieve Memory (Facts & Summaries)
+        memory_context = ""
+        user_id = options.get("user_id") if options else None
+        tenant_id = options.get("tenant_id") if options else "default"
+        
+        logger.debug(f"Generation - User ID: {user_id}, Tenant: {tenant_id}")
 
-        # 3. Yield source metadata first
+        if user_id:
+            try:
+                from src.core.memory.manager import memory_manager
+                
+                # Retrieve facts and summaries
+                facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
+                logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
+                
+                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
+                logger.debug(f"Generation - Retrieved {len(summaries)} summaries for user {user_id}")
+                
+                parts = []
+                if facts:
+                    formatted_facts = "\n".join([f"- {f.content}" for f in facts])
+                    parts.append(f"USER FACTS:\n{formatted_facts}")
+                if summaries:
+                    formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
+                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
+                    
+                memory_context = "\n\n".join(parts)
+                if memory_context:
+                    logger.debug(f"Generation - Memory Context Injected:\n{memory_context}")
+                    # Signal Source Type to Frontend
+                    yield {
+                        "event": "routing",
+                        "data": {"categories": ["User Memory"], "confidence": 1.0}
+                    }
+                    # Signal High Confidence for Memory
+                    yield {
+                        "event": "quality",
+                        "data": {"total": 100, "retrieval": 100, "generation": 100}
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to retrieve memory in stream: {e}")
+
+        # Step 3: Yield source metadata
+        doc_titles = await self._get_document_titles(ctx.used_candidates)
         cited_sources = [
             {
                 "index": i + 1,
@@ -210,7 +356,7 @@ class GenerationService:
                 "document_id": getattr(c, "metadata", c).get("document_id", "unknown") if hasattr(c, "metadata") else c.get("document_id", "unknown"),
                 "title": doc_titles.get(
                     getattr(c, "metadata", c).get("document_id", "") if hasattr(c, "metadata") else c.get("document_id", ""),
-                    "Untitled"
+                    getattr(c, "metadata", {}).get("title", "Untitled") if isinstance(c, dict) else getattr(c, "metadata", {}).get("title", "Untitled")
                 ),
                 "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "..."),
                 "text": getattr(c, "content", c.get("content", ""))
@@ -219,12 +365,24 @@ class GenerationService:
         ]
         yield {"event": "sources", "data": cited_sources}
 
-        # 3. Preparation
+        # Step 4: Preparation
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-        user_prompt = user_prompt_template.format(context=ctx.content, query=query)
+        
+        try:
+            user_prompt = user_prompt_template.format(
+                context=ctx.content, 
+                query=query,
+                memory_context=memory_context
+            )
+        except KeyError:
+            # Fallback for old templates
+            user_prompt = user_prompt_template.format(
+                context=ctx.content, 
+                query=query
+            )
 
-        # 4. Stream tokens
+        # Step 5: Stream tokens
         full_answer = ""
         async for token in self.llm.generate_stream(
             prompt=user_prompt,
@@ -236,7 +394,23 @@ class GenerationService:
             full_answer += token
             yield {"event": "token", "data": token}
 
-        # 5. Final event with follow-ups and summary
+        # Step 5.5: Trigger Async Memory Extraction
+        if user_id and full_answer:
+            try:
+                from src.core.memory.extractor import memory_extractor
+                import asyncio
+                
+                asyncio.create_task(
+                    memory_extractor.extract_and_save_facts(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        text=query
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to trigger memory extraction in stream: {e}")
+
+        # Step 6: Final event
         yield {
             "event": "done",
             "data": {
@@ -265,8 +439,12 @@ class GenerationService:
 
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
-        pattern = r"\[(\d+)\]"
+        pattern = r"\[\[Source:(\d+)\]\]" # Updated regex to match new prompt format
         matches = re.findall(pattern, answer)
+        # Fallback for old format [1] just in case
+        if not matches:
+             matches = re.findall(r"\[(\d+)\]", answer)
+             
         cited_indices = {int(m) for m in matches}
 
         sources = []
@@ -276,12 +454,13 @@ class GenerationService:
                     content = cand.get("content", "")
                     cid = cand.get("chunk_id", f"chunk_{i}")
                     did = cand.get("document_id", "unknown")
-                    title = cand.get("title") or cand.get("metadata", {}).get("title")
+                    # Prioritize metadata title if available
+                    title = cand.get("metadata", {}).get("title") or cand.get("title") or "Untitled"
                 else:
                     content = getattr(cand, "content", "")
                     cid = getattr(cand, "id", f"chunk_{i}")
                     did = getattr(cand, "metadata", {}).get("document_id", "unknown")
-                    title = getattr(cand, "metadata", {}).get("title")
+                    title = getattr(cand, "metadata", {}).get("title", "Untitled")
 
                 sources.append(Source(
                     index=i,

@@ -215,20 +215,24 @@ export default function ChatContainer() {
             className="flex h-full w-full border-x bg-card/10 overflow-hidden"
             aria-label="Chat with Amber"
         >
-            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm min-w-0 transition-all duration-500 ease-in-out">
-                <header className="p-4 border-b flex justify-between items-center bg-card shrink-0">
+            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm min-w-0 transition-all duration-500 ease-in-out relative">
+                {/* Glass Header */}
+                <header className="absolute top-0 left-0 right-0 z-10 p-4 border-b border-white/5 flex justify-between items-center bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
                     <div>
-                        <h1 className="font-semibold">{title}</h1>
+                        <h1 className="font-display font-semibold tracking-tight text-lg">{title}</h1>
                     </div>
                     <div className="flex items-center gap-2">
                         {isStreaming && (
                             <div
-                                className="flex items-center gap-2 text-sm text-muted-foreground"
+                                className="flex items-center gap-2 text-xs font-medium text-primary animate-pulse bg-primary/10 px-2 py-1 rounded-full border border-primary/20"
                                 role="status"
                                 aria-live="polite"
                             >
-                                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
-                                <span>Generating response...</span>
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                </span>
+                                <span>Generating...</span>
                             </div>
                         )}
                         {requestId && (
@@ -238,7 +242,7 @@ export default function ChatContainer() {
                                 onClick={handleDownloadConversation}
                                 disabled={isExporting}
                                 title="Download conversation"
-                                className="flex items-center gap-1"
+                                className="flex items-center gap-1 hover:bg-white/10"
                             >
                                 {isExporting ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -251,7 +255,7 @@ export default function ChatContainer() {
                     </div>
                 </header>
 
-                <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative pt-16">
                     {/* Live region for streaming message updates */}
                     <div
                         aria-live="polite"

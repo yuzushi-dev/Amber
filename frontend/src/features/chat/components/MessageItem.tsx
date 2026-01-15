@@ -16,8 +16,8 @@ interface MessageItemProps {
 
 function parseCitations(content: string, messageId: string): { processedContent: string, citations: Citation[] } {
     const citations: Citation[] = [];
-    // Updated regex to match [[Source: 1]] or [[Source ID: 1]]
-    const regex = /\[\[Source(?: ID)?:?\s*(\d+)\]\]/g;
+    // Updated regex to match [[Source: 1]], [[Source ID: 1]], [[1]], or [[Source 1]]
+    const regex = /\[\[(?:Source(?: ID)?:?)?\s*(\d+)\]\]/g;
 
     const processedContent = content.replace(regex, (match, value) => {
         const id = `${messageId}-${citations.length}`;
@@ -96,37 +96,50 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
 
     return (
         <div className={cn(
-            "flex w-full space-x-4 p-6 group",
-            isAssistant ? "bg-secondary/30" : "bg-background"
+            "flex w-full space-x-6 p-8 group transition-colors duration-500",
+            isAssistant
+                ? "bg-background/40 backdrop-blur-sm border-b border-white/5 hover:bg-background/60"
+                : "bg-transparent" // User messages just sit on the background
         )}>
             {isAssistant ? (
-                <AmberAvatar size="md" />
+                <div className="shrink-0">
+                    <AmberAvatar size="md" className="shadow-[0_0_15px_rgba(251,191,36,0.2)] ring-1 ring-amber-500/20" />
+                </div>
             ) : (
-                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-muted text-muted-foreground ring-1 ring-border">
-                    <User className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-secondary/50 text-secondary-foreground ring-1 ring-white/10 shadow-inner">
+                    <User className="w-5 h-5 opacity-70" />
                 </div>
             )}
 
-            <div className="flex-1 space-y-2 overflow-hidden min-w-0">
+            <div className="flex-1 space-y-3 overflow-hidden min-w-0">
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                        <span className="font-semibold text-sm">
-                            {isAssistant ? "Amber" : "You"}
+                    <div className="flex items-center space-x-3">
+                        <span className={cn(
+                            "font-semibold text-sm tracking-wide",
+                            isAssistant ? "text-amber-500" : "text-muted-foreground"
+                        )}>
+                            {isAssistant ? "AMBER" : "YOU"}
                         </span>
-                        <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                            {new Date(message.timestamp).toLocaleTimeString()}
+                        <span className="text-xs text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                     </div>
                 </div>
 
                 {message.thinking && (
-                    <div className="flex items-center space-x-2 text-sm text-muted-foreground italic bg-muted/50 p-2 rounded-md border border-border/50">
-                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                        <span>{message.thinking}</span>
+                    <div className="flex items-center space-x-3 text-sm text-muted-foreground italic bg-muted/30 p-3 rounded-lg border border-white/5 animate-pulse">
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-500/50" />
+                        <span className="text-muted-foreground/70">{message.thinking}</span>
                     </div>
                 )}
 
-                <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
+                <div className={cn(
+                    "prose prose-sm dark:prose-invert max-w-none leading-relaxed",
+                    // Custom prose styles for better readability
+                    "prose-headings:font-display prose-headings:tracking-tight",
+                    "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
+                    "prose-pre:bg-black/50 prose-pre:backdrop-blur-xl prose-pre:border prose-pre:border-white/10"
+                )}>
                     <ReactMarkdown
                         components={components}
                     >
@@ -136,7 +149,7 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
 
                 {/* Footer Area: Feedback, Routing, Quality */}
                 {isAssistant && !message.thinking && (
-                    <div className="mt-4 pt-2 flex items-center justify-between border-t border-border/40">
+                    <div className="mt-6 pt-4 flex items-center justify-between border-t border-white/5 opacity-80 group-hover:opacity-100 transition-opacity">
                         <div className="flex items-center gap-4">
                             <FeedbackButtons
                                 messageId={message.id}
@@ -144,7 +157,7 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
                                 sessionId={message.session_id}
                                 content={message.content}
                                 relatedQuery={queryContent}
-                                initialScore={undefined} // We don't fetch initial score for now to keep it simple
+                                initialScore={undefined}
                             />
                             {message.routing_info && (
                                 <RoutingBadge routingInfo={message.routing_info} />

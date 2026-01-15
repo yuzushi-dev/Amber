@@ -1,6 +1,6 @@
 /**
- * Curation Page
- * =============
+ * CurationPage.tsx
+ * ================
  * 
  * Queue for reviewing analyst-reported flags and data quality issues.
  */
@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Flag, Check, X, GitMerge, RefreshCw, Eye } from 'lucide-react'
 import { curationApi, FlagDetail } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
+import { PageHeader } from '../components/PageHeader'
 
 export default function CurationPage() {
     const queryClient = useQueryClient()
@@ -82,28 +83,26 @@ export default function CurationPage() {
     }
 
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Curation Queue</h1>
-                    <p className="text-muted-foreground">
-                        Review and resolve analyst-reported issues
-                    </p>
-                </div>
-                <Button
-                    onClick={() => refetchFlags()}
-                    disabled={loading}
-                    variant="secondary"
-                    className="gap-2"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </Button>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="Curation Queue"
+                description="Review and resolve analyst-reported issues."
+                actions={
+                    <Button
+                        onClick={() => refetchFlags()}
+                        disabled={loading}
+                        variant="outline"
+                        className="gap-2 h-9 text-xs"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                }
+            />
 
             {/* Stats Cards */}
             {stats && (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Pending</div>
                         <div className="text-2xl font-bold text-yellow-600">{stats.pending_count}</div>
@@ -132,13 +131,13 @@ export default function CurationPage() {
             )}
 
             {/* Filter Tabs */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2">
                 {['pending', 'accepted', 'rejected', 'merged'].map(status => (
                     <Button
                         key={status}
                         onClick={() => setStatusFilter(status)}
                         variant={statusFilter === status ? 'default' : 'ghost'}
-                        className="capitalize"
+                        className="capitalize h-8 text-xs"
                     >
                         {status}
                     </Button>
@@ -146,7 +145,7 @@ export default function CurationPage() {
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                     <p className="text-red-800 dark:text-red-400">{error}</p>
                 </div>
             )}
@@ -156,14 +155,14 @@ export default function CurationPage() {
                 <table className="w-full">
                     <thead className="bg-muted/50">
                         <tr>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Reporter</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Preview</th>
-                            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Created</th>
-                            <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                            <th className="text-left px-4 py-3 font-medium text-muted-foreground text-sm">Type</th>
+                            <th className="text-left px-4 py-3 font-medium text-muted-foreground text-sm">Reporter</th>
+                            <th className="text-left px-4 py-3 font-medium text-muted-foreground text-sm">Preview</th>
+                            <th className="text-left px-4 py-3 font-medium text-muted-foreground text-sm">Created</th>
+                            <th className="text-right px-4 py-3 font-medium text-muted-foreground text-sm">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y">
+                    <tbody className="divide-y border-t border-border/50">
                         {flags.length === 0 && !loading && (
                             <tr>
                                 <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
@@ -194,7 +193,7 @@ export default function CurationPage() {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleViewFlag(flag.id)}
-                                            className="px-2"
+                                            className="px-2 h-8 w-8"
                                             title="View details"
                                         >
                                             <Eye className="w-4 h-4" />
@@ -206,7 +205,7 @@ export default function CurationPage() {
                                                     size="sm"
                                                     onClick={() => handleResolve(flag.id, 'accept')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                                    className="px-2 h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
                                                     title="Accept"
                                                 >
                                                     <Check className="w-4 h-4" />
@@ -216,7 +215,7 @@ export default function CurationPage() {
                                                     size="sm"
                                                     onClick={() => handleResolve(flag.id, 'reject')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                    className="px-2 h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                                                     title="Reject"
                                                 >
                                                     <X className="w-4 h-4" />
@@ -261,7 +260,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
             />
 
             {/* Drawer */}
-            <div className="fixed right-0 top-0 h-full w-full max-w-xl bg-card border-l z-50 overflow-y-auto">
+            <div className="fixed right-0 top-0 h-full w-full max-w-xl bg-card border-l z-50 overflow-y-auto shadow-2xl">
                 <div className="p-6">
                     <div className="flex items-center justify-between mb-6">
                         <h2 className="text-lg font-semibold">Flag Details</h2>

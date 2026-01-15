@@ -784,3 +784,174 @@ export const exportApi = {
     },
 }
 
+// =============================================================================
+// Global Rules API
+// =============================================================================
+
+export interface GlobalRule {
+    id: string
+    content: string
+    category: string | null
+    priority: number
+    is_active: boolean
+    source: string
+    created_at: string
+    updated_at: string
+}
+
+export interface CreateRuleRequest {
+    content: string
+    category?: string
+    priority?: number
+    is_active?: boolean
+}
+
+export interface UpdateRuleRequest {
+    content?: string
+    category?: string
+    priority?: number
+    is_active?: boolean
+}
+
+export const rulesApi = {
+    list: async (includeInactive = false) => {
+        const response = await apiClient.get<{ data: GlobalRule[] }>(
+            '/admin/rules/',
+            { params: { include_inactive: includeInactive } }
+        )
+        return response.data.data
+    },
+
+    create: async (data: CreateRuleRequest) => {
+        const response = await apiClient.post<{ data: GlobalRule }>('/admin/rules/', data)
+        return response.data.data
+    },
+
+    update: async (ruleId: string, data: UpdateRuleRequest) => {
+        const response = await apiClient.put<{ data: GlobalRule }>(`/admin/rules/${ruleId}`, data)
+        return response.data.data
+    },
+
+    delete: async (ruleId: string) => {
+        await apiClient.delete(`/admin/rules/${ruleId}`)
+    },
+
+    uploadFile: async (file: File, replaceExisting = false) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        const response = await apiClient.post<{ data: { created: number; source: string } }>(
+            '/admin/rules/upload',
+            formData,
+            {
+                params: { replace_existing: replaceExisting },
+                headers: { 'Content-Type': 'multipart/form-data' }
+            }
+        )
+        return response.data.data
+    },
+}
+
+// =============================================================================
+// Context Graph API
+// =============================================================================
+
+export interface ContextGraphStats {
+    total_conversations: number
+    total_turns: number
+    total_feedback: number
+    positive_feedback: number
+    negative_feedback: number
+}
+
+export interface GraphFeedbackItem {
+    feedback_id: string
+    is_positive: boolean
+    comment: string | null
+    created_at: string
+    turn_query: string | null
+    turn_answer: string | null
+    turn_id: string | null
+    chunks_affected: Array<{ chunk_id: string; score: number }>
+}
+
+export const contextGraphApi = {
+    getStats: async () => {
+        const response = await apiClient.get<ContextGraphStats>('/admin/context-graph/stats')
+        return response.data
+    },
+
+    listFeedback: async (limit = 50) => {
+        const response = await apiClient.get<GraphFeedbackItem[]>('/admin/context-graph/feedback', {
+            params: { limit }
+        })
+        return response.data
+    },
+
+    deleteFeedback: async (feedbackId: string) => {
+        const response = await apiClient.delete<{ message: string; deleted: string }>(
+            `/admin/context-graph/feedback/${feedbackId}`
+        )
+        return response.data
+    },
+
+    getChunkImpact: async (chunkId: string) => {
+        const response = await apiClient.get<{
+            chunk_id: string
+            positive_count: number
+            negative_count: number
+            net_score: number
+            feedback_ids: string[]
+        }>(`/admin/context-graph/chunk/${chunkId}/impact`)
+        return response.data
+    },
+}
+
+// =============================================================================
+// Retention API
+// =============================================================================
+
+export interface UserFact {
+    id: string
+    user_id: string
+    content: string
+    importance: number
+    created_at: string
+    metadata: Record<string, unknown>
+}
+
+export interface ConversationSummary {
+    id: string
+    user_id: string
+    title: string
+    summary: string
+    created_at: string
+    metadata: Record<string, unknown>
+}
+
+export interface PaginationResponse<T> {
+    total: number
+    page: number
+    size: number
+    data: T[]
+}
+
+export const retentionApi = {
+    listFacts: async (params?: { page?: number; size?: number; user_id?: string }) => {
+        const response = await apiClient.get<PaginationResponse<UserFact>>('/admin/retention/facts', { params })
+        return response.data
+    },
+
+    deleteFact: async (factId: string) => {
+        await apiClient.delete<{ status: string; message: string }>(`/admin/retention/facts/${factId}`)
+    },
+
+    listSummaries: async (params?: { page?: number; size?: number; user_id?: string }) => {
+        const response = await apiClient.get<PaginationResponse<ConversationSummary>>('/admin/retention/summaries', { params })
+        return response.data
+    },
+
+    deleteSummary: async (summaryId: string) => {
+        await apiClient.delete<{ status: string; message: string }>(`/admin/retention/summaries/${summaryId}`)
+    },
+}
+

@@ -1,8 +1,14 @@
 import axios from 'axios'
 import { toast } from 'sonner'
 
+// IMPORTANT: Always use relative /api/v1 path for browser requests.
+// The Vite dev server proxies /api/* to the backend container.
+// Never use absolute URLs like http://api:8000 as 'api' is an internal Docker hostname.
+const baseURL = '/api/v1'
+
+
 export const apiClient = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+    baseURL,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -16,6 +22,7 @@ apiClient.interceptors.request.use((config) => {
     }
     return config
 })
+
 
 // Add error interceptor
 apiClient.interceptors.response.use(

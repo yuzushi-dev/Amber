@@ -280,12 +280,18 @@ function CitationCard({
                     className="h-6 text-[10px] px-2 gap-1.5 text-primary hover:text-primary hover:bg-primary/10 transition-all font-medium uppercase tracking-wide"
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (source?.document_id) {
+                        if (source?.document_id?.startsWith('rule_doc_')) {
+                            window.open('/admin/settings/rules', '_blank');
+                        } else if (source?.document_id) {
                             window.open(`/admin/data/documents/${source.document_id}`, '_blank');
                         }
                     }}
                 >
-                    View Document <ExternalLink className="w-2.5 h-2.5" />
+                    {source?.document_id?.startsWith('rule_doc_') ? (
+                        <>View Global Rules <Sparkles className="w-2.5 h-2.5" /></>
+                    ) : (
+                        <>View Document <ExternalLink className="w-2.5 h-2.5" /></>
+                    )}
                 </Button>
             </div>
 

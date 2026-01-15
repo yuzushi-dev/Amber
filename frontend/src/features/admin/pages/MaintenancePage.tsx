@@ -1,6 +1,6 @@
 /**
- * Maintenance Page
- * ================
+ * MaintenancePage.tsx
+ * ===================
  * 
  * System maintenance, statistics, cache management, and maintenance actions.
  */
@@ -21,6 +21,8 @@ import { maintenanceApi, MaintenanceResult } from '@/lib/api-admin'
 import { StatCard } from '@/components/ui/StatCard'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '../components/PageSkeleton'
 
 export default function MaintenancePage() {
     const queryClient = useQueryClient()
@@ -72,24 +74,15 @@ export default function MaintenancePage() {
     }
 
     if (loading && !stats) {
-        return (
-            <div className="p-6 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        )
+        return <PageSkeleton />
     }
 
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">System Maintenance</h1>
-                    <p className="text-muted-foreground">
-                        System statistics and maintenance tools
-                    </p>
-                </div>
-
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="System Maintenance"
+                description="System statistics and maintenance tools."
+            />
 
             {error && (
                 <Alert variant="destructive" className="mb-6">
@@ -284,4 +277,3 @@ function ActionCard({ icon: Icon, title, description, buttonText, buttonVariant,
         </div>
     )
 }
-

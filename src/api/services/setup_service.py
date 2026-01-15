@@ -45,7 +45,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="local_embeddings",
         name="Local Embeddings",
         description="Generate embeddings locally (Est. ~5 mins)",
-        packages=["torch", "sentence-transformers>=2.7.0", "transformers==4.40.1", "huggingface-hub==0.23.0"],
+        packages=["torch", "sentence-transformers==2.7.0", "transformers==4.40.1", "huggingface-hub==0.23.0"],
         size_mb=2100,
         check_import="sentence_transformers",
         pip_extra_args=["--extra-index-url", "https://download.pytorch.org/whl/cpu"],

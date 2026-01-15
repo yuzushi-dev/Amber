@@ -19,6 +19,8 @@ import {
     AlertTriangle
 } from 'lucide-react'
 import { jobsApi, JobInfo, QueuesResponse } from '@/lib/api-admin'
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '../components/PageSkeleton'
 
 export default function JobsAndQueuesPage() {
     // Jobs State
@@ -103,24 +105,26 @@ export default function JobsAndQueuesPage() {
         }
     }
 
+    if (loading && jobs.length === 0 && !queueData) {
+        return <PageSkeleton />
+    }
+
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto space-y-8">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold">System Status</h1>
-                    <p className="text-muted-foreground">
-                        Monitor active jobs, workers, and queues
-                    </p>
-                </div>
-                <button
-                    onClick={() => fetchData(true)}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="System Status"
+                description="Monitor active jobs, workers, and queues."
+                actions={
+                    <button
+                        onClick={() => fetchData(true)}
+                        disabled={loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50 text-sm font-medium h-9"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                }
+            />
 
             {error && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">

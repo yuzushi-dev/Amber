@@ -19,6 +19,8 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '../components/PageSkeleton'
 
 export default function VectorStorePage() {
     // Use React Query with caching and auto-refresh
@@ -49,32 +51,26 @@ export default function VectorStorePage() {
     const totalMemoryMB = collections.reduce((sum, col) => sum + col.memory_mb, 0)
 
     if (loading && collections.length === 0) {
-        return (
-            <div className="p-6 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        )
+        return <PageSkeleton />
     }
 
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Vector Store</h1>
-                    <p className="text-muted-foreground">
-                        Vector database collections and statistics
-                    </p>
-                </div>
-                <Button
-                    variant="secondary"
-                    onClick={() => refetch()}
-                    disabled={loading}
-                    className="gap-2"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </Button>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="Vector Store"
+                description="Vector database collections and statistics."
+                actions={
+                    <Button
+                        variant="outline"
+                        onClick={() => refetch()}
+                        disabled={loading}
+                        className="gap-2 h-9 text-xs"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                }
+            />
 
             {error && (
                 <Alert variant="destructive" className="mb-6">

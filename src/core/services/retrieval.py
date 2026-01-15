@@ -501,6 +501,9 @@ class RetrievalService:
 
             # Get embedding
             query_embedding = await self.embedding_service.embed_single(search_query)
+            if not query_embedding:
+                logger.warning(f"Embedding failed for query: {search_query}. Skipping search.")
+                continue
 
             # Vector search (Dense or Hybrid)
             search_results = None

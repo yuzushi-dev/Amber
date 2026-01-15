@@ -8,6 +8,8 @@ import { Building2, Plus, Trash, RefreshCw, Layers, Key, Crown, Shield } from 'l
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/features/auth'
+import { PageHeader } from './PageHeader'
+import { PageSkeleton } from './PageSkeleton'
 
 export default function TenantManager() {
     const { isSuperAdmin } = useAuth()
@@ -37,7 +39,7 @@ export default function TenantManager() {
         } finally {
             setLoading(false)
         }
-    }, [])
+    }, [isSuperAdmin])
 
     useEffect(() => {
         fetchTenants()
@@ -78,26 +80,25 @@ export default function TenantManager() {
         }
     }
 
+    if (loading && tenants.length === 0) {
+        return <PageSkeleton />
+    }
+
     return (
         <div className="space-y-12">
             {/* Header Section */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b">
-                <div>
-                    <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center gap-3">
-                        <Building2 className="w-10 h-10 text-primary" />
-                        Tenants
-                    </h1>
-                    <p className="text-muted-foreground mt-2 max-w-lg text-lg">
-                        Manage usage isolation silos. Each tenant has isolated documents, chunks, and logs.
-                    </p>
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="text-right hidden md:block">
-                        <div className="text-3xl font-bold font-mono text-foreground">{tenants.length}</div>
-                        <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Active Tenants</div>
+            <PageHeader
+                title="Tenants"
+                description="Manage usage isolation silos. Each tenant has isolated documents, chunks, and logs."
+                actions={
+                    <div className="flex items-center gap-4">
+                        <div className="text-right hidden md:block border-l pl-4 my-1">
+                            <div className="text-2xl font-bold font-mono text-foreground leading-none">{tenants.length}</div>
+                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Active</div>
+                        </div>
                     </div>
-                </div>
-            </div>
+                }
+            />
 
             {error && (
                 <Alert variant="destructive" dismissible onDismiss={() => setError(null)}>
@@ -144,9 +145,10 @@ export default function TenantManager() {
                                 type="submit"
                                 disabled={!newName.trim() || creating}
                                 size="lg"
-                                className="w-full sm:w-auto"
+                                className="w-full sm:w-auto text-primary-foreground font-semibold"
                             >
-                                {creating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-5 h-5" />}
+                                {creating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-5 h-5 mr-1" />}
+                                {creating ? '' : 'Create'}
                             </Button>
                         </form>
                     </div>

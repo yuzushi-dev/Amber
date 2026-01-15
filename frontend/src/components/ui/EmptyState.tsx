@@ -29,20 +29,20 @@ export default function EmptyState({
 }: EmptyStateProps) {
     return (
         <div
-            className={`flex flex-col items-center justify-center py-16 px-4 text-center ${className}`}
+            className={`flex flex-col items-center justify-center py-16 px-8 text-center rounded-xl border-2 border-dashed border-white/5 bg-white/5 backdrop-blur-sm ${className}`}
             role="status"
             aria-label={title}
         >
-            <div className="mb-6 p-4 rounded-full bg-muted/50" aria-hidden="true">
-                {icon || <FileQuestion className="w-12 h-12 text-muted-foreground" />}
+            <div className="mb-6 p-4 rounded-full bg-gradient-to-b from-white/10 to-transparent border border-white/5 shadow-inner" aria-hidden="true">
+                {icon || <FileQuestion className="w-8 h-8 text-muted-foreground/50" />}
             </div>
 
-            <h3 className="text-xl font-semibold text-foreground mb-2">
+            <h3 className="text-xl font-display font-medium text-foreground mb-2 tracking-tight">
                 {title}
             </h3>
 
             {description && (
-                <p className="text-muted-foreground max-w-md mb-6">
+                <p className="text-muted-foreground max-w-md mb-8 text-sm leading-relaxed">
                     {description}
                 </p>
             )}

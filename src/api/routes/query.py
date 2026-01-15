@@ -336,11 +336,18 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
                 sources: list[Source] = []
                 follow_ups = ["What documents are available?", "How do I upload documents?"]
             else:
+                # Extract User ID (Phase 3 Memory)
+                user_id = http_request.headers.get("X-User-ID", "default_user")
+
                 # Generate answer from chunks
                 gen_result = await generation_service.generate(
                     query=request.query,
                     candidates=retrieval_result.chunks,
                     include_trace=include_trace,
+                    options={
+                        "user_id": user_id,
+                        "tenant_id": tenant_id
+                    }
                 )
 
                 answer = gen_result.answer
@@ -384,6 +391,31 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
 
         # Calculate total time
         total_ms = (time.perf_counter() - start_time) * 1000
+
+        # Log to Context Graph (background task - fire and forget)
+        try:
+            import asyncio
+            from src.core.graph.context_writer import context_graph_writer
+            
+            source_data = [
+                {"chunk_id": s.chunk_id, "document_id": s.document_id, "score": s.score}
+                for s in sources
+            ] if sources else []
+            
+            asyncio.create_task(
+                context_graph_writer.log_turn(
+                    conversation_id=request.conversation_id or query_id,
+                    tenant_id=tenant_id,
+                    query=request.query,
+                    answer=answer,
+                    sources=source_data,
+                    trace_steps=trace_steps if include_trace else None,
+                    model=query_metrics.model if 'query_metrics' in dir() else None,
+                    latency_ms=total_ms,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to schedule context graph logging: {e}")
 
         return QueryResponse(
             answer=answer,
@@ -827,10 +859,17 @@ async def query_stream(
             stream_model = ""
             stream_start_time = time.perf_counter()  # Track generation latency
             
+            # Extract User ID (Phase 3 Memory)
+            user_id = http_request.headers.get("X-User-ID", "default_user")
+
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
                 candidates=retrieval_result.chunks,
                 conversation_history=None,
+                options={
+                    "user_id": user_id,
+                    "tenant_id": tenant_id
+                }
             ):
                 event = event_dict.get("event", "message")
                 data = event_dict.get("data", "")
@@ -916,7 +955,7 @@ async def query_stream(
                         new_summary = ConversationSummary(
                             id=final_conversation_id,
                             tenant_id=tenant_id,
-                            user_id="user",
+                            user_id=user_id,
                             title=title_text,
                             summary=summary_text,
                             metadata_={

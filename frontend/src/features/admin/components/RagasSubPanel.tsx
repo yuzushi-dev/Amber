@@ -26,6 +26,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { PageHeader } from './PageHeader'
+import { PageSkeleton } from './PageSkeleton'
 
 export function RagasSubPanel() {
     const [stats, setStats] = useState<RagasStats | null>(null)
@@ -190,32 +192,25 @@ export function RagasSubPanel() {
     }
 
     if (loading && !stats) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <RefreshCw className="w-8 h-8 text-primary animate-spin" />
-            </div>
-        )
+        return <PageSkeleton />
     }
 
     return (
-        <div className="p-6 pb-32 max-w-7xl mx-auto space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">RAGAS Evaluation</h1>
-                    <p className="text-muted-foreground">
-                        Systematic RAG quality benchmarking with Faithfulness and Relevancy metrics
-                    </p>
-                </div>
-                <button
-                    onClick={() => fetchData()}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-6">
+            <PageHeader
+                title="RAGAS Evaluation"
+                description="Systematic RAG quality benchmarking with Faithfulness and Relevancy metrics."
+                actions={
+                    <button
+                        onClick={() => fetchData()}
+                        disabled={loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50 text-sm font-medium h-9"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                }
+            />
 
             {error && (
                 <Alert variant="destructive" className="mb-6">

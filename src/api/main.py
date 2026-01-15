@@ -44,6 +44,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
 
+    # Initialize LLM Providers
+    try:
+        from src.core.providers.factory import init_providers
+        init_providers(
+            openai_api_key=settings.openai_api_key,
+            anthropic_api_key=settings.anthropic_api_key
+        )
+        logger.info("LLM Providers initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize LLM providers: {e}")
+
     # SAFETY WARNING
     if os.getenv("AMBER_RUNTIME") != "docker":
         logger.warning("! " * 40)
