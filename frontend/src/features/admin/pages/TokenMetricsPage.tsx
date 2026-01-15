@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import RecentActivityTable from '../components/RecentActivityTable'
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '@/features/admin/components/PageSkeleton'
 
 interface TokenMetrics {
     totalTokens: number
@@ -116,39 +118,26 @@ export default function TokenMetricsPage() {
     }
 
     if (loading && conversations.length === 0) {
-        return (
-            <div className="p-6 pb-32 max-w-7xl mx-auto">
-                <div className="animate-pulse space-y-6">
-                    <div className="h-8 w-48 bg-muted rounded"></div>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        {[1, 2, 3, 4].map(i => (
-                            <div key={i} className="h-32 bg-muted rounded-lg"></div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        )
+        return <PageSkeleton />
     }
 
     return (
-        <div className="p-6 pb-16 max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Token Usage & Costs</h1>
-                    <p className="text-muted-foreground">
-                        LLM usage analytics from recent conversations
-                    </p>
-                </div>
-                <Button
-                    variant="secondary"
-                    onClick={fetchData}
-                    disabled={loading}
-                    className="gap-2"
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </Button>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="Token Usage & Costs"
+                description="LLM usage analytics from recent conversations."
+                actions={
+                    <Button
+                        variant="secondary"
+                        onClick={fetchData}
+                        disabled={loading}
+                        className="gap-2"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                }
+            />
 
             {error && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
@@ -157,7 +146,7 @@ export default function TokenMetricsPage() {
             )}
 
             {/* Summary Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <StatCard
                     icon={Zap}
                     label="Total Tokens"
@@ -188,7 +177,7 @@ export default function TokenMetricsPage() {
             </div>
 
             {/* Breakdown Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* By Provider */}
                 <Card>
                     <CardHeader>

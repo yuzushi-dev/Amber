@@ -11,25 +11,60 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     Download,
     Loader2,
-    CheckCircle,
     XCircle,
-    Archive,
     FileArchive,
     Database,
     HardDrive,
-    FileText
+    FileText,
+    BrainCircuit,
+    MessageSquare,
+    Save
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { exportApi, ExportJobResponse } from '@/lib/api-admin'
+import { exportApi, ExportJobResponse, retentionApi, UserFact, ConversationSummary } from '@/lib/api-admin'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
+import { PageHeader } from '../components/PageHeader'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import FactsTable from '../components/FactsTable'
+import SummariesTable from '../components/SummariesTable'
 
 export default function DataRetentionPage() {
+    // --- Export State ---
     const [isExporting, setIsExporting] = useState(false)
     const [exportJobId, setExportJobId] = useState<string | null>(null)
     const [exportStatus, setExportStatus] = useState<ExportJobResponse | null>(null)
 
+    // --- Memory State ---
+    const [facts, setFacts] = useState<UserFact[]>([])
+    const [summaries, setSummaries] = useState<ConversationSummary[]>([])
+    const [isLoadingMemory, setIsLoadingMemory] = useState(false)
+
+    // --- Data Fetching ---
+    const loadMemoryData = useCallback(async () => {
+        setIsLoadingMemory(true)
+        try {
+            // Parallel fetch
+            const [factsRes, summariesRes] = await Promise.all([
+                retentionApi.listFacts({ size: 100 }),
+                retentionApi.listSummaries({ size: 100 })
+            ])
+            setFacts(factsRes.data)
+            setSummaries(summariesRes.data)
+        } catch (error) {
+            console.error("Failed to load memory data:", error)
+            toast.error("Failed to load memory data")
+        } finally {
+            setIsLoadingMemory(false)
+        }
+    }, [])
+
+    // Initial Load
+    useEffect(() => {
+        loadMemoryData()
+    }, [loadMemoryData])
+
+    // --- Export Logic ---
     // Poll for export job status
     useEffect(() => {
         if (!exportJobId) return
@@ -43,7 +78,7 @@ export default function DataRetentionPage() {
             try {
                 const status = await exportApi.getJobStatus(exportJobId)
 
-                // Only update state if changed to avoid unnecessary re-renders
+                // Only update state if changed
                 if (JSON.stringify(status) !== JSON.stringify(exportStatus)) {
                     setExportStatus(status)
 
@@ -101,10 +136,7 @@ export default function DataRetentionPage() {
 
         try {
             const blob = await exportApi.downloadExport(exportJobId)
-
-            // Ensure blob has correct MIME type
             const zipBlob = new Blob([blob], { type: 'application/zip' })
-
             const url = window.URL.createObjectURL(zipBlob)
             const a = document.createElement('a')
             a.href = url
@@ -113,7 +145,6 @@ export default function DataRetentionPage() {
             document.body.appendChild(a)
             a.click()
 
-            // Clean up
             setTimeout(() => {
                 document.body.removeChild(a)
                 window.URL.revokeObjectURL(url)
@@ -134,151 +165,194 @@ export default function DataRetentionPage() {
     }
 
     return (
-        <div className="p-6 max-w-4xl mx-auto space-y-8">
-            <header>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <Archive className="h-6 w-6" />
-                    Data Retention
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                    Export all your conversation data, including transcripts, metadata, and source files.
-                </p>
-            </header>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="Data Retention & Memory"
+                description="Manage what the AI remembers about users and export conversation data."
+            />
 
-            <Card className="overflow-hidden">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <FileArchive className="h-5 w-5" />
-                        Export All Conversations
-                    </CardTitle>
-                    <CardDescription>
-                        Create a full backup of your workspace.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {/* Info Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {[
-                            { icon: FileText, label: "Transcripts", desc: "Txt Format" },
-                            { icon: Database, label: "Metadata", desc: "JSON Citations" },
-                            { icon: HardDrive, label: "Documents", desc: "Source Files" }
-                        ].map((item, i) => (
-                            <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-transparent">
-                                <item.icon className="w-4 h-4 text-muted-foreground" />
-                                <div className="text-sm">
-                                    <span className="font-medium block">{item.label}</span>
-                                    <span className="text-xs text-muted-foreground">{item.desc}</span>
-                                </div>
-                            </div>
-                        ))}
+            <Tabs defaultValue="facts" className="w-full">
+                <TabsList className="mb-8">
+                    <TabsTrigger value="facts" className="flex items-center gap-2">
+                        <BrainCircuit className="w-4 h-4" />
+                        User Facts ({facts.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="summaries" className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4" />
+                        Summaries ({summaries.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="export" className="flex items-center gap-2">
+                        <Save className="w-4 h-4" />
+                        Export Data
+                    </TabsTrigger>
+                </TabsList>
+
+                {/* --- FACTS TAB --- */}
+                <TabsContent value="facts" className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                            <h3 className="text-lg font-medium">Permanent User Facts</h3>
+                            <p className="text-sm text-muted-foreground">Explicit facts learned from user interactions.</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={loadMemoryData} disabled={isLoadingMemory}>
+                            {isLoadingMemory ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refresh"}
+                        </Button>
                     </div>
+                    <FactsTable facts={facts} isLoading={isLoadingMemory} onReload={loadMemoryData} />
+                </TabsContent>
 
-                    {/* Action Area */}
-                    <div className="pt-2 border-t">
-                        <AnimatePresence mode="wait">
-                            {!exportStatus || exportStatus.status === 'failed' ? (
-                                <motion.div
-                                    key="start"
-                                    initial={{ opacity: 0, y: 5 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -5 }}
-                                    className="flex flex-col gap-4 py-2"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <Button
-                                            onClick={handleStartExport}
-                                            disabled={isExporting}
-                                            className="flex items-center gap-2"
-                                        >
-                                            {isExporting ? (
-                                                <>
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                    Preparing Export...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Download className="w-4 h-4" />
-                                                    Export All
-                                                </>
-                                            )}
-                                        </Button>
+                {/* --- SUMMARIES TAB --- */}
+                <TabsContent value="summaries" className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                            <h3 className="text-lg font-medium">Conversation Summaries</h3>
+                            <p className="text-sm text-muted-foreground">Summarized history of past conversations for context.</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={loadMemoryData} disabled={isLoadingMemory}>
+                            {isLoadingMemory ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refresh"}
+                        </Button>
+                    </div>
+                    <SummariesTable summaries={summaries} isLoading={isLoadingMemory} onReload={loadMemoryData} />
+                </TabsContent>
 
-                                        {exportStatus?.status === 'failed' && (
-                                            <span className="text-sm text-destructive flex items-center gap-2">
-                                                <XCircle className="w-4 h-4" />
-                                                {exportStatus.error}
-                                            </span>
-                                        )}
+                {/* --- EXPORT TAB --- */}
+                <TabsContent value="export">
+                    <Card className="overflow-hidden border-dashed">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <FileArchive className="h-5 w-5" />
+                                Export All Conversations
+                            </CardTitle>
+                            <CardDescription>
+                                Create a full backup of your workspace including transcripts and metadata.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {/* Info Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {[
+                                    { icon: FileText, label: "Transcripts", desc: "Txt Format" },
+                                    { icon: Database, label: "Metadata", desc: "JSON Citations" },
+                                    { icon: HardDrive, label: "Documents", desc: "Source Files" }
+                                ].map((item, i) => (
+                                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-transparent">
+                                        <item.icon className="w-4 h-4 text-muted-foreground" />
+                                        <div className="text-sm">
+                                            <span className="font-medium block">{item.label}</span>
+                                            <span className="text-xs text-muted-foreground">{item.desc}</span>
+                                        </div>
                                     </div>
-                                </motion.div>
-                            ) : exportStatus.status === 'pending' || exportStatus.status === 'running' ? (
-                                <motion.div
-                                    key="running"
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: "auto" }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    className="pt-2"
-                                >
-                                    <div className="bg-muted/30 rounded-lg p-4 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                                                <div className="text-sm font-medium">
-                                                    {exportStatus.status === 'pending' ? 'Queued' : 'Processing Archive...'}
+                                ))}
+                            </div>
+
+                            {/* Action Area */}
+                            <div className="pt-2 border-t">
+                                <AnimatePresence mode="wait">
+                                    {!exportStatus || exportStatus.status === 'failed' ? (
+                                        <motion.div
+                                            key="start"
+                                            initial={{ opacity: 0, y: 5 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -5 }}
+                                            className="flex flex-col gap-4 py-2"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <Button
+                                                    onClick={handleStartExport}
+                                                    disabled={isExporting}
+                                                    className="flex items-center gap-2"
+                                                >
+                                                    {isExporting ? (
+                                                        <>
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                            Preparing Export...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Download className="w-4 h-4" />
+                                                            Export All
+                                                        </>
+                                                    )}
+                                                </Button>
+
+                                                {exportStatus?.status === 'failed' && (
+                                                    <span className="text-sm text-destructive flex items-center gap-2">
+                                                        <XCircle className="w-4 h-4" />
+                                                        {exportStatus.error}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    ) : exportStatus.status === 'pending' || exportStatus.status === 'running' ? (
+                                        <motion.div
+                                            key="running"
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: "auto" }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="pt-2"
+                                        >
+                                            <div className="bg-muted/30 rounded-lg p-4 space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                                        <div className="text-sm font-medium">
+                                                            {exportStatus.status === 'pending' ? 'Queued' : 'Processing Archive...'}
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={handleCancelExport}
+                                                        className="h-8 text-muted-foreground hover:text-destructive"
+                                                    >
+                                                        Stop
+                                                    </Button>
+                                                </div>
+                                                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                                                    <motion.div
+                                                        className="h-full bg-primary"
+                                                        initial={{ width: "0%" }}
+                                                        animate={{ width: "60%" }}
+                                                        transition={{ duration: 0.5 }}
+                                                    />
+                                                </div>
+                                                <div className="text-xs text-muted-foreground font-mono">
+                                                    Job ID: {exportStatus.job_id}
                                                 </div>
                                             </div>
+                                        </motion.div>
+                                    ) : (
+                                        <motion.div
+                                            key="completed"
+                                            initial={{ opacity: 0, y: 5 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="flex items-center gap-4 py-2"
+                                        >
+                                            <Button
+                                                onClick={handleDownloadExport}
+                                                className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+                                            >
+                                                <Download className="w-4 h-4" />
+                                                Download ZIP
+                                            </Button>
+                                            <span className="text-sm text-muted-foreground">
+                                                Size: {formatFileSize(exportStatus.file_size)}
+                                            </span>
+                                            <div className="flex-1" />
                                             <Button
                                                 variant="ghost"
-                                                size="sm"
-                                                onClick={handleCancelExport}
-                                                className="h-8 text-muted-foreground hover:text-destructive"
+                                                onClick={handleStartExport}
                                             >
-                                                Stop
+                                                New Export
                                             </Button>
-                                        </div>
-                                        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                                            <motion.div
-                                                className="h-full bg-primary"
-                                                initial={{ width: "0%" }}
-                                                animate={{ width: "60%" }}
-                                                transition={{ duration: 0.5 }}
-                                            />
-                                        </div>
-                                        <div className="text-xs text-muted-foreground font-mono">
-                                            Job ID: {exportStatus.job_id}
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            ) : (
-                                <motion.div
-                                    key="completed"
-                                    initial={{ opacity: 0, y: 5 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="flex items-center gap-4 py-2"
-                                >
-                                    <Button
-                                        onClick={handleDownloadExport}
-                                        className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                        Download ZIP
-                                    </Button>
-                                    <span className="text-sm text-muted-foreground">
-                                        Size: {formatFileSize(exportStatus.file_size)}
-                                    </span>
-                                    <div className="flex-1" />
-                                    <Button
-                                        variant="ghost"
-                                        onClick={handleStartExport}
-                                    >
-                                        New Export
-                                    </Button>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </CardContent>
-            </Card>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
         </div>
     )
 }

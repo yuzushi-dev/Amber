@@ -107,7 +107,6 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             ? `${baseUrl}&api_key=${encodeURIComponent(apiKey)}`
             : `${baseUrl}?api_key=${encodeURIComponent(apiKey)}`
 
-        console.log('Connecting to SSE:', monitorUrl)
 
         // Status precedence for aggregation (SSE + Polling)
         const STATUS_ORDER = ['idle', 'uploading', 'ingested', 'extracting', 'classifying', 'chunking', 'embedding', 'graph_sync', 'ready', 'completed', 'failed']

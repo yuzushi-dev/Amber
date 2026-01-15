@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/select"
 import { maintenanceApi, QueryMetrics } from '@/lib/api-admin'
 import { QueryLogTable } from '../components/QueryLogTable'
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '../components/PageSkeleton'
 
 export default function QueryLogPage() {
     const [queries, setQueries] = useState<QueryMetrics[]>([])
@@ -43,28 +45,28 @@ export default function QueryLogPage() {
         (q.conversation_id && q.conversation_id.includes(searchTerm))
     )
 
+    if (isLoading && queries.length === 0) {
+        return <PageSkeleton mode="list" />
+    }
+
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-white/90">Query Log</h1>
-                    <p className="text-neutral-400">
-                        Detailed inspection of recent RAG queries for debugging cost and latency.
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="Query Log"
+                description="Detailed inspection of recent RAG queries for debugging cost and latency."
+                actions={
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={fetchQueries}
                         disabled={isLoading}
-                        className="gap-2"
+                        className="gap-2 h-9 text-xs"
                     >
-                        <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                         Refresh
                     </Button>
-                </div>
-            </div>
+                }
+            />
 
             <div className="flex items-center gap-4">
                 <div className="relative flex-1 max-w-sm">

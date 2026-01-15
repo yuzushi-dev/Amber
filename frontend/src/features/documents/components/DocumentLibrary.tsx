@@ -9,9 +9,12 @@ import {
     Trash2,
     Box,
     Users,
-    Share2
+    Share2,
+    Calendar
 } from 'lucide-react'
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { cn } from '@/lib/utils'
 import UploadWizard from './UploadWizard'
 import EmptyState from '@/components/ui/EmptyState'
 import { ConfirmDialog } from '@/components/ui/dialog'
@@ -20,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import LiveStatusBadge from './LiveStatusBadge'
+import { PageSkeleton } from '@/features/admin/components/PageSkeleton'
 
 interface Document {
     id: string
@@ -151,21 +155,25 @@ export default function DocumentLibrary() {
         />
     )
 
+    if (isLoading) {
+        return <PageSkeleton mode="list" />
+    }
+
     return (
         <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
             <header className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold">Document Library</h1>
-                    <p className="text-muted-foreground">Manage your ingested knowledge sources.</p>
+                    <h1 className="text-3xl font-display font-bold tracking-tight">Document Library</h1>
+                    <p className="text-muted-foreground mt-1">Manage your ingested knowledge sources.</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button
                         onClick={() => setIsUploadOpen(true)}
-                        className="space-x-2"
+                        className="shadow-[0_0_15px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.5)] transition-all duration-300"
                         aria-label="Upload new document"
                     >
-                        <Plus className="w-4 h-4" aria-hidden="true" />
-                        <span>Upload Files</span>
+                        <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+                        Upload Files
                     </Button>
                 </div>
             </header>
@@ -181,137 +189,163 @@ export default function DocumentLibrary() {
                 </Alert>
             )}
 
+            {/* Glass Stats Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                     {
                         label: 'Documents',
                         value: stats?.database.documents_total ?? 0,
                         icon: FileText,
-                        color: 'text-blue-500',
-                        bg: 'bg-blue-500/10'
+                        color: 'text-blue-400',
+                        gradient: 'from-blue-500/20 to-blue-600/5'
                     },
                     {
                         label: 'Chunks',
                         value: stats?.database.chunks_total ?? 0,
                         icon: Box,
-                        color: 'text-purple-500',
-                        bg: 'bg-purple-500/10'
+                        color: 'text-purple-400',
+                        gradient: 'from-purple-500/20 to-purple-600/5'
                     },
                     {
                         label: 'Entities',
                         value: stats?.database.entities_total ?? 0,
                         icon: Users,
-                        color: 'text-green-500',
-                        bg: 'bg-green-500/10'
+                        color: 'text-green-400',
+                        gradient: 'from-green-500/20 to-green-600/5'
                     },
                     {
                         label: 'Relationships',
                         value: stats?.database.relationships_total ?? 0,
                         icon: Share2,
-                        color: 'text-orange-500',
-                        bg: 'bg-orange-500/10'
+                        color: 'text-orange-400',
+                        gradient: 'from-orange-500/20 to-orange-600/5'
                     }
-                ].map((card) => (
-                    <div
+                ].map((card, idx) => (
+                    <motion.div
                         key={card.label}
-                        className="p-4 rounded-xl border bg-card text-card-foreground shadow-sm flex items-center gap-3 transition-all hover:shadow-md"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="relative overflow-hidden p-5 rounded-xl border border-white/5 bg-background/40 backdrop-blur-md shadow-lg group"
                     >
-                        <div className={`p-2 rounded-full ${card.bg} ${card.color}`}>
-                            <card.icon className="w-5 h-5" />
+                        <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                        <div className="relative z-10 flex flex-col h-full justify-between">
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="text-sm font-medium text-muted-foreground/80">{card.label}</p>
+                                <card.icon className={cn("w-5 h-5", card.color)} />
+                            </div>
+                            <h2 className="text-3xl font-display font-bold tracking-tight">{card.value.toLocaleString()}</h2>
                         </div>
-                        <div>
-                            <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-                            <h2 className="text-2xl font-bold">{card.value.toLocaleString()}</h2>
-                        </div>
-                    </div>
+                    </motion.div>
                 ))}
             </div>
 
-            <div className="bg-card border rounded-lg overflow-hidden">
-                <div className="p-4 border-b flex justify-between items-center bg-muted/20">
-                    <div className="relative w-64">
+            <div className="space-y-4">
+                {/* Filter Bar */}
+                <div className="p-2 rounded-xl border border-white/5 bg-black/20 backdrop-blur-md flex justify-between items-center shadow-inner">
+                    <div className="relative w-full max-w-md">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                         <Input
                             type="text"
                             placeholder="Filter documents..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 focus-visible:ring-offset-1"
+                            className="w-full pl-10 pr-4 bg-transparent border-transparent focus-visible:ring-0 focus-visible:bg-white/5 transition-all text-sm placeholder:text-muted-foreground/50 h-9"
                             aria-label="Filter documents"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center pr-2">
                         {documents && documents.length > 0 && (
                             <Button
-                                variant="outline"
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => setConfirmAction({ type: 'delete-all' })}
-                                className="flex items-center gap-2 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                                aria-label="Delete all documents"
+                                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                             >
-                                <Trash2 className="w-4 h-4" aria-hidden="true" />
-                                <span>Delete All</span>
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete All
                             </Button>
                         )}
                     </div>
                 </div>
 
-                {isLoading ? (
-                    <div className="p-8 text-center text-muted-foreground" role="status" aria-live="polite">
-                        <div className="animate-pulse">Loading documents...</div>
-                    </div>
-                ) : documents?.length === 0 ? (
+                {documents?.length === 0 ? (
                     renderEmptyState()
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm" role="table" aria-label="Documents">
-                            <thead>
-                                <tr className="border-b bg-muted/10 text-left">
-                                    <th className="p-4 font-semibold" scope="col">Document</th>
-                                    <th className="p-4 font-semibold" scope="col">Status</th>
-                                    <th className="p-4 font-semibold" scope="col">Uploaded At</th>
-                                    <th className="p-4 font-semibold text-right" scope="col">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredDocuments.map((doc) => (
-                                    <tr key={doc.id} className="border-b hover:bg-muted/5 transition-colors">
-                                        <td className="p-4">
-                                            <div className="flex items-center space-x-3">
-                                                <FileText className="w-4 h-4 text-primary" aria-hidden="true" />
-                                                <Link
-                                                    to="/admin/data/documents/$documentId"
-                                                    params={{ documentId: doc.id }}
-                                                    className="font-medium hover:underline text-foreground"
-                                                >
-                                                    {doc.title}
-                                                </Link>
+                    /* Premium Glass List */
+                    <div className="space-y-2">
+                        {/* Header Row */}
+                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 px-6 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider opacity-60">
+                            <div>Document</div>
+                            <div>Status</div>
+                            <div>Uploaded</div>
+                            <div className="text-right">Action</div>
+                        </div>
+
+                        <ul className="space-y-2">
+                            <AnimatePresence mode='popLayout'>
+                                {filteredDocuments.map((doc, idx) => (
+                                    <motion.li
+                                        key={doc.id}
+                                        layout
+                                        initial={{ opacity: 0, x: -10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95 }}
+                                        transition={{ duration: 0.2, delay: idx * 0.03 }}
+                                        className="group"
+                                    >
+                                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-white/10 hover:shadow-lg transition-all duration-300">
+                                            {/* Column 1: Title & Icon */}
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                <div className="p-2.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shrink-0">
+                                                    <FileText className="w-5 h-5" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <Link
+                                                        to="/admin/data/documents/$documentId"
+                                                        params={{ documentId: doc.id }}
+                                                        className="font-medium text-base hover:text-primary transition-colors block truncate"
+                                                    >
+                                                        {doc.title}
+                                                    </Link>
+                                                    <div className="text-xs text-muted-foreground truncate opacity-70">
+                                                        {doc.filename}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <LiveStatusBadge
-                                                documentId={doc.id}
-                                                initialStatus={doc.status}
-                                                onComplete={() => refetch()}
-                                            />
-                                        </td>
-                                        <td className="p-4 text-muted-foreground">
-                                            {new Date(doc.created_at).toLocaleDateString()}
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
-                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                                aria-label={`Delete ${doc.title}`}
-                                            >
-                                                <Trash2 className="w-4 h-4" aria-hidden="true" />
-                                            </Button>
-                                        </td>
-                                    </tr>
+
+                                            {/* Column 2: Status */}
+                                            <div>
+                                                <LiveStatusBadge
+                                                    documentId={doc.id}
+                                                    initialStatus={doc.status}
+                                                    onComplete={() => refetch()}
+                                                />
+                                            </div>
+
+                                            {/* Column 3: Date */}
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Calendar className="w-3.5 h-3.5 mr-2 opacity-50" />
+                                                {new Date(doc.created_at).toLocaleDateString()}
+                                            </div>
+
+                                            {/* Column 4: Actions */}
+                                            <div className="text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
+                                                    className="w-8 h-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                                    title="Delete document"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </motion.li>
                                 ))}
-                            </tbody>
-                        </table>
+                            </AnimatePresence>
+                        </ul>
                     </div>
                 )}
             </div>

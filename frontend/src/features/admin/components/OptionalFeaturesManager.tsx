@@ -7,7 +7,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Download, Check, AlertCircle, Loader2, RefreshCw, Package, ChevronUp, ChevronDown } from 'lucide-react'
+import { Download, Check, AlertCircle, Loader2, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react'
+import { PageHeader } from './PageHeader'
+import { PageSkeleton } from './PageSkeleton'
 
 interface Feature {
     id: string
@@ -194,38 +196,29 @@ export default function OptionalFeaturesManager() {
     }
 
     if (loading) {
-        return (
-            <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-        )
+        return <PageSkeleton mode="list" />
     }
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                        <Package className="w-6 h-6" />
-                        Optional Features
-                    </h1>
-                    <p className="text-muted-foreground">
-                        Install additional ML capabilities for enhanced functionality.
-                    </p>
-                </div>
-                <Button
-                    variant="outline"
-                    onClick={() => {
-                        setLoading(true)
-                        fetchStatus()
-                    }}
-                    className="gap-2"
-                    title="Refresh status"
-                >
-                    <RefreshCw className="w-4 h-4" />
-                    Refresh
-                </Button>
-            </div>
+            <PageHeader
+                title="Optional Features"
+                description="Install additional ML capabilities for enhanced functionality."
+                actions={
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setLoading(true)
+                            fetchStatus()
+                        }}
+                        className="gap-2 text-xs h-9"
+                        title="Refresh status"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                        Refresh
+                    </Button>
+                }
+            />
 
             {error && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">

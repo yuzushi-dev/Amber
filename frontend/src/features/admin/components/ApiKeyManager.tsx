@@ -8,11 +8,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth, maskApiKey } from '@/features/auth'
 import ApiKeyModal from '@/features/auth/components/ApiKeyModal'
-import { Key, LogOut, Plus, Trash, Copy, Check, Shield, Crown } from 'lucide-react'
+import { LogOut, Plus, Trash, Copy, Check, Shield, Crown } from 'lucide-react'
 import { keysApi, ApiKeyResponse, CreatedKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { PageHeader } from './PageHeader'
+import { PageSkeleton } from './PageSkeleton'
 
 import TenantLinkingModal from './TenantLinkingModal'
 
@@ -25,8 +27,6 @@ export default function ApiKeyManager() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [linkingKey, setLinkingKey] = useState<ApiKeyResponse | null>(null)
-
-    // ... (keep fetchKeys, handleCreate, handleRevoke same) ...
 
     const [newName, setNewName] = useState('')
     const [isSuperAdminToggle, setIsSuperAdminToggle] = useState(false)
@@ -89,17 +89,16 @@ export default function ApiKeyManager() {
         }
     }
 
+    if (loading && keys.length === 0) {
+        return <PageSkeleton />
+    }
+
     return (
         <div className="space-y-8">
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <Key className="w-6 h-6" />
-                    API Key Management
-                </h1>
-                <p className="text-muted-foreground">
-                    Manage persistent access keys for API access.
-                </p>
-            </div>
+            <PageHeader
+                title="API Key Management"
+                description="Manage persistent access keys for API access."
+            />
 
             {/* Current Session */}
             <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
@@ -213,9 +212,7 @@ export default function ApiKeyManager() {
                     <h2 className="font-semibold">Active API Keys</h2>
                 </div>
 
-                {loading && keys.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground">Loading keys...</div>
-                ) : keys.length === 0 ? (
+                {keys.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
                         No persistent keys found. Create one above.
                     </div>

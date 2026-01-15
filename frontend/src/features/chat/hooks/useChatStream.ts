@@ -174,7 +174,6 @@ export function useChatStream() {
                 const convId = JSON.parse(e.data)
                 conversationIdRef.current = convId  // Update ref immediately
                 setState((prev) => ({ ...prev, conversationId: convId }))
-                console.log('Received conversation_id for threading:', convId)
 
                 // Update the current assistant message with the session_id
                 updateLastMessage({ session_id: convId })

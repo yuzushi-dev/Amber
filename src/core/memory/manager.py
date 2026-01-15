@@ -134,5 +134,50 @@ class ConversationMemoryManager:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    async def delete_user_fact(self, tenant_id: str, fact_id: str) -> bool:
+        """
+        Delete a specific user fact.
+        """
+        async with get_session_maker()() as session:
+            try:
+                stmt = select(UserFact).where(UserFact.id == fact_id, UserFact.tenant_id == tenant_id)
+                result = await session.execute(stmt)
+                fact = result.scalar_one_or_none()
+                
+                if fact:
+                    await session.delete(fact)
+                    await session.commit()
+                    logger.info(f"Deleted user fact {fact_id} (tenant {tenant_id})")
+                    return True
+                return False
+            except Exception as e:
+                logger.error(f"Failed to delete user fact: {e}")
+                await session.rollback()
+                raise
+
+    async def delete_conversation_summary(self, tenant_id: str, summary_id: str) -> bool:
+        """
+        Delete a conversation summary.
+        """
+        async with get_session_maker()() as session:
+            try:
+                stmt = select(ConversationSummary).where(
+                    ConversationSummary.id == summary_id, 
+                    ConversationSummary.tenant_id == tenant_id
+                )
+                result = await session.execute(stmt)
+                summary = result.scalar_one_or_none()
+                
+                if summary:
+                    await session.delete(summary)
+                    await session.commit()
+                    logger.info(f"Deleted conversation summary {summary_id} (tenant {tenant_id})")
+                    return True
+                return False
+            except Exception as e:
+                logger.error(f"Failed to delete conversation summary: {e}")
+                await session.rollback()
+                raise
+
 # Global Instance
 memory_manager = ConversationMemoryManager()

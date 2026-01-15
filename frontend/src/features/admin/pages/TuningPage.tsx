@@ -34,6 +34,8 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
+import { PageHeader } from '../components/PageHeader'
+import { PageSkeleton } from '@/features/admin/components/PageSkeleton'
 
 const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
 
@@ -149,11 +151,7 @@ export default function TuningPage() {
     const hasChanges = Object.keys(formValues).some(key => formValues[key] !== initialValues[key])
 
     if (loading) {
-        return (
-            <div className="p-6 flex items-center justify-center min-h-[50vh]">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        )
+        return <PageSkeleton />
     }
 
     if (error || !schema) {
@@ -167,36 +165,34 @@ export default function TuningPage() {
     }
 
     return (
-        <div className="p-6 pb-32 max-w-5xl mx-auto space-y-8">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-foreground">RAG Tuning</h1>
-                    <p className="text-muted-foreground mt-1">
-                        Fine-tune the retrieval and generation pipeline parameters.
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <Button
-                        variant="outline"
-                        onClick={handleReset}
-                        disabled={saving || !hasChanges}
-                    >
-                        <RotateCcw className="w-4 h-4 mr-2" />
-                        Reset
-                    </Button>
-                    <Button
-                        onClick={handleSave}
-                        disabled={saving || !hasChanges}
-                    >
-                        {saveStatus === 'success' ? (
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                        ) : (
-                            <Save className="w-4 h-4 mr-2" />
-                        )}
-                        {saving ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Changes'}
-                    </Button>
-                </div>
-            </div>
+        <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
+            <PageHeader
+                title="RAG Tuning"
+                description="Fine-tune the retrieval and generation pipeline parameters."
+                actions={
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={handleReset}
+                            disabled={saving || !hasChanges}
+                        >
+                            <RotateCcw className="w-4 h-4 mr-2" />
+                            Reset
+                        </Button>
+                        <Button
+                            onClick={handleSave}
+                            disabled={saving || !hasChanges}
+                        >
+                            {saveStatus === 'success' ? (
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                            ) : (
+                                <Save className="w-4 h-4 mr-2" />
+                            )}
+                            {saving ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Changes'}
+                        </Button>
+                    </div>
+                }
+            />
 
             {/* Weights Warning */}
             {!weightsValid && (

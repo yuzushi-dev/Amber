@@ -174,10 +174,10 @@ export default function CommandDock() {
                     className={cn(
                         "transition-all duration-300 ease-out origin-bottom",
                         // Base styles from .dock but applied conditionally
-                        "bg-surface-900/90 backdrop-blur-xl",
-                        "border border-primary/30 rounded-2xl", // Primary stroke
+                        "bg-black/80 backdrop-blur-2xl",
+                        "border border-white/10 rounded-2xl", // Premium stroke
                         "px-2 py-1.5",
-                        "shadow-[0_0_30px_rgba(0,0,0,0.3)]",
+                        "shadow-[0_0_40px_rgba(0,0,0,0.5)]",
                         "flex items-center gap-1",
                         // Visibility states
                         "opacity-0 translate-y-4 scale-95 pointer-events-none", // Default hidden state

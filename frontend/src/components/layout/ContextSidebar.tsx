@@ -15,6 +15,7 @@ import {
     Activity,
     Gauge,
     Sliders,
+    BookOpen,
 
     ChevronLeft,
     ChevronRight,
@@ -28,6 +29,7 @@ import {
     Archive
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useChatStore } from '@/features/chat/store'
 import { chatHistoryApi, ChatHistoryItem } from '@/lib/api-admin'
 import DatabaseSidebarContent from '@/features/documents/components/DatabaseSidebarContent'
@@ -98,6 +100,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             title: 'Model',
             items: [
                 { label: 'RAG Tuning', icon: Sliders, to: '/admin/settings/tuning' },
+                { label: 'Global Rules', icon: BookOpen, to: '/admin/settings/rules' },
             ]
         },
         {
@@ -176,8 +179,10 @@ export default function ContextSidebar() {
         <>
             <aside
                 className={cn(
-                    "context-sidebar flex flex-col bg-card border-r transition-all duration-200",
-                    collapsed ? "w-14" : "w-60"
+                    "context-sidebar flex flex-col border-r transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+                    // Glass material
+                    "bg-background/80 backdrop-blur-xl border-white/5 shadow-xl supports-[backdrop-filter]:bg-background/60",
+                    collapsed ? "w-16 items-center" : "w-64"
                 )}
             >
                 {/* Sidebar content */}
@@ -200,8 +205,10 @@ export default function ContextSidebar() {
                                 {/* Section items */}
                                 <ul className="space-y-1 px-2">
                                     {section.items.map((item) => {
-                                        const isActive = currentPath === item.to ||
-                                            currentPath.startsWith(item.to.split('?')[0])
+                                        // Exact match for links, or prefix match only for sub-pages
+                                        const linkPath = item.to.split('?')[0]
+                                        const isActive = currentPath === linkPath ||
+                                            (linkPath !== '/admin/settings' && currentPath.startsWith(linkPath + '/'))
                                         const Icon = item.icon
                                         const isPrimary = item.variant === 'primary'
 
@@ -245,9 +252,16 @@ export default function ContextSidebar() {
                                 <ul className="space-y-1 px-2">
                                     {loadingHistory ? (
                                         !collapsed && (
-                                            <li className="px-3 py-2 text-sm text-muted-foreground">
-                                                Loading...
-                                            </li>
+                                            <>
+                                                {[1, 2, 3].map((i) => (
+                                                    <li key={i} className="px-3 py-2">
+                                                        <div className="space-y-2">
+                                                            <Skeleton className="h-4 w-3/4" />
+                                                            <Skeleton className="h-3 w-1/2" />
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </>
                                         )
                                     ) : recentConversations.length === 0 ? (
                                         !collapsed && (

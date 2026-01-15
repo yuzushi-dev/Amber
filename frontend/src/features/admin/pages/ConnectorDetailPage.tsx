@@ -26,7 +26,7 @@ export default function ConnectorDetailPage() {
     const defaultTab = isAuthenticated ? 'content' : 'config'
 
     return (
-        <div className="container mx-auto p-6 max-w-5xl space-y-8">
+        <div className="container mx-auto p-8 max-w-6xl space-y-8">
             {/* Enhanced Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
