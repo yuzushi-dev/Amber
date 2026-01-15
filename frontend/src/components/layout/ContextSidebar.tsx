@@ -24,7 +24,8 @@ import {
     Key,
     Package,
     Server,
-    Users
+    Users,
+    Archive
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/features/chat/store'
@@ -106,6 +107,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
                 { label: 'API Key', icon: Key, to: '/admin/settings/keys' },
                 { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
                 { label: 'Connectors', icon: MessageCircle, to: '/admin/settings/connectors' },
+                { label: 'Data Retention', icon: Archive, to: '/admin/settings/data-retention' },
             ]
         }
     ]

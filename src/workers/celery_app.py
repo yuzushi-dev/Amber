@@ -51,6 +51,7 @@ celery_app = Celery(
     backend=result_backend,
     include=[
         "src.workers.tasks",
+        "src.workers.export_tasks",
     ],
 )
 
@@ -80,6 +81,7 @@ celery_app.conf.task_routes = {
     "src.workers.tasks.ingestion.*": {"queue": "ingestion"},
     "src.workers.tasks.extraction.*": {"queue": "extraction"},
     "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
+    # export_tasks uses default celery queue
 }
 
 

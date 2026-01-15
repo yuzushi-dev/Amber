@@ -45,7 +45,11 @@ export function useSetupStatus() {
         enabled: !!apiKey,
         // Don't refetch automatically - we'll handle this manually
         staleTime: Infinity,
-        retry: false
+        retry: (_failureCount: number, error: Error) => {
+            if (error.message === 'Unauthorized') return false
+            return true
+        },
+        retryDelay: 2000
     })
 }
 

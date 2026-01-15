@@ -714,3 +714,73 @@ export const feedbackApi = {
         return response.data
     },
 }
+
+// =============================================================================
+// Export API
+// =============================================================================
+
+export interface ExportJobResponse {
+    job_id: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    progress?: number
+    download_url?: string
+    file_size?: number
+    error?: string
+    created_at?: string
+    completed_at?: string
+}
+
+export interface StartExportResponse {
+    job_id: string
+    status: string
+    message: string
+}
+
+export const exportApi = {
+    /**
+     * Download a single conversation as a ZIP file.
+     * Returns a Blob that can be used to trigger download.
+     */
+    downloadConversation: async (conversationId: string): Promise<Blob> => {
+        const response = await apiClient.get(`/export/conversation/${conversationId}`, {
+            responseType: 'blob',
+        })
+        return response.data
+    },
+
+    /**
+     * Start an async export job for all conversations.
+     * Returns a job ID that can be polled for status.
+     */
+    startExportAll: async (): Promise<StartExportResponse> => {
+        const response = await apiClient.post<StartExportResponse>('/export/all')
+        return response.data
+    },
+
+    /**
+     * Get the status of an export job.
+     */
+    getJobStatus: async (jobId: string): Promise<ExportJobResponse> => {
+        const response = await apiClient.get<ExportJobResponse>(`/export/job/${jobId}`)
+        return response.data
+    },
+
+    /**
+     * Download the completed export ZIP.
+     * Returns a Blob that can be used to trigger download.
+     */
+    downloadExport: async (jobId: string): Promise<Blob> => {
+        const response = await apiClient.get(`/export/job/${jobId}/download`, {
+            responseType: 'blob',
+        })
+        return response.data
+    },
+
+    /**
+     * Cancel or delete an export job.
+     */
+    cancelExport: async (jobId: string): Promise<void> => {
+        await apiClient.delete(`/export/job/${jobId}`)
+    },
+}
+
