@@ -7,6 +7,9 @@ import { useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { chatHistoryApi } from '@/lib/api-admin'
 import { useCitationStore } from '../store/citationStore'
+import { Button } from '@/components/ui/button'
+import { Download, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
@@ -20,6 +23,77 @@ export default function ChatContainer() {
 
     // Dynamic title state
     const [title, setTitle] = useState('New Conversation')
+    const [isExporting, setIsExporting] = useState(false)
+
+    // Handle download conversation - using robust saveAs pattern
+    const handleDownloadConversation = async () => {
+        if (!requestId) {
+            toast.error('Cannot export: No conversation loaded')
+            return
+        }
+
+        setIsExporting(true)
+        try {
+            // Use native fetch to access Content-Disposition header
+            const apiKey = localStorage.getItem('api_key') || ''
+            const response = await fetch(`/api/v1/export/conversation/${requestId}`, {
+                method: 'GET',
+                headers: {
+                    'X-API-Key': apiKey,
+                },
+            })
+
+            if (!response.ok) {
+                throw new Error(`Export failed: ${response.status}`)
+            }
+
+            // Get filename from Content-Disposition header
+            const contentDisposition = response.headers.get('Content-Disposition')
+            let filename = `conversation_${requestId.substring(0, 8)}.zip`
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^";\n]+)"?/)
+                if (match && match[1]) {
+                    filename = match[1]
+                }
+            }
+
+            // Ensure filename has .zip extension
+            if (!filename.toLowerCase().endsWith('.zip')) {
+                filename = filename + '.zip'
+            }
+
+            const blob = await response.blob()
+
+            // Create a proper File object with the filename
+            const file = new File([blob], filename, { type: 'application/zip' })
+
+            // Use the saveAs polyfill pattern
+            const blobUrl = URL.createObjectURL(file)
+            const link = document.createElement('a')
+            link.href = blobUrl
+            link.download = filename
+            link.rel = 'noopener'
+
+            // For Firefox, we need to append to body
+            document.body.appendChild(link)
+            link.click()
+
+            // Cleanup after a short delay
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    document.body.removeChild(link)
+                    URL.revokeObjectURL(blobUrl)
+                })
+            })
+
+            toast.success('Conversation exported successfully')
+        } catch (error) {
+            console.error('Export failed:', error)
+            toast.error('Failed to export conversation')
+        } finally {
+            setIsExporting(false)
+        }
+    }
 
     // Load history when request_id changes
 
@@ -146,16 +220,35 @@ export default function ChatContainer() {
                     <div>
                         <h1 className="font-semibold">{title}</h1>
                     </div>
-                    {isStreaming && (
-                        <div
-                            className="flex items-center gap-2 text-sm text-muted-foreground"
-                            role="status"
-                            aria-live="polite"
-                        >
-                            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
-                            <span>Generating response...</span>
-                        </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {isStreaming && (
+                            <div
+                                className="flex items-center gap-2 text-sm text-muted-foreground"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
+                                <span>Generating response...</span>
+                            </div>
+                        )}
+                        {requestId && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleDownloadConversation}
+                                disabled={isExporting}
+                                title="Download conversation"
+                                className="flex items-center gap-1"
+                            >
+                                {isExporting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
+                                <span className="sr-only">Download</span>
+                            </Button>
+                        )}
+                    </div>
                 </header>
 
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">

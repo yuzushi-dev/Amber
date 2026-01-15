@@ -10,11 +10,13 @@
 # For offline embedding generation without API calls
 # -----------------------------------------------------------------------------
 # Install with: pip install torch --index-url https://download.pytorch.org/whl/cpu
-# Then: pip install sentence-transformers>=2.7.0
+# Then: pip install sentence-transformers>=2.7.0 transformers==4.40.1 huggingface-hub==0.23.0
 #
 # Packages:
 #   torch (CPU-only)
 #   sentence-transformers>=2.7.0
+#   transformers==4.40.1
+#   huggingface-hub==0.23.0
 
 # -----------------------------------------------------------------------------
 # [reranking] - FlashRank Reranker (~50 MB)

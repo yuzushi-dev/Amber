@@ -38,6 +38,7 @@ import FeedbackPage from './features/admin/pages/FeedbackPage'
 import ConnectorsPage from './features/admin/pages/ConnectorsPage'
 import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
 import TenantsPage from './features/admin/pages/TenantsPage'
+import DataRetentionPage from './features/admin/pages/DataRetentionPage'
 
 // =============================================================================
 // Root Route
@@ -220,6 +221,12 @@ const settingsTenantsRoute = createRoute({
     component: () => <TenantsPage />,
 })
 
+const settingsDataRetentionRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/data-retention',
+    component: () => <DataRetentionPage />,
+})
+
 
 // =============================================================================
 // Metrics Section (/admin/metrics/*)
@@ -374,6 +381,7 @@ const routeTree = rootRoute.addChildren([
         settingsConnectorsRoute,
         settingsConnectorDetailRoute,
         settingsTenantsRoute,
+        settingsDataRetentionRoute,
         // Metrics section
 
         metricsIndexRoute,

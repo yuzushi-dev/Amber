@@ -39,6 +39,7 @@ import RelationshipsTab from '../components/DocumentTabs/RelationshipsTab';
 import CommunitiesTab from '../components/DocumentTabs/CommunitiesTab';
 import SimilaritiesTab from '../components/DocumentTabs/SimilaritiesTab';
 import LiveStatusBadge from '../components/LiveStatusBadge';
+import DeleteDocumentModal from '../components/DeleteDocumentModal';
 
 // Placeholder for missing tabs
 // const SimilaritiesView = () => <div className="p-4 text-center text-muted-foreground">Similarities exploration coming soon.</div>;
@@ -70,7 +71,6 @@ export default function DocumentDetailPage() {
     // State for Modals
     const [activeModal, setActiveModal] = useState<string | null>(null);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
 
     // Fetch Document Metadata
     const { data: document, isLoading } = useQuery({
@@ -246,39 +246,19 @@ export default function DocumentDetailPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Delete Document</DialogTitle>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <p>Are you sure you want to delete <strong>{document.title || document.filename}</strong>?</p>
-                        <p className="text-sm text-muted-foreground mt-2">This action cannot be undone. All extracted data, chunks, and graph nodes will be removed.</p>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
-                        <Button
-                            variant="destructive"
-                            onClick={async () => {
-                                try {
-                                    setIsDeleting(true);
-                                    await apiClient.delete(`/documents/${documentId}`);
-                                    await queryClient.invalidateQueries({ queryKey: ['documents'] });
-                                    navigate({ to: '/admin/data/documents' });
-                                } catch (err: unknown) {
-                                    console.error('Failed to delete:', err);
-                                    alert(`Failed to delete: ${(err as Error).message}`);
-                                    setIsDeleting(false);
-                                }
-                            }}
-                            disabled={isDeleting}
-                        >
-                            {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* Delete Confirmation Modal */}
+            <DeleteDocumentModal
+                open={deleteConfirmOpen}
+                onOpenChange={setDeleteConfirmOpen}
+                documentTitle={document.title || document.filename}
+                onConfirm={async () => {
+                    await apiClient.delete(`/documents/${documentId}`);
+                    // Invalidate queries to refresh lists
+                    await queryClient.invalidateQueries({ queryKey: ['documents'] });
+                    // Navigate back to library
+                    navigate({ to: '/admin/data/documents' });
+                }}
+            />
 
         </div>
     );

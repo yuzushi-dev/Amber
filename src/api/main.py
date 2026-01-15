@@ -272,6 +272,14 @@ try:
 except ImportError as e:
     logger.warning(f"Setup router not available: {e}")
 
+# Export routes (conversation data export)
+try:
+    from src.api.routes import export
+    v1_router.include_router(export.router)
+    logger.info("Registered export router")
+except ImportError as e:
+    logger.warning(f"Export router not available: {e}")
+
 app.include_router(v1_router)
 
 
