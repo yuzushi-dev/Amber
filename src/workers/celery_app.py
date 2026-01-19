@@ -74,6 +74,9 @@ celery_app.conf.update(
     # Retry settings
     task_default_retry_delay=60,
     task_max_retries=3,
+    # EAGER MODE: Execute tasks synchronously (for testing)
+    task_always_eager=os.getenv("CELERY_TASK_ALWAYS_EAGER", "").lower() in ("true", "1", "yes"),
+    task_eager_propagates=True,  # Propagate exceptions in eager mode
 )
 
 # Task routing (optional, can be configured later)

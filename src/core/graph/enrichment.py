@@ -21,7 +21,9 @@ class GraphEnricher:
     - CO_OCCURS (Entity -> Entity) based on shared chunks (implicit or explicit).
     """
 
-    def __init__(self, vector_store=None):
+    def __init__(self, neo4j_client=None, vector_store=None):
+        from src.core.graph.neo4j_client import neo4j_client as global_client
+        self.neo4j_client = neo4j_client or global_client
         self.vector_store = vector_store
 
     def _calculate_cosine_similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
@@ -97,7 +99,7 @@ class GraphEnricher:
                  """
                  # We execute one by one for simplicity and safety, though batching is faster.
                  # Given async nature and connection pooling, this is acceptable for now.
-                 await neo4j_client.execute_write(query, {
+                 await self.neo4j_client.execute_write(query, {
                      "id1": id1,
                      "id2": id2,
                      "score": score,
@@ -133,46 +135,48 @@ class GraphEnricher:
             # Assume search returns list of matches: [{"id": "...", "score": 0.8}]
             # Implementation depends on Milvus wrapper signature
             results = await self.vector_store.search(
-                collection_name="chunks",
                 query_vector=embedding,
+                tenant_id=tenant_id,
                 limit=limit + 1, # +1 because it might find itself
                 filters={"tenant_id": tenant_id}
             )
+
+            for result in results:
+                # result is expected to be a dict or object with 'id' and 'score'
+                # Adjust based on actual return type of MilvusVectorStore.search
+                # It returns list of matches. match.id, match.score?
+                # Or dict?
+                # MilvusVectorStore.search returns: List[dict] usually?
+                # Milvus wrapper usually returns dicts like {'id': ..., 'score': ...}
+                # Assuming result is dict for now based on typical implementation, 
+                # but if it's an object we might need getattr.
+                if hasattr(result, 'chunk_id'):
+                    other_id = result.chunk_id
+                    score = result.score
+                else:
+                    # Fallback if it's a dict (e.g. mock)
+                    other_id = result.get('chunk_id') or result.get('id')
+                    score = result.get('score')
+                
+                if other_id == chunk_id:
+                    continue
+                    
+                if score >= threshold:
+                    query = f"""
+                    MATCH (c1:{NodeLabel.Chunk.value} {{id: $id1}})
+                    MATCH (c2:{NodeLabel.Chunk.value} {{id: $id2}})
+                    MERGE (c1)-[r:{RelationshipType.SIMILAR_TO.value}]->(c2)
+                    SET r.score = $score
+                    """
+                    await self.neo4j_client.execute_write( 
+                        query,
+                        {"id1": chunk_id, "id2": other_id, "score": float(score)}
+                    )
+                    logger.info(f"Created similarity edges for chunk {chunk_id}")
+
         except Exception as e:
             logger.error(f"Vector search failed for chunk {chunk_id}: {e}")
-            return
-
-        # 2. Filter and Create Edges
-        for res in results:
-            # Result is SearchResult dataclass, not dict
-            other_id = res.chunk_id
-            score = res.score if hasattr(res, 'score') else 0
-
-            if other_id == chunk_id:
-                continue
-
-            if score < threshold:
-                continue
-
-            # Create Edge: (Chunk1)-[:SIMILAR_TO {score: ...}]->(Chunk2)
-            # Undirected concept, but Neo4j is directed. We can create one way or both.
-            # Usually strict A < B ID rule prevents double edges, or we just create one direction.
-            # Let's create one direction for A->B where score is high.
-
-            query = f"""
-            MATCH (c1:{NodeLabel.Chunk.value} {{id: $id1}})
-            MATCH (c2:{NodeLabel.Chunk.value} {{id: $id2}})
-            MERGE (c1)-[r:{RelationshipType.SIMILAR_TO.value}]->(c2)
-            ON CREATE SET r.score = $score, r.created_at = timestamp()
-            """
-
-            await neo4j_client.execute_write(query, {
-                "id1": chunk_id,
-                "id2": other_id,
-                "score": score
-            })
-
-        logger.info(f"Created similarity edges for chunk {chunk_id}")
+            # Don't raise, just log error so pipeline continues
 
     async def compute_co_occurrence(self, tenant_id: str, min_weight: int = 2):
         """
@@ -193,7 +197,7 @@ class GraphEnricher:
         # Note: Dynamic rel type
 
         try:
-             await neo4j_client.execute_write(query, {"tenant_id": tenant_id, "min_weight": min_weight})
+             await self.neo4j_client.execute_write(query, {"tenant_id": tenant_id, "min_weight": min_weight})
              logger.info(f"Computed co-occurrence edges for tenant {tenant_id}")
         except Exception as e:
             logger.error(f"Failed to compute co-occurrence: {e}")

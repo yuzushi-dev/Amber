@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import io
 import logging
+import sys
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,14 @@ from src.core.models.document import Document
 from src.core.state.machine import DocumentStatus
 from src.core.storage.storage_client import MinIOClient
 from src.shared.identifiers import generate_document_id
+
+from src.core.graph.neo4j_client import Neo4jClient
+from src.core.graph.processor import GraphProcessor
+from src.core.graph.enrichment import GraphEnricher
+from src.core.chunking.semantic import SemanticChunker
+from src.core.services.embeddings import EmbeddingService
+from src.core.vector_store.milvus import MilvusVectorStore
+from src.core.intelligence.strategies import STRATEGIES, DocumentDomain
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +39,20 @@ class IngestionService:
     def __init__(self, session: AsyncSession, storage_client: MinIOClient):
         self.session = session
         self.storage = storage_client
-
+        # Use a local Neo4j client instance to ensure thread safety and avoid event loop conflicts.
+        self.neo4j_client = Neo4jClient()
+        
+        # Initialize components
+        self.chunker = SemanticChunker(STRATEGIES[DocumentDomain.GENERAL])
+        # Ensure EmbeddingService is correctly initialized if it requires args
+        # Assuming defaults used in original code
+        self.embedding_service = EmbeddingService()
+        self.vector_store = MilvusVectorStore()
+        
+        # GraphProcessor uses global graph_writer internally, but that's handled by tasks.py patch for safety
+        self.graph_processor = GraphProcessor()
+        self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
+        
     async def register_document(
         self,
         tenant_id: str,
@@ -130,10 +152,13 @@ class IngestionService:
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
 
-    async def process_document(self, document_id: str):
+    async def process_document(self, document_id: str, background_tasks: "BackgroundTasks" = None):
         """
-        Process a registered document: Extract content and Chunk.
+        Orchestrate the document ingestion pipeline.
         """
+        sys.stdout.write(f"DEBUG: START process_document for {document_id}\n")
+        sys.stdout.flush()
+        
         # 1. Fetch Document
         query = select(Document).where(Document.id == document_id)
         result = await self.session.execute(query)
@@ -321,12 +346,11 @@ class IngestionService:
                 # Generate embeddings in batch
                 embeddings, embed_stats = await embedding_service.embed_texts(chunk_contents)
 
-                # Generate sparse embeddings
+                # Generate sparse embeddings in batch
                 sparse_embeddings = []
                 try:
-                    # TODO: Batch sparse generation
-                    for text in chunk_contents:
-                        sparse_embeddings.append(sparse_service.embed_sparse(text))
+                    sparse_embeddings = sparse_service.embed_batch(chunk_contents)
+                    logger.info(f"Generated {len(sparse_embeddings)} sparse embeddings")
                 except Exception as e:
                     logger.warning(f"Failed to generate sparse embeddings: {e}")
                     # Fill with None/Empty
@@ -361,11 +385,51 @@ class IngestionService:
 
                 logger.info(f"Stored {len(milvus_data)} embeddings in Milvus")
 
+                # 7.5. Ensure Chunk Nodes exist in Neo4j
+                # Required so that Similarity Edges can be attached to them in Step 8.5
+                chunk_params = [
+                    {"id": c.id, "document_id": c.document_id, "tenant_id": document.tenant_id} 
+                    for c in chunks_to_process
+                ]
+                if chunk_params:
+                    # Uses LOCAL neo4j_client
+                    await self.neo4j_client.execute_write(
+                        """
+                        UNWIND $batch as row
+                        MERGE (c:Chunk {id: row.id})
+                        ON CREATE SET 
+                            c.document_id = row.document_id, 
+                            c.tenant_id = row.tenant_id,
+                            c.created_at = timestamp()
+                        """,
+                        {"batch": chunk_params}
+                    )
+                    logger.info(f"Ensured {len(chunk_params)} chunk nodes in Neo4j")
+
+                # 8.5. Generate Similarity Edges
+                try:
+                    # Use local graph_enricher initialized with local neo4j_client
+                    # Inject the active vector_store
+                    self.graph_enricher.vector_store = vector_store
+                    
+                    logger.info(f"Generating similarity edges for {len(milvus_data)} chunks")
+                    
+                    for data in milvus_data:
+                        # We pass the embedding from milvus_data to the enricher
+                        await self.graph_enricher.create_similarity_edges(
+                            chunk_id=data["chunk_id"],
+                            embedding=data["embedding"],
+                            tenant_id=document.tenant_id
+                        )
+                except Exception as e:
+                    logger.error(f"Similarity edge generation failed: {e}")
+
             except Exception as e:
                 logger.error(f"Embedding generation/storage failed for document {document_id}: {e}")
                 # Mark chunks as failed but don't fail the document entirely
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.FAILED
+
             finally:
                 if vector_store is not None:
                     try:
@@ -373,21 +437,6 @@ class IngestionService:
                     except Exception as disconnect_error:
                         logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
 
-            # 8.5. Generate Similarity Edges
-            # Create edges between chunks based on vector similarity
-            try:
-                from src.core.graph.enrichment import graph_enricher
-                
-                logger.info(f"Generating similarity edges for {len(milvus_data)} chunks")
-                for data in milvus_data:
-                    # We pass the embedding from milvus_data to the enricher
-                    await graph_enricher.create_similarity_edges(
-                        chunk_id=data["chunk_id"],
-                        embedding=data["embedding"],
-                        tenant_id=document.tenant_id
-                    )
-            except Exception as e:
-                logger.error(f"Similarity edge generation failed: {e}")
 
             # 9. Build Knowledge Graph (Phase 3)
             # Update Status -> GRAPH_SYNC
@@ -404,6 +453,13 @@ class IngestionService:
             # We process chunks to extract entities and build graph before marking document as READY.
             try:
                 from src.core.graph.processor import graph_processor
+                from src.api.config import settings
+                from src.core.providers.factory import init_providers
+                
+                # Initialize LLM providers for extraction
+                if settings.openai_api_key:
+                    init_providers(openai_api_key=settings.openai_api_key)
+                
                 await graph_processor.process_chunks(chunks_to_process, document.tenant_id)
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")

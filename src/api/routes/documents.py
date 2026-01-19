@@ -426,6 +426,7 @@ async def _compute_document_stats(
     entity_count = 0
     relationship_count = 0
     community_count = 0
+    similarity_count = 0
 
     try:
         # Entity count query (MATCH using document_id only)
@@ -471,7 +472,6 @@ async def _compute_document_stats(
             community_count = comm_records[0].get("comm_count", 0)
 
         # Similarity count
-        # We need to fetch it correctly if it's not working
         sim_records = await neo4j_client.execute_read(
             """
             MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)-[r:SIMILAR_TO]->(:Chunk)
@@ -480,45 +480,15 @@ async def _compute_document_stats(
             {"document_id": document_id}
         )
         if sim_records:
-             similarity_count = sim_records[0].get("sim_count", 0)
-    except Exception as e:
-        logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
-        comm_cypher = """
-            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
-            RETURN count(DISTINCT comm) as community_count
-        """
-        comm_records = await neo4j_client.execute_read(
-            comm_cypher,
-            {"document_id": document_id, "tenant_id": tenant_id}
-        )
-        if comm_records:
-            community_count = comm_records[0].get("community_count", 0)
-
-        # Similarity count (SIMILAR_TO relationship between chunks)
-        sim_cypher = """
-            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[r:SIMILAR_TO]->(c2:Chunk)
-            RETURN count(DISTINCT r) as sim_count
-        """
-        sim_records = await neo4j_client.execute_read(
-            sim_cypher,
-            {"document_id": document_id, "tenant_id": tenant_id}
-        )
-        if sim_records:
-            # Divide by 2 if bi-directional? The enricher creates one-way or merge.
-            # Schema says SIMILAR_TO. Let's count edges.
             similarity_count = sim_records[0].get("sim_count", 0)
-        else:
-            similarity_count = 0
 
     except Exception as e:
         logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
+        # Stats will remain at 0 if Neo4j queries fail
 
     return {
         "chunks": chunk_count,
         "entities": entity_count,
-        "relationships": relationship_count,
         "relationships": relationship_count,
         "communities": community_count,
         "similarities": similarity_count,

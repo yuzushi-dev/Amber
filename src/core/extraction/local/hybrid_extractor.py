@@ -7,6 +7,7 @@ high-quality OCR (Marker) on a per-page basis.
 """
 
 import logging
+import re
 import time
 import os
 import tempfile
@@ -18,6 +19,32 @@ from src.core.extraction.config import extraction_settings
 from src.core.extraction.local.marker_extractor import MarkerExtractor
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_title_from_content(content: str) -> str | None:
+    """Extract title from the first heading in markdown content."""
+    if not content:
+        return None
+    
+    # Try to find the first markdown heading (# Title or ## Title)
+    heading_match = re.search(r'^#{1,2}\s+(.+?)$', content, re.MULTILINE)
+    if heading_match:
+        title = heading_match.group(1).strip()
+        # Clean up common artifacts
+        title = re.sub(r'\*+', '', title)  # Remove bold markers
+        title = title.strip()
+        if title and len(title) > 2:
+            return title[:200]  # Limit length
+    
+    # Fallback: use first non-empty line if it looks like a title
+    for line in content.split('\n')[:10]:
+        line = line.strip()
+        if line and len(line) > 3 and len(line) < 150 and not line.startswith('|'):
+            # Skip lines that look like metadata or table rows
+            if not re.match(r'^[\d\-/.]+$', line):
+                return line
+    
+    return None
 
 
 class HybridMarkerExtractor(BaseExtractor):
@@ -69,8 +96,10 @@ class HybridMarkerExtractor(BaseExtractor):
 
         logger.info(f"Hybrid Analysis: {len(text_pages)} text pages, {len(ocr_pages)} OCR pages")
 
-        current_metadata = doc.metadata if doc.metadata else {}
-        current_metadata["page_count"] = doc.page_count
+        # Get raw metadata and clean up empty strings
+        raw_metadata = doc.metadata if doc.metadata else {}
+        metadata = {k: v for k, v in raw_metadata.items() if v and str(v).strip()}
+        metadata["page_count"] = doc.page_count
         
         # 3. Process Pages
         results = {} # page_index -> text content
@@ -157,14 +186,22 @@ class HybridMarkerExtractor(BaseExtractor):
 
         full_text = "\n\n".join(final_content)
         
+        # 5. Extract title from content if missing in PDF metadata
+        if not metadata.get("title"):
+            extracted_title = _extract_title_from_content(full_text)
+            if extracted_title:
+                metadata["title"] = extracted_title
+                metadata["title_source"] = "extracted_from_content"
+        
         elapsed = (time.time() - start_time) * 1000
         
         return ExtractionResult(
             content=full_text,
             tables=[], # Populated if we parse them deeply
             images=[], # We could aggregate images from OCR pages
-            metadata=current_metadata,
+            metadata=metadata,
             extractor_used=self.name,
             confidence=0.85, 
             extraction_time_ms=elapsed
         )
+

@@ -109,7 +109,8 @@ class MilvusVectorStore:
 
     async def connect(self) -> None:
         """Connect to Milvus and ensure collection exists."""
-        if self._connected:
+        milvus = _get_milvus()
+        if self._connected and milvus["connections"].has_connection("default"):
             return
 
         milvus = _get_milvus()
@@ -404,6 +405,7 @@ class MilvusVectorStore:
                 limit=limit,
                 expr=filter_expr,
                 output_fields=output_fields,
+                consistency_level="Strong",
             )
 
         try:
@@ -650,7 +652,8 @@ class MilvusVectorStore:
                 reqs=[dense_req, sparse_req],
                 rerank=ranker,
                 limit=limit,
-                output_fields=output_fields
+                output_fields=output_fields,
+                consistency_level="Strong"
             )
             return results
 

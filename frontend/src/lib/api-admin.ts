@@ -874,9 +874,24 @@ export interface GraphFeedbackItem {
     chunks_affected: Array<{ chunk_id: string; score: number }>
 }
 
+export interface ConversationGraphItem {
+    conversation_id: string
+    created_at: string
+    turn_count: number
+    last_query: string | null
+    last_active: string | null
+}
+
 export const contextGraphApi = {
     getStats: async () => {
         const response = await apiClient.get<ContextGraphStats>('/admin/context-graph/stats')
+        return response.data
+    },
+
+    listConversations: async (limit = 50) => {
+        const response = await apiClient.get<ConversationGraphItem[]>('/admin/context-graph/conversations', {
+            params: { limit }
+        })
         return response.data
     },
 

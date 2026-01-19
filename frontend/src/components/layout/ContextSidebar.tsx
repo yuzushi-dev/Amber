@@ -8,6 +8,7 @@
 
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
     Files,
     Database,
@@ -119,6 +120,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
 export default function ContextSidebar() {
     const routerState = useRouterState()
     const currentPath = routerState.location.pathname
+    const queryClient = useQueryClient()
     const [collapsed, setCollapsed] = useState(false)
     const [recentConversations, setRecentConversations] = useState<ChatHistoryItem[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
@@ -173,6 +175,14 @@ export default function ContextSidebar() {
         if (diffDays === 1) return 'Yesterday'
         if (diffDays < 7) return 'This Week'
         return 'Older'
+    }
+
+    // Handle upload complete - refresh document queries
+    const handleUploadComplete = () => {
+        setIsUploadOpen(false)
+        // Invalidate all document-related queries to refresh the list
+        queryClient.invalidateQueries({ queryKey: ['documents'] })
+        queryClient.invalidateQueries({ queryKey: ['stats'] })
     }
 
     return (
@@ -359,10 +369,11 @@ export default function ContextSidebar() {
                 isUploadOpen && (
                     <UploadWizard
                         onClose={() => setIsUploadOpen(false)}
-                        onComplete={() => setIsUploadOpen(false)}
+                        onComplete={handleUploadComplete}
                     />
                 )
             }
         </>
     )
 }
+

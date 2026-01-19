@@ -158,7 +158,7 @@ class TupleParser:
             return None
 
         # Extract fields
-        name = fields[0].strip()
+        name = fields[0].strip().upper()  # Normalize to UPPERCASE for consistency
         entity_type = fields[1].strip() if len(fields) > 1 else ""
         description = fields[2].strip() if len(fields) > 2 else ""
         importance = float(fields[3]) if len(fields) > 3 and fields[3].strip() else 0.5
@@ -204,8 +204,8 @@ class TupleParser:
             return None
 
         # Extract fields
-        source = fields[0].strip()
-        target = fields[1].strip()
+        source = fields[0].strip().upper()  # Normalize to UPPERCASE
+        target = fields[1].strip().upper()  # Normalize to UPPERCASE
         rel_type = fields[2].strip()
         description = fields[3].strip() if len(fields) > 3 else ""
         strength = float(fields[4]) if len(fields) > 4 and fields[4].strip() else 0.5

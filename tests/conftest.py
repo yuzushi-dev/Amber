@@ -87,9 +87,9 @@ if "tiktoken" not in sys.modules:
 
 
 # Set up minio with submodule support
-if "minio" not in sys.modules:
-    sys.modules["minio"] = minio_mock
-    sys.modules["minio.error"] = minio_mock.error
+# if "minio" not in sys.modules:
+#     sys.modules["minio"] = minio_mock
+#     sys.modules["minio.error"] = minio_mock.error
 
 
 # ============================================================================
@@ -97,9 +97,9 @@ if "minio" not in sys.modules:
 # ============================================================================
 import neo4j  # noqa: E402
 
-neo4j.AsyncGraphDatabase = MagicMock()
-neo4j.AsyncDriver = MagicMock()
-neo4j.AsyncSession = MagicMock()
+# neo4j.AsyncGraphDatabase = MagicMock()
+# neo4j.AsyncDriver = MagicMock()
+# neo4j.AsyncSession = MagicMock()
 
 
 # ============================================================================
