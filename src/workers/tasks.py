@@ -27,11 +27,38 @@ logger = logging.getLogger(__name__)
 
 def run_async(coro):
     """Helper to run async code in sync Celery task."""
-    loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Prevent "Cannot run the event loop while another loop is running"
+        # by offloading the async execution to a separate thread with its own loop.
+        print(f"DEBUG: Detected running loop {loop}, offloading to thread for coro: {coro}")
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            def runner():
+                print("DEBUG: Thread started, running asyncio.run")
+                try:
+                    res = asyncio.run(coro)
+                    print("DEBUG: asyncio.run completed")
+                    return res
+                except Exception as e:
+                    print(f"DEBUG: Thread failed: {e}")
+                    raise
+            
+            future = executor.submit(runner)
+            print("DEBUG: Waiting for thread result...")
+            res = future.result()
+            print("DEBUG: Thread result received")
+            return res
+    else:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
 class BaseTask(Task):
@@ -199,6 +226,44 @@ async def _process_communities_async(tenant_id: str) -> dict:
             logger.warning(f"Failed to close Neo4j client: {e}")
 
 
+def deep_reset_singletons():
+    """
+    Force reset of all singleton instances that might capture the event loop
+    or hold stale connections. Critical for CELERY_TASK_ALWAYS_EAGER=True.
+    """
+    from src.core.database.session import reset_engine
+    from src.core.providers import factory
+    from src.core.graph.neo4j_client import neo4j_client
+    from src.core.memory.extractor import memory_extractor
+    from pymilvus import connections
+
+    logger.info("Executing deep reset of singletons for background task isolation")
+    
+    # 1. SQLAlchemy Engine & Pool
+    reset_engine()
+    
+    # 2. Provider Factory (Reset cached providers and usage trackers)
+    factory._default_factory = None
+    
+    # 3. Neo4j Driver
+    if neo4j_client._driver is not None:
+        try:
+            neo4j_client._driver.close()
+        except:
+            pass
+        neo4j_client._driver = None
+        
+    # 4. Memory Extractor (LLM provider cache)
+    memory_extractor._llm = None
+    
+    # 5. Milvus Global Connections
+    try:
+        # Pymilvus uses a global connection registry
+        if connections.has_connection("default"):
+            connections.disconnect("default")
+    except Exception as e:
+        logger.warning(f"Failed to disconnect Milvus during reset: {e}")
+
 async def _process_document_async(document_id: str, tenant_id: str, task_id: str) -> dict:
     """
     Async implementation of document processing.
@@ -211,6 +276,11 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     from src.core.graph.neo4j_client import neo4j_client
     from src.core.services.ingestion import IngestionService
     from src.core.storage.storage_client import MinIOClient
+    from src.core.database.session import reset_engine
+    from src.core.providers import factory
+
+    # Context isolation: Reset EVERYTHING that might be stale or bound to a closed loop
+    deep_reset_singletons()
 
     # Create async session
     engine = create_async_engine(settings.db.database_url)

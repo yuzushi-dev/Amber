@@ -15,7 +15,7 @@ function LoadingScreen() {
     <div className="fixed inset-0 flex items-center justify-center bg-background">
       <div className="text-center space-y-4">
         <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
-        <p className="text-muted-foreground">Loading Amber...</p>
+        <p className="text-muted-foreground">Amber is waking up...</p>
       </div>
     </div>
   )
@@ -52,9 +52,9 @@ function AppContent() {
     return <LoadingScreen />
   }
 
-  // 3. Setup not complete → Show Setup Wizard (unless all features installed)
+  // 3. Setup not complete → Show Setup Wizard (if not complete OR db migration needed)
   const allFeaturesInstalled = setupStatus?.summary.installed === setupStatus?.summary.total
-  if (setupStatus && !setupStatus.setup_complete && !allFeaturesInstalled) {
+  if (setupStatus && (!setupStatus.setup_complete && !allFeaturesInstalled || setupStatus.db_migration_needed)) {
     return (
       <SetupWizard
         onComplete={() => refetch()}
@@ -78,7 +78,7 @@ function AppContentWrapper() {
         <div className="text-center space-y-4">
           <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
           <p className="text-muted-foreground">
-            {isLoading ? "Connecting to server..." : "Waiting for services..."}
+            {isLoading ? "Connecting to server..." : "Waiting for services... This might take a few minutes."}
           </p>
         </div>
       </div>

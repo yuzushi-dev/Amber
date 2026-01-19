@@ -185,25 +185,35 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
         group.add(outerGlow);
 
         // Create text sprite for label with improved styling
+        const label = node.label || node.id;
+        const fontSize = 48;
+        const fontFamily = "'Inter', 'Noto Sans', sans-serif";
+
+        // Measure text to dynamically size canvas
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d')!;
-        const fontSize = 48;
-        const label = node.label || node.id;
+        ctx.font = `600 ${fontSize}px ${fontFamily}`;
+        const textMetrics = ctx.measureText(label);
 
-        canvas.width = 512;
-        canvas.height = 72;
+        const textWidth = textMetrics.width;
+        const padding = 40; // Horizontal padding
+        const canvasWidth = Math.ceil(textWidth + padding * 2);
+        const canvasHeight = 90; // Fixed height sufficient for font size + outline
+
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
 
         // Text outline for better readability
-        ctx.font = `600 ${fontSize}px 'Inter', 'Noto Sans', sans-serif`;
+        ctx.font = `600 ${fontSize}px ${fontFamily}`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 4;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.strokeText(label.substring(0, 30), canvas.width / 2, canvas.height / 2);
+        ctx.strokeText(label, canvas.width / 2, canvas.height / 2);
 
         // Main text
         ctx.fillStyle = '#f8fafc'; // slate-50 (bright text)
-        ctx.fillText(label.substring(0, 30), canvas.width / 2, canvas.height / 2);
+        ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMaterial = new THREE.SpriteMaterial({
@@ -212,8 +222,13 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
             depthTest: false,
         });
         const sprite = new THREE.Sprite(spriteMaterial);
-        sprite.scale.set(45, 6, 1);
-        sprite.position.y = -baseSize - 8;
+
+        // Scale sprite based on aspect ratio to prevent distortion
+        // Base height scale is 8 units, width scales proportionally
+        const baseHeight = 8;
+        const aspectRatio = canvasWidth / canvasHeight;
+        sprite.scale.set(baseHeight * aspectRatio, baseHeight, 1);
+        sprite.position.y = -baseSize - 10;
 
         group.add(sprite);
 

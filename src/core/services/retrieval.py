@@ -405,14 +405,17 @@ class RetrievalService:
         reranked_flag = False
 
         if self.reranker and fused and not self.circuit_breaker.should_degrade:
+            print(f"DEBUG: Entering Reranker. Fused Count: {len(fused)}")
             try:
                 rerank_start = time.perf_counter()
                 texts = [c.content for c in fused[:20]] # Rerank top 20
+                print(f"DEBUG: Reranking {len(texts)} texts: {texts}")
                 rerank_res = await self.reranker.rerank(
                     query=query_text,
                     documents=texts,
                     top_k=top_k
                 )
+                print(f"DEBUG: Reranker returned: {rerank_res}")
 
                 # Map back to Candidates
                 for item in rerank_res.results:
@@ -420,12 +423,14 @@ class RetrievalService:
                     cand.score = item.score
                     reranked_chunks.append(cand.to_dict())
 
+                print(f"DEBUG: Reranked chunks count: {len(reranked_chunks)}")
                 reranked_flag = True
                 trace.append({
                     "step": "rerank",
                     "duration_ms": (time.perf_counter() - rerank_start) * 1000
                 })
             except Exception as e:
+                print(f"DEBUG: Reranking FAILED: {e}")
                 logger.warning(f"Reranking failed in hybrid mode: {e}")
                 reranked_chunks = [c.to_dict() for c in fused[:top_k]]
         else:
@@ -487,7 +492,7 @@ class RetrievalService:
             step_start = time.perf_counter()
             cache_filters = {"document_ids": document_ids, **(filters or {})}
             cached_result = await self.result_cache.get(search_query, tenant_id, cache_filters)
-
+            
             if cached_result:
                 sub_chunks = await self._fetch_chunks_by_ids(
                     cached_result.chunk_ids[:top_k],
@@ -524,6 +529,7 @@ class RetrievalService:
                     search_results = None
 
             if search_results is None:
+                step_start = time.perf_counter()
                 search_results = await self.vector_store.search(
                     query_vector=query_embedding,
                     tenant_id=tenant_id,
@@ -532,7 +538,20 @@ class RetrievalService:
                     score_threshold=self.config.score_threshold,
                     filters=filters,
                 )
-
+                trace.append({
+                    "step": "vector_search",
+                    "duration_ms": (time.perf_counter() - step_start) * 1000,
+                    "results_count": len(search_results),
+                    "mode": "dense"
+                })
+            else:
+                trace.append({
+                    "step": "vector_search",
+                    "duration_ms": (time.perf_counter() - step_start) * 1000,
+                    "results_count": len(search_results),
+                    "mode": "hybrid"
+                })
+            
             # Rerank
             if self.reranker and len(search_results) > 0:
                 step_start = time.perf_counter()
