@@ -71,16 +71,23 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
         self._model = None
         self._model_name = None
 
+    def _validate_config(self):
+        """Validate local provider config."""
+        # Local provider doesn't require keys
+        pass
+
     def _load_model(self, model_name: str):
         """Lazily load the sentence-transformers model."""
         if self._model is not None and self._model_name == model_name:
             return self._model
 
         try:
+            import torch
             from sentence_transformers import SentenceTransformer
 
-            logger.info(f"Loading local embedding model: {model_name}")
-            self._model = SentenceTransformer(model_name)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"Loading local embedding model: {model_name} on device: {device}")
+            self._model = SentenceTransformer(model_name, device=device)
             self._model_name = model_name
             return self._model
 

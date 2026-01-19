@@ -4,6 +4,7 @@ import { useAuth, type AuthState } from '@/features/auth'
 interface SetupStatus {
     initialized: boolean
     setup_complete: boolean
+    db_migration_needed: boolean
     features: Array<{
         id: string
         name: string

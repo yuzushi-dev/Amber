@@ -126,7 +126,7 @@ async def list_graph_feedback(
             ORDER BY f.created_at DESC
             LIMIT $limit
             """,
-            limit=limit
+            parameters={"limit": limit}
         )
         
         items = []
@@ -166,7 +166,7 @@ async def delete_graph_feedback(
             MATCH (f:{NodeLabel.UserFeedback.value} {{id: $feedback_id}})
             DETACH DELETE f
             """,
-            feedback_id=feedback_id
+            parameters={"feedback_id": feedback_id}
         )
         
         logger.info(f"Deleted feedback {feedback_id} from Context Graph")
@@ -194,7 +194,7 @@ async def get_chunk_feedback_impact(
                 sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count,
                 collect(DISTINCT f.id) as feedback_ids
             """,
-            chunk_id=chunk_id
+            parameters={"chunk_id": chunk_id}
         )
         
         if result:
@@ -226,3 +226,100 @@ async def get_chunk_feedback_impact(
             "net_score": 0,
             "feedback_ids": [],
         }
+
+# ... (existing schemas)
+
+class ConversationGraphItem(BaseModel):
+    """Conversation item for the list view."""
+    conversation_id: str
+    created_at: str
+    turn_count: int
+    last_query: str | None
+    last_active: str | None
+
+
+# ... (existing endpoints)
+
+@router.get("/conversations", response_model=list[ConversationGraphItem])
+async def list_conversations(
+    limit: int = 50,
+    _admin: Any = Depends(verify_admin),
+):
+    """List conversations from the Context Graph."""
+    try:
+        await neo4j_client.connect()
+        
+        result = await neo4j_client.execute_read(
+            f"""
+            MATCH (c:{NodeLabel.Conversation.value})
+            OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
+            WITH c, count(t) as turn_count, collect(t) as turns
+            WITH c, turn_count, 
+                 [x in turns | x.created_at] as turn_dates,
+                 [x in turns | x.query] as turn_queries
+            WITH c, turn_count,
+                 apoc.coll.max(turn_dates) as last_active,
+                 turn_queries[size(turn_queries)-1] as last_query
+            RETURN 
+                c.id as conversation_id,
+                c.created_at as created_at,
+                turn_count,
+                last_active,
+                last_query
+            ORDER BY last_active DESC
+            LIMIT $limit
+            """,
+            parameters={"limit": limit}
+        )
+        
+        # Fallback if apoc is not available or query is complex, verify simple cypher first
+        # Simplified query avoiding APOC for safety if not installed
+        """
+        MATCH (c:Conversation)
+        OPTIONAL MATCH (c)-[:HAS_TURN]->(t:Turn)
+        WITH c, t ORDER BY t.created_at DESC
+        WITH c, count(t) as turn_count, collect(t) as turns
+        RETURN 
+            c.id as conversation_id,
+            c.created_at as created_at,
+            turn_count,
+            turns[0].created_at as last_active,
+            turns[0].query as last_query
+        ORDER BY last_active DESC
+        LIMIT $limit
+        """
+        
+        # Use the simplified one to be safe
+        result = await neo4j_client.execute_read(
+            f"""
+            MATCH (c:{NodeLabel.Conversation.value})
+            OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
+            WITH c, t ORDER BY t.created_at DESC
+            WITH c, count(t) as turn_count, collect(t) as turns
+            RETURN 
+                c.id as conversation_id,
+                c.created_at as created_at,
+                turn_count,
+                turns[0].created_at as last_active,
+                turns[0].query as last_query
+            ORDER BY last_active DESC
+            LIMIT $limit
+            """,
+            parameters={"limit": limit}
+        )
+
+        items = []
+        for record in result:
+            items.append(ConversationGraphItem(
+                conversation_id=record["conversation_id"],
+                created_at=record.get("created_at") or "",
+                turn_count=record.get("turn_count", 0),
+                last_active=record.get("last_active"),
+                last_query=record.get("last_query"),
+            ))
+        
+        return items
+        
+    except Exception as e:
+        logger.error(f"Failed to list conversations: {e}")
+        return []

@@ -68,9 +68,7 @@ class ContextGraphWriter:
                 ON CREATE SET c.tenant_id = $tenant_id, c.created_at = $ts
                 ON MATCH SET c.updated_at = $ts
                 """,
-                conv_id=conversation_id,
-                tenant_id=tenant_id,
-                ts=timestamp
+                {"conv_id": conversation_id, "tenant_id": tenant_id, "ts": timestamp}
             )
             
             # 2. Create Turn node
@@ -87,14 +85,16 @@ class ContextGraphWriter:
                     created_at: $ts
                 }})
                 """,
-                turn_id=turn_id,
-                conv_id=conversation_id,
-                tenant_id=tenant_id,
-                query=query[:500],  # Truncate for storage
-                answer=answer[:1000],  # Truncate for storage
-                model=model or "unknown",
-                latency=latency_ms or 0,
-                ts=timestamp
+                {
+                    "turn_id": turn_id,
+                    "conv_id": conversation_id,
+                    "tenant_id": tenant_id,
+                    "query": query[:500],
+                    "answer": answer[:1000],
+                    "model": model or "unknown",
+                    "latency": latency_ms or 0,
+                    "ts": timestamp
+                }
             )
             
             # 3. Link Conversation -> Turn
@@ -104,8 +104,7 @@ class ContextGraphWriter:
                 MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
                 MERGE (c)-[:{RelationshipType.HAS_TURN.value}]->(t)
                 """,
-                conv_id=conversation_id,
-                turn_id=turn_id
+                {"conv_id": conversation_id, "turn_id": turn_id}
             )
             
             # 4. Link Turn -> Retrieved Chunks (Decision Trace)
@@ -120,9 +119,7 @@ class ContextGraphWriter:
                             MERGE (t)-[r:{RelationshipType.RETRIEVED.value}]->(c)
                             SET r.score = $score
                             """,
-                            turn_id=turn_id,
-                            chunk_id=chunk_id,
-                            score=source.get("score", 0.0)
+                            {"turn_id": turn_id, "chunk_id": chunk_id, "score": source.get("score", 0.0)}
                         )
             
             logger.debug(f"Logged turn {turn_id} to Context Graph")
@@ -176,11 +173,13 @@ class ContextGraphWriter:
                     created_at: $ts
                 }})
                 """,
-                fb_id=fb_id,
-                tenant_id=tenant_id,
-                is_positive=is_positive,
-                comment=comment or "",
-                ts=timestamp
+                {
+                    "fb_id": fb_id,
+                    "tenant_id": tenant_id,
+                    "is_positive": is_positive,
+                    "comment": comment or "",
+                    "ts": timestamp
+                }
             )
             
             # Link Feedback -> Turn
@@ -191,8 +190,7 @@ class ContextGraphWriter:
                     MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    fb_id=fb_id,
-                    turn_id=turn_id
+                    {"fb_id": fb_id, "turn_id": turn_id}
                 )
             else:
                 # Find most recent turn in conversation and link
@@ -203,8 +201,7 @@ class ContextGraphWriter:
                     WITH f, t ORDER BY t.created_at DESC LIMIT 1
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    fb_id=fb_id,
-                    conv_id=conversation_id
+                    {"fb_id": fb_id, "conv_id": conversation_id}
                 )
             
             logger.debug(f"Logged feedback {fb_id} to Context Graph")

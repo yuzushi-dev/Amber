@@ -194,6 +194,9 @@ class GenerationService:
                 query=query
             )
 
+        print(f"DEBUG: LLM Context: {context_result.content}")
+        print(f"DEBUG: LLM User Prompt: {user_prompt}")
+
         # Step 3: LLM Call
         llm_result = await self.llm.generate(
             prompt=user_prompt,

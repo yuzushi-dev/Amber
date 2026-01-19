@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { X, Upload, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 import { AnimatedProgress } from '@/components/ui/animated-progress'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,31 @@ interface ProcessingStatusResponse {
     error_message?: string
 }
 
+// Stage weights for progress calculation (graph_sync is the slowest)
+const STAGE_PROGRESS: Record<ProcessingStatus, number> = {
+    idle: 0,
+    uploading: 0,
+    extracting: 10,
+    classifying: 20,
+    chunking: 35,
+    embedding: 50,
+    graph_sync: 70,  // Graph sync takes longest, so larger range
+    ready: 100,
+    completed: 100,
+    failed: 0,
+}
+
+
+
+function formatDuration(seconds: number): string {
+    if (seconds < 60) {
+        return `${Math.round(seconds)}s`
+    }
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.round(seconds % 60)
+    return `${mins}m ${secs}s`
+}
+
 export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
     const [file, setFile] = useState<File | null>(null)
     const [status, setStatus] = useState<ProcessingStatus>('idle')
@@ -27,6 +52,26 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
     const [sseManager, setSseManager] = useState<SSEManager | null>(null)
     const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
+    // Timing state
+    const [startTime, setStartTime] = useState<number | null>(null)
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+    const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+    // Timer for elapsed time
+    useEffect(() => {
+        if (startTime && status !== 'ready' && status !== 'completed' && status !== 'failed' && status !== 'idle') {
+            timerRef.current = setInterval(() => {
+                setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000))
+            }, 1000)
+        }
+
+        return () => {
+            if (timerRef.current) {
+                clearInterval(timerRef.current)
+            }
+        }
+    }, [startTime, status])
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -35,6 +80,9 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             }
             if (pollingRef.current) {
                 clearInterval(pollingRef.current)
+            }
+            if (timerRef.current) {
+                clearInterval(timerRef.current)
             }
         }
     }, [sseManager])
@@ -51,6 +99,8 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
         setStatus('uploading')
         setErrorMessage(null)
+        setStartTime(Date.now())
+        setElapsedSeconds(0)
 
         const formData = new FormData()
         formData.append('file', file)
@@ -86,6 +136,7 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         // Initial state after upload
         setStatus('extracting')
         setStatusMessage('Extracting content...')
+        setProgress(STAGE_PROGRESS.extracting)
 
         // Get API key for SSE auth
         const apiKey = localStorage.getItem('api_key')
@@ -120,6 +171,8 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
                 // Always jump to failed or ready. For progress, only move forward.
                 if (s === 'failed' || s === 'ready' || s === 'completed' || newIndex > prevIndex) {
+                    // Update progress based on stage
+                    setProgress(STAGE_PROGRESS[s] ?? STAGE_PROGRESS.extracting)
                     return s
                 }
                 return prev
@@ -127,8 +180,11 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
             if (s === 'ready' || s === 'completed') {
                 setStatusMessage('Knowledge successfully integrated!')
+                setProgress(100)
                 cleanup()
-                setTimeout(onComplete, 1500)
+                setTimeout(() => {
+                    onComplete()
+                }, 1500)
             } else if (s === 'failed') {
                 setErrorMessage(error || 'Processing failed.')
                 cleanup()
@@ -206,6 +262,8 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         }
     }
 
+    const isProcessing = status !== 'idle' && status !== 'uploading' && status !== 'ready' && status !== 'completed' && status !== 'failed'
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
             <div className="bg-card border shadow-2xl rounded-xl w-full max-w-lg overflow-hidden">
@@ -252,43 +310,75 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                             )}
                         </>
                     ) : (
-                        <div className="space-y-4 py-8">
-                            {status === 'ready' ? (
+                        <div className="space-y-4 py-4">
+                            {status === 'ready' || status === 'completed' ? (
                                 <CheckCircle2 className="w-16 h-16 mx-auto text-success animate-in zoom-in duration-300" />
                             ) : status === 'failed' ? (
                                 <div className="text-destructive">
                                     <AlertCircle className="w-16 h-16 mx-auto mb-4" />
                                     <p className="font-medium">{errorMessage || 'Processing failed'}</p>
                                 </div>
-                            ) : (
-                                <Loader2 className="w-16 h-16 mx-auto text-primary animate-spin" />
-                            )}
+                            ) : null}
 
                             {status !== 'failed' && (
                                 <>
-                                    <h4 className="text-xl font-bold capitalize">{status}...</h4>
+                                    <h4 className="text-xl font-bold capitalize">{status === 'ready' || status === 'completed' ? 'Complete' : status}...</h4>
                                     <p className="text-sm text-muted-foreground">
                                         {getStatusLabel(status)}
                                     </p>
                                 </>
                             )}
-                        </div>
-                    )}
 
-                    {status === 'uploading' && (
-                        <div className="w-full max-w-xs mx-auto mt-4">
-                            <AnimatedProgress
-                                value={progress}
-                                stages={[
-                                    { label: 'Starting upload...', threshold: 0 },
-                                    { label: 'Uploading...', threshold: 10 },
-                                    { label: 'Almost done...', threshold: 90 },
-                                ]}
-                                size="md"
-                            />
-                            <div className="text-center text-xs text-muted-foreground mt-2">
-                                {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
-                            </div>
+                            {/* Progress bar for upload */}
+                            {status === 'uploading' && (
+                                <div className="w-full max-w-xs mx-auto mt-4">
+                                    <AnimatedProgress
+                                        value={progress}
+                                        stages={[
+                                            { label: 'Starting upload...', threshold: 0 },
+                                            { label: 'Uploading...', threshold: 10 },
+                                            { label: 'Almost done...', threshold: 90 },
+                                        ]}
+                                        size="md"
+                                    />
+                                    <div className="text-center text-xs text-muted-foreground mt-2">
+                                        {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Progress bar for processing stages */}
+                            {isProcessing && (
+                                <div className="w-full max-w-xs mx-auto mt-4 space-y-3">
+                                    <AnimatedProgress
+                                        value={progress}
+                                        stages={[
+                                            { label: 'Extracting...', threshold: 0 },
+                                            { label: 'Classifying...', threshold: 15 },
+                                            { label: 'Chunking...', threshold: 30 },
+                                            { label: 'Embedding...', threshold: 45 },
+                                            { label: 'Building graph...', threshold: 65 },
+                                            { label: 'Finalizing...', threshold: 90 },
+                                        ]}
+                                        size="md"
+                                    />
+                                    <div className="flex items-center justify-center text-xs text-muted-foreground">
+                                        <span className="flex items-center gap-1.5">
+                                            <Clock className="w-3 h-3" />
+                                            <span>Elapsed:</span>
+                                            <span className="tabular-nums font-medium">{formatDuration(elapsedSeconds)}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Show completion time */}
+                            {(status === 'ready' || status === 'completed') && elapsedSeconds > 0 && (
+                                <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 mt-2">
+                                    <Clock className="w-3 h-3" />
+                                    Completed in {formatDuration(elapsedSeconds)}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -296,3 +386,4 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         </div>
     )
 }
+

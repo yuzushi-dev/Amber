@@ -33,7 +33,8 @@ export const FeedbackButtons = ({
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
     // The identifier to use: Request ID is best for backend, fallback to message ID
-    const effectiveId = requestId || messageId;
+    // We prioritize sessionId (from stream) or requestId (from URL) over messageId (client-side)
+    const effectiveId = requestId || sessionId || messageId;
 
     const handleFeedback = async (
         rating: number,
