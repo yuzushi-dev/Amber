@@ -9,7 +9,13 @@ import io
 from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
 from src.core.models.feedback import Feedback
+from src.core.models.memory import ConversationSummary
+from src.core.services.embeddings import EmbeddingService
+from src.core.services.tuning import TuningService
+from src.core.graph.context_writer import context_graph_writer
+from src.core.database.session import async_session_maker
 from src.shared.context import get_current_tenant
+import asyncio
 
 router = APIRouter(prefix="/feedback", tags=["admin-feedback"])
 
@@ -20,7 +26,6 @@ async def get_pending_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """List positive feedback waiting for review."""
-    from src.core.models.memory import ConversationSummary
     
     tenant_id = get_current_tenant() or "default"
     
@@ -39,9 +44,7 @@ async def get_pending_feedback(
         )
         .where(
             Feedback.tenant_id == tenant_id,
-            Feedback.is_positive == True,
-            # We assume None or "NONE" or "PENDING" might be the initial state depending on how we migrated.
-            # Ideally we check for golden_status IN ["NONE", "PENDING"]
+            # Show all feedback types (positive/negative) waiting for review
             Feedback.golden_status.in_(["NONE", "PENDING"])
         )
         .order_by(Feedback.created_at.desc())
@@ -89,8 +92,6 @@ async def verify_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """Mark feedback as VERIFIED and compute query embedding for similarity search."""
-    from src.core.models.memory import ConversationSummary
-    from src.core.services.embeddings import EmbeddingService
     
     tenant_id = get_current_tenant() or "default"
     
@@ -130,11 +131,41 @@ async def verify_feedback(
             import logging
             logging.getLogger(__name__).warning(f"Failed to compute embedding for feedback {feedback_id}: {e}")
     
-    # 4. Update status
+    # 4. Update status and trigger downstream effects
     feedback.golden_status = "VERIFIED"
+    # Only use for Q&A injection if positive
+    feedback.is_active = feedback.is_positive 
+    
     await db.commit()
+    
+    # 5. Application Effects (Tuning & Graph)
+    try:
+        # Tuning Analysis
+        tuning = TuningService(session_factory=async_session_maker)
+        await tuning.analyze_feedback_for_tuning(
+            tenant_id=tenant_id,
+            request_id=feedback.request_id,
+            is_positive=feedback.is_positive,
+            comment=feedback.comment,
+            selected_snippets=feedback.metadata_json.get("selected_snippets") if feedback.metadata_json else None
+        )
+
+        # Graph Reinforcement
+        asyncio.create_task(
+            context_graph_writer.log_feedback(
+                conversation_id=feedback.request_id,
+                turn_id=None,
+                tenant_id=tenant_id,
+                is_positive=feedback.is_positive,
+                comment=feedback.comment,
+                feedback_id=feedback.id,
+            )
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to trigger feedback effects: {e}")
         
-    return ResponseSchema(data=True, message="Added to Q&A Library")
+    return ResponseSchema(data=True, message="Feedback verified and processed")
 
 @router.post("/{feedback_id}/reject", response_model=ResponseSchema[bool])
 async def reject_feedback(

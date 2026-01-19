@@ -66,39 +66,12 @@ async def create_feedback(
             score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
             comment=data.comment,
             correction=data.correction,
-            metadata_json=data.metadata
+            metadata_json=data.metadata,
+            golden_status="PENDING"
         )
         db.add(feedback)
         await db.commit()
         await db.refresh(feedback)
-
-        # Stage 8.5.2: Wire feedback to weight adjustments (Analysis)
-        tuning = TuningService(session_factory=async_session_maker)
-        await tuning.analyze_feedback_for_tuning(
-            tenant_id=tenant_id,
-            request_id=data.request_id,
-            is_positive=data.is_positive,
-            comment=data.comment,
-            selected_snippets=data.metadata.get("selected_snippets")
-        )
-
-        # Log feedback to Context Graph (background task)
-        try:
-            import asyncio
-            from src.core.graph.context_writer import context_graph_writer
-            
-            asyncio.create_task(
-                context_graph_writer.log_feedback(
-                    conversation_id=data.request_id,  # request_id is often conversation_id
-                    turn_id=None,  # Will link to most recent turn
-                    tenant_id=tenant_id,
-                    is_positive=data.is_positive,
-                    comment=data.comment,
-                    feedback_id=feedback.id,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to schedule context graph feedback: {e}")
 
         return ResponseSchema(
             data=FeedbackResponse(
