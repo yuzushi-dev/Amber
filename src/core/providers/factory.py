@@ -92,6 +92,13 @@ def _auto_register():
     except ImportError:
         pass
 
+    try:
+        from src.core.providers.ollama import OllamaLLMProvider
+
+        register_llm_provider("ollama", OllamaLLMProvider)
+    except ImportError:
+        pass
+
 
 _auto_register()
 
@@ -110,11 +117,17 @@ class ProviderFactory:
         self,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        ollama_base_url: str | None = None,
+        default_llm_provider: str | None = None,
+        default_llm_model: str | None = None,
         default_llm_tier: ProviderTier = ProviderTier.ECONOMY,
         enable_local_fallback: bool = True,
     ):
         self.openai_api_key = openai_api_key
         self.anthropic_api_key = anthropic_api_key
+        self.ollama_base_url = ollama_base_url
+        self.default_llm_provider = default_llm_provider
+        self.default_llm_model = default_llm_model
         self.default_llm_tier = default_llm_tier
         self.enable_local_fallback = enable_local_fallback
 
@@ -148,7 +161,14 @@ class ProviderFactory:
         tier = tier or model_tier or self.default_llm_tier
 
         if provider_name:
-            return self._create_llm_provider(provider_name)
+            return self._create_llm_provider(provider_name, model=model_tier) # model_tier might be passed as model alias
+
+        # Check for explicit default provider
+        if self.default_llm_provider:
+             return self._create_llm_provider(
+                 self.default_llm_provider,
+                 model=self.default_llm_model
+             )
 
         # Build failover chain based on available keys
         providers = []
@@ -241,9 +261,16 @@ class ProviderFactory:
             api_key = self.openai_api_key
         elif name == "anthropic":
             api_key = self.anthropic_api_key
+        if name == "ollama":
+            api_key = "ollama"  # placeholder
+
+        base_url = None
+        if name == "ollama":
+            base_url = self.ollama_base_url
 
         config = ProviderConfig(
             api_key=api_key,
+            base_url=base_url,
             usage_tracker=self.usage_tracker
         )
         provider = provider_class(config)
@@ -298,6 +325,9 @@ _default_factory: ProviderFactory | None = None
 def init_providers(
     openai_api_key: str | None = None,
     anthropic_api_key: str | None = None,
+    ollama_base_url: str | None = None,
+    default_llm_provider: str | None = None,
+    default_llm_model: str | None = None,
     **kwargs,
 ) -> ProviderFactory:
     """Initialize the default provider factory."""
@@ -305,6 +335,9 @@ def init_providers(
     _default_factory = ProviderFactory(
         openai_api_key=openai_api_key,
         anthropic_api_key=anthropic_api_key,
+        ollama_base_url=ollama_base_url,
+        default_llm_provider=default_llm_provider,
+        default_llm_model=default_llm_model,
         **kwargs,
     )
     return _default_factory

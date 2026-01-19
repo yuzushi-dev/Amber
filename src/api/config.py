@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     # LLM Provider Keys
     openai_api_key: str = Field(default="", description="OpenAI API key")
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
+    ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL")
+    default_llm_provider: str | None = Field(default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider")
+    default_llm_model: str | None = Field(default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model")
 
     @field_validator("log_level")
     @classmethod

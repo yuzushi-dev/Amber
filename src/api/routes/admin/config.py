@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.core.database.session import async_session_maker
 from src.core.services.tuning import TuningService
+from src.api.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class TenantConfigResponse(BaseModel):
 
     # Model settings
     embedding_model: str = "text-embedding-3-small"
-    generation_model: str = "gpt-4o-mini"
+    generation_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
 
     # Custom prompts
     system_prompt_override: str | None = None
@@ -166,8 +167,9 @@ async def get_config_schema():
             type="select",
             label="Generation Model",
             description="LLM for answer generation",
-            default="gpt-4o-mini",
+            default=settings.default_llm_model or "gpt-4o-mini",
             options=[
+                settings.default_llm_model or "gpt-4o-mini",
                 "gpt-4o-mini",
                 "gpt-4o",
                 "claude-sonnet-4-20250514",
@@ -321,7 +323,7 @@ async def get_tenant_config(tenant_id: str):
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
             embedding_model=config.get("embedding_model", "text-embedding-3-small"),
-            generation_model=config.get("generation_model", "gpt-4o-mini"),
+            generation_model=config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             system_prompt_override=config.get("system_prompt_override"),
             hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
             ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
