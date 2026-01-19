@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 
 export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
-    const { activeConversationId, setActiveConversationId, reset: resetCitations } = useCitationStore()
+    const { activeConversationId, setActiveConversationId, reset: resetCitations, setActiveMessageId } = useCitationStore()
     // Load history when request_id changes
     const { startStream, isStreaming, resetConversation, setConversationId } = useChatStream()
     const routerState = useRouterState()
@@ -208,6 +208,13 @@ export default function ChatContainer() {
             }
         }
     }, [messages, requestId])
+
+    // Cleanup reference explorer on unmount or navigation
+    useEffect(() => {
+        return () => {
+            setActiveMessageId(null)
+        }
+    }, [setActiveMessageId])
 
 
     return (
