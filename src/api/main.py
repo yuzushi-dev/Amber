@@ -49,7 +49,10 @@ async def lifespan(app: FastAPI):
         from src.core.providers.factory import init_providers
         init_providers(
             openai_api_key=settings.openai_api_key,
-            anthropic_api_key=settings.anthropic_api_key
+            anthropic_api_key=settings.anthropic_api_key,
+            ollama_base_url=settings.ollama_base_url,
+            default_llm_provider=settings.default_llm_provider,
+            default_llm_model=settings.default_llm_model
         )
         logger.info("LLM Providers initialized")
     except Exception as e:

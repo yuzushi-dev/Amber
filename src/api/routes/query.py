@@ -71,6 +71,9 @@ def _get_services():
             _generation_service = GenerationService(
                 openai_api_key=openai_key or None,
                 anthropic_api_key=anthropic_key or None,
+                ollama_base_url=settings.ollama_base_url,
+                default_llm_provider=settings.default_llm_provider,
+                default_llm_model=settings.default_llm_model,
             )
 
             _metrics_collector = MetricsCollector(

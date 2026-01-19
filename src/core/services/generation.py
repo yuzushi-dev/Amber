@@ -83,6 +83,9 @@ class GenerationService:
         llm_provider: BaseLLMProvider | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        ollama_base_url: str | None = None,
+        default_llm_provider: str | None = None,
+        default_llm_model: str | None = None,
         config: GenerationConfig | None = None,
     ):
         self.config = config or GenerationConfig()
@@ -94,6 +97,9 @@ class GenerationService:
             factory = ProviderFactory(
                 openai_api_key=openai_api_key,
                 anthropic_api_key=anthropic_api_key,
+                ollama_base_url=ollama_base_url,
+                default_llm_provider=default_llm_provider,
+                default_llm_model=default_llm_model,
             )
             self.llm = factory.get_llm_provider(tier=self.config.tier)
 

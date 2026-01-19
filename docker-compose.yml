@@ -63,6 +63,10 @@ services:
       - MILVUS_PORT=${MILVUS_PORT:-19530}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - MINIO_HOST=${MINIO_HOST:-minio}
       - MINIO_PORT=${MINIO_PORT:-9000}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
@@ -92,6 +96,8 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - graphrag-network
 
@@ -119,6 +125,10 @@ services:
       - MILVUS_PORT=${MILVUS_PORT:-19530}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - MINIO_HOST=${MINIO_HOST:-minio}
       - MINIO_PORT=${MINIO_PORT:-9000}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
