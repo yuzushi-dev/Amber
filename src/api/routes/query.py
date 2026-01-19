@@ -981,6 +981,33 @@ async def query_stream(
             except Exception as e:
                 logger.error(f"Failed to save RAG conversation history: {e}")
 
+            # LOG TO CONTEXT GRAPH (Async - Fire and forget)
+            try:
+                from src.core.graph.context_writer import context_graph_writer
+                
+                # Transform collected sources to graph format
+                # collected_sources is list of dicts from 'sources' event
+                graph_sources = [
+                    {"chunk_id": s.get("chunk_id"), "document_id": s.get("document_id"), "score": s.get("score")}
+                    for s in collected_sources
+                ] if collected_sources else []
+                
+                # Call log_turn asynchronously
+                asyncio.create_task(
+                    context_graph_writer.log_turn(
+                        conversation_id=final_conversation_id,
+                        tenant_id=tenant_id,
+                        query=request.query,
+                        answer=full_answer,
+                        sources=graph_sources,
+                        model=stream_model,
+                        latency_ms=stream_latency_ms
+                    )
+                )
+                logger.debug(f"Scheduled context graph logging for stream query {final_conversation_id}")
+            except Exception as e:
+                logger.warning(f"Failed to schedule context graph logging for stream: {e}")
+
             # RECORD METRICS for streaming queries
             try:
                 from src.api.config import settings
