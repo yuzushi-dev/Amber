@@ -294,6 +294,9 @@ try:
 except ImportError as e:
     logger.warning(f"Export router not available: {e}")
 
+# Also expose health check at root /health for infrastructure probes
+app.include_router(health.router)
+
 app.include_router(v1_router)
 
 
