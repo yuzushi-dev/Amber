@@ -600,12 +600,12 @@ class CustomSystemConnector(BaseConnector):
 ✅ Carbonio, Confluence, Zendesk connectors  
 ✅ Multi-tenant architecture  
 ✅ Production-grade observability  
+✅ Local LLM Support (Ollama)  
 
 ### 9.2 Near-Term Roadmap (H1 2026)
 
 | Feature                  | Description                    | Target  |
 | ------------------------ | ------------------------------ | ------- |
-| **Local LLM Support**    | Mistral, Llama 3 integration   | Q1 2026 |
 | **Voice Interface**      | Speech-to-text queries         | Q1 2026 |
 | **SharePoint Connector** | Microsoft 365 file integration | Q2 2026 |
 | **Slack Connector**      | Slack channel ingestion        | Q2 2026 |

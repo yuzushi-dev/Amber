@@ -134,15 +134,25 @@ The system supports two distinct operational modes, controlled via the `agent_ro
 - **Security**: Requires explicit opt-in via API parameter.
 
 **API Usage**:
-```json
-{
-  "query": "Find all usages of deprecated API",
   "options": {
     "agent_mode": true,
     "agent_role": "maintainer"
   }
 }
 ```
+
+### Local LLM Configuration (Ollama)
+
+To use the agent with a local model (e.g., Llama 3):
+
+1. **Configure Environment**:
+   ```ini
+   OLLAMA_BASE_URL=http://localhost:11434/v1
+   OLLAMA_MODEL=llama3
+   ```
+
+2. **Run Agent**:
+   The system will automatically detect the configuration and use the local model for both reasoning (ReAct loop) and tool execution. Note that smaller models (<70B) may have reduced reasoning capabilities compared to GPT-4o.
 
 ---
 

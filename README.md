@@ -132,6 +132,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 #### Multi-Provider LLM Support
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
 - **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus/Haiku
+- **Ollama**: Local LLM support (Llama 3, Mistral, DeepSeek, Phi-3, Qwen, etc.)
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
@@ -141,12 +142,24 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Document attribution** with titles and metadata
 - **Source deduplication** across retrieval results
 - **Preview snippets** for context
+- **Interactive Citation Explorer**: Click-through source navigation with highlighting
 
 #### Quality Guardrails
 - **Faithfulness checks**: Ensures answers are grounded in sources
 - **Relevance scoring**: Filters irrelevant results
 - **Follow-up suggestions**: Generates contextual next questions
 - **Ragas Integration**: Automated evaluation with standard metrics
+
+#### Response Quality Indicators
+- **Quality Badge**: Visual score indicator for response confidence
+- **Routing Badge**: Shows which retrieval mode was used (Basic/Local/Global/Drift)
+- **Persisted Metrics**: Badges saved with conversation history
+
+#### User Feedback System
+- **Thumbs Up/Down**: Direct feedback on AI responses
+- **Pending Review Queue**: Admin review of user feedback
+- **Q&A Library**: Verified responses for training/fine-tuning
+- **Golden Dataset Export**: Export approved Q&A pairs for evaluation
 
 ### Production-Grade Admin & Operations
 
@@ -157,6 +170,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Database Overview**: Graph statistics and health metrics
 - **Vector Store Inspection**: Collection stats and memory usage
 - **PDF Viewer**: In-browser PDF viewing with page navigation
+- **Conversation Export**: Export chat history as PDF or Markdown
 
 #### External Connectors (`/admin/connectors`)
 - **Carbonio**: Integrate with Zextras Mail, Calendar, and Chats (includes Agent tools)
@@ -190,6 +204,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Chunking Strategy**: Modify chunk size and overlap
 - **Search Settings**: Configure top-k, reranking, and fusion weights
 - **Provider Selection**: Switch LLM and embedding providers
+- **Global Domain Rules**: Define rules that apply to all queries via Admin UI
 
 ### Security & Reliability
 
@@ -578,6 +593,10 @@ DEFAULT_LLM_MODEL=gpt-4o-mini
 DEFAULT_EMBEDDING_PROVIDER=openai
 DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
+
+# Ollama (optional - for local LLMs)
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=llama3
 ```
 
 #### Rate Limiting
