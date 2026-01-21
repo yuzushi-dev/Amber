@@ -229,10 +229,10 @@ class EmbeddingMigrationService:
             new_config["embedding_provider"] = MODEL_PROVIDERS[model]
         
         # 2. Force update dimensions if model is known
-        if model in MODEL_DIMENSIONS:
-            new_config["embedding_dimensions"] = MODEL_DIMENSIONS[model]
-        elif "embedding_dimensions" not in new_config:
-            new_config["embedding_dimensions"] = settings.embedding_dimensions or 1536
+        new_config["embedding_dimensions"] = await self._resolve_dimensions(
+            new_config.get("embedding_provider", "openai"),
+            model
+        )
 
         # Always update migration timestamp
         new_config["migrated_at"] = str(import_datetime().isoformat())
@@ -321,6 +321,71 @@ class EmbeddingMigrationService:
             "task_ids": task_ids,
             "new_model": new_config["embedding_model"]
         }
+
+    async def _resolve_dimensions(self, provider: str, model: str) -> int:
+        """
+        Determine embedding dimensions for a given model.
+        
+        1. Checks hardcoded list (MODEL_DIMENSIONS)
+        2. Tries to match by stripping ':<tag>'
+        3. Falls back to dynamic generation check
+        """
+        # Hardcoded defaults
+        MODEL_DIMENSIONS = {
+            "text-embedding-3-small": 1536,
+            "text-embedding-3-large": 3072,
+            "text-embedding-ada-002": 1536,
+            "voyage-3.5-lite": 1536,
+            "bge-m3": 1024,
+            "nomic-embed-text": 768,
+            "mxbai-embed-large": 1024,
+            "all-minilm": 384
+        }
+        
+        # 1. Exact match
+        if model in MODEL_DIMENSIONS:
+            return MODEL_DIMENSIONS[model]
+            
+        # 2. Base match (strip :tag)
+        base_model = model.split(":")[0]
+        if base_model in MODEL_DIMENSIONS:
+            return MODEL_DIMENSIONS[base_model]
+            
+        # 3. Dynamic Resolution
+        try:
+            logger.info(f"Resolving dimensions dynamically for {model}...")
+            
+            from src.core.providers.factory import ProviderFactory
+            from src.core.services.embeddings import EmbeddingService
+            
+            # We instantiate a temporary service just for this check
+            factory = ProviderFactory(
+                openai_api_key=settings.openai_api_key,
+                ollama_base_url=settings.ollama_base_url,
+                default_embedding_provider=provider,
+                default_embedding_model=model,
+            )
+            
+            temp_service = EmbeddingService(
+                provider=factory.get_embedding_provider(),
+                model=model,
+                # Start with default, but we care about output
+                dimensions=1536 
+            )
+            
+            # Generate one dummy embedding
+            embeddings, _ = await temp_service.embed_texts(["dimension_check"])
+            
+            if embeddings and len(embeddings) > 0:
+                actual_dim = len(embeddings[0])
+                logger.info(f"Dynamically resolved {model} dimensions to {actual_dim}")
+                return actual_dim
+                
+        except Exception as e:
+            logger.warning(f"Failed to dynamically resolve dimensions for {model}: {e}. Defaulting to 1536.")
+        
+        # Fallback
+        return 1536
 
     async def cancel_tenant_migration(self, task_ids: List[str]):
         """

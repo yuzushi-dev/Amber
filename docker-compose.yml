@@ -157,6 +157,8 @@ services:
       milvus:
         condition: service_started
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - graphrag-network
 

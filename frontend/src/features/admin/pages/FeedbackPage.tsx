@@ -389,7 +389,7 @@ export default function FeedbackPage() {
 
             {/* Detail Dialog */}
             <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
-                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden bg-zinc-950 border-white/10 shadow-2xl">
+                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <div className="flex items-center justify-between pr-8">
                             <DialogTitle className="text-lg font-display tracking-tight">Review Candidate</DialogTitle>

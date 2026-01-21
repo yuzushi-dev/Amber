@@ -13,6 +13,8 @@ import { GitMerge } from 'lucide-react';
 
 // Lazy load ThreeGraph
 const ThreeGraph = React.lazy(() => import('../Graph/ThreeGraph'));
+import { GraphSearchInput } from '@/features/graph/components/GraphSearchInput';
+import { toast } from 'sonner';
 
 interface Relationship {
     source: string;
@@ -49,6 +51,11 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
     // Merge Mode
     const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
     const [mergeCandidates, setMergeCandidates] = useState<GraphNode[]>([]);
+
+    // External Nodes (fetched via Search)
+    const [extraNodes, setExtraNodes] = useState<GraphNode[]>([]);
+    const [extraEdges, setExtraEdges] = useState<GraphEdge[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
 
     const fetchRelationships = async () => {
         try {
@@ -150,6 +157,44 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
         }
     };
 
+    const handleExternalSearch = async (query: string) => {
+        if (!query.trim()) return;
+        setIsSearching(true);
+        try {
+            const results = await graphEditorApi.searchNodes(query);
+            if (results.length === 0) {
+                toast.info("No nodes found");
+                return;
+            }
+
+            // Fetch neighborhood for the first result to give context
+            const firstResult = results[0];
+            const neighborhood = await graphEditorApi.getNeighborhood(firstResult.id); // small neighborhood
+
+            // Add to extra nodes/edges
+            // We rely on the useMemo below to deduplicate against existing document nodes
+            setExtraNodes(prev => {
+                const combined = [...prev, ...neighborhood.nodes];
+                // Dedupe by ID within extraNodes (useMemo handles dedupe against existing)
+                const unique = new Map(combined.map(n => [n.id, n]));
+                return Array.from(unique.values());
+            });
+
+            setExtraEdges(prev => {
+                const combined = [...prev, ...neighborhood.edges];
+                const unique = new Map(combined.map(e => [`${e.source}-${e.target}`, e]));
+                return Array.from(unique.values());
+            });
+
+            toast.success(`Broadened view with "${firstResult.label}"`);
+        } catch (error) {
+            console.error(error);
+            toast.error("Search failed");
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
 
     // Transform logic (copied from original)
     const { nodes, edges } = useMemo(() => {
@@ -236,11 +281,34 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
             });
         });
 
+        // Merge Extra Nodes/Edges
+        extraNodes.forEach(node => {
+            if (!nodeMap.has(node.id)) {
+                nodeMap.set(node.id, {
+                    ...node,
+                    degree: node.degree || 1 // Ensure visibility
+                });
+            }
+        });
+
+        extraEdges.forEach(edge => {
+            // Only add if source/target exist (which they should if we added nodes correctly)
+            // But strict checking prevents crash
+            edgesList.push({
+                source: edge.source,
+                target: edge.target,
+                weight: edge.weight || 1,
+                type: edge.type || 'RELATED',
+            });
+        });
+
+        // Re-calculate degrees for extra stuff if needed, but force-graph handles it mostly.
+
         return {
             nodes: Array.from(nodeMap.values()),
             edges: edgesList
         };
-    }, [relationships]);
+    }, [relationships, extraNodes, extraEdges]);
 
 
     if (!documentId) return <div className="p-4 text-center text-yellow-500">No document ID provided</div>;
@@ -266,6 +334,15 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
                         </Button>
                     </div>
                 )}
+
+                {/* External Search Bar - Top Right */}
+                <div className="absolute top-4 right-4 z-10 w-64 md:w-80">
+                    <GraphSearchInput
+                        onSearch={handleExternalSearch}
+                        isSearching={isSearching}
+                        className="w-full shadow-lg opacity-80 hover:opacity-100 transition-opacity"
+                    />
+                </div>
 
                 {/* Sidebar */}
                 {isSidebarOpen && selectedNode && (

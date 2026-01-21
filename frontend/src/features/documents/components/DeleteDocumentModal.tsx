@@ -42,7 +42,7 @@ export default function DeleteDocumentModal({
               We use a transparent border/bg for the base DialogContent 
               and build our own card inside for better animation control 
             */}
-            <DialogContent className="max-w-md p-0 overflow-hidden border-0 bg-transparent shadow-none sm:rounded-2xl">
+            <DialogContent className="max-w-md p-0 overflow-hidden border-0 bg-transparent shadow-none sm:rounded-xl">
                 <AnimatePresence mode="wait">
                     {open && (
                         <motion.div
@@ -56,7 +56,7 @@ export default function DeleteDocumentModal({
                             }}
                             className={cn(
                                 "relative flex flex-col w-full overflow-hidden",
-                                "bg-[#09090b] border border-white/10 rounded-2xl shadow-2xl",
+                                "bg-background border border-border rounded-xl shadow-glow-destructive",
                                 "before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/[0.08] before:to-transparent before:pointer-events-none"
                             )}
                         >
