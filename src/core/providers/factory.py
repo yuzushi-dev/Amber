@@ -210,15 +210,19 @@ class ProviderFactory:
         self,
         provider_name: str | None = None,
         with_failover: bool = True,
+        model: str | None = None,
     ) -> BaseEmbeddingProvider:
         """Get an embedding provider."""
         if provider_name:
-            return self._create_embedding_provider(provider_name)
+            return self._create_embedding_provider(provider_name, model=model)
 
         # Check for explicit default embedding provider configuration
         if self.default_embedding_provider:
             logger.info(f"Using configured embedding provider: {self.default_embedding_provider}")
-            return self._create_embedding_provider(self.default_embedding_provider)
+            return self._create_embedding_provider(
+                self.default_embedding_provider,
+                model=model or self.default_embedding_model
+            )
 
         providers = []
 
@@ -292,10 +296,16 @@ class ProviderFactory:
         self._llm_cache[cache_key] = provider
         return provider
 
-    def _create_embedding_provider(self, name: str) -> BaseEmbeddingProvider:
+    def _create_embedding_provider(
+        self, 
+        name: str,
+        model: str | None = None
+    ) -> BaseEmbeddingProvider:
         """Create an embedding provider instance."""
-        if name in self._embedding_cache:
-            return self._embedding_cache[name]
+        # Use composite cache key to support different models per provider
+        cache_key = f"{name}:{model}" if model else f"{name}:{self.default_embedding_model}"
+        if cache_key in self._embedding_cache:
+            return self._embedding_cache[cache_key]
 
         provider_class = _registry.embedding_providers.get(name)
         if not provider_class:
@@ -319,10 +329,12 @@ class ProviderFactory:
         provider = provider_class(config)
 
         # Override default model if configured
-        if self.default_embedding_model:
+        if model:
+             provider.default_model = model
+        elif self.default_embedding_model:
             provider.default_model = self.default_embedding_model
 
-        self._embedding_cache[name] = provider
+        self._embedding_cache[cache_key] = provider
         return provider
 
     def _create_reranker_provider(self, name: str) -> BaseRerankerProvider:

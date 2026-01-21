@@ -54,9 +54,13 @@ class TenantConfigResponse(BaseModel):
     hyde_enabled: bool = False
     graph_expansion_enabled: bool = True
 
-    # Model settings
+    # LLM Provider/Model settings
+    llm_provider: str = Field(default_factory=lambda: settings.default_llm_provider or "openai")
+    llm_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
+    
+    # Embedding Provider/Model settings
+    embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
     embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
-    generation_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
 
     # Custom prompts
     system_prompt_override: str | None = None
@@ -81,9 +85,13 @@ class TenantConfigUpdate(BaseModel):
     hyde_enabled: bool | None = None
     graph_expansion_enabled: bool | None = None
 
-    # Model settings
+    # LLM Provider/Model settings
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    
+    # Embedding Provider/Model settings
+    embedding_provider: str | None = None
     embedding_model: str | None = None
-    generation_model: str | None = None
 
     # Custom prompts
     system_prompt_override: str | None = None
@@ -148,38 +156,41 @@ async def get_config_schema():
             group="ingestion"
         ),
 
-        # Model Settings
+        # Model Settings - Provider Selection
+        ConfigSchemaField(
+            name="llm_provider",
+            type="select",
+            label="LLM Provider",
+            description="Provider for answer generation (models loaded dynamically)",
+            default=settings.default_llm_provider or "openai",
+            options=[],  # Populated dynamically by frontend from /admin/providers/available
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="llm_model",
+            type="select",
+            label="LLM Model",
+            description="Model for answer generation",
+            default=settings.default_llm_model or "gpt-4o-mini",
+            options=[],  # Populated dynamically based on selected provider
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="embedding_provider",
+            type="select",
+            label="Embedding Provider",
+            description="Provider for vector embeddings (models loaded dynamically)",
+            default=settings.default_embedding_provider or "openai",
+            options=[],  # Populated dynamically by frontend
+            group="models"
+        ),
         ConfigSchemaField(
             name="embedding_model",
             type="select",
             label="Embedding Model",
             description="Model for generating embeddings",
             default=settings.default_embedding_model or "text-embedding-3-small",
-            options=sorted(list(set([
-                settings.default_embedding_model or "text-embedding-3-small",
-                "text-embedding-3-small",
-                "text-embedding-3-large",
-                "voyage-3.5-lite",
-                "bge-m3",
-                "nomic-embed-text",
-                "mxbai-embed-large",
-                "all-minilm"
-            ]))),
-            group="models"
-        ),
-        ConfigSchemaField(
-            name="generation_model",
-            type="select",
-            label="Generation Model",
-            description="LLM for answer generation",
-            default=settings.default_llm_model or "gpt-4o-mini",
-            options=[
-                settings.default_llm_model or "gpt-4o-mini",
-                "gpt-4o-mini",
-                "gpt-4o",
-                "claude-sonnet-4-20250514",
-                "claude-3-5-haiku-20241022"
-            ],
+            options=[],  # Populated dynamically based on selected provider
             group="models"
         ),
 
@@ -327,8 +338,10 @@ async def get_tenant_config(tenant_id: str):
             reranking_enabled=config.get("reranking_enabled", True),
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
+            llm_provider=config.get("llm_provider", settings.default_llm_provider or "openai"),
+            llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
+            embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
             embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
-            generation_model=config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             system_prompt_override=config.get("system_prompt_override"),
             hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
             ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
