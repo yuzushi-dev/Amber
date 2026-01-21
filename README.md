@@ -467,8 +467,15 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
 
 3. **Launch Services**
    ```bash
-   make docker-up
-   # or: docker compose up -d
+   # Standard launch (CPU mode)
+   ./start.sh
+   
+   # With NVIDIA GPU support (for local embeddings/models)
+   ./start.sh --gpu
+   
+   # Or manually:
+   # docker compose up -d
+   # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
    ```
 
    This starts 7 services:
