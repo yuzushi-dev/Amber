@@ -84,12 +84,30 @@ async def lifespan(app: FastAPI):
     try:
         from src.api.deps import _async_session_maker
         from src.core.services.api_key_service import ApiKeyService
+        from src.core.services.migration import EmbeddingMigrationService
 
         dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
         async with _async_session_maker() as session:
+            # Bootstrap Key
             service = ApiKeyService(session)
             await service.ensure_bootstrap_key(dev_key, name="Development Key")
-        logger.info("Bootstrapped API key")
+
+            # Check Embedding Compatibility
+            if os.getenv("AMBER_RUNTIME") == "docker": # Only run inside docker/prod context usually
+                migration_service = EmbeddingMigrationService(session)
+                try:
+                    statuses = await migration_service.get_compatibility_status()
+                    for status in statuses:
+                        if not status["is_compatible"]:
+                            logger.warn("!" * 60)
+                            logger.warn(f"EMBEDDING MODEL MISMATCH DETECTED FOR TENANT: {status['tenant_name']} ({status['tenant_id']})")
+                            logger.warn(f"Details: {status['details']}")
+                            logger.warn("Please query /v1/admin/embeddings/check for info or /migrate to fix.")
+                            logger.warn("!" * 60)
+                except Exception as e:
+                    logger.error(f"Failed to check embedding compatibility on startup: {e}")
+
+        logger.info("Bootstrapped API key and checked embeddings")
     except Exception as e:
         logger.error(f"Failed to bootstrap API key: {e}")
 

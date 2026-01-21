@@ -93,9 +93,10 @@ def _auto_register():
         pass
 
     try:
-        from src.core.providers.ollama import OllamaLLMProvider
+        from src.core.providers.ollama import OllamaLLMProvider, OllamaEmbeddingProvider
 
         register_llm_provider("ollama", OllamaLLMProvider)
+        register_embedding_provider("ollama", OllamaEmbeddingProvider)
     except ImportError:
         pass
 
@@ -121,6 +122,8 @@ class ProviderFactory:
         default_llm_provider: str | None = None,
         default_llm_model: str | None = None,
         default_llm_tier: ProviderTier = ProviderTier.ECONOMY,
+        default_embedding_provider: str | None = None,
+        default_embedding_model: str | None = None,
         enable_local_fallback: bool = True,
     ):
         self.openai_api_key = openai_api_key
@@ -129,6 +132,8 @@ class ProviderFactory:
         self.default_llm_provider = default_llm_provider
         self.default_llm_model = default_llm_model
         self.default_llm_tier = default_llm_tier
+        self.default_embedding_provider = default_embedding_provider
+        self.default_embedding_model = default_embedding_model
         self.enable_local_fallback = enable_local_fallback
 
         # Initialize Usage Tracker
@@ -209,6 +214,11 @@ class ProviderFactory:
         """Get an embedding provider."""
         if provider_name:
             return self._create_embedding_provider(provider_name)
+
+        # Check for explicit default embedding provider configuration
+        if self.default_embedding_provider:
+            logger.info(f"Using configured embedding provider: {self.default_embedding_provider}")
+            return self._create_embedding_provider(self.default_embedding_provider)
 
         providers = []
 
@@ -291,12 +301,26 @@ class ProviderFactory:
         if not provider_class:
             raise ValueError(f"Unknown embedding provider: {name}")
 
-        api_key = self.openai_api_key if name == "openai" else None
+        # Build config based on provider type
+        api_key = None
+        base_url = None
+
+        if name == "openai":
+            api_key = self.openai_api_key
+        elif name == "ollama":
+            api_key = "ollama"  # Placeholder, not used by Ollama
+            base_url = self.ollama_base_url
+
         config = ProviderConfig(
             api_key=api_key,
+            base_url=base_url,
             usage_tracker=self.usage_tracker
         )
         provider = provider_class(config)
+
+        # Override default model if configured
+        if self.default_embedding_model:
+            provider.default_model = self.default_embedding_model
 
         self._embedding_cache[name] = provider
         return provider
@@ -328,6 +352,8 @@ def init_providers(
     ollama_base_url: str | None = None,
     default_llm_provider: str | None = None,
     default_llm_model: str | None = None,
+    default_embedding_provider: str | None = None,
+    default_embedding_model: str | None = None,
     **kwargs,
 ) -> ProviderFactory:
     """Initialize the default provider factory."""
@@ -338,6 +364,8 @@ def init_providers(
         ollama_base_url=ollama_base_url,
         default_llm_provider=default_llm_provider,
         default_llm_model=default_llm_model,
+        default_embedding_provider=default_embedding_provider,
+        default_embedding_model=default_embedding_model,
         **kwargs,
     )
     return _default_factory

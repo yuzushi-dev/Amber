@@ -55,7 +55,7 @@ class TenantConfigResponse(BaseModel):
     graph_expansion_enabled: bool = True
 
     # Model settings
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
     generation_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
 
     # Custom prompts
@@ -105,6 +105,7 @@ class ConfigSchemaField(BaseModel):
     step: float | None = None
     options: list[str] | None = None
     group: str = "general"
+    read_only: bool = False
 
 
 class ConfigSchemaResponse(BaseModel):
@@ -153,13 +154,17 @@ async def get_config_schema():
             type="select",
             label="Embedding Model",
             description="Model for generating embeddings",
-            default="text-embedding-3-small",
-            options=[
+            default=settings.default_embedding_model or "text-embedding-3-small",
+            options=sorted(list(set([
+                settings.default_embedding_model or "text-embedding-3-small",
                 "text-embedding-3-small",
                 "text-embedding-3-large",
                 "voyage-3.5-lite",
-                "bge-m3"
-            ],
+                "bge-m3",
+                "nomic-embed-text",
+                "mxbai-embed-large",
+                "all-minilm"
+            ]))),
             group="models"
         ),
         ConfigSchemaField(
@@ -322,7 +327,7 @@ async def get_tenant_config(tenant_id: str):
             reranking_enabled=config.get("reranking_enabled", True),
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
-            embedding_model=config.get("embedding_model", "text-embedding-3-small"),
+            embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
             generation_model=config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             system_prompt_override=config.get("system_prompt_override"),
             hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
@@ -360,6 +365,9 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
             if not tenant.config:
                 tenant.config = {}
 
+            # Create a copy to ensure SQLAlchemy detects changes (JSON is not mutable by default)
+            new_config = dict(tenant.config)
+
             # Update provided fields
             update_dict = update.model_dump(exclude_unset=True, exclude_none=True)
 
@@ -367,11 +375,14 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
             if "weights" in update_dict:
                 weights = update_dict.pop("weights")
                 for k, v in weights.items():
-                    tenant.config[k] = v
+                    new_config[k] = v
 
             # Update remaining fields
             for key, value in update_dict.items():
-                tenant.config[key] = value
+                new_config[key] = value
+
+            # Reassign to trigger dirty flag
+            tenant.config = new_config
 
             # Persist changes
             session.add(tenant)

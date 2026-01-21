@@ -85,6 +85,7 @@ export interface ConfigSchemaField {
     step?: number
     options?: string[]
     group: string
+    read_only?: boolean
 }
 
 export interface ConfigSchema {
@@ -420,6 +421,11 @@ export interface QueryMetrics {
 export const vectorStoreApi = {
     getCollections: async () => {
         const response = await apiClient.get<VectorCollectionsResponse>('/admin/maintenance/vectors/collections')
+        return response.data
+    },
+
+    deleteCollection: async (collectionName: string) => {
+        const response = await apiClient.delete<MaintenanceResult>(`/admin/maintenance/vectors/collections/${collectionName}`)
         return response.data
     },
 }
@@ -795,8 +801,78 @@ export interface GlobalRule {
     priority: number
     is_active: boolean
     source: string
-    created_at: string
     updated_at: string
+}
+
+// =============================================================================
+// Embeddings API
+// =============================================================================
+
+export interface EmbeddingStatus {
+    tenant_id: string
+    tenant_name: string
+    is_compatible: boolean
+    stored_config: {
+        provider: string | null
+        model: string | null
+        dimensions: number | null
+    }
+    system_config: {
+        provider: string
+        model: string
+        dimensions: number
+    }
+    details: string
+}
+
+export interface MigrationResult {
+    status: string
+    chunks_deleted: number
+    docs_queued: number
+    new_model: string
+}
+
+export interface MigrationStatusResponse {
+    status: 'idle' | 'running' | 'complete' | 'failed' | 'cancelled'
+    phase: string
+    progress: number
+    message: string
+    total_docs?: number
+    completed_docs?: number
+    current_document?: string
+}
+
+export const embeddingsApi = {
+    checkCompatibility: async (): Promise<EmbeddingStatus[]> => {
+        const response = await apiClient.get<{ data: EmbeddingStatus[], message: string }>('/admin/embeddings/check')
+        return response.data.data
+    },
+
+    migrateTenant: async (tenantId: string): Promise<MigrationResult> => {
+        const response = await apiClient.post<{ data: MigrationResult, message: string }>(
+            `/admin/embeddings/migrate`,
+            null,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    },
+
+    getMigrationStatus: async (tenantId: string): Promise<MigrationStatusResponse> => {
+        const response = await apiClient.get<{ data: MigrationStatusResponse, message: string }>(
+            `/admin/embeddings/migration-status`,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    },
+
+    cancelMigration: async (tenantId: string): Promise<{ cancelled: boolean }> => {
+        const response = await apiClient.post<{ data: { cancelled: boolean }, message: string }>(
+            `/admin/embeddings/cancel-migration`,
+            null,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    }
 }
 
 export interface CreateRuleRequest {

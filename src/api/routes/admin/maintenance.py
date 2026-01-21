@@ -373,14 +373,21 @@ async def get_vector_collections():
                         dimensions = field.params.get("dim")
                         break
 
-                # Get index type if available
+                # Get index type for the VECTOR field specifically
                 index_type = None
                 try:
                     indexes = col.indexes
-                    if indexes:
+                    for idx in indexes:
+                        # Prefer the dense vector field index (HNSW)
+                        if idx.field_name == "vector":
+                            index_type = idx.params.get("index_type", "UNKNOWN")
+                            break
+                    # Fallback to first index if vector field not found
+                    if index_type is None and indexes:
                         index_type = indexes[0].params.get("index_type", "UNKNOWN")
                 except Exception:
                     pass
+
 
                 # Estimate memory usage
                 try:
@@ -411,6 +418,12 @@ async def get_vector_collections():
                     count=0,
                 ))
 
+        # Sort collections alphabetically for stable ordering
+        collections_info.sort(key=lambda c: c.name)
+        
+        # Filter to only tenant-specific collections (amber_*) unless show_all requested
+        collections_info = [c for c in collections_info if c.name.startswith("amber_")]
+
         return VectorCollectionsResponse(collections=collections_info)
 
     except ImportError as e:
@@ -419,6 +432,58 @@ async def get_vector_collections():
         logger.error(f"Failed to get vector collections: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get collections: {str(e)}") from e
 
+
+@router.delete("/vectors/collections/{collection_name}", response_model=MaintenanceResult)
+async def delete_vector_collection(collection_name: str):
+    """
+    Delete a Milvus vector collection.
+    
+    WARNING: This permanently deletes all vectors in the collection.
+    """
+    import time
+    start = time.time()
+    
+    try:
+        from pymilvus import Collection, connections, utility
+        
+        milvus_host = os.getenv("MILVUS_HOST", "localhost")
+        milvus_port = int(os.getenv("MILVUS_PORT", "19530"))
+        
+        try:
+            connections.connect(alias="default", host=milvus_host, port=milvus_port)
+        except Exception:
+            pass  # May already be connected
+        
+        # Check if collection exists
+        if collection_name not in utility.list_collections():
+            raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
+        
+        # Get vector count before deletion
+        col = Collection(collection_name)
+        count = col.num_entities
+        
+        # Drop the collection
+        utility.drop_collection(collection_name)
+        
+        duration = time.time() - start
+        message = f"Deleted collection '{collection_name}' with {count} vectors"
+        logger.info(message)
+        
+        return MaintenanceResult(
+            operation="delete_collection",
+            status="success",
+            message=message,
+            items_affected=count,
+            duration_seconds=round(duration, 3),
+        )
+        
+    except HTTPException:
+        raise
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail="Milvus client not installed") from e
+    except Exception as e:
+        logger.error(f"Failed to delete collection: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(e)}") from e
 
 # =============================================================================
 # Helpers

@@ -6,10 +6,18 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Save, RotateCcw, CheckCircle, Info } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
+import { Save, RotateCcw, CheckCircle, Info, AlertTriangle } from 'lucide-react'
 import { configApi, ConfigSchema, TenantConfig, ConfigSchemaField } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
 import {
     Tooltip,
     TooltipContent,
@@ -50,6 +58,7 @@ CRITICAL INSTRUCTIONS:
 5. Entity Mentions: When mentioning entities extracted from the graph, use their canonical names.`
 
 export default function TuningPage() {
+    const navigate = useNavigate()
     const [schema, setSchema] = useState<ConfigSchema | null>(null)
     const [, setConfig] = useState<TenantConfig | null>(null)
     const [initialValues, setInitialValues] = useState<Record<string, unknown>>({})
@@ -58,6 +67,10 @@ export default function TuningPage() {
     const [saving, setSaving] = useState(false)
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
     const [error, setError] = useState<string | null>(null)
+
+    // Embedding migration state
+    const [pendingEmbeddingChange, setPendingEmbeddingChange] = useState<string | null>(null)
+    const [showMigrationDialog, setShowMigrationDialog] = useState(false)
 
     useEffect(() => {
         loadData()
@@ -94,8 +107,48 @@ export default function TuningPage() {
     }
 
     const handleChange = (name: string, value: unknown) => {
+        // Special handling for embedding_model - requires migration confirmation
+        if (name === 'embedding_model' && value !== initialValues.embedding_model) {
+            setPendingEmbeddingChange(value as string)
+            setShowMigrationDialog(true)
+            return
+        }
+
         setFormValues(prev => ({ ...prev, [name]: value }))
         setSaveStatus('idle')
+    }
+
+    const handleConfirmEmbeddingChange = async () => {
+        if (!pendingEmbeddingChange) return
+
+        try {
+            setSaving(true)
+
+            // Save the embedding model change
+            await configApi.updateTenant(DEFAULT_TENANT_ID, {
+                embedding_model: pendingEmbeddingChange
+            } as Partial<TenantConfig>)
+
+            toast.success('Embedding model updated. Redirecting to migration...')
+            setShowMigrationDialog(false)
+            setPendingEmbeddingChange(null)
+
+            // Navigate to Vector Store with autoMigrate flag
+            navigate({
+                to: '/admin/data/vectors',
+                search: { autoMigrate: 'true', tenantId: DEFAULT_TENANT_ID }
+            })
+        } catch (err) {
+            console.error('Failed to update embedding model:', err)
+            toast.error('Failed to update embedding model')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleCancelEmbeddingChange = () => {
+        setPendingEmbeddingChange(null)
+        setShowMigrationDialog(false)
     }
 
     const handleSave = async () => {
@@ -231,6 +284,72 @@ export default function TuningPage() {
                     </Card>
                 ))}
             </div>
+
+            {/* Embedding Migration Confirmation Dialog */}
+            <Dialog open={showMigrationDialog} onOpenChange={setShowMigrationDialog}>
+                <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-md">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                        <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-amber-500/10">
+                                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                            </div>
+                            Embedding Model Change
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="p-6 space-y-5">
+                        {/* Model Change Summary */}
+                        <div className="p-4 rounded-lg bg-muted/10 border border-white/5">
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                You're changing the embedding model from{' '}
+                                <span className="font-mono text-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                                    {initialValues.embedding_model as string}
+                                </span>{' '}
+                                to{' '}
+                                <span className="font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                    {pendingEmbeddingChange}
+                                </span>
+                            </p>
+                        </div>
+
+                        {/* Warning Box */}
+                        <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/5 border border-red-500/10">
+                            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                            <div className="space-y-2">
+                                <p className="text-sm font-medium text-red-500">This action requires a full data migration</p>
+                                <ul className="text-xs text-red-500/80 space-y-1 list-disc list-inside">
+                                    <li>All existing vector embeddings will be deleted</li>
+                                    <li>Documents will be queued for re-processing</li>
+                                    <li>Search may be limited until complete</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Info className="w-3.5 h-3.5" />
+                            You'll be redirected to monitor the migration progress.
+                        </div>
+                    </div>
+
+                    <DialogFooter className="p-4 bg-muted/5 border-t border-white/5 gap-3">
+                        <Button
+                            variant="ghost"
+                            onClick={handleCancelEmbeddingChange}
+                            disabled={saving}
+                            className="hover:bg-white/5"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleConfirmEmbeddingChange}
+                            disabled={saving}
+                            className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
+                        >
+                            {saving ? 'Processing...' : 'Proceed with Migration'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
@@ -278,6 +397,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                             value={[value as number ?? field.default as number]}
                             onValueChange={(vals: number[]) => onChange(vals[0])}
                             showValue={true}
+                            disabled={field.read_only}
                         />
                         <div className="flex justify-between text-xs text-muted-foreground mt-2 px-1">
                             <span>{field.min}</span>
@@ -306,6 +426,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                     <Switch
                         checked={value as boolean}
                         onCheckedChange={(checked) => onChange(checked)}
+                        disabled={field.read_only}
                     />
                 </div>
             )
@@ -314,7 +435,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
             return (
                 <div>
                     <LabelWithTooltip label={field.label} description={field.description} />
-                    <Select value={value as string} onValueChange={(val) => onChange(val)}>
+                    <Select value={value as string} onValueChange={(val) => onChange(val)} disabled={field.read_only}>
                         <SelectTrigger>
                             <SelectValue placeholder="Select an option" />
                         </SelectTrigger>
@@ -335,6 +456,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                     <Textarea
                         value={value as string ?? ''}
                         onChange={(e) => onChange(e.target.value)}
+                        disabled={field.read_only}
                         rows={isSystemPrompt ? 12 : 3}
                         className="font-mono"
                         placeholder={isSystemPrompt ? DEFAULT_SYSTEM_PROMPT : field.description}
