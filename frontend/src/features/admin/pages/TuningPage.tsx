@@ -432,7 +432,7 @@ export default function TuningPage() {
 
             {/* Embedding Migration Confirmation Dialog */}
             <Dialog open={showMigrationDialog} onOpenChange={setShowMigrationDialog}>
-                <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-md">
+                <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
                             <div className="p-2 rounded-lg bg-amber-500/10">

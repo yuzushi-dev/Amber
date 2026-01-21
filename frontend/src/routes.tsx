@@ -40,6 +40,7 @@ import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
 import TenantsPage from './features/admin/pages/TenantsPage'
 import DataRetentionPage from './features/admin/pages/DataRetentionPage'
 import RulesPage from './features/admin/pages/RulesPage'
+import GlobalGraphPage from './features/graph/pages/GlobalGraphPage'
 
 // =============================================================================
 // Root Route
@@ -166,6 +167,12 @@ const dataVectorsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/data/vectors',
     component: () => <VectorStorePage />,
+})
+
+const dataGraphRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/data/graph',
+    component: () => <GlobalGraphPage />,
 })
 
 // =============================================================================
@@ -373,6 +380,7 @@ const routeTree = rootRoute.addChildren([
         dataIndexRoute,
         dataDocumentsRoute,
         dataDocumentDetailRoute,
+        dataGraphRoute,
         dataMaintenanceRoute,
         dataVectorsRoute,
         // Settings section

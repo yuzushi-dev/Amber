@@ -105,7 +105,7 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[550px] p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/40 shadow-2xl">
+            <DialogContent className="sm:max-w-[550px] p-0 gap-0 overflow-hidden">
 
                 {/* Header */}
                 <div className="p-6 border-b bg-muted/10">

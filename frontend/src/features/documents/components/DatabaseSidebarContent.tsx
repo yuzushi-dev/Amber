@@ -26,7 +26,8 @@ import {
     Search,
     Folder,
     Trash2,
-    Layers
+    Layers,
+    Network
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -332,6 +333,7 @@ export default function DatabaseSidebarContent({
                         <FileText className="w-4 h-4 shrink-0" />
                         <span>Documents</span>
                     </Link>
+
                     <Link
                         to="/admin/data/vectors"
                         className={cn(
@@ -343,6 +345,18 @@ export default function DatabaseSidebarContent({
                     >
                         <Layers className="w-4 h-4 shrink-0" />
                         <span>Vector Store</span>
+                    </Link>
+                    <Link
+                        to="/admin/data/graph"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath.startsWith('/admin/data/graph')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <Network className="w-4 h-4 shrink-0" />
+                        <span>Global Graph</span>
                     </Link>
                 </div>
             )}

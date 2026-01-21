@@ -237,7 +237,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
         return (
             <div className="mb-8">
                 <Dialog open={showProgressDialog} onOpenChange={() => { }}>
-                    <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-lg">
+                    <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg">
                         <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                             <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
                                 <div className={`p-2 rounded-lg ${progressStatus.status === 'complete' ? 'bg-green-500/10' :
@@ -362,7 +362,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
 
                 {/* Cancel Confirmation Dialog */}
                 <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
-                    <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-sm">
+                    <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-sm">
                         <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                             <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
                                 <div className="p-2 rounded-lg bg-red-500/10">
@@ -461,7 +461,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
 
             {/* Manual Migration Confirmation Dialog */}
             <Dialog open={migrationOpen} onOpenChange={() => !migrating && handleClose()}>
-                <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-md">
+                <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
                             <div className={`p-2 rounded-lg ${result ? 'bg-green-500/10' : 'bg-red-500/10'}`}>

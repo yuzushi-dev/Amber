@@ -79,9 +79,21 @@ export const folderApi = {
     }
 }
 
-import { HealRequest, HealingSuggestion, MergeRequest, EdgeRequest } from '@/types/graph';
+import { HealRequest, HealingSuggestion, MergeRequest, EdgeRequest, GraphNode, GraphEdge } from '@/types/graph';
 
 export const graphEditorApi = {
+    getTopNodes: async (limit: number = 15) => {
+        const response = await apiClient.get<GraphNode[]>('/graph/editor/top', { params: { limit } });
+        return response.data;
+    },
+    searchNodes: async (query: string, limit: number = 10) => {
+        const response = await apiClient.get<GraphNode[]>('/graph/editor/search', { params: { q: query, limit } });
+        return response.data;
+    },
+    getNeighborhood: async (nodeId: string, limit: number = 50) => {
+        const response = await apiClient.get<{ nodes: GraphNode[], edges: GraphEdge[] }>('/graph/editor/neighborhood', { params: { node_id: nodeId, limit } });
+        return response.data;
+    },
     heal: async (request: HealRequest) => {
         const response = await apiClient.post<HealingSuggestion[]>('/graph/editor/heal', request);
         return response.data;
@@ -105,3 +117,54 @@ export const graphEditorApi = {
     }
 }
 
+// Graph History Types
+export interface GraphEditHistory {
+    id: string;
+    tenant_id: string;
+    action_type: 'connect' | 'merge' | 'prune' | 'heal' | 'delete_edge' | 'delete_node';
+    status: 'pending' | 'applied' | 'rejected' | 'undone';
+    payload: Record<string, unknown>;
+    snapshot?: Record<string, unknown> | null;
+    source_view?: string | null;
+    created_at: string;
+    applied_at?: string | null;
+}
+
+export interface GraphEditHistoryListResponse {
+    items: GraphEditHistory[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export const graphHistoryApi = {
+    list: async (params?: { status?: string; page?: number; page_size?: number }) => {
+        const response = await apiClient.get<GraphEditHistoryListResponse>('/graph/history', { params });
+        return response.data;
+    },
+    getPendingCount: async () => {
+        const response = await apiClient.get<{ count: number }>('/graph/history/pending/count');
+        return response.data.count;
+    },
+    create: async (data: {
+        action_type: GraphEditHistory['action_type'];
+        payload: Record<string, unknown>;
+        snapshot?: Record<string, unknown>;
+        source_view?: string;
+    }) => {
+        const response = await apiClient.post<GraphEditHistory>('/graph/history', data);
+        return response.data;
+    },
+    apply: async (id: string) => {
+        const response = await apiClient.post<{ status: string; id: string }>(`/graph/history/${id}/apply`);
+        return response.data;
+    },
+    reject: async (id: string) => {
+        const response = await apiClient.delete<{ status: string; id: string }>(`/graph/history/${id}`);
+        return response.data;
+    },
+    undo: async (id: string) => {
+        const response = await apiClient.post<{ status: string; id: string }>(`/graph/history/${id}/undo`);
+        return response.data;
+    }
+}

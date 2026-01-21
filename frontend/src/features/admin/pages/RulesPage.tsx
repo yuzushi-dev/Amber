@@ -338,7 +338,7 @@ export default function RulesPage() {
 
             {/* Edit Dialog - Dark Glass Theme */}
             <Dialog open={!!editingRule} onOpenChange={(open) => !open && setEditingRule(null)}>
-                <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-lg">
+                <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg">Edit Rule Configuration</DialogTitle>
                     </DialogHeader>
@@ -374,7 +374,7 @@ export default function RulesPage() {
 
             {/* Upload Dialog - Dark Glass Theme */}
             <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-                <DialogContent className="bg-zinc-950 border-white/10 shadow-2xl p-0 gap-0 overflow-hidden sm:max-w-md">
+                <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg">Import Rules</DialogTitle>
                     </DialogHeader>
