@@ -137,6 +137,10 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
 
+#### Embedding Providers
+- **Ollama**: External service (via API). Best for existing Ollama users, GPU offloading, and model flexibility (e.g., `nomic-embed-text`, `mxbai-embed-large`).
+- **Local**: Internal native library (`sentence-transformers`). Best for zero-setup, self-contained usage. Runs models like `BAAI/bge-m3` directly within the application (requires ~1-2GB RAM).
+
 #### Citation & Source Grounding
 - **Chunk-level citations** with relevance scores
 - **Document attribution** with titles and metadata

@@ -62,8 +62,10 @@ export interface TenantConfig {
     reranking_enabled: boolean
     hyde_enabled: boolean
     graph_expansion_enabled: boolean
+    llm_provider: string
+    llm_model: string
+    embedding_provider: string
     embedding_model: string
-    generation_model: string
     system_prompt_override: string | null
     hybrid_ocr_enabled: boolean
     ocr_text_density_threshold: number
@@ -265,6 +267,44 @@ export const jobsApi = {
         const response = await apiClient.get<QueuesResponse>('/admin/jobs/queues/status')
         return response.data
     },
+}
+
+// =============================================================================
+// Providers API
+// =============================================================================
+
+export interface ProviderInfo {
+    name: string
+    label: string
+    available: boolean
+    error: string | null
+    models: string[]
+}
+
+export interface AvailableProviders {
+    llm_providers: ProviderInfo[]
+    embedding_providers: ProviderInfo[]
+}
+
+export interface ValidateProviderResponse {
+    available: boolean
+    error: string | null
+    models: string[]
+}
+
+export const providersApi = {
+    getAvailable: async (): Promise<AvailableProviders> => {
+        const response = await apiClient.get<AvailableProviders>('/admin/providers/available')
+        return response.data
+    },
+
+    validate: async (providerType: 'llm' | 'embedding', providerName: string): Promise<ValidateProviderResponse> => {
+        const response = await apiClient.post<ValidateProviderResponse>('/admin/providers/validate', {
+            provider_type: providerType,
+            provider_name: providerName
+        })
+        return response.data
+    }
 }
 
 // =============================================================================
@@ -801,6 +841,7 @@ export interface GlobalRule {
     priority: number
     is_active: boolean
     source: string
+    created_at: string
     updated_at: string
 }
 

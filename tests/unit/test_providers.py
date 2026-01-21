@@ -43,6 +43,11 @@ class MockLLMProvider(BaseLLMProvider):
         self.fail_type = fail_type
         self.call_count = 0
 
+        self.call_count = 0
+
+    def _validate_config(self) -> None:
+        pass
+
     async def generate(self, prompt: str, **kwargs) -> GenerationResult:
         self.call_count += 1
         if self.should_fail:
@@ -70,6 +75,11 @@ class MockEmbeddingProvider(BaseEmbeddingProvider):
         super().__init__(ProviderConfig())
         self.should_fail = should_fail
         self.call_count = 0
+
+        self.call_count = 0
+
+    def _validate_config(self) -> None:
+        pass
 
     async def embed(self, texts: list[str], **kwargs) -> EmbeddingResult:
         self.call_count += 1

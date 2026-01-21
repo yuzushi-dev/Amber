@@ -8,7 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Save, RotateCcw, CheckCircle, Info, AlertTriangle } from 'lucide-react'
-import { configApi, ConfigSchema, TenantConfig, ConfigSchemaField } from '@/lib/api-admin'
+import { configApi, providersApi, ConfigSchema, TenantConfig, ConfigSchemaField, AvailableProviders } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -24,6 +24,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import {
     Card,
     CardContent,
@@ -69,8 +70,14 @@ export default function TuningPage() {
     const [error, setError] = useState<string | null>(null)
 
     // Embedding migration state
+    // Embedding migration state
     const [pendingEmbeddingChange, setPendingEmbeddingChange] = useState<string | null>(null)
+    const [pendingEmbeddingProviderChange, setPendingEmbeddingProviderChange] = useState<string | null>(null)
     const [showMigrationDialog, setShowMigrationDialog] = useState(false)
+
+    // Provider state
+    const [availableProviders, setAvailableProviders] = useState<AvailableProviders | null>(null)
+    const [validatingProvider, setValidatingProvider] = useState<string | null>(null)
 
     useEffect(() => {
         loadData()
@@ -79,12 +86,14 @@ export default function TuningPage() {
     const loadData = async () => {
         try {
             setLoading(true)
-            const [schemaData, configData] = await Promise.all([
+            const [schemaData, configData, providersData] = await Promise.all([
                 configApi.getSchema(),
-                configApi.getTenant(DEFAULT_TENANT_ID)
+                configApi.getTenant(DEFAULT_TENANT_ID),
+                providersApi.getAvailable()
             ])
             setSchema(schemaData)
             setConfig(configData)
+            setAvailableProviders(providersData)
 
             // Initialize form values from config
             const values: Record<string, unknown> = {}
@@ -95,6 +104,23 @@ export default function TuningPage() {
                     values[field.name] = (configData as unknown as Record<string, unknown>)[field.name] ?? field.default
                 }
             })
+
+            // Populate provider options in schema
+            const updatedSchema = { ...schemaData }
+
+            // LLM Provider Options
+            const llmProviderField = updatedSchema.fields.find(f => f.name === 'llm_provider')
+            if (llmProviderField && providersData.llm_providers) {
+                llmProviderField.options = providersData.llm_providers.map(p => p.name)
+            }
+
+            // Embedding Provider Options
+            const embedProviderField = updatedSchema.fields.find(f => f.name === 'embedding_provider')
+            if (embedProviderField && providersData.embedding_providers) {
+                embedProviderField.options = providersData.embedding_providers.map(p => p.name)
+            }
+
+            setSchema(updatedSchema)
             setFormValues(values)
             setInitialValues(values)
             setError(null)
@@ -106,11 +132,55 @@ export default function TuningPage() {
         }
     }
 
+    const validateProvider = async (type: 'llm' | 'embedding', name: string) => {
+        try {
+            setValidatingProvider(name)
+            const result = await providersApi.validate(type, name)
+            if (result.available) {
+                toast.success(`${name} is reachable and ready`)
+                // Update specific provider models if needed
+            } else {
+                toast.error(`Connection failed: ${result.error}`)
+            }
+        } catch (err) {
+            toast.error(`Validation failed for ${name}`)
+        } finally {
+            setValidatingProvider(null)
+        }
+    }
+
     const handleChange = (name: string, value: unknown) => {
-        // Special handling for embedding_model - requires migration confirmation
+        // Special handling for embedding settings - trigger migration dialog
         if (name === 'embedding_model' && value !== initialValues.embedding_model) {
             setPendingEmbeddingChange(value as string)
+            // If provider hasn't changed, keep current provider
+            setPendingEmbeddingProviderChange(formValues.embedding_provider as string)
             setShowMigrationDialog(true)
+            return
+        }
+
+        if (name === 'embedding_provider' && value !== initialValues.embedding_provider) {
+            setPendingEmbeddingProviderChange(value as string)
+            // Default to a model for this provider? Or let modal handle it
+            // Let's pick the first available model for the new provider
+            const prov = availableProviders?.embedding_providers.find(p => p.name === value)
+            const defaultModel = prov?.models[0] || ''
+            setPendingEmbeddingChange(defaultModel)
+            setShowMigrationDialog(true)
+            return
+        }
+
+        // LLM Provider Change - Reset Model
+        if (name === 'llm_provider') {
+            const prov = availableProviders?.llm_providers.find(p => p.name === value)
+            // Automatically select first model if current is not valid for new provider
+            // Or just select first model always for safety
+            const firstModel = prov?.models[0] || ''
+            setFormValues(prev => ({
+                ...prev,
+                [name]: value,
+                llm_model: firstModel
+            }))
             return
         }
 
@@ -119,19 +189,21 @@ export default function TuningPage() {
     }
 
     const handleConfirmEmbeddingChange = async () => {
-        if (!pendingEmbeddingChange) return
+        if (!pendingEmbeddingChange || !pendingEmbeddingProviderChange) return
 
         try {
             setSaving(true)
 
-            // Save the embedding model change
+            // Save the embedding configuration
             await configApi.updateTenant(DEFAULT_TENANT_ID, {
+                embedding_provider: pendingEmbeddingProviderChange,
                 embedding_model: pendingEmbeddingChange
             } as Partial<TenantConfig>)
 
-            toast.success('Embedding model updated. Redirecting to migration...')
+            toast.success('Embedding configuration updated. Redirecting to migration...')
             setShowMigrationDialog(false)
             setPendingEmbeddingChange(null)
+            setPendingEmbeddingProviderChange(null)
 
             // Navigate to Vector Store with autoMigrate flag
             navigate({
@@ -139,8 +211,8 @@ export default function TuningPage() {
                 search: { autoMigrate: 'true', tenantId: DEFAULT_TENANT_ID }
             })
         } catch (err) {
-            console.error('Failed to update embedding model:', err)
-            toast.error('Failed to update embedding model')
+            console.error('Failed to update embedding config:', err)
+            toast.error('Failed to update embedding configuration')
         } finally {
             setSaving(false)
         }
@@ -148,6 +220,7 @@ export default function TuningPage() {
 
     const handleCancelEmbeddingChange = () => {
         setPendingEmbeddingChange(null)
+        setPendingEmbeddingProviderChange(null)
         setShowMigrationDialog(false)
     }
 
@@ -260,26 +333,98 @@ export default function TuningPage() {
             {/* Form Sections */}
             <div className="grid gap-6">
                 {schema.groups.map(group => (
-                    <Card key={group} className="overflow-hidden border-border/50 shadow-sm">
-                        <CardHeader className="bg-muted/30 pb-4 border-b border-border/50">
+                    <Card key={group} className="overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/50 pb-4 border-b">
                             <CardTitle className="text-lg font-semibold capitalize flex items-center gap-2">
                                 {group.replace('_', ' ')}
-                                <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
+                                <Badge variant="outline" className="text-xs font-normal text-muted-foreground ml-auto">
                                     {schema.fields.filter(f => f.group === group).length} settings
                                 </Badge>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-6 grid gap-6">
-                            {schema.fields
-                                .filter(field => field.group === group)
-                                .map(field => (
-                                    <FieldInput
-                                        key={field.name}
-                                        field={field}
-                                        value={formValues[field.name]}
-                                        onChange={(value) => handleChange(field.name, value)}
-                                    />
-                                ))}
+                            {(() => {
+                                const groupFields = schema.fields.filter(field => field.group === group)
+                                const renderedFields = new Set<string>()
+
+                                return groupFields.map(field => {
+                                    // Skip if already rendered (e.g., model field captured by provider)
+                                    if (renderedFields.has(field.name)) return null
+
+                                    const renderFieldItem = (f: ConfigSchemaField) => {
+                                        // Inject dynamic options for dependent fields
+                                        let dynamicField = { ...f }
+                                        if (f.name === 'llm_model') {
+                                            const currentProvider = formValues['llm_provider'] as string
+                                            const provDetails = availableProviders?.llm_providers.find(p => p.name === currentProvider)
+                                            if (provDetails) dynamicField.options = provDetails.models
+                                        }
+                                        if (f.name === 'embedding_model') {
+                                            const currentProvider = formValues['embedding_provider'] as string
+                                            const provDetails = availableProviders?.embedding_providers.find(p => p.name === currentProvider)
+                                            if (provDetails) dynamicField.options = provDetails.models
+                                        }
+
+                                        return (
+                                            <div key={f.name} className="flex gap-2 items-end">
+                                                <div className="flex-1">
+                                                    <FieldInput
+                                                        field={dynamicField}
+                                                        value={formValues[f.name]}
+                                                        onChange={(value) => handleChange(f.name, value)}
+                                                    />
+                                                </div>
+                                                {/* Validation Button for Providers */}
+                                                {(f.name === 'llm_provider' || f.name === 'embedding_provider') && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="icon"
+                                                        className={cn(
+                                                            "transition-colors",
+                                                            validatingProvider === formValues[f.name] && "border-primary text-primary"
+                                                        )}
+                                                        onClick={() => validateProvider(
+                                                            f.name === 'llm_provider' ? 'llm' : 'embedding',
+                                                            formValues[f.name] as string
+                                                        )}
+                                                        disabled={validatingProvider === formValues[f.name]}
+                                                        title="Check connection"
+                                                    >
+                                                        {validatingProvider === formValues[f.name] ?
+                                                            <RotateCcw className="h-4 w-4 animate-spin" /> :
+                                                            <CheckCircle className="h-4 w-4 text-emerald-500" />
+                                                        }
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )
+                                    }
+
+                                    // Check for LLM / Embedding Pairs
+                                    if (field.name === 'llm_provider' || field.name === 'embedding_provider') {
+                                        const modelFieldName = field.name === 'llm_provider' ? 'llm_model' : 'embedding_model'
+                                        const modelField = groupFields.find(f => f.name === modelFieldName)
+
+                                        if (modelField) {
+                                            renderedFields.add(field.name)
+                                            renderedFields.add(modelFieldName)
+
+                                            // Extract common prefix label to show above the pair? 
+                                            // Or just let them have their own labels but side-by-side
+                                            return (
+                                                <div key={`${field.name}-group`} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-muted/20 rounded-lg border border-border/50">
+                                                    {renderFieldItem(field)}
+                                                    {renderFieldItem(modelField)}
+                                                </div>
+                                            )
+                                        }
+                                    }
+
+                                    // Mark as rendered
+                                    renderedFields.add(field.name)
+                                    return renderFieldItem(field)
+                                })
+                            })()}
                         </CardContent>
                     </Card>
                 ))}
@@ -298,16 +443,36 @@ export default function TuningPage() {
                     </DialogHeader>
 
                     <div className="p-6 space-y-5">
-                        {/* Model Change Summary */}
-                        <div className="p-4 rounded-lg bg-muted/10 border border-white/5">
+                        {/* Model Change Selection */}
+                        <div className="p-4 rounded-lg bg-muted/10 border border-white/5 space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-foreground">Target Model</label>
+                                <Select
+                                    value={pendingEmbeddingChange || ''}
+                                    onValueChange={setPendingEmbeddingChange}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select model" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {availableProviders?.embedding_providers
+                                            .find(p => p.name === pendingEmbeddingProviderChange)
+                                            ?.models.map(model => (
+                                                <SelectItem key={model} value={model}>{model}</SelectItem>
+                                            ))
+                                        }
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
                             <p className="text-sm text-muted-foreground leading-relaxed">
-                                You're changing the embedding model from{' '}
+                                You are migrating from{' '}
                                 <span className="font-mono text-foreground bg-muted/50 px-1.5 py-0.5 rounded">
-                                    {initialValues.embedding_model as string}
+                                    {initialValues.embedding_provider as string}/{initialValues.embedding_model as string}
                                 </span>{' '}
                                 to{' '}
                                 <span className="font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                                    {pendingEmbeddingChange}
+                                    {pendingEmbeddingProviderChange}/{pendingEmbeddingChange}
                                 </span>
                             </p>
                         </div>
@@ -458,7 +623,7 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
                         onChange={(e) => onChange(e.target.value)}
                         disabled={field.read_only}
                         rows={isSystemPrompt ? 12 : 3}
-                        className="font-mono"
+                        className="font-mono text-sm leading-relaxed"
                         placeholder={isSystemPrompt ? DEFAULT_SYSTEM_PROMPT : field.description}
                     />
                     {isSystemPrompt && (value === '' || value === null) && (

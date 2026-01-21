@@ -222,9 +222,10 @@ class EmbeddingMigrationService:
         }
         
         model = new_config.get("embedding_model")
+        current_provider = new_config.get("embedding_provider")
         
-        # 1. Force update provider if model is known
-        if model in MODEL_PROVIDERS:
+        # 1. Infer provider only if missing (Legacy support)
+        if not current_provider and model in MODEL_PROVIDERS:
             new_config["embedding_provider"] = MODEL_PROVIDERS[model]
         
         # 2. Force update dimensions if model is known
