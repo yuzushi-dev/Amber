@@ -42,7 +42,54 @@ class HealingSuggestion(BaseModel):
     confidence: float
     reason: str
 
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: Optional[str] = "Entity"
+    community_id: Optional[int] = None
+    degree: Optional[int] = None
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    type: str
+
+class GraphData(BaseModel):
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+
 # --- Endpoints ---
+
+@router.get("/top", response_model=List[GraphNode])
+async def get_top_nodes(
+    limit: int = 15,
+    tenant_id: str = Depends(get_current_user_tenant_id)
+):
+    """Get top connected nodes for initial view."""
+    nodes = await neo4j_client.get_top_nodes(tenant_id, limit)
+    return [GraphNode(**n) for n in nodes]
+
+@router.get("/search", response_model=List[GraphNode])
+async def search_nodes(
+    q: str,
+    limit: int = 10,
+    tenant_id: str = Depends(get_current_user_tenant_id)
+):
+    """Search nodes by name or description."""
+    if not q:
+        return []
+    nodes = await neo4j_client.search_nodes(q, tenant_id, limit)
+    return [GraphNode(**n) for n in nodes]
+
+@router.get("/neighborhood", response_model=GraphData)
+async def get_node_neighborhood(
+    node_id: str,
+    limit: int = 50,
+    tenant_id: str = Depends(get_current_user_tenant_id)
+):
+    """Get node neighborhood (nodes + edges)."""
+    data = await neo4j_client.get_node_neighborhood_graph(node_id, tenant_id, limit)
+    return GraphData(**data)
 
 @router.post("/heal", response_model=List[HealingSuggestion])
 async def heal_node(

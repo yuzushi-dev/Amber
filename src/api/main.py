@@ -266,6 +266,13 @@ try:
 except ImportError as e:
     logger.warning(f"Graph Editor router not available: {e}")
 
+try:
+    from src.api.routes import graph_history
+    v1_router.include_router(graph_history.router)
+    logger.info("Registered graph_history router")
+except ImportError as e:
+    logger.warning(f"Graph History router not available: {e}")
+
 
 try:
     from src.api.routes import feedback
