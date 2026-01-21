@@ -215,6 +215,23 @@ class Neo4jClient:
         except Exception:
             return False
 
+    async def delete_tenant_data(self, tenant_id: str) -> int:
+        """
+        Delete all data associated with a tenant.
+        Used during destructive migration.
+        """
+        query = """
+        MATCH (n {tenant_id: $tenant_id})
+        DETACH DELETE n
+        RETURN count(n) as deleted
+        """
+        try:
+            result = await self.execute_write(query, {"tenant_id": tenant_id})
+            return result[0]["deleted"] if result else 0
+        except Exception as e:
+            logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
+            raise
+
 # Global instance
 neo4j_client = Neo4jClient()
 

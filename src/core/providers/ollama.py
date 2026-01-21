@@ -11,7 +11,9 @@ from typing import Any
 
 from src.core.providers.base import (
     AuthenticationError,
+    BaseEmbeddingProvider,
     BaseLLMProvider,
+    EmbeddingResult,
     GenerationResult,
     InvalidRequestError,
     ProviderConfig,
@@ -281,3 +283,142 @@ class OllamaLLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
+
+
+class OllamaEmbeddingProvider(BaseEmbeddingProvider):
+    """
+    Ollama embedding provider using OpenAI-compatible API.
+
+    Supports local embedding models like nomic-embed-text, mxbai-embed-large.
+    """
+
+    provider_name = "ollama"
+
+    models = {
+        "nomic-embed-text": {
+            "dimensions": 768,
+            "max_dimensions": 768,
+            "cost_per_1k": 0.0,  # Free/local
+            "description": "Nomic's high quality text embeddings",
+        },
+        "mxbai-embed-large": {
+            "dimensions": 1024,
+            "max_dimensions": 1024,
+            "cost_per_1k": 0.0,
+            "description": "MixedBread AI large embeddings",
+        },
+        "all-minilm": {
+            "dimensions": 384,
+            "max_dimensions": 384,
+            "cost_per_1k": 0.0,
+            "description": "Fast, lightweight embeddings",
+        },
+        "snowflake-arctic-embed": {
+            "dimensions": 1024,
+            "max_dimensions": 1024,
+            "cost_per_1k": 0.0,
+            "description": "Snowflake Arctic embeddings",
+        },
+    }
+
+    default_model = "nomic-embed-text"
+
+    def __init__(self, config: ProviderConfig | None = None):
+        super().__init__(config)
+        import os
+
+        # Allow overriding default model via env
+        self.default_model = os.getenv("OLLAMA_EMBEDDING_MODEL", self.default_model)
+        self._client = None
+        # Default Ollama URL if not provided
+        if not self.config.base_url:
+            self.config.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+    def _validate_config(self) -> None:
+        # Ollama doesn't strictly require API key, but base_url is important
+        pass
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = _get_openai_client(
+                api_key=self.config.api_key or "ollama",
+                base_url=self.config.base_url,
+            )
+        return self._client
+
+    async def embed(
+        self,
+        texts: list[str],
+        model: str | None = None,
+        dimensions: int | None = None,
+        **kwargs,
+    ) -> EmbeddingResult:
+        """Generate embeddings using Ollama (via OpenAI compatible API)."""
+        model = model or self.default_model
+        start_time = time.perf_counter()
+
+        try:
+            response = await self.client.embeddings.create(
+                model=model,
+                input=texts,
+            )
+
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+            # Extract embeddings in order
+            embeddings = [
+                item.embedding for item in sorted(response.data, key=lambda x: x.index)
+            ]
+
+            # Get dimensions from first embedding
+            actual_dimensions = len(embeddings[0]) if embeddings else 0
+
+            usage = TokenUsage(
+                input_tokens=response.usage.total_tokens if response.usage else 0,
+                output_tokens=0,
+            )
+
+            return EmbeddingResult(
+                embeddings=embeddings,
+                model=model,
+                provider=self.provider_name,
+                usage=usage,
+                dimensions=actual_dimensions,
+                latency_ms=elapsed_ms,
+                cost_estimate=0.0,  # Local is free
+            )
+
+        except Exception as e:
+            self._handle_error(e, model)
+
+    def _handle_error(self, e: Exception, model: str) -> None:
+        """Convert OpenAI exceptions to provider exceptions."""
+        error_type = type(e).__name__
+
+        if "RateLimitError" in error_type:
+            raise RateLimitError(
+                str(e),
+                provider=self.provider_name,
+                model=model,
+                retry_after=60.0,
+            )
+        elif "AuthenticationError" in error_type:
+            raise AuthenticationError(
+                str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif "APIConnectionError" in error_type or "Timeout" in error_type:
+            raise ProviderUnavailableError(
+                f"Cannot connect to Ollama at {self.config.base_url}: {e}",
+                provider=self.provider_name,
+                model=model,
+            )
+        else:
+            raise ProviderUnavailableError(
+                f"Embedding error: {e}",
+                provider=self.provider_name,
+                model=model,
+            )
+

@@ -135,6 +135,11 @@ class Settings(BaseSettings):
     default_llm_provider: str | None = Field(default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider")
     default_llm_model: str | None = Field(default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model")
 
+    # Embedding Provider Configuration
+    default_embedding_provider: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_PROVIDER", description="Default embedding provider (openai, ollama, local)")
+    default_embedding_model: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_MODEL", description="Default embedding model")
+    embedding_dimensions: int | None = Field(default=None, alias="EMBEDDING_DIMENSIONS", description="Embedding dimensions (auto-detected if not set)")
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:

@@ -64,6 +64,9 @@ def _get_services():
             _retrieval_service = RetrievalService(
                 openai_api_key=openai_key or None,
                 anthropic_api_key=anthropic_key or None,
+                ollama_base_url=settings.ollama_base_url,
+                default_embedding_provider=settings.default_embedding_provider,
+                default_embedding_model=settings.default_embedding_model,
                 redis_url=settings.db.redis_url,
                 config=retrieval_config,
             )

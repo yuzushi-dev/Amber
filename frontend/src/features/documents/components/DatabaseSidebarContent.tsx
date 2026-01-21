@@ -25,7 +25,8 @@ import {
     Plus,
     Search,
     Folder,
-    Trash2
+    Trash2,
+    Layers
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -315,6 +316,36 @@ export default function DatabaseSidebarContent({
                     {!collapsed && <span>Upload Files</span>}
                 </Button>
             </div>
+
+            {/* System Navigation */}
+            {!collapsed && (
+                <div className="px-3 pb-3 space-y-0.5">
+                    <Link
+                        to="/admin/data/documents"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath === '/admin/data/documents' || currentPath.startsWith('/admin/data/documents/')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <FileText className="w-4 h-4 shrink-0" />
+                        <span>Documents</span>
+                    </Link>
+                    <Link
+                        to="/admin/data/vectors"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath.startsWith('/admin/data/vectors')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span>Vector Store</span>
+                    </Link>
+                </div>
+            )}
 
             {/* Content: Folders & Files */}
             {!collapsed && (
