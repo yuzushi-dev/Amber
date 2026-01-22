@@ -26,9 +26,8 @@ import {
     Search,
     Folder,
     Trash2,
-    Server,
-    Activity,
-    Layers
+    Layers,
+    Network
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -317,36 +316,50 @@ export default function DatabaseSidebarContent({
                     <Plus className="w-4 h-4" />
                     {!collapsed && <span>Upload Files</span>}
                 </Button>
-
-                {/* Navigation Links (Restored) */}
-                <nav className="space-y-1 pt-2 border-t">
-                    {!collapsed && (
-                        <h3 className="px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                            Navigation
-                        </h3>
-                    )}
-                    {[
-                        { label: 'Statistics', icon: Server, to: '/admin/data/maintenance' }, // Icon: Database -> Server (more appropriate)
-                        { label: 'Query Log', icon: Activity, to: '/admin/queries' },
-                        { label: 'Vector Store', icon: Layers, to: '/admin/data/vectors' },
-                    ].map((item) => (
-                        <Link
-                            key={item.to}
-                            to={item.to}
-                            className={cn(
-                                "flex items-center gap-3 px-2 py-1.5 rounded-md text-sm transition-colors",
-                                "text-muted-foreground hover:bg-muted hover:text-foreground",
-                                collapsed && "justify-center px-0",
-                                currentPath.startsWith(item.to) && "bg-muted text-foreground font-medium"
-                            )}
-                            title={collapsed ? item.label : undefined}
-                        >
-                            <item.icon className="w-4 h-4 shrink-0" />
-                            {!collapsed && <span>{item.label}</span>}
-                        </Link>
-                    ))}
-                </nav>
             </div>
+
+            {/* System Navigation */}
+            {!collapsed && (
+                <div className="px-3 pb-3 space-y-0.5">
+                    <Link
+                        to="/admin/data/documents"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath === '/admin/data/documents' || currentPath.startsWith('/admin/data/documents/')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <FileText className="w-4 h-4 shrink-0" />
+                        <span>Documents</span>
+                    </Link>
+
+                    <Link
+                        to="/admin/data/vectors"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath.startsWith('/admin/data/vectors')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span>Vector Store</span>
+                    </Link>
+                    <Link
+                        to="/admin/data/graph"
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                            currentPath.startsWith('/admin/data/graph')
+                                ? "bg-muted text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                    >
+                        <Network className="w-4 h-4 shrink-0" />
+                        <span>Global Graph</span>
+                    </Link>
+                </div>
+            )}
 
             {/* Content: Folders & Files */}
             {!collapsed && (
