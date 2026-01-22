@@ -224,7 +224,8 @@ class RagasService:
     ) -> float:
         """Use JudgeService as fallback for faithfulness."""
         try:
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
             from src.core.evaluation.judge import JudgeService
             from src.core.generation.registry import PromptRegistry
             from src.core.providers.factory import ProviderFactory
@@ -250,7 +251,8 @@ class RagasService:
     ) -> float:
         """Use JudgeService as fallback for relevance."""
         try:
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
             from src.core.evaluation.judge import JudgeService
             from src.core.generation.registry import PromptRegistry
             from src.core.providers.factory import ProviderFactory

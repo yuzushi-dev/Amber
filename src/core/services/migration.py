@@ -11,7 +11,6 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.config import settings
 from src.core.models.tenant import Tenant
 from src.core.models.document import Document
 from src.core.models.chunk import Chunk
@@ -20,6 +19,12 @@ from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _get_settings():
+    """Get settings from composition root."""
+    from src.platform.composition_root import get_settings_lazy
+    return get_settings_lazy()
 
 
 class EmbeddingMigrationService:
@@ -52,9 +57,9 @@ class EmbeddingMigrationService:
             stored_dims = tenant_config.get("embedding_dimensions")
             
             # Current system config
-            current_provider = settings.default_embedding_provider
-            current_model = settings.default_embedding_model
-            current_dims = settings.embedding_dimensions
+            current_provider = _get_settings().default_embedding_provider
+            current_model = _get_settings().default_embedding_model
+            current_dims = _get_settings().embedding_dimensions
             
             # If no stored config, it might be a legacy tenant or fresh install.
             # We assume legacy tenants match the OLD default (e.g. text-embedding-3-small) 
@@ -191,9 +196,9 @@ class EmbeddingMigrationService:
         # Ensure we have all necessary fields. Use existing config if present.
         
         if "embedding_provider" not in new_config:
-            new_config["embedding_provider"] = settings.default_embedding_provider
+            new_config["embedding_provider"] = _get_settings().default_embedding_provider
         if "embedding_model" not in new_config:
-            new_config["embedding_model"] = settings.default_embedding_model
+            new_config["embedding_model"] = _get_settings().default_embedding_model
 
         # Define model-to-provider mapping
         MODEL_PROVIDERS = {
@@ -244,8 +249,8 @@ class EmbeddingMigrationService:
         # Note: In single-collection architecture (document_chunks), this drops ALL data.
         # This is expected for a global model migration.
         config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
+            host=_get_settings().db.milvus_host,
+            port=_get_settings().db.milvus_port,
             collection_name=f"amber_{tenant_id}", 
             dimensions=new_config["embedding_dimensions"]
         )
@@ -259,8 +264,8 @@ class EmbeddingMigrationService:
         
         # Also drop the legacy/global one just in case
         legacy_config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
+            host=_get_settings().db.milvus_host,
+            port=_get_settings().db.milvus_port,
             collection_name="document_chunks", 
         )
         legacy_store = MilvusVectorStore(legacy_config)
@@ -360,8 +365,8 @@ class EmbeddingMigrationService:
             
             # We instantiate a temporary service just for this check
             factory = ProviderFactory(
-                openai_api_key=settings.openai_api_key,
-                ollama_base_url=settings.ollama_base_url,
+                openai_api_key=_get_settings().openai_api_key,
+                ollama_base_url=_get_settings().ollama_base_url,
                 default_embedding_provider=provider,
                 default_embedding_model=model,
             )

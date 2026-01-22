@@ -11,8 +11,6 @@ from typing import BinaryIO
 from minio import Minio
 from minio.error import S3Error
 
-from src.api.config import settings
-
 # ... imports
 # logger setup later
 logger = logging.getLogger(__name__)
@@ -21,30 +19,45 @@ logger = logging.getLogger(__name__)
 class MinIOClient:
     """Wrapper around MinIO client."""
 
-    def __init__(self):
-        # We assume MinIO is available at the configured host/port
-        # In docker-compose: api depends on minio service
-        # But we access it via 'minio' hostname inside docker network
-        # Or localhost if running locally with ports exposed
-
-        # When running from host (outside docker), use localhost:9000
-        # When running from api container, use MILLVUS_HOST (which is 'minio' in docker-compose for MinIO?? No wait)
-
-        # Let's check config settings.
-        # MINIO_HOST/PORT usually matching the service.
-        # Using settings from config.py
-
-        # For this phase implementation, we'll try to use specific env vars or fall back to defaults
-        # We need to ensure we can connect.
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        secure: bool | None = None,
+        bucket_name: str | None = None,
+    ):
+        """
+        Initialize MinIO client.
+        
+        Args:
+            host: MinIO host. If None, reads from composition root.
+            port: MinIO port. If None, reads from composition root.
+            access_key: Access key. If None, reads from composition root.
+            secret_key: Secret key. If None, reads from composition root.
+            secure: Use HTTPS. If None, reads from composition root.
+            bucket_name: Bucket name. If None, reads from composition root.
+        """
+        if any(v is None for v in [host, port, access_key, secret_key, secure, bucket_name]):
+            # Lazy load from composition root for backward compatibility
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
+            host = host if host is not None else settings.minio.host
+            port = port if port is not None else settings.minio.port
+            access_key = access_key if access_key is not None else settings.minio.root_user
+            secret_key = secret_key if secret_key is not None else settings.minio.root_password
+            secure = secure if secure is not None else settings.minio.secure
+            bucket_name = bucket_name if bucket_name is not None else settings.minio.bucket_name
 
         self.client = Minio(
-            endpoint=f"{settings.minio.host}:{settings.minio.port}",
-            access_key=settings.minio.root_user,
-            secret_key=settings.minio.root_password,
-            secure=settings.minio.secure,
+            endpoint=f"{host}:{port}",
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
         )
-        self.bucket_name = settings.minio.bucket_name
-        print(f"DEBUG: MinIO Client initialized. Endpoint: {settings.minio.host}:{settings.minio.port}, Bucket: {self.bucket_name}")
+        self.bucket_name = bucket_name
+        logger.debug(f"MinIO Client initialized. Endpoint: {host}:{port}, Bucket: {self.bucket_name}")
 
     def ensure_bucket_exists(self) -> None:
         """Create the bucket if it doesn't exist."""

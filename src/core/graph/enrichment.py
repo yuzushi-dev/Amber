@@ -117,7 +117,8 @@ class GraphEnricher:
         if not self.vector_store:
             # Try to lazy load or fail
             try:
-                from src.api.config import settings
+                from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
                 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
                 
                 config = MilvusConfig(
