@@ -274,35 +274,35 @@
 
 /* Primary glow - used for buttons and key CTAs */
 .shadow-glow-sm {
-  box-shadow: 0 0 10px hsl(var(--primary) / 0.2);
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.1);
 }
 
 .shadow-glow {
-  box-shadow: 0 0 20px hsl(var(--primary) / 0.25);
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.15);
 }
 
 .shadow-glow-lg {
-  box-shadow: 0 0 40px hsl(var(--primary) / 0.35);
+  box-shadow: 0 0 40px hsl(var(--primary) / 0.2);
 }
 
 /* Success glow - used for success alerts and confirmations */
 .shadow-glow-success {
-  box-shadow: 0 0 20px hsl(var(--success) / 0.3);
+  box-shadow: 0 0 20px hsl(var(--success) / 0.15);
 }
 
 /* Warning glow - used for warning alerts */
 .shadow-glow-warning {
-  box-shadow: 0 0 20px hsl(var(--warning) / 0.3);
+  box-shadow: 0 0 20px hsl(var(--warning) / 0.15);
 }
 
 /* Destructive/Error glow - used for error alerts */
 .shadow-glow-destructive {
-  box-shadow: 0 0 20px hsl(var(--destructive) / 0.3);
+  box-shadow: 0 0 20px hsl(var(--destructive) / 0.15);
 }
 
 /* Info glow - used for info alerts */
 .shadow-glow-info {
-  box-shadow: 0 0 20px hsl(var(--info) / 0.3);
+  box-shadow: 0 0 20px hsl(var(--info) / 0.15);
 }
 
 /* =============================================================================
