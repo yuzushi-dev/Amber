@@ -1,25 +1,6 @@
 # Tenant Security & Role-Based Access Control
 
-> **Version**: 1.0.0  
-> **Last Updated**: 2026-01-22  
-> **Status**: Implemented
-
----
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Role Definitions](#role-definitions)
-4. [Capability Matrix](#capability-matrix)
-5. [Implementation Details](#implementation-details)
-6. [Privacy & Data Redaction](#privacy--data-redaction)
-7. [API Integration Guide](#api-integration-guide)
-8. [Testing](#testing)
-9. [Migration Guide](#migration-guide)
-10. [Troubleshooting](#troubleshooting)
-
----
+<!-- markdownlint-disable MD013 -->
 
 ## Overview
 
@@ -41,7 +22,28 @@ Amber implements a **dual-layer authentication and authorization system** that p
 | **Scope**       | A global permission attached to an API Key (e.g., `super_admin`, `admin`).                 |
 | **Tenant Role** | A context-specific role granted to a key within a specific tenant (e.g., `admin`, `user`). |
 
----
+## Metadata
+
+| Field        | Value       |
+| ------------ | ----------- |
+| Version      | 1.0.0       |
+| Last Updated | 2026-01-22  |
+| Status       | Implemented |
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Metadata](#metadata)
+- [Architecture](#architecture)
+- [Role Definitions](#role-definitions)
+- [Capability Matrix](#capability-matrix)
+- [Implementation Details](#implementation-details)
+- [Privacy & Data Redaction](#privacy--data-redaction)
+- [API Integration Guide](#api-integration-guide)
+- [Testing](#testing)
+- [Migration Guide](#migration-guide)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
 
 ## Architecture
 
@@ -74,23 +76,23 @@ sequenceDiagram
 
 ### Data Model
 
-```
-┌─────────────────┐       ┌─────────────────────┐       ┌─────────────┐
-│    api_keys     │       │   api_key_tenants   │       │   tenants   │
-├─────────────────┤       ├─────────────────────┤       ├─────────────┤
-│ id (PK)         │──────▶│ api_key_id (PK, FK) │       │ id (PK)     │
-│ name            │       │ tenant_id (PK, FK)  │◀──────│ name        │
-│ hashed_key      │       │ role                │       │ settings    │
-│ scopes (JSON)   │       │ created_at          │       │ ...         │
-│ is_active       │       └─────────────────────┘       └─────────────┘
-│ ...             │                 │
-└─────────────────┘                 │
-                                    ▼
-                         ┌──────────────────────┐
-                         │  role values:        │
-                         │  - 'admin'           │
-                         │  - 'user' (default)  │
-                         └──────────────────────┘
+```text
++-----------------+       +---------------------+       +-------------+
+| api_keys        |       | api_key_tenants     |       | tenants     |
++-----------------+       +---------------------+       +-------------+
+| id (PK)       | ---->                                        | api_key_id (PK, FK) |       | id (PK)  |
+| name          |                                              | tenant_id (PK, FK)  | <---- | name     |
+| hashed_key    |                                              | role                |       | settings |
+| scopes (JSON) |                                              | created_at          |       | ...      |
+| is_active     | +---------------------+       +------------- |
+| ...           |                                              |
++-----------------+                 |
+                                    v
+                         +----------------------+
+| role values:       |
+| - 'admin'          |
+| - 'user' (default) |
+                         +----------------------+
 ```
 
 ### Request State Injection
@@ -104,8 +106,6 @@ The `AuthenticationMiddleware` injects the following into `request.state`:
 | `tenant_role`    | `str`       | Role within the current tenant (`admin`, `user`).                  |
 | `is_super_admin` | `bool`      | `True` if `super_admin` is in scopes.                              |
 | `api_key_name`   | `str`       | Name of the API key for logging.                                   |
-
----
 
 ## Role Definitions
 
@@ -134,61 +134,57 @@ These are defined in the `api_key_tenants.role` column for each key-tenant assoc
 2. **Tenant Admin** (`tenant_role = 'admin'`): Full access within their assigned tenant.
 3. **Tenant User** (`tenant_role = 'user'`): Limited to user-facing endpoints.
 
----
-
 ## Capability Matrix
 
 ### Administrative Capabilities
 
-| Capability                |   Super Admin    |  Tenant Admin  | Tenant User |
-| :------------------------ | :--------------: | :------------: | :---------: |
-| **Tenant Management**     |
-| Create Tenant             |        ✅         |       ❌        |      ❌      |
-| Delete Tenant             |        ✅         |       ❌        |      ❌      |
-| List All Tenants          |        ✅         |  ❌ (Own Only)  |      ❌      |
-| **User & Key Management** |
-| Create API Keys           |  ✅ (Any Tenant)  | ✅ (Own Tenant) |      ❌      |
-| Assign Roles              | ✅ (Cross-Tenant) | ✅ (Own Tenant) |      ❌      |
-| Revoke Keys               |        ✅         | ✅ (Own Tenant) |      ❌      |
-| **Configuration**         |
-| Global Defaults           |        ✅         | ❌ (Read Only)  |      ❌      |
-| Tenant Overrides          |        ✅         |       ✅        |      ❌      |
-| Embedding Migration       |        ✅         |       ❌        |      ❌      |
-| **System Operations**     |
-| Cache Clear               |        ✅         |       ❌        |      ❌      |
-| Orphan Pruning            |        ✅         |       ❌        |      ❌      |
+| Capability                | Super Admin        | Tenant Admin        | Tenant User |
+| ------------------------- | ------------------ | ------------------- | ----------- |
+| **Tenant Management**     |                    |                     |             |
+| Create Tenant             | Yes                | No                  | No          |
+| Delete Tenant             | Yes                | No                  | No          |
+| List All Tenants          | Yes                | Limited (Own Only)  | No          |
+| **User & Key Management** |                    |                     |             |
+| Create API Keys           | Yes (Any Tenant)   | Yes (Own Tenant)    | No          |
+| Assign Roles              | Yes (Cross-Tenant) | Yes (Own Tenant)    | No          |
+| Revoke Keys               | Yes                | Yes (Own Tenant)    | No          |
+| **Configuration**         |                    |                     |             |
+| Global Defaults           | Yes                | Limited (Read Only) | No          |
+| Tenant Overrides          | Yes                | Yes                 | No          |
+| Embedding Migration       | Yes                | No                  | No          |
+| **System Operations**     |                    |                     |             |
+| Cache Clear               | Yes                | No                  | No          |
+| Orphan Pruning            | Yes                | No                  | No          |
 
 ### Data Access Capabilities
 
-| Capability                  |   Super Admin   |  Tenant Admin   | Tenant User |
-| :-------------------------- | :-------------: | :-------------: | :---------: |
-| **Documents**               |
-| Upload                      |     ✅ (Any)     |     ✅ (Own)     |   ✅ (Own)   |
-| Delete                      |     ✅ (Any)     |     ✅ (Own)     |      ❌      |
-| List                        |     ✅ (Any)     |     ✅ (Own)     |   ✅ (Own)   |
-| **Chat History**            |
-| Own History                 |        ✅        |        ✅        |      ✅      |
-| Other Users (No Feedback)   | ⚠️ Metadata Only | ⚠️ Metadata Only |      ❌      |
-| Other Users (With Feedback) |   ✅ (For QA)    | ✅ (Own Tenant)  |      ❌      |
-| **Metrics & Feedback**      |
-| Query Metrics               |     ✅ (All)     | ✅ (Own Tenant)  |      ❌      |
-| User Feedback               |     ✅ (All)     | ✅ (Own Tenant)  |      ❌      |
+| Capability                  | Super Admin             | Tenant Admin            | Tenant User |
+| --------------------------- | ----------------------- | ----------------------- | ----------- |
+| **Documents**               |                         |                         |             |
+| Upload                      | Yes (Any)               | Yes (Own)               | Yes (Own)   |
+| Delete                      | Yes (Any)               | Yes (Own)               | No          |
+| List                        | Yes (Any)               | Yes (Own)               | Yes (Own)   |
+| **Chat History**            |                         |                         |             |
+| Own History                 | Yes                     | Yes                     | Yes         |
+| Other Users (No Feedback)   | Limited (Metadata Only) | Limited (Metadata Only) | No          |
+| Other Users (With Feedback) | Yes (For QA)            | Yes (Own Tenant)        | No          |
+| **Metrics & Feedback**      |                         |                         |             |
+| Query Metrics               | Yes (All)               | Yes (Own Tenant)        | No          |
+| User Feedback               | Yes (All)               | Yes (Own Tenant)        | No          |
 
 ### Cross-Tenant Access
 
-| Scenario                   | Super Admin  | Tenant Admin | Tenant User |
-| :------------------------- | :----------: | :----------: | :---------: |
-| Access Other Tenant's Data | ✅ (Explicit) |      ❌       |      ❌      |
-| Query Across Tenants       |      ✅       |      ❌       |      ❌      |
-| Global Metrics View        |      ✅       |      ❌       |      ❌      |
-
----
+| Scenario                   | Super Admin    | Tenant Admin | Tenant User |
+| -------------------------- | -------------- | ------------ | ----------- |
+| Access Other Tenant's Data | Yes (Explicit) | No           | No          |
+| Query Across Tenants       | Yes            | No           | No          |
+| Global Metrics View        | Yes            | No           | No          |
 
 ## Implementation Details
 
 ### Authentication Middleware
 
-**File**: [`src/api/middleware/auth.py`](file:///home/daniele/Amber_2.0/src/api/middleware/auth.py)
+**File**: [src/api/middleware/auth.py](../src/api/middleware/auth.py)
 
 The `AuthenticationMiddleware` is the central point for authentication and context injection.
 
@@ -218,7 +214,7 @@ request.state.is_super_admin = "super_admin" in permissions
 
 ### Security Dependencies
 
-**File**: [`src/api/deps.py`](file:///home/daniele/Amber_2.0/src/api/deps.py)
+**File**: [src/api/deps.py](../src/api/deps.py)
 
 ```python
 async def verify_super_admin(request: Request):
@@ -274,8 +270,6 @@ async def update_config():
     ...
 ```
 
----
-
 ## Privacy & Data Redaction
 
 ### Rationale
@@ -284,7 +278,7 @@ Chat conversations may contain sensitive information. Even administrators should
 
 ### Implementation
 
-**File**: [`src/api/routes/admin/chat_history.py`](file:///home/daniele/Amber_2.0/src/api/routes/admin/chat_history.py)
+**File**: [src/api/routes/admin/chat_history.py](../src/api/routes/admin/chat_history.py)
 
 ```python
 # 1. Bulk lookup of conversations with feedback
@@ -304,7 +298,7 @@ if not has_feedback:
 ### Redaction Behavior
 
 | Scenario                   | Query Text             | Response Text          | Metadata |
-| :------------------------- | :--------------------- | :--------------------- | :------- |
+| -------------------------- | ---------------------- | ---------------------- | -------- |
 | Own Chat                   | Visible                | Visible                | Visible  |
 | Other User (No Feedback)   | `[REDACTED - PRIVACY]` | `[REDACTED - PRIVACY]` | `{}`     |
 | Other User (With Feedback) | Visible                | Visible                | Visible  |
@@ -316,8 +310,6 @@ Tenant Admins can only view feedback-associated chats within their own tenant. T
 1. **RLS Policies**: Database-level filtering via `app.current_tenant`.
 2. **Middleware**: `request.state.tenant_id` is always set.
 3. **Query Filters**: Explicit `WHERE tenant_id = :current_tenant` in queries.
-
----
 
 ## API Integration Guide
 
@@ -364,8 +356,6 @@ curl -X POST https://api.amber.example/v1/chat \
   -d '{"query": "What is the capital of France?"}'
 ```
 
----
-
 ## Testing
 
 ### Unit Tests
@@ -396,8 +386,6 @@ pytest tests/unit/test_security.py tests/unit/test_role_enforcement.py -v
 | `test_verify_tenant_admin_failure`        | Regular User gets 403.                         |
 | `test_privacy_redaction_logic`            | Redaction applies correctly based on feedback. |
 
----
-
 ## Migration Guide
 
 ### For Existing Deployments
@@ -422,12 +410,11 @@ WHERE id = 'your-platform-admin-key-id';
 
 ### Breaking Changes
 
-> [!WARNING]
+> **Warning:**
+>
 > - Keys without explicit `role` in `api_key_tenants` default to `user`.
 > - Chat history content is now redacted by default (unless feedback exists).
 > - System-level endpoints (if locked down) will reject Tenant Admin keys.
-
----
 
 ## Troubleshooting
 
@@ -450,14 +437,13 @@ LOG_LEVEL=DEBUG
 ```
 
 Log output will include:
-```
+
+```text
 Authenticated: tenant=my-tenant, key=my-key-name, role=admin, super_admin=False, path=GET /admin/config
 ```
 
----
-
 ## References
 
-- [Amber Tenant Role Model Proposal](file:///home/daniele/Amber_2.0/amber_tenant_role_model_proposal.md)
-- [API Endpoints Documentation](file:///home/daniele/Amber_2.0/docs/API_ENDPOINTS.md)
-- [Implementation Plan](file:///home/daniele/.gemini/antigravity/brain/b2a04822-ce58-4470-abd6-bd03f3c80919/implementation_plan.md)
+- [Amber Tenant Role Model Proposal](../amber_tenant_role_model_proposal.md)
+- [API Endpoints Documentation](./API_ENDPOINTS.md)
+- Implementation Plan (local): `/home/daniele/.gemini/antigravity/brain/b2a04822-ce58-4470-abd6-bd03f3c80919/implementation_plan.md`

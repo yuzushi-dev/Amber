@@ -87,6 +87,14 @@ async def lifespan(app: FastAPI):
         from src.core.services.migration import EmbeddingMigrationService
 
         dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
+        
+        # S01: Security Warning for Default Key
+        if dev_key == "amber-dev-key-2024":
+            logger.critical("!" * 60)
+            logger.critical("SECURITY WARNING: Using default development API key.")
+            logger.critical("Set DEV_API_KEY environment variable in production!")
+            logger.critical("!" * 60)
+
         async with _async_session_maker() as session:
             # Bootstrap Key
             service = ApiKeyService(session)

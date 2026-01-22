@@ -402,18 +402,25 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
         try:
             import asyncio
             from src.core.graph.context_writer import context_graph_writer
+            from src.core.security.pii_scrubber import PIIScrubber
+
             
             source_data = [
                 {"chunk_id": s.chunk_id, "document_id": s.document_id, "score": s.score}
                 for s in sources
             ] if sources else []
             
+            # S02: Scrub PII from logs
+            scrubber = PIIScrubber()
+            safe_query = scrubber.scrub_text(request.query)
+            safe_answer = scrubber.scrub_text(answer)
+
             asyncio.create_task(
                 context_graph_writer.log_turn(
                     conversation_id=request.conversation_id or query_id,
                     tenant_id=tenant_id,
-                    query=request.query,
-                    answer=answer,
+                    query=safe_query,
+                    answer=safe_answer,
                     sources=source_data,
                     trace_steps=trace_steps if include_trace else None,
                     model=query_metrics.model if 'query_metrics' in dir() else None,
@@ -483,13 +490,7 @@ def _fallback_response(
 # =============================================================================
 
 
-@router.api_route(
-    "/stream",
-    methods=["GET", "POST"],
-    summary="Stream Query Response",
-    description="Stream the query response using Server-Sent Events.",
-)
-async def query_stream(
+async def _query_stream_impl(
     http_request: Request,
     request: QueryRequest = None,
     query: str = None,
@@ -1101,4 +1102,41 @@ async def query_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
+    )
+
+
+@router.get(
+    "/stream",
+    summary="Stream Query Response",
+    description="Stream the query response using Server-Sent Events.",
+    operation_id="query_stream_get",
+)
+async def query_stream_get(
+    http_request: Request,
+    query: str,
+    agent_mode: bool = False,
+    conversation_id: str = None,
+):
+    return await _query_stream_impl(
+        http_request=http_request,
+        request=None,
+        query=query,
+        agent_mode=agent_mode,
+        conversation_id=conversation_id,
+    )
+
+
+@router.post(
+    "/stream",
+    summary="Stream Query Response",
+    description="Stream the query response using Server-Sent Events.",
+    operation_id="query_stream_post",
+)
+async def query_stream_post(
+    http_request: Request,
+    request: QueryRequest,
+):
+    return await _query_stream_impl(
+        http_request=http_request,
+        request=request,
     )
