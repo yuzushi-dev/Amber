@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # API Server - GPU Reserve
+  # ---------------------------------------------------------------------------
+  api:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+  # ---------------------------------------------------------------------------
+  # Celery Worker - GPU Reserve
+  # ---------------------------------------------------------------------------
+  worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
