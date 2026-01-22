@@ -21,7 +21,7 @@ CRITICAL INSTRUCTIONS:
 
 ⚠️ MANDATORY: GROUNDING
 Every factual claim MUST include a citation.
-- When referencing a document/chunk: Use `[[Document:filename]]` or `[[Source:ID]]`.
+- When referencing a document/chunk: Use `[[Document:filename]]` or `[[Source:10]]`.
 - When referencing code: Use `[[Code:filename:L10-20]]`.
 - NO citation = NO claim. Say "I didn't find evidence" instead of guessing.
 
