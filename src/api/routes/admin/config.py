@@ -54,12 +54,20 @@ class TenantConfigResponse(BaseModel):
     hyde_enabled: bool = False
     graph_expansion_enabled: bool = True
 
-    # Model settings
-    embedding_model: str = "text-embedding-3-small"
-    generation_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
+    # LLM Provider/Model settings
+    llm_provider: str = Field(default_factory=lambda: settings.default_llm_provider or "openai")
+    llm_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
+    
+    # Embedding Provider/Model settings
+    embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
+    embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
 
-    # Custom prompts
-    system_prompt_override: str | None = None
+    # Custom prompts (per-tenant overrides)
+    rag_system_prompt: str | None = None
+    rag_user_prompt: str | None = None
+    agent_system_prompt: str | None = None
+    community_summary_prompt: str | None = None
+    fact_extraction_prompt: str | None = None
 
     # Ingestion Settings
     hybrid_ocr_enabled: bool = True
@@ -81,12 +89,20 @@ class TenantConfigUpdate(BaseModel):
     hyde_enabled: bool | None = None
     graph_expansion_enabled: bool | None = None
 
-    # Model settings
+    # LLM Provider/Model settings
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    
+    # Embedding Provider/Model settings
+    embedding_provider: str | None = None
     embedding_model: str | None = None
-    generation_model: str | None = None
 
-    # Custom prompts
-    system_prompt_override: str | None = None
+    # Custom prompts (per-tenant overrides)
+    rag_system_prompt: str | None = None
+    rag_user_prompt: str | None = None
+    agent_system_prompt: str | None = None
+    community_summary_prompt: str | None = None
+    fact_extraction_prompt: str | None = None
 
     # Ingestion Settings
     hybrid_ocr_enabled: bool | None = None
@@ -105,6 +121,7 @@ class ConfigSchemaField(BaseModel):
     step: float | None = None
     options: list[str] | None = None
     group: str = "general"
+    read_only: bool = False
 
 
 class ConfigSchemaResponse(BaseModel):
@@ -147,34 +164,41 @@ async def get_config_schema():
             group="ingestion"
         ),
 
-        # Model Settings
+        # Model Settings - Provider Selection
+        ConfigSchemaField(
+            name="llm_provider",
+            type="select",
+            label="LLM Provider",
+            description="Provider for answer generation (models loaded dynamically)",
+            default=settings.default_llm_provider or "openai",
+            options=[],  # Populated dynamically by frontend from /admin/providers/available
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="llm_model",
+            type="select",
+            label="LLM Model",
+            description="Model for answer generation",
+            default=settings.default_llm_model or "gpt-4o-mini",
+            options=[],  # Populated dynamically based on selected provider
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="embedding_provider",
+            type="select",
+            label="Embedding Provider",
+            description="Provider for vector embeddings (models loaded dynamically)",
+            default=settings.default_embedding_provider or "openai",
+            options=[],  # Populated dynamically by frontend
+            group="models"
+        ),
         ConfigSchemaField(
             name="embedding_model",
             type="select",
             label="Embedding Model",
             description="Model for generating embeddings",
-            default="text-embedding-3-small",
-            options=[
-                "text-embedding-3-small",
-                "text-embedding-3-large",
-                "voyage-3.5-lite",
-                "bge-m3"
-            ],
-            group="models"
-        ),
-        ConfigSchemaField(
-            name="generation_model",
-            type="select",
-            label="Generation Model",
-            description="LLM for answer generation",
-            default=settings.default_llm_model or "gpt-4o-mini",
-            options=[
-                settings.default_llm_model or "gpt-4o-mini",
-                "gpt-4o-mini",
-                "gpt-4o",
-                "claude-sonnet-4-20250514",
-                "claude-3-5-haiku-20241022"
-            ],
+            default=settings.default_embedding_model or "text-embedding-3-small",
+            options=[],  # Populated dynamically based on selected provider
             group="models"
         ),
 
@@ -276,10 +300,42 @@ async def get_config_schema():
 
         # Custom Prompts
         ConfigSchemaField(
-            name="system_prompt_override",
+            name="rag_system_prompt",
             type="string",
-            label="System Prompt Override",
-            description="Custom system prompt for answer generation (leave empty for default)",
+            label="RAG System Prompt",
+            description="System instructions for answer generation. Controls tone, citation style, and grounding behavior.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="rag_user_prompt",
+            type="string",
+            label="RAG User Prompt Template",
+            description="Template for formatting context and query. Use {context}, {memory_context}, {query} placeholders.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="agent_system_prompt",
+            type="string",
+            label="Agent System Prompt",
+            description="Instructions for agentic mode with tool usage. Defines available tools and decision-making behavior.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="community_summary_prompt",
+            type="string",
+            label="Community Summary Prompt",
+            description="Prompt for generating knowledge graph community reports.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="fact_extraction_prompt",
+            type="string",
+            label="Fact Extraction Prompt",
+            description="Instructions for extracting memory facts from user conversations.",
             default="",
             group="prompts"
         ),
@@ -288,6 +344,36 @@ async def get_config_schema():
     return ConfigSchemaResponse(
         fields=fields,
         groups=["ingestion", "models", "features", "retrieval", "weights", "prompts"]
+    )
+
+
+class DefaultPromptsResponse(BaseModel):
+    """Default prompt templates."""
+    rag_system_prompt: str
+    rag_user_prompt: str
+    agent_system_prompt: str
+    community_summary_prompt: str
+    fact_extraction_prompt: str
+
+
+@router.get("/prompts/defaults", response_model=DefaultPromptsResponse)
+async def get_default_prompts():
+    """
+    Get default prompt templates.
+
+    Returns all built-in prompts that are used when no tenant override is set.
+    These serve as the baseline/fallback for all prompt fields.
+    """
+    from src.core.generation.prompts import PROMPTS, FACT_EXTRACTION_PROMPT
+    from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
+    from src.core.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT
+
+    return DefaultPromptsResponse(
+        rag_system_prompt=PROMPTS["rag_system"]["latest"],
+        rag_user_prompt=PROMPTS["rag_user"]["latest"],
+        agent_system_prompt=AGENT_SYSTEM_PROMPT,
+        community_summary_prompt=COMMUNITY_SUMMARY_SYSTEM_PROMPT,
+        fact_extraction_prompt=FACT_EXTRACTION_PROMPT,
     )
 
 
@@ -322,9 +408,16 @@ async def get_tenant_config(tenant_id: str):
             reranking_enabled=config.get("reranking_enabled", True),
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
-            embedding_model=config.get("embedding_model", "text-embedding-3-small"),
-            generation_model=config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
-            system_prompt_override=config.get("system_prompt_override"),
+            llm_provider=config.get("llm_provider", settings.default_llm_provider or "openai"),
+            llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
+            embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
+            embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
+            # Prompt overrides (per-tenant)
+            rag_system_prompt=config.get("rag_system_prompt"),
+            rag_user_prompt=config.get("rag_user_prompt"),
+            agent_system_prompt=config.get("agent_system_prompt"),
+            community_summary_prompt=config.get("community_summary_prompt"),
+            fact_extraction_prompt=config.get("fact_extraction_prompt"),
             hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
             ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
         )
@@ -360,6 +453,9 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
             if not tenant.config:
                 tenant.config = {}
 
+            # Create a copy to ensure SQLAlchemy detects changes (JSON is not mutable by default)
+            new_config = dict(tenant.config)
+
             # Update provided fields
             update_dict = update.model_dump(exclude_unset=True, exclude_none=True)
 
@@ -367,11 +463,14 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
             if "weights" in update_dict:
                 weights = update_dict.pop("weights")
                 for k, v in weights.items():
-                    tenant.config[k] = v
+                    new_config[k] = v
 
             # Update remaining fields
             for key, value in update_dict.items():
-                tenant.config[key] = value
+                new_config[key] = value
+
+            # Reassign to trigger dirty flag
+            tenant.config = new_config
 
             # Persist changes
             session.add(tenant)
