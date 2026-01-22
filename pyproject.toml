@@ -84,6 +84,7 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.8.0",
     "testcontainers[postgres,neo4j,minio]>=3.7.1",
+    "import-linter>=2.0",
 ]
 
 [project.urls]
@@ -125,3 +126,18 @@ warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
+
+# Import Linter - Architecture Boundary Rules (Phase 0)
+# Run with: poetry run lint-imports
+[tool.importlinter]
+root_package = "src"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Core must not import API or workers"
+type = "forbidden"
+source_modules = ["src.core"]
+forbidden_modules = ["src.api", "src.workers"]
+# NOTE: This contract will FAIL until Phase 1 is complete.
+# 21 violations exist as of 2026-01-22 (see dependency-graph-snapshot.md).
+# Run with --warn-only during Phase 0-1 migration.
