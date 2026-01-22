@@ -893,6 +893,8 @@ async def query_stream(
 
                 yield f"event: {event}\ndata: {data_str}\n\n"
             
+            # Normalize citation variants for storage/metrics.
+            full_answer = generation_service._normalize_citations(full_answer)
             stream_latency_ms = (time.perf_counter() - stream_start_time) * 1000
 
             # SAVE INTERACTION TO HISTORY
