@@ -273,7 +273,7 @@ export default function RulesPage() {
                                 {/* Status Indicator Bar */}
                                 <div className={cn(
                                     "absolute left-0 top-0 bottom-0 w-1 transition-colors",
-                                    rule.is_active ? "bg-primary/50 group-hover:bg-primary" : "bg-muted-foreground/20"
+                                    rule.is_active ? "bg-amber-500/50 group-hover:bg-amber-500" : "bg-muted-foreground/20"
                                 )} />
 
                                 <div className="p-5 pl-7 flex items-start gap-6">
@@ -288,7 +288,7 @@ export default function RulesPage() {
                                             <div className="flex items-center gap-1.5 font-mono">
                                                 <span className={cn(
                                                     "w-1.5 h-1.5 rounded-full transition-colors",
-                                                    rule.is_active ? "bg-primary shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-current opacity-50"
+                                                    rule.is_active ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-current opacity-50"
                                                 )} />
                                                 ID: {rule.id.slice(0, 8)}
                                             </div>
@@ -308,7 +308,7 @@ export default function RulesPage() {
                                                 onCheckedChange={(checked) =>
                                                     toggleMutation.mutate({ id: rule.id, isActive: checked })
                                                 }
-                                                className="scale-75 data-[state=checked]:bg-primary"
+                                                className="scale-75 data-[state=checked]:bg-amber-500"
                                             />
                                         </div>
                                         <Button
