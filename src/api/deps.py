@@ -81,3 +81,40 @@ def get_current_tenant_id(request: Request) -> str:
     Derived from request state set by AuthenticationMiddleware.
     """
     return str(getattr(request.state, "tenant_id", "default"))
+
+
+async def verify_super_admin(request: Request):
+    """
+    Dependency to verify Super Admin privileges.
+    
+    Super Admins have platform-wide access and can manage tenants,
+    global configuration, and perform cross-tenant operations.
+    """
+    is_super_admin = getattr(request.state, "is_super_admin", False)
+    
+    if not is_super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin privileges required"
+        )
+
+
+async def verify_tenant_admin(request: Request):
+    """
+    Dependency to verify Tenant Admin privileges.
+    
+    Tenant Admins can manage users and settings within their assigned tenant.
+    Super Admins implicitly have Tenant Admin privileges.
+    """
+    is_super_admin = getattr(request.state, "is_super_admin", False)
+    tenant_role = getattr(request.state, "tenant_role", None)
+    
+    if is_super_admin:
+        return  # Super Admin has all Tenant Admin rights
+    
+    if tenant_role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant Admin privileges required"
+        )
+
