@@ -16,8 +16,8 @@ interface MessageItemProps {
 
 function parseCitations(content: string, messageId: string): { processedContent: string, citations: Citation[] } {
     const citations: Citation[] = [];
-    // Updated regex to match [[Source: 1]], [[Source ID: 1]], [[1]], or [[Source 1]]
-    const regex = /\[\[(?:Source(?: ID)?:?)?\s*(\d+)\]\]/g;
+    // Match [[Source:10]], [[Source ID:10]], [[Source:ID:10]], [[Source 10]], or [[10]]
+    const regex = /\[\[\s*(?:Source(?:\s*:\s*ID|\s*ID|ID)?\s*[: ]\s*)?(\d+)\s*\]\]/gi;
 
     const processedContent = content.replace(regex, (match, value) => {
         const id = `${messageId}-${citations.length}`;
