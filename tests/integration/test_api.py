@@ -5,27 +5,6 @@ Integration Tests for API Endpoints
 Tests that require a running API server.
 """
 
-import pytest
-from fastapi.testclient import TestClient
-
-from src.api.main import app
-from src.shared.security import generate_api_key, register_api_key
-
-
-@pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
-
-
-@pytest.fixture
-def api_key():
-    """Generate and register a test API key."""
-    key = generate_api_key(prefix="test")
-    register_api_key(key, "test_tenant", "Test Key", ["read", "write"])
-    return key
-
-
 class TestHealthEndpoints:
     """Tests for health check endpoints."""
 
