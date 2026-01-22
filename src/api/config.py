@@ -10,9 +10,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import logging
+import secrets
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseSettings(BaseSettings):
@@ -114,9 +118,33 @@ class Settings(BaseSettings):
 
     # Security
     secret_key: str = Field(
-        default="",
+        default_factory=lambda: secrets.token_urlsafe(32),
         description="Secret key for hashing",
     )
+
+    @field_validator("secret_key")
+    @classmethod
+    def warn_if_relying_on_default_secret(cls, v: str) -> str:
+        """Warn if a random secret key is being used (hashing instability)."""
+        # Pydantic validates defaults too. If we are here, we might be using the default factory.
+        # But `v` is just the string. We can't easily know if it came from env or factory here
+        # without checking env again. 
+        # Actually, simpler: The factory runs if env is missing.
+        # We can add a check in `get_settings` or `model_post_init` in Pydantic v2, 
+        # but Field validator is fine if we accept we might log on every validation.
+        # A clearer place is __init__ or a validator that checks os.environ.
+        return v
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # S03: Warning if using generated secret
+        import os
+        if not os.getenv("SECRET_KEY") and not data.get("secret_key") and not self.load_yaml_config().get("secret_key"):
+             # This check is heuristic because self.secret_key is already populated by factory
+             # If we want to be sure, we check if the value matches what we'd expect or if env is empty.
+             # Better: Check strictly env var.
+             pass
+
 
     # Tenant
     tenant_id: str = Field(default="default", description="Default tenant ID")
@@ -181,6 +209,15 @@ def get_settings() -> Settings:
         Settings: Application settings instance
     """
     settings = Settings()
+
+    # S03: Check for Secret Key persistence
+    import os
+    if not os.getenv("SECRET_KEY") and "secret_key" not in Settings.load_yaml_config():
+        logger.warning("!" * 60)
+        logger.warning("SECURITY WARNING: Using randomly generated SECRET_KEY.")
+        logger.warning("API Key hashes will be invalidated on restart!")
+        logger.warning("Set SECRET_KEY in your environment to persist hashes.")
+        logger.warning("!" * 60)
 
     try:
         yaml_config = Settings.load_yaml_config()

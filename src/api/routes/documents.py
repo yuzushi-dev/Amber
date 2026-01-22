@@ -980,6 +980,7 @@ from src.core.models.chunk import Chunk  # noqa: E402
     "/{document_id}/chunks",
     summary="Get Document Chunks",
     description="Get chunks for a specific document.",
+    operation_id="get_document_chunks_simple",
 )
 async def get_document_chunks(
     document_id: str,

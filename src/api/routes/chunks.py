@@ -29,7 +29,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 
 
-@router.get("/documents/{document_id}/chunks", response_model=dict[str, Any])
+@router.get(
+    "/documents/{document_id}/chunks",
+    response_model=dict[str, Any],
+    operation_id="get_document_chunks_paginated",
+)
 async def get_document_chunks(
     document_id: str,
     limit: int = 50,
