@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.deps import verify_admin
+from src.api.deps import verify_super_admin
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/maintenance",
     tags=["admin-maintenance"],
-    dependencies=[Depends(verify_admin)]
+    dependencies=[Depends(verify_super_admin)]
 )
 
 

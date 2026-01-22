@@ -39,6 +39,9 @@ class GlobalRule(Base, TimestampMixin):
     # Active/inactive toggle
     is_active = Column(Boolean, default=True, index=True)
     
+    # Scope: Null = Global System Default, Value = Tenant Specific
+    tenant_id = Column(String, nullable=True, index=True)
+
     # Source tracking (e.g., "manual", "file:rules.txt")
     source = Column(String, default="manual")
 

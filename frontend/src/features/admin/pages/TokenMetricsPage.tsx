@@ -153,6 +153,8 @@ export default function TokenMetricsPage() {
                     value={formatNumber(metrics.totalTokens)}
                     isString
                     subLabel="Input + Output"
+                    color="amber"
+                    delay={0.1}
                 />
                 <StatCard
                     icon={Euro}
@@ -160,12 +162,16 @@ export default function TokenMetricsPage() {
                     value={formatCurrency(metrics.totalCost)}
                     isString
                     subLabel={`Estimated EUR • $${metrics.totalCost.toFixed(4)} USD`}
+                    color="green"
+                    delay={0.2}
                 />
                 <StatCard
                     icon={MessageSquare}
                     label="Conversations"
                     value={metrics.conversationCount}
                     subLabel="Total queries"
+                    color="blue"
+                    delay={0.3}
                 />
                 <StatCard
                     icon={Calculator}
@@ -173,6 +179,8 @@ export default function TokenMetricsPage() {
                     value={formatNumber(metrics.avgTokensPerQuery)}
                     isString
                     subLabel="Per conversation"
+                    color="purple"
+                    delay={0.4}
                 />
             </div>
 

@@ -1,9 +1,9 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, verify_admin
+from src.api.deps import get_db_session, verify_tenant_admin, verify_super_admin, get_current_tenant_id
 from src.core.services.tenant_service import TenantService
 from src.core.models.tenant import Tenant
 
@@ -52,14 +52,29 @@ class TenantResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("", response_model=List[TenantResponse], dependencies=[Depends(verify_admin)])
+@router.get("", response_model=List[TenantResponse], dependencies=[Depends(verify_tenant_admin)])
 async def list_tenants(
+    request: Request,
     skip: int = 0, 
     limit: int = 100, 
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    List tenants.
+    Super Admin: All tenants.
+    Tenant Admin: Only current tenant.
+    """
     service = TenantService(session)
-    tenants = await service.list_tenants(skip, limit)
+    is_super = getattr(request.state, "is_super_admin", False)
+    current_tenant = get_current_tenant_id(request)
+    
+    if is_super:
+        tenants = await service.list_tenants(skip, limit)
+    else:
+        # Tenant Admin sees only their own tenant
+        # We can reuse get_tenant but need to return a list
+        t = await service.get_tenant(current_tenant)
+        tenants = [t] if t else []
     
     # Enrich with document counts
     if tenants:
@@ -77,11 +92,15 @@ async def list_tenants(
         
     return []
 
-@router.post("", response_model=TenantResponse, dependencies=[Depends(verify_admin)])
+@router.post("", response_model=TenantResponse, dependencies=[Depends(verify_super_admin)])
 async def create_tenant(
     data: TenantCreate, 
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    Create a new tenant.
+    Restricted to Super Admin.
+    """
     service = TenantService(session)
     if data.api_key_prefix:
         existing = await service.get_tenant_by_prefix(data.api_key_prefix)
@@ -97,12 +116,24 @@ async def create_tenant(
     t_model.document_count = 0
     return t_model
 
-@router.get("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_admin)])
+@router.get("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_tenant_admin)])
 async def get_tenant(
     tenant_id: str, 
+    request: Request,
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    Get tenant details.
+    """
     service = TenantService(session)
+    
+    is_super = getattr(request.state, "is_super_admin", False)
+    current_tenant = get_current_tenant_id(request)
+    
+    if not is_super:
+        if tenant_id != current_tenant:
+             raise HTTPException(status_code=403, detail="Cannot access this tenant")
+
     tenant = await service.get_tenant(tenant_id)
     if not tenant:
         raise HTTPException(
@@ -115,13 +146,33 @@ async def get_tenant(
     t_model.document_count = counts.get(tenant.id, 0)
     return t_model
 
-@router.patch("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_admin)])
+@router.patch("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_tenant_admin)])
 async def update_tenant(
     tenant_id: str, 
     data: TenantUpdate, 
+    request: Request,
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    Update tenant details.
+    Tenant Admin can update their own tenant.
+    """
     service = TenantService(session)
+    
+    # Permission Check
+    is_super = getattr(request.state, "is_super_admin", False)
+    current_tenant = get_current_tenant_id(request)
+    
+    if not is_super:
+        if tenant_id != current_tenant:
+             raise HTTPException(status_code=403, detail="Cannot update this tenant")
+        
+        # Prevent Tenant Admin from changing critical fields? 
+        # e.g. disabling themselves or changing prefix?
+        # For now, allow all updates in schema (name/config/prefix).
+        # Assuming Tenant Admin is trusted with own config.
+        pass
+
     tenant = await service.update_tenant(tenant_id, **data.model_dump(exclude_unset=True))
     if not tenant:
         raise HTTPException(
@@ -134,11 +185,15 @@ async def update_tenant(
     t_model.document_count = counts.get(tenant.id, 0)
     return t_model
 
-@router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_admin)])
+@router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_super_admin)])
 async def delete_tenant(
     tenant_id: str, 
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    Delete a tenant.
+    Restricted to Super Admin.
+    """
     service = TenantService(session)
     success = await service.delete_tenant(tenant_id)
     if not success:
