@@ -7,7 +7,7 @@ Endpoints for viewing chat conversation history.
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,12 +144,25 @@ async def list_chat_history(
             response_text = metadata.get("answer")
             model = metadata.get("model", "default")
             
-            # Create preview
-            response_preview = None
-            if response_text:
-                response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
-            elif conv.summary:
-                response_preview = conv.summary[:100]
+            # Check Privacy Invariant: "No Admin can read the message content of a User's chat."
+            # Unless they are the user themselves.
+            current_api_key_id = getattr(request.state, "api_key_id", None)
+            is_super = getattr(request.state, "is_super_admin", False)
+            tenant_role = getattr(request.state, "tenant_role", "user")
+            is_admin = is_super or (tenant_role == "admin")
+            is_own_chat = (conv.user_id == current_api_key_id)
+
+            if is_admin and not is_own_chat:
+                query_text = "[REDACTED - ADMIN VIEW]"
+                # For preview, we also redact
+                response_preview = "[REDACTED - ADMIN VIEW]"
+            else:
+                # Create preview
+                response_preview = None
+                if response_text:
+                    response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                elif conv.summary:
+                    response_preview = conv.summary[:100]
 
             # Get metrics from lookup
             conv_metrics = metrics_by_conv.get(conv.id, {})
@@ -162,7 +175,7 @@ async def list_chat_history(
             conversations.append(ChatHistoryItem(
                 request_id=conv.id,
                 tenant_id=conv.tenant_id,
-                query_text=query_text or conv.title,
+                query_text=query_text or conv.title if not (is_admin and not is_own_chat) else "[REDACTED - ADMIN VIEW]",
                 response_preview=response_preview,
                 model=model,
                 provider=provider,
@@ -193,6 +206,7 @@ async def list_chat_history(
 @router.get("/history/{request_id}", response_model=ConversationDetail)
 async def get_conversation_detail(
     request_id: str,
+    request: Request, # Added Request for auth context
     session: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -213,6 +227,17 @@ async def get_conversation_detail(
     query_text = metadata.get("query")
     response_text = metadata.get("answer")
     model = metadata.get("model", "default")
+
+    # Privacy Check
+    current_api_key_id = getattr(request.state, "api_key_id", None)
+    is_super = getattr(request.state, "is_super_admin", False)
+    tenant_role = getattr(request.state, "tenant_role", "user")
+    is_admin = is_super or (tenant_role == "admin")
+    is_own_chat = (conv.user_id == current_api_key_id)
+
+    if is_admin and not is_own_chat:
+        query_text = "[REDACTED - ADMIN VIEW]"
+        response_text = "[REDACTED - ADMIN VIEW]"
 
     return ConversationDetail(
         request_id=conv.id,
