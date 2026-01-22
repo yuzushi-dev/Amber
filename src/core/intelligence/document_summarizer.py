@@ -73,7 +73,8 @@ class DocumentSummarizer:
     def _get_llm(self):
         """Lazy-load LLM provider."""
         if self._llm is None:
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
             factory = ProviderFactory(
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key
@@ -123,7 +124,8 @@ class DocumentSummarizer:
             user_prompt = self._build_user_prompt(full_content, document_title, max_summary_length)
 
             # Generate response with metrics tracking
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
             from src.core.metrics.collector import MetricsCollector
             from src.shared.identifiers import generate_query_id
             
