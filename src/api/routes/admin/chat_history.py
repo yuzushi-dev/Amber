@@ -7,7 +7,7 @@ Endpoints for viewing chat conversation history.
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,6 +80,7 @@ class ConversationDetail(BaseModel):
 
 @router.get("/history", response_model=ChatHistoryResponse)
 async def list_chat_history(
+    request: Request,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     tenant_id: str | None = Query(None),
@@ -87,6 +88,10 @@ async def list_chat_history(
 ):
     """
     List recent chat conversations.
+    
+    Privacy Rules:
+    - Admins can see metadata for all conversations.
+    - Query/Response content is REDACTED unless the conversation has user feedback.
     """
     from src.core.models.memory import ConversationSummary
 
@@ -137,6 +142,14 @@ async def list_chat_history(
                 metrics_by_conv[m.conversation_id]["total_tokens"] += m.tokens_used
                 metrics_by_conv[m.conversation_id]["cost"] += m.cost_estimate
         
+        # Fetch all conversation IDs with feedback for bulk lookup
+        conv_ids = [conv.id for conv in rows]
+        feedback_query = select(Feedback.conversation_id).where(
+            Feedback.conversation_id.in_(conv_ids)
+        ).distinct()
+        feedback_result = await session.execute(feedback_query)
+        conversations_with_feedback = {row[0] for row in feedback_result.fetchall()}
+        
         for conv in rows:
             # Extract query/response from metadata
             metadata = conv.metadata_ or {}
@@ -144,12 +157,20 @@ async def list_chat_history(
             response_text = metadata.get("answer")
             model = metadata.get("model", "default")
             
+            # PRIVACY REDACTION: Only show content if conversation has feedback
+            has_feedback = conv.id in conversations_with_feedback
+            if not has_feedback:
+                query_text = "[REDACTED - PRIVACY]"
+                response_text = "[REDACTED - PRIVACY]"
+            
             # Create preview
             response_preview = None
             if response_text:
                 response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
-            elif conv.summary:
+            elif conv.summary and has_feedback:
                 response_preview = conv.summary[:100]
+            elif not has_feedback:
+                response_preview = "[REDACTED - PRIVACY]"
 
             # Get metrics from lookup
             conv_metrics = metrics_by_conv.get(conv.id, {})
@@ -162,13 +183,13 @@ async def list_chat_history(
             conversations.append(ChatHistoryItem(
                 request_id=conv.id,
                 tenant_id=conv.tenant_id,
-                query_text=query_text or conv.title,
+                query_text=query_text or conv.title if has_feedback else "[REDACTED - PRIVACY]",
                 response_preview=response_preview,
                 model=model,
                 provider=provider,
                 total_tokens=total_tokens,
                 cost=cost,
-                has_feedback=False,
+                has_feedback=has_feedback,
                 feedback_score=None,
                 created_at=conv.created_at,
             ))
@@ -193,10 +214,14 @@ async def list_chat_history(
 @router.get("/history/{request_id}", response_model=ConversationDetail)
 async def get_conversation_detail(
     request_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ):
     """
     Get full details for a specific conversation.
+    
+    Privacy Rules:
+    - Query/Response content is REDACTED unless the conversation has user feedback.
     """
     from src.core.models.memory import ConversationSummary
 
@@ -208,18 +233,28 @@ async def get_conversation_detail(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # Check if conversation has feedback
+    feedback_query = select(Feedback).where(Feedback.conversation_id == request_id).limit(1)
+    feedback_result = await session.execute(feedback_query)
+    has_feedback = feedback_result.scalar_one_or_none() is not None
+
     # Extract details
     metadata = conv.metadata_ or {}
     query_text = metadata.get("query")
     response_text = metadata.get("answer")
     model = metadata.get("model", "default")
+    
+    # PRIVACY REDACTION: Only show content if conversation has feedback
+    if not has_feedback:
+        query_text = "[REDACTED - PRIVACY]"
+        response_text = "[REDACTED - PRIVACY]"
 
     return ConversationDetail(
         request_id=conv.id,
         tenant_id=conv.tenant_id,
         trace_id=None,
-        query_text=query_text or conv.title,
-        response_text=response_text or conv.summary,
+        query_text=query_text or (conv.title if has_feedback else "[REDACTED - PRIVACY]"),
+        response_text=response_text or (conv.summary if has_feedback else "[REDACTED - PRIVACY]"),
         model=model,
         provider="openai",
         input_tokens=0,
@@ -227,7 +262,7 @@ async def get_conversation_detail(
         total_tokens=0,
         cost=0.0,
         feedback=None,
-        metadata=metadata,
+        metadata=metadata if has_feedback else {},  # Redact metadata too
         created_at=conv.created_at,
     )
 

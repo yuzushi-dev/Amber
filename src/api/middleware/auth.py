@@ -165,13 +165,33 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         set_current_tenant(tenant_id)
         set_permissions(permissions)
 
+        # Resolve Tenant Role from the ApiKeyTenant association
+        tenant_role = "user"  # Default role
+        if str(tenant_id) in allowed_tenants:
+            # Find the specific association to get the role
+            from src.core.models.api_key import ApiKeyTenant
+            async with _async_session_maker() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(ApiKeyTenant.role).where(
+                        ApiKeyTenant.api_key_id == valid_key.id,
+                        ApiKeyTenant.tenant_id == str(tenant_id)
+                    )
+                )
+                role_row = result.scalar_one_or_none()
+                if role_row:
+                    tenant_role = role_row
+
         # Store in request state for easy access
         request.state.tenant_id = tenant_id
         request.state.permissions = permissions
         request.state.api_key_name = valid_key.name
+        request.state.tenant_role = tenant_role
+        request.state.is_super_admin = "super_admin" in permissions
 
         logger.debug(
             f"Authenticated: tenant={tenant_id}, key={valid_key.name}, "
+            f"role={tenant_role}, super_admin={request.state.is_super_admin}, "
             f"path={request.method} {path}"
         )
 
