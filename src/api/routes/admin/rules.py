@@ -8,12 +8,12 @@ CRUD endpoints for managing global rules that guide AI reasoning.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session as get_db, verify_admin
+from src.api.deps import get_db_session as get_db, verify_tenant_admin, get_current_tenant_id
 from src.api.schemas.base import ResponseSchema
 from src.core.models.global_rule import GlobalRule
 
@@ -46,6 +46,7 @@ class RuleResponse(BaseModel):
     priority: int
     is_active: bool
     source: str
+    tenant_id: str | None
     created_at: Any
     updated_at: Any
 
@@ -59,12 +60,21 @@ class RuleResponse(BaseModel):
 
 @router.get("/", response_model=ResponseSchema[list[RuleResponse]])
 async def list_rules(
+    request: Request,
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
+    _admin: Any = Depends(verify_tenant_admin),
 ):
-    """List all global rules."""
-    query = select(GlobalRule).order_by(GlobalRule.priority, GlobalRule.created_at)
+    """List rules (System Defaults + Tenant Specific)."""
+    current_tenant = get_current_tenant_id(request)
+    
+    # Filter: Own tenant OR System default (system default is tenant_id IS NULL)
+    query = select(GlobalRule).where(
+        or_(
+            GlobalRule.tenant_id == current_tenant,
+            GlobalRule.tenant_id.is_(None)
+        )
+    ).order_by(GlobalRule.priority, GlobalRule.created_at)
     
     if not include_inactive:
         query = query.where(GlobalRule.is_active == True)
@@ -81,16 +91,27 @@ async def list_rules(
 @router.post("/", response_model=ResponseSchema[RuleResponse], status_code=status.HTTP_201_CREATED)
 async def create_rule(
     data: RuleCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
+    _admin: Any = Depends(verify_tenant_admin),
 ):
-    """Create a new global rule."""
+    """Create a new rule for the current tenant."""
+    current_tenant = get_current_tenant_id(request)
+    is_super = getattr(request.state, "is_super_admin", False)
+    
+    # By default, create for current tenant.
+    # If Super Admin wants to create GLOBAL rules, they might need a flag or specific API.
+    # For now, we assume standard UI usage creates tenant rules.
+    # (Optional: Add `is_global` to schema if needed for SA)
+    target_tenant = current_tenant
+    
     rule = GlobalRule(
         content=data.content,
         category=data.category,
         priority=data.priority,
         is_active=data.is_active,
-        source="manual"
+        source="manual",
+        tenant_id=target_tenant
     )
     db.add(rule)
     await db.commit()
@@ -100,7 +121,7 @@ async def create_rule(
     from src.core.services.rules import RulesService
     RulesService.invalidate_cache()
     
-    logger.info(f"Created global rule: {rule.id}")
+    logger.info(f"Created rule {rule.id} for tenant {target_tenant}")
     return ResponseSchema(data=RuleResponse.model_validate(rule), message="Rule created")
 
 
@@ -108,13 +129,27 @@ async def create_rule(
 async def update_rule(
     rule_id: str,
     data: RuleUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
+    _admin: Any = Depends(verify_tenant_admin),
 ):
-    """Update a global rule."""
+    """Update a rule."""
     rule = await db.get(GlobalRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
+    
+    # Permission Check
+    current_tenant = get_current_tenant_id(request)
+    is_super = getattr(request.state, "is_super_admin", False)
+    
+    if rule.tenant_id is None:
+        # System Rule
+        if not is_super:
+            raise HTTPException(status_code=403, detail="Only Super Admin can edit System Rules")
+    elif rule.tenant_id != current_tenant:
+        # Other Tenant's Rule
+        if not is_super:
+             raise HTTPException(status_code=403, detail="Cannot access this rule")
     
     if data.content is not None:
         rule.content = data.content
@@ -132,20 +167,32 @@ async def update_rule(
     from src.core.services.rules import RulesService
     RulesService.invalidate_cache()
     
-    logger.info(f"Updated global rule: {rule.id}")
+    logger.info(f"Updated rule: {rule.id}")
     return ResponseSchema(data=RuleResponse.model_validate(rule), message="Rule updated")
 
 
 @router.delete("/{rule_id}", response_model=ResponseSchema[dict])
 async def delete_rule(
     rule_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
+    _admin: Any = Depends(verify_tenant_admin),
 ):
-    """Delete a global rule."""
+    """Delete a rule."""
     rule = await db.get(GlobalRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
+    
+    # Permission Check
+    current_tenant = get_current_tenant_id(request)
+    is_super = getattr(request.state, "is_super_admin", False)
+    
+    if rule.tenant_id is None:
+        if not is_super:
+            raise HTTPException(status_code=403, detail="Only Super Admin can delete System Rules")
+    elif rule.tenant_id != current_tenant:
+        if not is_super:
+             raise HTTPException(status_code=403, detail="Cannot access this rule")
     
     await db.delete(rule)
     await db.commit()
@@ -154,16 +201,17 @@ async def delete_rule(
     from src.core.services.rules import RulesService
     RulesService.invalidate_cache()
     
-    logger.info(f"Deleted global rule: {rule_id}")
+    logger.info(f"Deleted rule: {rule_id}")
     return ResponseSchema(data={"deleted": rule_id}, message="Rule deleted")
 
 
 @router.post("/upload", response_model=ResponseSchema[dict])
 async def upload_rules_file(
+    request: Request,
     file: UploadFile = File(...),
     replace_existing: bool = False,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
+    _admin: Any = Depends(verify_tenant_admin),
 ):
     """
     Upload a rules.txt file. Each non-empty line becomes a rule.
