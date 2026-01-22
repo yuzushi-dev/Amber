@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import { GraphEdge, GraphNode } from '@/types/graph';
@@ -48,6 +48,8 @@ interface ThreeGraphProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
     onNodeClick?: (node: GraphNode) => void;
+    highlightedNodeIds?: string[];
+    zoomToNodeId?: string | null;
 }
 
 // Transform nodes/edges to force-graph format
@@ -62,6 +64,7 @@ interface ForceGraphNode {
     x?: number;
     y?: number;
     z?: number;
+    isHighlighted?: boolean;
 }
 
 interface ForceGraphLink {
@@ -76,7 +79,13 @@ interface GraphData {
     links: ForceGraphLink[];
 }
 
-export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProps) {
+export default function ThreeGraph({
+    nodes,
+    edges,
+    onNodeClick,
+    highlightedNodeIds = [],
+    zoomToNodeId
+}: ThreeGraphProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ForceGraph3D ref type is complex
     const fgRef = useRef<any>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -85,6 +94,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
     // Transform data for force-graph-3d
     const graphData = useMemo<GraphData>(() => {
         const nodeMap = new Map(nodes.map(n => [n.id, n]));
+        const highlightSet = new Set(highlightedNodeIds);
 
         return {
             nodes: nodes.map(node => {
@@ -103,6 +113,7 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
                     type: node.type,
                     degree: node.degree,
                     val: Math.max(1, (node.degree || 1) * 2),
+                    isHighlighted: highlightSet.has(node.id)
                 };
             }),
             links: edges
@@ -114,7 +125,57 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
                     type: edge.type,
                 })),
         };
-    }, [nodes, edges]);
+    }, [nodes, edges, highlightedNodeIds]);
+
+    // Zoom effect when zoomToNodeId changes
+    React.useEffect(() => {
+        if (zoomToNodeId && fgRef.current) {
+            // Find the node object in the internal graph structure or current data
+            // We need coords which are populated by the force engine
+            // Wait a tick for graph to possibly settle if node is new?
+            // Actually, we can just look it up in graphData, but coords (x,y,z) are mutable on the object
+            // The graphData array objects ARE the d3 objects.
+
+            const node = graphData.nodes.find(n => n.id === zoomToNodeId);
+            if (node && typeof node.x === 'number' && typeof node.y === 'number' && typeof node.z === 'number') {
+                const distance = 150;
+                const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+
+                fgRef.current.cameraPosition(
+                    { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+                    node, // lookAt
+                    2000  // Transition duration (ms)
+                );
+            }
+        }
+    }, [zoomToNodeId, graphData]);
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+    // Handle container resize
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const updateDimensions = () => {
+            if (containerRef.current) {
+                setDimensions({
+                    width: containerRef.current.clientWidth,
+                    height: containerRef.current.clientHeight
+                });
+            }
+        };
+
+        const resizeObserver = new ResizeObserver(() => {
+            // using requestAnimationFrame to throttle and avoid loop limit errors
+            requestAnimationFrame(updateDimensions);
+        });
+
+        resizeObserver.observe(containerRef.current);
+        updateDimensions(); // Initial size
+
+        return () => resizeObserver.disconnect();
+    }, []);
 
     // Handle node click
     const handleNodeClick = useCallback((node: ForceGraphNode) => {
@@ -236,26 +297,34 @@ export default function ThreeGraph({ nodes, edges, onNodeClick }: ThreeGraphProp
     }, []);
 
     return (
-        <div className="relative w-full h-full min-h-[500px] rounded-lg overflow-hidden" style={{ backgroundColor: THEME.background }}>
-            {/* 3D Graph */}
-            <ForceGraph3D
-                ref={fgRef}
-                graphData={graphData}
-                nodeLabel=""
-                nodeThreeObject={nodeThreeObject}
-                nodeThreeObjectExtend={false}
-                linkOpacity={0.3}
-                linkWidth={1}
-                linkColor={() => THEME.edges.default}
-                backgroundColor={THEME.background}
-                showNavInfo={false}
-                onNodeClick={handleNodeClick}
-                onNodeHover={(node: ForceGraphNode | null) => setHoveredNode(node?.id || null)}
-                d3AlphaDecay={0.02}
-                d3VelocityDecay={0.3}
-                warmupTicks={100}
-                cooldownTicks={0}
-            />
+        <div
+            ref={containerRef}
+            className="relative w-full h-full min-h-[500px] rounded-lg overflow-hidden"
+            style={{ backgroundColor: THEME.background }}
+        >
+            {/* 3D Graph - Only render if we have dimensions to avoid full-screen default */}
+            {dimensions.width > 0 && dimensions.height > 0 && (
+                <ForceGraph3D
+                    ref={fgRef}
+                    width={dimensions.width}
+                    height={dimensions.height}
+                    graphData={graphData}
+                    nodeLabel=""
+                    nodeThreeObject={nodeThreeObject}
+                    nodeThreeObjectExtend={false}
+                    linkOpacity={0.3}
+                    linkWidth={1}
+                    linkColor={() => THEME.edges.default}
+                    backgroundColor={THEME.background}
+                    showNavInfo={false}
+                    onNodeClick={handleNodeClick}
+                    onNodeHover={(node: ForceGraphNode | null) => setHoveredNode(node?.id || null)}
+                    d3AlphaDecay={0.02}
+                    d3VelocityDecay={0.3}
+                    warmupTicks={100}
+                    cooldownTicks={0}
+                />
+            )}
 
             {/* Hovered node tooltip */}
             {hoveredNode && (

@@ -1,10 +1,26 @@
 import asyncio
+import os
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 # Note: testcontainers removed to favor local development services
 # (Postgres :5433, Redis :6379, Milvus :19530, etc.)
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://graphrag:graphrag@localhost:5433/graphrag",
+)
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("CELERY_BROKER_URL", "redis://localhost:6379/1")
+os.environ.setdefault("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("MILVUS_HOST", "localhost")
+os.environ.setdefault("MILVUS_PORT", "19530")
+os.environ.setdefault("MINIO_HOST", "localhost")
+os.environ.setdefault("MINIO_PORT", "9000")
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -25,10 +41,10 @@ from src.shared.security import generate_api_key, hash_api_key
 from src.api.deps import _async_session_maker
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Create test client."""
-    from fastapi.testclient import TestClient
-    from src.api.main import app
+    from src.core.services.sparse_embeddings import SparseEmbeddingService
+    monkeypatch.setattr(SparseEmbeddingService, "prewarm", lambda self: False)
     return TestClient(app)
 
 

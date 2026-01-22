@@ -445,7 +445,7 @@ async def _compute_document_stats(
         # Relationship count query
         rel_cypher = """
             MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[:MENTIONS]->(s:Entity)-[r:RELATED_TO]->(t:Entity)
+            MATCH (c)-[:MENTIONS]->(s:Entity)-[r]->(t:Entity)
             WHERE exists {
                 MATCH (d)-[:HAS_CHUNK]->(:Chunk)-[:MENTIONS]->(t)
             }
@@ -940,7 +940,7 @@ async def get_document_relationships(
     cypher = """
         MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
         MATCH (c)-[:MENTIONS]->(s:Entity)
-        MATCH (s)-[r:RELATED_TO]->(t:Entity)
+        MATCH (s)-[r]->(t:Entity)
         WHERE EXISTS {
               MATCH (d)-[:HAS_CHUNK]->(c2:Chunk)-[:MENTIONS]->(t)
           }
@@ -1118,9 +1118,6 @@ async def get_document_similarities(
             for r in records
         ]
 
-    except Exception as e:
-        logger.warning(f"Failed to fetch similarities for document {document_id}: {e}")
-        return []
     except Exception as e:
         logger.warning(f"Failed to fetch similarities for document {document_id}: {e}")
         return []

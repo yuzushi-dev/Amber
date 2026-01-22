@@ -153,7 +153,7 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-white/10 shadow-2xl flex flex-col">
+            <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
                 <DialogHeader className="p-6 border-b border-white/5 bg-white/5">
                     <div className="flex items-center gap-3">
                         <div className="p-2.5 bg-destructive/10 rounded-lg ring-1 ring-destructive/20">

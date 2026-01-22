@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from src.api.deps import get_db_session, verify_super_admin, verify_tenant_admin
+from src.api.deps import get_db_session
 from src.api.schemas.base import ResponseSchema
 from src.core.services.migration import EmbeddingMigrationService
 from src.core.models.document import Document
@@ -24,8 +24,7 @@ _migration_state: dict = {}
 
 @router.get("/check", response_model=ResponseSchema[List[Any]])
 async def check_embedding_compatibility(
-    db: AsyncSession = Depends(get_db_session),
-    _admin: Any = Depends(verify_super_admin)
+    db: AsyncSession = Depends(get_db_session)
 ):
     """
     Check if the configured embedding model matches the stored data configuration for all tenants.
@@ -45,8 +44,7 @@ async def check_embedding_compatibility(
 @router.post("/migrate", response_model=ResponseSchema[Any])
 async def migrate_embeddings(
     tenant_id: str,
-    db: AsyncSession = Depends(get_db_session),
-    _admin: Any = Depends(verify_super_admin)
+    db: AsyncSession = Depends(get_db_session)
 ):
     """
     Trigger a destructive migration for a tenant.
@@ -106,8 +104,7 @@ async def migrate_embeddings(
 @router.get("/migration-status", response_model=ResponseSchema[Any])
 async def get_migration_status(
     tenant_id: str,
-    db: AsyncSession = Depends(get_db_session),
-    _admin: Any = Depends(verify_tenant_admin)
+    db: AsyncSession = Depends(get_db_session)
 ):
     """
     Get the current migration and reprocessing status for a tenant.
@@ -200,8 +197,7 @@ async def get_migration_status(
 @router.post("/cancel-migration", response_model=ResponseSchema[Any])
 async def cancel_migration(
     tenant_id: str,
-    db: AsyncSession = Depends(get_db_session),
-    _admin: Any = Depends(verify_super_admin)
+    db: AsyncSession = Depends(get_db_session)
 ):
     """
     Cancel an in-progress migration.

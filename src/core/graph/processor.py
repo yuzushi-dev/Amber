@@ -21,7 +21,7 @@ class GraphProcessor:
         self.extractor = GraphExtractor(use_gleaning=True)
         self.writer = graph_writer
 
-    async def process_chunks(self, chunks: list["Chunk"], tenant_id: str):
+    async def process_chunks(self, chunks: list["Chunk"], tenant_id: str, filename: str = None):
         """
         Process a list of chunks to extract and write graph data.
         """
@@ -48,7 +48,8 @@ class GraphProcessor:
                             document_id=chunk.document_id,
                             chunk_id=chunk.id,
                             tenant_id=tenant_id,
-                            result=result
+                            result=result,
+                            filename=filename
                         )
                 except Exception as e:
                     logger.error(f"Graph processing failed for chunk {chunk.id}: {e}")

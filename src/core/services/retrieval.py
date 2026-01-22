@@ -103,6 +103,9 @@ class RetrievalService:
         self,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        ollama_base_url: str | None = None,
+        default_embedding_provider: str | None = None,
+        default_embedding_model: str | None = None,
         redis_url: str = "redis://localhost:6379/0",
         config: RetrievalConfig | None = None,
         tuning_service: TuningService | None = None,
@@ -113,10 +116,14 @@ class RetrievalService:
         factory = ProviderFactory(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
+            ollama_base_url=ollama_base_url,
+            default_embedding_provider=default_embedding_provider,
+            default_embedding_model=default_embedding_model,
         )
 
         self.embedding_service = EmbeddingService(
             provider=factory.get_embedding_provider(),
+            model=default_embedding_model,
         )
 
         self.sparse_embedding = None

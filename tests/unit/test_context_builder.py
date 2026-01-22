@@ -34,4 +34,4 @@ def test_metadata_inclusion():
     result = builder.build(candidates)
 
     assert "Source ID: 1" in result.content
-    assert "Title: Secret Document" in result.content
+    assert "Document: Secret Document" in result.content

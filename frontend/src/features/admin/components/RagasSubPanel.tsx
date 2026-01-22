@@ -224,31 +224,23 @@ export function RagasSubPanel() {
                     icon={BarChart3}
                     label="Total Runs"
                     value={stats?.total_runs ?? 0}
-                    color="blue"
-                    delay={0.1}
                 />
                 <StatCard
                     icon={CheckCircle}
                     label="Completed"
                     value={stats?.completed_runs ?? 0}
-                    color="green"
-                    delay={0.2}
                 />
                 <StatCard
                     icon={FileJson}
                     label="Avg Faithfulness"
                     value={formatScore(stats?.avg_faithfulness ?? null)}
                     isString
-                    color="amber"
-                    delay={0.3}
                 />
                 <StatCard
                     icon={FileJson}
                     label="Avg Relevancy"
                     value={formatScore(stats?.avg_relevancy ?? null)}
                     isString
-                    color="purple"
-                    delay={0.4}
                 />
             </div>
 

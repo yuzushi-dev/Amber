@@ -44,10 +44,18 @@ class IngestionService:
         
         # Initialize components
         self.chunker = SemanticChunker(STRATEGIES[DocumentDomain.GENERAL])
-        # Ensure EmbeddingService is correctly initialized if it requires args
-        # Assuming defaults used in original code
         self.embedding_service = EmbeddingService()
-        self.vector_store = MilvusVectorStore()
+        
+        # Initialize Milvus with system settings
+        from src.api.config import settings
+        from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
+        
+        milvus_config = MilvusConfig(
+            host=settings.db.milvus_host,
+            port=settings.db.milvus_port,
+            dimensions=settings.embedding_dimensions or 1536
+        )
+        self.vector_store = MilvusVectorStore(milvus_config)
         
         # GraphProcessor uses global graph_writer internally, but that's handled by tasks.py patch for safety
         self.graph_processor = GraphProcessor()
@@ -324,12 +332,42 @@ class IngestionService:
                 from src.core.services.embeddings import EmbeddingService
                 from src.core.services.sparse_embeddings import SparseEmbeddingService
                 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
+                from src.core.providers.factory import ProviderFactory
 
                 logger.info(f"Generating embeddings for {len(chunks_to_process)} chunks")
 
+                from src.core.models.tenant import Tenant
+                from src.core.models.api_key import ApiKey # Required for association table registration
+                
+                # Fetch Tenant Config
+                query_tenant = select(Tenant).where(Tenant.id == document.tenant_id)
+                t_result = await self.session.execute(query_tenant)
+                tenant_obj = t_result.scalars().first()
+                t_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
+                
+                # Resolve Settings (Tenant > System)
+                # Defaults
+                sys_prov = settings.default_embedding_provider
+                sys_model = settings.default_embedding_model
+                sys_dims = settings.embedding_dimensions or 1536
+                
+                # Resolved
+                res_prov = t_config.get("embedding_provider") or sys_prov
+                res_model = t_config.get("embedding_model") or sys_model
+                res_dims = t_config.get("embedding_dimensions") or sys_dims
+
                 # Initialize services
+                factory = ProviderFactory(
+                    openai_api_key=settings.openai_api_key,
+                    ollama_base_url=settings.ollama_base_url,
+                    default_embedding_provider=res_prov,
+                    default_embedding_model=res_model,
+                )
+                
                 embedding_service = EmbeddingService(
-                    openai_api_key=settings.openai_api_key or None,
+                    provider=factory.get_embedding_provider(),
+                    model=res_model,
+                    dimensions=res_dims,
                 )
                 sparse_service = SparseEmbeddingService()
 
@@ -337,6 +375,7 @@ class IngestionService:
                     host=settings.db.milvus_host,
                     port=settings.db.milvus_port,
                     collection_name=f"amber_{document.tenant_id}",  # Tenant-specific collection
+                    dimensions=res_dims
                 )
                 vector_store = MilvusVectorStore(milvus_config)
 
@@ -426,9 +465,13 @@ class IngestionService:
 
             except Exception as e:
                 logger.error(f"Embedding generation/storage failed for document {document_id}: {e}")
-                # Mark chunks as failed but don't fail the document entirely
+                # Mark chunks as failed
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.FAILED
+                
+                # RE-RAISE the exception to fail the document processing task!
+                # This prevents documents with missing graph/embeddings from being marked READY.
+                raise
 
             finally:
                 if vector_store is not None:
@@ -450,17 +493,26 @@ class IngestionService:
                 details={"progress": 80}
             ))
 
-            # We process chunks to extract entities and build graph before marking document as READY.
+            # 9. Build Knowledge Graph (Phase 3)
             try:
-                from src.core.graph.processor import graph_processor
                 from src.api.config import settings
                 from src.core.providers.factory import init_providers
                 
-                # Initialize LLM providers for extraction
-                if settings.openai_api_key:
-                    init_providers(openai_api_key=settings.openai_api_key)
-                
-                await graph_processor.process_chunks(chunks_to_process, document.tenant_id)
+                # Initialize LLM providers for extraction (important for graph_processor)
+                # Note: local providers are initialized on-demand but this ensures 
+                # settings are correctly passed for OpenAI/Anthropic if configured.
+                init_providers(
+                    openai_api_key=settings.openai_api_key,
+                    anthropic_api_key=settings.anthropic_api_key
+                )
+
+                # We skip graph processing if 0 chunks (already filtered but safe)
+                if chunks_to_process:
+                    await self.graph_processor.process_chunks(
+                        chunks_to_process, 
+                        document.tenant_id,
+                        filename=document.filename
+                    )
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
                 # We do NOT fail the document, as we still have chunks for RAG.

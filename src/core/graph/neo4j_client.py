@@ -215,6 +215,109 @@ class Neo4jClient:
         except Exception:
             return False
 
+    async def delete_tenant_data(self, tenant_id: str) -> int:
+        """
+        Delete all data associated with a tenant.
+        Used during destructive migration.
+        """
+        query = """
+        MATCH (n {tenant_id: $tenant_id})
+        DETACH DELETE n
+        RETURN count(n) as deleted
+        """
+        try:
+            result = await self.execute_write(query, {"tenant_id": tenant_id})
+            return result[0]["deleted"] if result else 0
+        except Exception as e:
+            logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
+            raise
+
+    async def get_top_nodes(self, tenant_id: str, limit: int = 15) -> list[dict[str, Any]]:
+        """
+        Get top connected nodes for the global graph background.
+        """
+        query = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        OPTIONAL MATCH (n)-[r]-()
+        WITH n, count(r) as degree
+        ORDER BY degree DESC
+        LIMIT $limit
+        RETURN n.name as id, n.name as label, n.type as type, n.community as community_id, degree
+        """
+        return await self.execute_read(query, {"tenant_id": tenant_id, "limit": limit})
+
+    async def search_nodes(self, query_str: str, tenant_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """
+        Search for nodes by name or description.
+        """
+        query = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        WHERE toLower(n.name) CONTAINS toLower($q) 
+           OR toLower(n.description) CONTAINS toLower($q)
+        RETURN n.name as id, n.name as label, n.type as type, n.community as community_id
+        LIMIT $limit
+        """
+        return await self.execute_read(query, {"tenant_id": tenant_id, "q": query_str, "limit": limit})
+
+    async def get_node_neighborhood(self, node_id: str, tenant_id: str, limit: int = 50) -> dict[str, Any]:
+        """
+        Get neighborhood as graph data (nodes list, edges list).
+        Wrapper for get_node_neighborhood_graph to match naming convention.
+        """
+        return await self.get_node_neighborhood_graph(node_id, tenant_id, limit)
+
+    async def get_node_neighborhood_graph(self, node_id: str, tenant_id: str, limit: int = 50) -> dict[str, Any]:
+        """
+        Get neighborhood as graph data (nodes list, edges list).
+        """
+        query = """
+        MATCH (center:Entity {name: $node_id, tenant_id: $tenant_id})
+        OPTIONAL MATCH (center)-[r]-(neighbor:Entity)
+        RETURN 
+            center.name as c_id, center.type as c_type, center.community as c_comm,
+            type(r) as r_type, startNode(r).name as source, endNode(r).name as target,
+            neighbor.name as n_id, neighbor.type as n_type, neighbor.community as n_comm
+        LIMIT $limit
+        """
+        records = await self.execute_read(query, {"node_id": node_id, "tenant_id": tenant_id, "limit": limit})
+        
+        nodes = {} # Map to dedup
+        edges = []
+        
+        for row in records:
+            if not row['c_id']: continue # Should not happen if center exists
+            
+            # Add center
+            if row['c_id'] not in nodes:
+                nodes[row['c_id']] = {
+                    "id": row['c_id'],
+                    "label": row['c_id'],
+                    "type": row['c_type'],
+                    "community_id": row['c_comm'],
+                    "degree": 1 # Estimate
+                }
+                
+            # Add neighbor and edge
+            if row['n_id']:
+                if row['n_id'] not in nodes:
+                    nodes[row['n_id']] = {
+                        "id": row['n_id'],
+                        "label": row['n_id'],
+                        "type": row['n_type'],
+                        "community_id": row['n_comm']
+                    }
+                
+                edges.append({
+                    "source": row['source'], # Neo4j directionality
+                    "target": row['target'],
+                    "type": row['r_type']
+                })
+        
+        return {
+            "nodes": list(nodes.values()),
+            "edges": edges
+        }
+
 # Global instance
 neo4j_client = Neo4jClient()
 

@@ -46,7 +46,9 @@ export default function JobsPage() {
     const handleCancel = async (taskId: string) => {
         try {
             setCancellingId(taskId)
-            await jobsApi.cancel(taskId)
+            const job = jobs.find(j => j.task_id === taskId)
+            const isRunning = job?.status === 'STARTED' || job?.status === 'PROGRESS'
+            await jobsApi.cancel(taskId, isRunning)
             await fetchJobs()
         } catch (err) {
             console.error('Failed to cancel task:', err)
