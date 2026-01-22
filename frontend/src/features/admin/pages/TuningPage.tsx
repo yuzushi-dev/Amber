@@ -380,7 +380,7 @@ export default function TuningPage() {
                                                         size="icon"
                                                         className={cn(
                                                             "transition-colors",
-                                                            validatingProvider === formValues[f.name] && "border-primary text-primary"
+                                                            validatingProvider === formValues[f.name] && "border-amber-500 text-amber-500"
                                                         )}
                                                         onClick={() => validateProvider(
                                                             f.name === 'llm_provider' ? 'llm' : 'embedding',
@@ -391,7 +391,7 @@ export default function TuningPage() {
                                                     >
                                                         {validatingProvider === formValues[f.name] ?
                                                             <RotateCcw className="h-4 w-4 animate-spin" /> :
-                                                            <CheckCircle className="h-4 w-4 text-emerald-500" />
+                                                            <CheckCircle className="h-4 w-4 text-amber-500" />
                                                         }
                                                     </Button>
                                                 )}
@@ -470,7 +470,7 @@ export default function TuningPage() {
                                     {initialValues.embedding_provider as string}/{initialValues.embedding_model as string}
                                 </span>{' '}
                                 to{' '}
-                                <span className="font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                <span className="font-mono text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
                                     {pendingEmbeddingProviderChange}/{pendingEmbeddingChange}
                                 </span>
                             </p>
