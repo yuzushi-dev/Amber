@@ -109,3 +109,58 @@ def build_milvus_config():
         port=settings.db.milvus_port,
         dimensions=settings.embedding_dimensions or 1536,
     )
+
+
+# -----------------------------------------------------------------------------
+# Database Session and Unit of Work Factories
+# -----------------------------------------------------------------------------
+
+_session_maker = None
+
+
+def build_session_factory():
+    """
+    Build the canonical async session factory.
+    
+    This is the ONLY place where the session factory should be created.
+    All other code should use this or the UoW factory.
+    """
+    global _session_maker
+    
+    if _session_maker is None:
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        
+        settings = get_settings_lazy()
+        engine = create_async_engine(
+            settings.db.database_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_size=settings.db.pool_size,
+            max_overflow=settings.db.max_overflow,
+        )
+        _session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    return _session_maker
+
+
+def build_uow_factory():
+    """
+    Build a Unit of Work factory function.
+    
+    Returns a factory that creates UoW instances with the given tenant context.
+    
+    Usage:
+        uow_factory = build_uow_factory()
+        async with uow_factory(tenant_id, is_super_admin=False) as uow:
+            # use uow.session for DB operations
+            ...
+    """
+    from src.core.database.unit_of_work import SqlAlchemyUnitOfWork
+    
+    session_maker = build_session_factory()
+    
+    def make_uow(tenant_id: str, is_super_admin: bool = False) -> SqlAlchemyUnitOfWork:
+        return SqlAlchemyUnitOfWork(session_maker, tenant_id=tenant_id, is_super_admin=is_super_admin)
+    
+    return make_uow
+

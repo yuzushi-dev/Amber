@@ -8,23 +8,28 @@ FastAPI dependency injection utilities.
 from collections.abc import AsyncGenerator
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.config import settings
 
-# Create async engine
-_engine = create_async_engine(
-    settings.db.database_url,
-    echo=False,
-    pool_pre_ping=True,
-)
 
-# Session factory
-_async_session_maker = async_sessionmaker(
-    _engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+def _get_session_maker():
+    """Get the canonical session maker from composition root."""
+    from src.platform.composition_root import build_session_factory
+    return build_session_factory()
+
+
+# Backward compatibility: expose _async_session_maker for existing code
+# TODO: Remove after Phase 3 when all usages are migrated to UoW
+_async_session_maker = None
+
+
+def _get_async_session_maker():
+    """Lazy accessor for backward compatibility."""
+    global _async_session_maker
+    if _async_session_maker is None:
+        _async_session_maker = _get_session_maker()
+    return _async_session_maker
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -34,7 +39,8 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
     Injects the current tenant ID into the session for RLS.
     Sets app.is_super_admin if the user has the 'super_admin' scope.
     """
-    async with _async_session_maker() as session:
+    session_maker = _get_async_session_maker()
+    async with session_maker() as session:
         try:
             # Inject current tenant into session configuration
             from sqlalchemy import text

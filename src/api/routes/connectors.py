@@ -450,13 +450,13 @@ async def run_selective_ingestion(
     """Background task for selective ingestion."""
     # Create new session
     # We need to manually manage the session here
-    from src.api.deps import _async_session_maker
+    from src.api.deps import _get_async_session_maker
     from src.api.config import settings
     from src.core.storage.storage_client import MinIOClient
     
     logger.info(f"Starting selective ingestion for {connector_type} items: {item_ids}")
     
-    async with _async_session_maker() as session:
+    async with _get_async_session_maker()() as session:
         # 1. Setup Connector
         result = await session.execute(
             select(ConnectorState).where(ConnectorState.id == state_id)

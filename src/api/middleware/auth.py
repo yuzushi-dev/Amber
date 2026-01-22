@@ -102,12 +102,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
         # Validate API key via Service
-        from src.api.deps import _async_session_maker
+        from src.api.deps import _get_async_session_maker
         from src.core.services.api_key_service import ApiKeyService
 
         valid_key = None
         try:
-            async with _async_session_maker() as session:
+            async with _get_async_session_maker()() as session:
                 service = ApiKeyService(session)
                 valid_key = await service.validate_key(api_key)
         except Exception as e:
@@ -170,7 +170,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if str(tenant_id) in allowed_tenants:
             # Find the specific association to get the role
             from src.core.models.api_key import ApiKeyTenant
-            async with _async_session_maker() as session:
+            async with _get_async_session_maker()() as session:
                 from sqlalchemy import select
                 result = await session.execute(
                     select(ApiKeyTenant.role).where(

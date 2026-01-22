@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
 
     # Bootstrap API Key
     try:
-        from src.api.deps import _async_session_maker
+        from src.api.deps import _get_async_session_maker
         from src.core.services.api_key_service import ApiKeyService
         from src.core.services.migration import EmbeddingMigrationService
 
@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
             logger.critical("Set DEV_API_KEY environment variable in production!")
             logger.critical("!" * 60)
 
-        async with _async_session_maker() as session:
+        async with _get_async_session_maker()() as session:
             # Bootstrap Key
             service = ApiKeyService(session)
             await service.ensure_bootstrap_key(dev_key, name="Development Key")

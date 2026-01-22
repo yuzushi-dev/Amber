@@ -555,9 +555,9 @@ async def _query_stream_impl(
         if request.conversation_id and not (request.options and request.options.agent_mode):
             try:
                 from src.core.models.memory import ConversationSummary
-                from src.api.deps import _async_session_maker
+                from src.api.deps import _get_async_session_maker
                 
-                async with _async_session_maker() as session:
+                async with _get_async_session_maker()() as session:
                     existing_conv = await session.get(ConversationSummary, request.conversation_id)
                     if existing_conv and existing_conv.metadata_:
                         mode = existing_conv.metadata_.get("mode")
@@ -619,11 +619,11 @@ async def _query_stream_impl(
                     # Fetch active credentials for ALL active connectors
                     from src.api.routes.connectors import CONNECTOR_REGISTRY
                     from src.core.models.connector_state import ConnectorState
-                    from src.api.deps import _async_session_maker
+                    from src.api.deps import _get_async_session_maker
                     from sqlalchemy import select
 
                     c_tools_count = 0
-                    async with _async_session_maker() as session:
+                    async with _get_async_session_maker()() as session:
                         logger.info("DB Session created for Agent Setup")
                         # Select all active connectors for this tenant
                         result = await session.execute(
@@ -692,7 +692,7 @@ async def _query_stream_impl(
                     if request.conversation_id:
                         try:
                             from src.core.models.memory import ConversationSummary  # Import here for history loading
-                            async with _async_session_maker() as history_session:
+                            async with _get_async_session_maker()() as history_session:
                                 existing_conv = await history_session.get(ConversationSummary, request.conversation_id)
                                 if existing_conv and existing_conv.metadata_:
                                     saved_history = existing_conv.metadata_.get("history", [])
@@ -728,9 +728,9 @@ async def _query_stream_impl(
                         
                         from datetime import datetime
                         from src.core.models.memory import ConversationSummary
-                        from src.api.deps import _async_session_maker
+                        from src.api.deps import _get_async_session_maker
                         
-                        async with _async_session_maker() as session:
+                        async with _get_async_session_maker()() as session:
                             # Try to find existing conversation
                             existing_summary = None
                             if request.conversation_id:
@@ -906,9 +906,9 @@ async def _query_stream_impl(
                 
                 from datetime import datetime
                 from src.core.models.memory import ConversationSummary
-                from src.api.deps import _async_session_maker
+                from src.api.deps import _get_async_session_maker
                 
-                async with _async_session_maker() as session:
+                async with _get_async_session_maker()() as session:
                     # Try to find existing conversation (for threading)
                     existing_summary = None
                     if request.conversation_id:
