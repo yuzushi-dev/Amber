@@ -66,7 +66,12 @@ export interface TenantConfig {
     llm_model: string
     embedding_provider: string
     embedding_model: string
-    system_prompt_override: string | null
+    // Prompt overrides (per-tenant)
+    rag_system_prompt: string | null
+    rag_user_prompt: string | null
+    agent_system_prompt: string | null
+    community_summary_prompt: string | null
+    fact_extraction_prompt: string | null
     hybrid_ocr_enabled: boolean
     ocr_text_density_threshold: number
     weights?: {
@@ -74,6 +79,14 @@ export interface TenantConfig {
         graph_weight: number
         rerank_weight: number
     }
+}
+
+export interface DefaultPrompts {
+    rag_system_prompt: string
+    rag_user_prompt: string
+    agent_system_prompt: string
+    community_summary_prompt: string
+    fact_extraction_prompt: string
 }
 
 export interface ConfigSchemaField {
@@ -314,6 +327,11 @@ export const providersApi = {
 export const configApi = {
     getSchema: async () => {
         const response = await apiClient.get<ConfigSchema>('/admin/config/schema')
+        return response.data
+    },
+
+    getDefaultPrompts: async () => {
+        const response = await apiClient.get<DefaultPrompts>('/admin/config/prompts/defaults')
         return response.data
     },
 
