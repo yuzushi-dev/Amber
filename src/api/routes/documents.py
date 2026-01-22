@@ -122,56 +122,47 @@ async def upload_document(
     """
     Upload a document for async ingestion.
     """
+    from src.core.use_cases.documents import UploadDocumentRequest, UploadDocumentUseCase
+    
     # Use default tenant if not provided
     tenant = tenant_id or settings.tenant_id
-
+    
     # Read file content
     content = await file.read()
-
-    if len(content) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Empty file uploaded"
-        )
-
-    # Check file size
-    max_size = settings.uploads.max_size_mb * 1024 * 1024
-    if len(content) > max_size:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Max size: {settings.uploads.max_size_mb}MB"
-        )
-
-    # Register document
+    
+    # Build use case with dependencies
     storage = MinIOClient()
-    service = IngestionService(session, storage)
-
-    document = await service.register_document(
-        tenant_id=tenant,
-        filename=file.filename or "unnamed",
-        file_content=content,
-        content_type=file.content_type or "application/octet-stream"
-    )
-
-    # Dispatch async processing task
-    # Fix: Only dispatch if this is a new document to avoid duplicate processing
-    if document.status == DocumentStatus.INGESTED:
-        from src.workers.tasks import process_document
-        process_document.delay(document.id, tenant)
-    else:
-        # Document was deduplicated (existing), so don't re-process
-        pass
-
+    max_size = settings.uploads.max_size_mb * 1024 * 1024
+    use_case = UploadDocumentUseCase(session, storage, max_size)
+    
+    # Execute use case
+    try:
+        result = await use_case.execute(
+            UploadDocumentRequest(
+                tenant_id=tenant,
+                filename=file.filename or "unnamed",
+                content=content,
+                content_type=file.content_type or "application/octet-stream",
+            )
+        )
+    except ValueError as e:
+        # Map domain errors to HTTP errors
+        if "empty" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        elif "too large" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    
     # Build events URL
-    events_url = f"/v1/documents/{document.id}/events"
-
-    logger.info(f"Document {document.id} uploaded, processing dispatched")
-
+    events_url = f"/v1/documents/{result.document_id}/events"
+    
+    logger.info(f"Document {result.document_id} uploaded, processing dispatched")
+    
     return DocumentUploadResponse(
-        document_id=document.id,
-        status=document.status.value,
+        document_id=result.document_id,
+        status=result.status,
         events_url=events_url,
-        message="Document accepted for processing"
+        message=result.message,
     )
 
 
