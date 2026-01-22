@@ -21,7 +21,6 @@ import {
 import { jobsApi, JobInfo, QueuesResponse } from '@/lib/api-admin'
 import { PageHeader } from '../components/PageHeader'
 import { PageSkeleton } from '../components/PageSkeleton'
-import { StatCard } from '@/components/ui/StatCard'
 
 export default function JobsAndQueuesPage() {
     // Jobs State
@@ -71,7 +70,9 @@ export default function JobsAndQueuesPage() {
     const handleCancelJob = async (taskId: string) => {
         try {
             setCancellingId(taskId)
-            await jobsApi.cancel(taskId)
+            const job = jobs.find(j => j.task_id === taskId)
+            const isRunning = job?.status === 'STARTED' || job?.status === 'PROGRESS'
+            await jobsApi.cancel(taskId, isRunning)
             await fetchData()
         } catch (err) {
             console.error('Failed to cancel task:', err)
@@ -135,34 +136,32 @@ export default function JobsAndQueuesPage() {
 
             {/* --- Overview Section --- */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatCard
-                    icon={Activity}
-                    label="Active Jobs"
-                    value={activeJobsCount}
-                    color="blue"
-                    delay={0.1}
-                />
-                <StatCard
-                    icon={Clock}
-                    label="Queued Jobs"
-                    value={reservedJobsCount}
-                    color="yellow"
-                    delay={0.2}
-                />
-                <StatCard
-                    icon={Server}
-                    label="Online Workers"
-                    value={queueData?.workers.length ?? 0}
-                    color="green"
-                    delay={0.3}
-                />
-                <StatCard
-                    icon={Layers}
-                    label="Total Messages"
-                    value={queueData?.queues.reduce((sum, q) => sum + q.message_count, 0) ?? 0}
-                    color="primary"
-                    delay={0.4}
-                />
+                <div className="bg-card border rounded-lg p-4">
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Activity className="w-4 h-4" /> Active Jobs
+                    </div>
+                    <div className="text-2xl font-bold text-blue-600">{activeJobsCount}</div>
+                </div>
+                <div className="bg-card border rounded-lg p-4">
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Clock className="w-4 h-4" /> Queued Jobs
+                    </div>
+                    <div className="text-2xl font-bold text-yellow-600">{reservedJobsCount}</div>
+                </div>
+                <div className="bg-card border rounded-lg p-4">
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Server className="w-4 h-4" /> Online Workers
+                    </div>
+                    <div className="text-2xl font-bold text-green-600">{queueData?.workers.length ?? 0}</div>
+                </div>
+                <div className="bg-card border rounded-lg p-4">
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Layers className="w-4 h-4" /> Total Messages
+                    </div>
+                    <div className="text-2xl font-bold">
+                        {queueData?.queues.reduce((sum, q) => sum + q.message_count, 0) ?? 0}
+                    </div>
+                </div>
             </div>
 
             {/* --- Workers Section --- */}

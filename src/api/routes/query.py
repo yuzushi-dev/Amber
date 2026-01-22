@@ -64,6 +64,9 @@ def _get_services():
             _retrieval_service = RetrievalService(
                 openai_api_key=openai_key or None,
                 anthropic_api_key=anthropic_key or None,
+                ollama_base_url=settings.ollama_base_url,
+                default_embedding_provider=settings.default_embedding_provider,
+                default_embedding_model=settings.default_embedding_model,
                 redis_url=settings.db.redis_url,
                 config=retrieval_config,
             )
@@ -890,6 +893,8 @@ async def query_stream(
 
                 yield f"event: {event}\ndata: {data_str}\n\n"
             
+            # Normalize citation variants for storage/metrics.
+            full_answer = generation_service._normalize_citations(full_answer)
             stream_latency_ms = (time.perf_counter() - stream_start_time) * 1000
 
             # SAVE INTERACTION TO HISTORY

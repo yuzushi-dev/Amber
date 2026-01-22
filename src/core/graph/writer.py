@@ -19,7 +19,8 @@ class GraphWriter:
         document_id: str,
         chunk_id: str,
         tenant_id: str,
-        result: ExtractionResult
+        result: ExtractionResult,
+        filename: str = None
     ):
         """
         Persist extraction results for a single chunk.
@@ -49,7 +50,8 @@ class GraphWriter:
         query = f"""
         // 1. Ensure Context (Document & Chunk)
         MERGE (d:{NodeLabel.Document.value} {{id: $document_id}})
-        ON CREATE SET d.tenant_id = $tenant_id
+        ON CREATE SET d.tenant_id = $tenant_id, d.filename = $filename
+        ON MATCH SET d.filename = CASE WHEN d.filename IS NULL THEN $filename ELSE d.filename END
 
         MERGE (c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
         ON CREATE SET c.document_id = $document_id, c.tenant_id = $tenant_id
@@ -77,6 +79,7 @@ class GraphWriter:
             "document_id": document_id,
             "chunk_id": chunk_id,
             "tenant_id": tenant_id,
+            "filename": filename,
             "entities": entities_param
         }
 

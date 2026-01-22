@@ -21,6 +21,11 @@ from src.core.security.source_verifier import SourceVerifier
 
 logger = logging.getLogger(__name__)
 
+CITATION_NORMALIZE_PATTERN = re.compile(
+    r"\[\[\s*(?:source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*)?(\d+)\s*\]\]",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class Source:
@@ -101,9 +106,14 @@ class GenerationService:
                 default_llm_provider=default_llm_provider,
                 default_llm_model=default_llm_model,
             )
-            self.llm = factory.get_llm_provider(tier=self.config.tier)
+        self.llm = factory.get_llm_provider(tier=self.config.tier)
 
         self.verifier = SourceVerifier()
+
+    def _normalize_citations(self, text: str) -> str:
+        if not text:
+            return text
+        return CITATION_NORMALIZE_PATTERN.sub(r"[[Source:\1]]", text)
 
     @trace_span("GenerationService.generate")
     async def generate(
@@ -231,7 +241,8 @@ class GenerationService:
 
 
         # Step 4: Parse citations and map sources
-        cited_sources = self._map_sources(llm_result.text, context_result.used_candidates)
+        normalized_answer = self._normalize_citations(llm_result.text)
+        cited_sources = self._map_sources(normalized_answer, context_result.used_candidates)
 
         # Step 5: Verify sources
         is_grounded = True
@@ -255,7 +266,7 @@ class GenerationService:
         total_latency = (time.perf_counter() - start_time) * 1000
 
         return GenerationResult(
-            answer=llm_result.text,
+            answer=normalized_answer,
             sources=cited_sources,
             model=llm_result.model,
             provider=llm_result.provider,
@@ -266,7 +277,7 @@ class GenerationService:
             output_tokens=llm_result.usage.output_tokens,
             context_tokens=context_result.tokens,
             trace=trace if include_trace else [],
-            follow_up_questions=self._generate_follow_ups(query, llm_result.text) if self.config.enable_follow_up else [],
+            follow_up_questions=self._generate_follow_ups(query, normalized_answer) if self.config.enable_follow_up else [],
             is_grounded=is_grounded,
             grounding_score=grounding_score
         )
@@ -448,11 +459,12 @@ class GenerationService:
 
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
+        normalized_answer = self._normalize_citations(answer)
         pattern = r"\[\[Source:(\d+)\]\]" # Updated regex to match new prompt format
-        matches = re.findall(pattern, answer)
+        matches = re.findall(pattern, normalized_answer)
         # Fallback for old format [1] just in case
         if not matches:
-             matches = re.findall(r"\[(\d+)\]", answer)
+             matches = re.findall(r"\[(\d+)\]", normalized_answer)
              
         cited_indices = {int(m) for m in matches}
 

@@ -110,23 +110,33 @@ class MilvusVectorStore:
     async def connect(self) -> None:
         """Connect to Milvus and ensure collection exists."""
         milvus = _get_milvus()
-        if self._connected and milvus["connections"].has_connection("default"):
-            return
-
-        milvus = _get_milvus()
+        
+        # FIX: Check global connection state first
+        if milvus["connections"].has_connection("default"):
+            self._connected = True
+            # Still need to ensure collection exists even if connected
+            # But we can't do that easily without the blocking call logic below.
+            # However, usually connection is enough. 
+            # Let's fall through to _sync_connect ONLY if we need to load collection?
+            # Actually, reusing connection avoids the ConfigException.
+            pass 
+        
         import asyncio
 
         def _sync_connect():
             """Synchronous connection and loading logic."""
             # Connect using the connections module
             alias = "default"
-            milvus["connections"].connect(
-                alias=alias,
-                host=self.config.host,
-                port=self.config.port,
-                user=self.config.user if self.config.user else None,
-                password=self.config.password if self.config.password else None,
-            )
+            
+            # Only connect if not connected
+            if not milvus["connections"].has_connection(alias):
+                milvus["connections"].connect(
+                    alias=alias,
+                    host=self.config.host,
+                    port=self.config.port,
+                    user=self.config.user if self.config.user else None,
+                    password=self.config.password if self.config.password else None,
+                )
 
             # Check if collection exists
             if not milvus["utility"].has_collection(self.config.collection_name):
@@ -160,7 +170,6 @@ class MilvusVectorStore:
         """Create the collection with proper schema."""
         logger.info(f"Creating collection: {self.config.collection_name}")
 
-        # Define schema
         # Define schema
         fields = [
             milvus["FieldSchema"](
@@ -230,13 +239,11 @@ class MilvusVectorStore:
                 "index_type": "SPARSE_INVERTED_INDEX",
                 "params": {"drop_ratio_build": 0.2},
             }
-            try:
-                self._collection.create_index(
-                    field_name=self.FIELD_SPARSE_VECTOR,
-                    index_params=sparse_index_params,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to create sparse index used standard parameters: {e}")
+            # Remove try/catch - we MUST have this index if we have the field
+            self._collection.create_index(
+                field_name=self.FIELD_SPARSE_VECTOR,
+                index_params=sparse_index_params,
+            )
 
         # Create indexes for filter fields
         self._collection.create_index(
@@ -689,3 +696,20 @@ class MilvusVectorStore:
             logger.error(f"Hybrid search failed: {e}")
             # Fallback
             return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
+
+    async def drop_collection(self) -> bool:
+        """
+        Drop the entire collection.
+        This is a destructive operation used during migration.
+        """
+        await self.connect()
+        try:
+            milvus = _get_milvus()
+            milvus["utility"].drop_collection(self.config.collection_name)
+            self._collection = None
+            self._connected = False
+            logger.warning(f"Dropped collection {self.config.collection_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to drop collection: {e}")
+            return False

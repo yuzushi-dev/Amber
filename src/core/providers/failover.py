@@ -40,6 +40,10 @@ class FailoverLLMProvider(BaseLLMProvider):
         if not providers:
             raise ValueError("At least one provider is required")
 
+    def _validate_config(self) -> None:
+        """No config to validate for aggregation."""
+        pass
+
     async def generate(
         self,
         prompt: str,
