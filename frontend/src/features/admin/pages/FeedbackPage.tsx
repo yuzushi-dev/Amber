@@ -181,7 +181,7 @@ export default function FeedbackPage() {
                                         {item.query || "No query text"}
                                     </h4>
                                 </div>
-                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20">
+                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/10 text-green-500 ring-1 ring-green-500/20">
                                     <ThumbsUp className="w-3 h-3" />
                                 </span>
                             </div>
@@ -326,7 +326,7 @@ export default function FeedbackPage() {
                                                             <div className="flex items-center gap-3">
                                                                 <span className={cn(
                                                                     "w-1.5 h-1.5 rounded-full transition-colors",
-                                                                    item.is_active ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-muted-foreground/30"
+                                                                    item.is_active ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-muted-foreground/30"
                                                                 )} />
                                                                 <h4 className="font-medium text-foreground text-base truncate pr-4 group-hover/trigger:text-primary transition-colors">
                                                                     {item.query || <span className="text-muted-foreground italic">No query available</span>}
@@ -346,7 +346,7 @@ export default function FeedbackPage() {
                                                             <Switch
                                                                 checked={item.is_active ?? true}
                                                                 onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: item.id, isActive: checked })}
-                                                                className="scale-75 data-[state=checked]:bg-amber-500"
+                                                                className="scale-75 data-[state=checked]:bg-emerald-500"
                                                             />
                                                         </div>
                                                         <Button
@@ -389,7 +389,7 @@ export default function FeedbackPage() {
 
             {/* Detail Dialog */}
             <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
-                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden bg-zinc-950 border-white/10 shadow-2xl">
+                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
                     <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                         <div className="flex items-center justify-between pr-8">
                             <DialogTitle className="text-lg font-display tracking-tight">Review Candidate</DialogTitle>

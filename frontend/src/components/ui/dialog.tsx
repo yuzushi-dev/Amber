@@ -41,6 +41,8 @@ interface DialogDescriptionProps extends React.HTMLAttributes<HTMLParagraphEleme
     className?: string
 }
 
+import { createPortal } from "react-dom"
+
 /**
  * Dialog Root - Controls open/close state
  */
@@ -58,23 +60,24 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
     if (!open) return null
 
-    return (
+    return createPortal(
         // Premium Glass Dialog
         <>
             {/* Backdrop */}
             <div
-                className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md animate-in fade-in duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-md animate-in fade-in duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
                 onClick={() => onOpenChange(false)}
                 aria-hidden="true"
             />
             {/* Dialog Container */}
             <div
-                className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+                className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
                 onClick={() => onOpenChange(false)}
             >
                 {children}
             </div>
-        </>
+        </>,
+        document.body
     )
 }
 
@@ -85,7 +88,7 @@ export function DialogContent({ children, className, ...props }: DialogContentPr
     return (
         <div
             className={cn(
-                "bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl w-full max-w-lg overflow-hidden",
+                "bg-background/80 backdrop-blur-xl border border-border shadow-glow rounded-xl w-full max-w-lg overflow-hidden",
                 "animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300",
                 className
             )}

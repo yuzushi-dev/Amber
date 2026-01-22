@@ -10,10 +10,8 @@ import logging
 from typing import Any
 
 import httpx
-
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.api.deps import verify_tenant_admin, verify_super_admin
 
 from src.api.config import settings
 
@@ -129,9 +127,7 @@ def check_local_embeddings_availability() -> tuple[bool, str | None]:
 
 
 @router.get("/available", response_model=AvailableProvidersResponse)
-async def get_available_providers(
-    _admin: Any = Depends(verify_tenant_admin)
-):
+async def get_available_providers():
     """
     Get all available LLM and embedding providers.
     
@@ -221,10 +217,7 @@ async def get_available_providers(
 
 
 @router.post("/validate", response_model=ValidateProviderResponse)
-async def validate_provider(
-    request: ValidateProviderRequest,
-    _admin: Any = Depends(verify_super_admin)
-):
+async def validate_provider(request: ValidateProviderRequest):
     """
     Validate a specific provider's connectivity.
     

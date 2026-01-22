@@ -91,25 +91,11 @@ class ApiKeyService:
             
         return None
 
-    async def list_keys(self, tenant_id: Optional[str] = None) -> List[ApiKey]:
+    async def list_keys(self) -> List[ApiKey]:
         """
         List all active API keys.
-        If tenant_id is provided, mask keys not belonging to that tenant?
-        Actually, we usually filter to return ONLY key belonging to that tenant.
         """
-        if tenant_id:
-            query = (
-                select(ApiKey)
-                .join(ApiKeyTenant)
-                .where(
-                    ApiKey.is_active == True,  # noqa
-                    ApiKeyTenant.tenant_id == tenant_id
-                )
-                .order_by(ApiKey.created_at.desc())
-            )
-        else:
-            query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc()) # noqa
-            
+        query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc()) # noqa
         result = await self.session.execute(query)
         return list(result.scalars().all())
 

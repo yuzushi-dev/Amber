@@ -151,33 +151,26 @@ class EmbeddingService:
             if show_progress:
                 logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}")
 
-            try:
-                # Extract texts for this batch
-                batch_texts = [text for _, text in batch]
+            # Extract texts for this batch
+            batch_texts = [text for _, text in batch]
 
-                # Embed with retries
-                result = await self._embed_batch_with_retry(
-                    texts=batch_texts,
-                    model=model,
-                    dimensions=dimensions,
-                )
+            # Embed with retries
+            # If this fails, we want it to raise an exception so the document fails 
+            # with a meaningful error (e.g. AuthError) instead of a confusing Milvus error later.
+            result = await self._embed_batch_with_retry(
+                texts=batch_texts,
+                model=model,
+                dimensions=dimensions,
+            )
 
-                # Place results in correct positions
-                for i, (original_idx, _) in enumerate(batch):
-                    embeddings[original_idx] = result.embeddings[i]
+            # Place results in correct positions
+            for i, (original_idx, _) in enumerate(batch):
+                embeddings[original_idx] = result.embeddings[i]
 
-                # Update stats
-                stats.total_tokens += result.usage.input_tokens
-                stats.total_latency_ms += result.latency_ms
-                stats.total_cost += result.cost_estimate
-
-            except Exception as e:
-                logger.error(f"Batch {batch_idx + 1} failed: {e}")
-                stats.failed_texts += len(batch)
-
-                # Mark failed indices with empty embeddings
-                for original_idx, _ in batch:
-                    embeddings[original_idx] = []
+            # Update stats
+            stats.total_tokens += result.usage.input_tokens
+            stats.total_latency_ms += result.latency_ms
+            stats.total_cost += result.cost_estimate
 
         # Filter out None values (shouldn't happen but be safe)
         final_embeddings = [e if e is not None else [] for e in embeddings]

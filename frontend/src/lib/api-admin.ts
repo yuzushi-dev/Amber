@@ -62,9 +62,16 @@ export interface TenantConfig {
     reranking_enabled: boolean
     hyde_enabled: boolean
     graph_expansion_enabled: boolean
+    llm_provider: string
+    llm_model: string
+    embedding_provider: string
     embedding_model: string
-    generation_model: string
-    system_prompt_override: string | null
+    // Prompt overrides (per-tenant)
+    rag_system_prompt: string | null
+    rag_user_prompt: string | null
+    agent_system_prompt: string | null
+    community_summary_prompt: string | null
+    fact_extraction_prompt: string | null
     hybrid_ocr_enabled: boolean
     ocr_text_density_threshold: number
     weights?: {
@@ -72,6 +79,14 @@ export interface TenantConfig {
         graph_weight: number
         rerank_weight: number
     }
+}
+
+export interface DefaultPrompts {
+    rag_system_prompt: string
+    rag_user_prompt: string
+    agent_system_prompt: string
+    community_summary_prompt: string
+    fact_extraction_prompt: string
 }
 
 export interface ConfigSchemaField {
@@ -85,6 +100,7 @@ export interface ConfigSchemaField {
     step?: number
     options?: string[]
     group: string
+    read_only?: boolean
 }
 
 export interface ConfigSchema {
@@ -267,12 +283,55 @@ export const jobsApi = {
 }
 
 // =============================================================================
+// Providers API
+// =============================================================================
+
+export interface ProviderInfo {
+    name: string
+    label: string
+    available: boolean
+    error: string | null
+    models: string[]
+}
+
+export interface AvailableProviders {
+    llm_providers: ProviderInfo[]
+    embedding_providers: ProviderInfo[]
+}
+
+export interface ValidateProviderResponse {
+    available: boolean
+    error: string | null
+    models: string[]
+}
+
+export const providersApi = {
+    getAvailable: async (): Promise<AvailableProviders> => {
+        const response = await apiClient.get<AvailableProviders>('/admin/providers/available')
+        return response.data
+    },
+
+    validate: async (providerType: 'llm' | 'embedding', providerName: string): Promise<ValidateProviderResponse> => {
+        const response = await apiClient.post<ValidateProviderResponse>('/admin/providers/validate', {
+            provider_type: providerType,
+            provider_name: providerName
+        })
+        return response.data
+    }
+}
+
+// =============================================================================
 // Config API
 // =============================================================================
 
 export const configApi = {
     getSchema: async () => {
         const response = await apiClient.get<ConfigSchema>('/admin/config/schema')
+        return response.data
+    },
+
+    getDefaultPrompts: async () => {
+        const response = await apiClient.get<DefaultPrompts>('/admin/config/prompts/defaults')
         return response.data
     },
 
@@ -420,6 +479,11 @@ export interface QueryMetrics {
 export const vectorStoreApi = {
     getCollections: async () => {
         const response = await apiClient.get<VectorCollectionsResponse>('/admin/maintenance/vectors/collections')
+        return response.data
+    },
+
+    deleteCollection: async (collectionName: string) => {
+        const response = await apiClient.delete<MaintenanceResult>(`/admin/maintenance/vectors/collections/${collectionName}`)
         return response.data
     },
 }
@@ -797,6 +861,77 @@ export interface GlobalRule {
     source: string
     created_at: string
     updated_at: string
+}
+
+// =============================================================================
+// Embeddings API
+// =============================================================================
+
+export interface EmbeddingStatus {
+    tenant_id: string
+    tenant_name: string
+    is_compatible: boolean
+    stored_config: {
+        provider: string | null
+        model: string | null
+        dimensions: number | null
+    }
+    system_config: {
+        provider: string
+        model: string
+        dimensions: number
+    }
+    details: string
+}
+
+export interface MigrationResult {
+    status: string
+    chunks_deleted: number
+    docs_queued: number
+    new_model: string
+}
+
+export interface MigrationStatusResponse {
+    status: 'idle' | 'running' | 'complete' | 'failed' | 'cancelled'
+    phase: string
+    progress: number
+    message: string
+    total_docs?: number
+    completed_docs?: number
+    current_document?: string
+}
+
+export const embeddingsApi = {
+    checkCompatibility: async (): Promise<EmbeddingStatus[]> => {
+        const response = await apiClient.get<{ data: EmbeddingStatus[], message: string }>('/admin/embeddings/check')
+        return response.data.data
+    },
+
+    migrateTenant: async (tenantId: string): Promise<MigrationResult> => {
+        const response = await apiClient.post<{ data: MigrationResult, message: string }>(
+            `/admin/embeddings/migrate`,
+            null,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    },
+
+    getMigrationStatus: async (tenantId: string): Promise<MigrationStatusResponse> => {
+        const response = await apiClient.get<{ data: MigrationStatusResponse, message: string }>(
+            `/admin/embeddings/migration-status`,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    },
+
+    cancelMigration: async (tenantId: string): Promise<{ cancelled: boolean }> => {
+        const response = await apiClient.post<{ data: { cancelled: boolean }, message: string }>(
+            `/admin/embeddings/cancel-migration`,
+            null,
+            { params: { tenant_id: tenantId } }
+        )
+        return response.data.data
+    }
 }
 
 export interface CreateRuleRequest {

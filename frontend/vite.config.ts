@@ -35,7 +35,7 @@ export default defineConfig({
             }
           })
           // Handle proxy errors gracefully (suppress 500s during startup)
-          proxy.on('error', (err, _req, res) => {
+          proxy.on('error', (_err, _req, res) => {
             // console.error('Proxy error:', err)
             if (res && 'writeHead' in res) {
               // Return 200 with unhealthy status so frontend keeps polling silently
@@ -56,7 +56,7 @@ export default defineConfig({
               // console.log('Proxying Chat Request (via /v1):', req.url);
             }
           });
-          proxy.on('proxyRes', (proxyRes, req) => {
+          proxy.on('proxyRes', (proxyRes, _req) => {
             if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
               // console.log('Disabling buffering for SSE (main /v1 rule):', req.url);
               proxyRes.headers['cache-control'] = 'no-cache'
@@ -64,7 +64,7 @@ export default defineConfig({
             }
           })
           // Handle startup errors silently
-          proxy.on('error', (err, _req, res) => {
+          proxy.on('error', (_err, _req, res) => {
             if (res && 'writeHead' in res) {
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ status: 'unhealthy', error: 'Proxy error' }))
@@ -78,7 +78,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, ''),
         configure: (proxy) => {
           // Handle startup errors silently
-          proxy.on('error', (err, _req, res) => {
+          proxy.on('error', (_err, _req, res) => {
             if (res && 'writeHead' in res) {
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ status: 'unhealthy', error: 'Proxy error' }))
