@@ -3,7 +3,6 @@ from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, basic_auth
 
-from src.api.config import settings
 from src.core.observability.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -16,10 +15,31 @@ class Neo4jClient:
 
     _driver: AsyncDriver | None = None
 
-    def __init__(self):
-        self.uri = settings.db.neo4j_uri
-        self.user = settings.db.neo4j_user
-        self.password = settings.db.neo4j_password
+    def __init__(
+        self,
+        uri: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+    ):
+        """
+        Initialize Neo4j client.
+        
+        Args:
+            uri: Neo4j connection URI. If None, reads from composition root.
+            user: Neo4j username. If None, reads from composition root.
+            password: Neo4j password. If None, reads from composition root.
+        """
+        if uri is None or user is None or password is None:
+            # Lazy load from composition root for backward compatibility
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
+            uri = uri or settings.db.neo4j_uri
+            user = user or settings.db.neo4j_user
+            password = password or settings.db.neo4j_password
+        
+        self.uri = uri
+        self.user = user
+        self.password = password
         self._driver = None
 
     async def connect(self):

@@ -12,8 +12,6 @@ from enum import Enum
 
 from redis.asyncio import Redis
 
-from src.api.config import settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -49,9 +47,13 @@ class RateLimiter:
         Initialize the rate limiter.
 
         Args:
-            redis_url: Redis connection URL (defaults to settings)
+            redis_url: Redis connection URL (defaults to settings from composition root)
         """
-        self.redis_url = redis_url or settings.db.redis_url
+        if redis_url is None:
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
+            redis_url = settings.db.redis_url
+        self.redis_url = redis_url
         self._redis: Redis | None = None
 
     async def _get_redis(self) -> Redis:
@@ -76,6 +78,9 @@ class RateLimiter:
         Returns:
             tuple[int, int]: (requests_per_minute, window_seconds)
         """
+        from src.platform.composition_root import get_settings_lazy
+        settings = get_settings_lazy()
+        
         if category == RateLimitCategory.QUERY:
             return settings.rate_limits.queries_per_minute, 60
         elif category == RateLimitCategory.UPLOAD:

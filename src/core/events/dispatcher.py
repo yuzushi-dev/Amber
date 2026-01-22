@@ -51,10 +51,11 @@ class EventDispatcher:
 
             import redis
 
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
 
             # Use sync Redis client for now as this might be called from sync context
             # or we create a new connection each time. For high throughput, use a pool.
+            settings = get_settings_lazy()
             r = redis.Redis.from_url(settings.db.redis_url)
 
             channel = f"document:{event.document_id}:status"

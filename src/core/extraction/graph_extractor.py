@@ -65,10 +65,11 @@ class GraphExtractor:
         all_relationships: list[Relationship] = []
 
         # Metrics tracking for extraction
-        from src.api.config import settings
+        from src.platform.composition_root import get_settings_lazy
         from src.core.metrics.collector import MetricsCollector
         from src.shared.identifiers import generate_query_id
         
+        settings = get_settings_lazy()
         query_id = generate_query_id()
         collector = MetricsCollector(redis_url=settings.db.redis_url)
 

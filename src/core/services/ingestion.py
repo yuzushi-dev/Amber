@@ -47,7 +47,8 @@ class IngestionService:
         self.embedding_service = EmbeddingService()
         
         # Initialize Milvus with system settings
-        from src.api.config import settings
+        from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
         from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
         
         milvus_config = MilvusConfig(
@@ -328,7 +329,8 @@ class IngestionService:
             # This is the critical step for RAG retrieval!
             vector_store = None
             try:
-                from src.api.config import settings
+                from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
                 from src.core.services.embeddings import EmbeddingService
                 from src.core.services.sparse_embeddings import SparseEmbeddingService
                 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
@@ -495,7 +497,8 @@ class IngestionService:
 
             # 9. Build Knowledge Graph (Phase 3)
             try:
-                from src.api.config import settings
+                from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
                 from src.core.providers.factory import init_providers
                 
                 # Initialize LLM providers for extraction (important for graph_processor)

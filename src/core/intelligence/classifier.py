@@ -8,7 +8,6 @@ Service for integrity classification of documents using LLM.
 import hashlib
 import logging
 
-from src.api.config import settings
 from src.core.intelligence.strategies import DocumentDomain
 
 logger = logging.getLogger(__name__)
@@ -30,17 +29,27 @@ class DomainClassifier:
     Caches results in Redis.
     """
 
-    def __init__(self):
+    def __init__(self, redis_url: str | None = None):
+        """
+        Initialize classifier.
+        
+        Args:
+            redis_url: Redis URL. If None, reads from composition root.
+        """
         # Initialize Redis connection if available
-        # In a real app, this should be injected or managed via a pool.
         self.redis: redis.Redis | None = None
-        # Settings has redis_url inside db settings or we check if there's a specific redis config.
-        # Based on config.py, it is settings.db.redis_url
-        if HAS_REDIS and settings.db.redis_url:
-             self.redis = redis.Redis.from_url(
-                 settings.db.redis_url,
-                 decode_responses=True
-             )
+        
+        if HAS_REDIS:
+            if redis_url is None:
+                from src.platform.composition_root import get_settings_lazy
+                settings = get_settings_lazy()
+                redis_url = settings.db.redis_url
+            
+            if redis_url:
+                self.redis = redis.Redis.from_url(
+                    redis_url,
+                    decode_responses=True
+                )
 
     async def classify(self, content: str) -> DocumentDomain:
         """

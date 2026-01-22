@@ -30,7 +30,8 @@ def get_engine() -> AsyncEngine:
     """
     global _engine
     if _engine is None:
-        from src.api.config import settings
+        from src.platform.composition_root import get_settings_lazy
+        settings = get_settings_lazy()
         _engine = create_async_engine(
             settings.db.database_url,
             echo=False,

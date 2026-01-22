@@ -537,7 +537,8 @@ class GenerationService:
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
             from sqlalchemy.orm import sessionmaker
 
-            from src.api.config import settings
+            from src.platform.composition_root import get_settings_lazy
+            settings = get_settings_lazy()
             from src.core.models.document import Document
 
             engine = create_async_engine(settings.db.database_url)

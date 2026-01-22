@@ -14,7 +14,11 @@ from typing import Any
 import httpx
 from redis.asyncio import Redis
 
-from src.api.config import settings
+
+def _get_settings():
+    """Get settings from composition root."""
+    from src.platform.composition_root import get_settings_lazy
+    return get_settings_lazy()
 
 
 class HealthStatus(str, Enum):
@@ -76,7 +80,7 @@ class HealthChecker:
             import asyncpg
 
             # Parse connection URL
-            url = settings.db.database_url
+            url = _get_settings().db.database_url
             # Convert asyncpg URL format
             url = url.replace("postgresql+asyncpg://", "postgresql://")
 
@@ -111,7 +115,7 @@ class HealthChecker:
         start = time.perf_counter()
         try:
             redis = Redis.from_url(
-                settings.db.redis_url,
+                _get_settings().db.redis_url,
                 socket_connect_timeout=self.timeout,
             )
             await asyncio.wait_for(redis.ping(), timeout=self.timeout)
@@ -143,8 +147,8 @@ class HealthChecker:
             from neo4j import AsyncGraphDatabase
 
             driver = AsyncGraphDatabase.driver(
-                settings.db.neo4j_uri,
-                auth=(settings.db.neo4j_user, settings.db.neo4j_password),
+                _get_settings().db.neo4j_uri,
+                auth=(_get_settings().db.neo4j_user, _get_settings().db.neo4j_password),
             )
 
             async with driver.session() as session:
@@ -179,7 +183,7 @@ class HealthChecker:
         start = time.perf_counter()
         try:
             # Milvus health endpoint
-            url = f"http://{settings.db.milvus_host}:9091/healthz"
+            url = f"http://{_get_settings().db.milvus_host}:9091/healthz"
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(url)
