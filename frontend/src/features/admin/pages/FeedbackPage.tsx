@@ -181,7 +181,7 @@ export default function FeedbackPage() {
                                         {item.query || "No query text"}
                                     </h4>
                                 </div>
-                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/10 text-green-500 ring-1 ring-green-500/20">
+                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20">
                                     <ThumbsUp className="w-3 h-3" />
                                 </span>
                             </div>
