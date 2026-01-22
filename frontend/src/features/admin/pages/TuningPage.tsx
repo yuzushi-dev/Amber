@@ -8,7 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Save, RotateCcw, CheckCircle, Info, AlertTriangle } from 'lucide-react'
-import { configApi, providersApi, ConfigSchema, TenantConfig, ConfigSchemaField, AvailableProviders } from '@/lib/api-admin'
+import { configApi, providersApi, ConfigSchema, TenantConfig, ConfigSchemaField, AvailableProviders, DefaultPrompts } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -48,15 +48,8 @@ import { PageSkeleton } from '@/features/admin/components/PageSkeleton'
 
 const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
 
-// Synced with backend src/core/generation/prompts.py
-const DEFAULT_SYSTEM_PROMPT = `You are Amber, a sophisticated AI analyst designed to provide accurate, grounded answers based on document collections.
-
-CRITICAL INSTRUCTIONS:
-1. Grounding: Answer ONLY using the provided [Source ID] context. If the information isn't there, say: "I'm sorry, but I don't have enough information in the provided sources to answer that."
-2. Citations: Every claim must be cited. Use [1], [2], etc., immediately after the relevant sentence.
-3. Formatting: Use markdown for structure (headers, lists, bolding).
-4. Tone: Professional, objective, and analytical.
-5. Entity Mentions: When mentioning entities extracted from the graph, use their canonical names.`
+// Prompt field names for dynamic default lookup
+const PROMPT_FIELDS = ['rag_system_prompt', 'rag_user_prompt', 'agent_system_prompt', 'community_summary_prompt', 'fact_extraction_prompt']
 
 export default function TuningPage() {
     const navigate = useNavigate()
@@ -79,6 +72,9 @@ export default function TuningPage() {
     const [availableProviders, setAvailableProviders] = useState<AvailableProviders | null>(null)
     const [validatingProvider, setValidatingProvider] = useState<string | null>(null)
 
+    // Default prompts from backend
+    const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
+
     useEffect(() => {
         loadData()
     }, [])
@@ -86,14 +82,16 @@ export default function TuningPage() {
     const loadData = async () => {
         try {
             setLoading(true)
-            const [schemaData, configData, providersData] = await Promise.all([
+            const [schemaData, configData, providersData, promptsData] = await Promise.all([
                 configApi.getSchema(),
                 configApi.getTenant(DEFAULT_TENANT_ID),
-                providersApi.getAvailable()
+                providersApi.getAvailable(),
+                configApi.getDefaultPrompts()
             ])
             setSchema(schemaData)
             setConfig(configData)
             setAvailableProviders(providersData)
+            setDefaultPrompts(promptsData)
 
             // Initialize form values from config
             const values: Record<string, unknown> = {}
@@ -372,6 +370,7 @@ export default function TuningPage() {
                                                         field={dynamicField}
                                                         value={formValues[f.name]}
                                                         onChange={(value) => handleChange(f.name, value)}
+                                                        defaultPrompts={defaultPrompts}
                                                     />
                                                 </div>
                                                 {/* Validation Button for Providers */}
@@ -523,6 +522,7 @@ interface FieldInputProps {
     field: ConfigSchemaField
     value: unknown
     onChange: (value: unknown) => void
+    defaultPrompts: DefaultPrompts | null
 }
 
 function LabelWithTooltip({ label, description }: { label: string, description: string }) {
@@ -543,7 +543,7 @@ function LabelWithTooltip({ label, description }: { label: string, description: 
     )
 }
 
-function FieldInput({ field, value, onChange }: FieldInputProps) {
+function FieldInput({ field, value, onChange, defaultPrompts }: FieldInputProps) {
     switch (field.type) {
         case 'number':
             return (
@@ -614,21 +614,29 @@ function FieldInput({ field, value, onChange }: FieldInputProps) {
             )
 
         case 'string': {
-            const isSystemPrompt = field.name === 'system_prompt_override';
+            // Check if this is a prompt field and get its default
+            const isPromptField = PROMPT_FIELDS.includes(field.name)
+            const defaultValue = isPromptField && defaultPrompts
+                ? defaultPrompts[field.name as keyof DefaultPrompts]
+                : ''
+            // For prompt fields, use default if empty so user can directly edit it
+            const displayValue = isPromptField && (value === '' || value === null || value === undefined)
+                ? defaultValue
+                : (value as string ?? '')
             return (
                 <div>
                     <LabelWithTooltip label={field.label} description={field.description} />
                     <Textarea
-                        value={value as string ?? ''}
+                        value={displayValue}
                         onChange={(e) => onChange(e.target.value)}
                         disabled={field.read_only}
-                        rows={isSystemPrompt ? 12 : 3}
+                        rows={isPromptField ? 12 : 3}
                         className="font-mono text-sm leading-relaxed"
-                        placeholder={isSystemPrompt ? DEFAULT_SYSTEM_PROMPT : field.description}
+                        placeholder={field.description}
                     />
-                    {isSystemPrompt && (value === '' || value === null) && (
+                    {isPromptField && (value === '' || value === null || value === undefined) && (
                         <p className="text-xs text-muted-foreground mt-2">
-                            Using default system prompt (shown as placeholder).
+                            Showing default prompt. Edit to customize.
                         </p>
                     )}
                 </div>

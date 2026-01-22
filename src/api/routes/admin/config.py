@@ -62,8 +62,12 @@ class TenantConfigResponse(BaseModel):
     embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
     embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
 
-    # Custom prompts
-    system_prompt_override: str | None = None
+    # Custom prompts (per-tenant overrides)
+    rag_system_prompt: str | None = None
+    rag_user_prompt: str | None = None
+    agent_system_prompt: str | None = None
+    community_summary_prompt: str | None = None
+    fact_extraction_prompt: str | None = None
 
     # Ingestion Settings
     hybrid_ocr_enabled: bool = True
@@ -93,8 +97,12 @@ class TenantConfigUpdate(BaseModel):
     embedding_provider: str | None = None
     embedding_model: str | None = None
 
-    # Custom prompts
-    system_prompt_override: str | None = None
+    # Custom prompts (per-tenant overrides)
+    rag_system_prompt: str | None = None
+    rag_user_prompt: str | None = None
+    agent_system_prompt: str | None = None
+    community_summary_prompt: str | None = None
+    fact_extraction_prompt: str | None = None
 
     # Ingestion Settings
     hybrid_ocr_enabled: bool | None = None
@@ -292,10 +300,42 @@ async def get_config_schema():
 
         # Custom Prompts
         ConfigSchemaField(
-            name="system_prompt_override",
+            name="rag_system_prompt",
             type="string",
-            label="System Prompt Override",
-            description="Custom system prompt for answer generation (leave empty for default)",
+            label="RAG System Prompt",
+            description="System instructions for answer generation. Controls tone, citation style, and grounding behavior.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="rag_user_prompt",
+            type="string",
+            label="RAG User Prompt Template",
+            description="Template for formatting context and query. Use {context}, {memory_context}, {query} placeholders.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="agent_system_prompt",
+            type="string",
+            label="Agent System Prompt",
+            description="Instructions for agentic mode with tool usage. Defines available tools and decision-making behavior.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="community_summary_prompt",
+            type="string",
+            label="Community Summary Prompt",
+            description="Prompt for generating knowledge graph community reports.",
+            default="",
+            group="prompts"
+        ),
+        ConfigSchemaField(
+            name="fact_extraction_prompt",
+            type="string",
+            label="Fact Extraction Prompt",
+            description="Instructions for extracting memory facts from user conversations.",
             default="",
             group="prompts"
         ),
@@ -304,6 +344,36 @@ async def get_config_schema():
     return ConfigSchemaResponse(
         fields=fields,
         groups=["ingestion", "models", "features", "retrieval", "weights", "prompts"]
+    )
+
+
+class DefaultPromptsResponse(BaseModel):
+    """Default prompt templates."""
+    rag_system_prompt: str
+    rag_user_prompt: str
+    agent_system_prompt: str
+    community_summary_prompt: str
+    fact_extraction_prompt: str
+
+
+@router.get("/prompts/defaults", response_model=DefaultPromptsResponse)
+async def get_default_prompts():
+    """
+    Get default prompt templates.
+
+    Returns all built-in prompts that are used when no tenant override is set.
+    These serve as the baseline/fallback for all prompt fields.
+    """
+    from src.core.generation.prompts import PROMPTS, FACT_EXTRACTION_PROMPT
+    from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
+    from src.core.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT
+
+    return DefaultPromptsResponse(
+        rag_system_prompt=PROMPTS["rag_system"]["latest"],
+        rag_user_prompt=PROMPTS["rag_user"]["latest"],
+        agent_system_prompt=AGENT_SYSTEM_PROMPT,
+        community_summary_prompt=COMMUNITY_SUMMARY_SYSTEM_PROMPT,
+        fact_extraction_prompt=FACT_EXTRACTION_PROMPT,
     )
 
 
@@ -342,7 +412,12 @@ async def get_tenant_config(tenant_id: str):
             llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
             embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
-            system_prompt_override=config.get("system_prompt_override"),
+            # Prompt overrides (per-tenant)
+            rag_system_prompt=config.get("rag_system_prompt"),
+            rag_user_prompt=config.get("rag_user_prompt"),
+            agent_system_prompt=config.get("agent_system_prompt"),
+            community_summary_prompt=config.get("community_summary_prompt"),
+            fact_extraction_prompt=config.get("fact_extraction_prompt"),
             hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
             ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
         )
