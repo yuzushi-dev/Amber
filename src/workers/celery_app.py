@@ -5,6 +5,7 @@ Celery Application Configuration
 Configures Celery for background task processing.
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -103,6 +104,8 @@ def init_worker_process(**kwargs):
         from src.core.generation.infrastructure.providers.factory import init_providers
 
         configure_settings(settings)
+        from src.amber_platform.composition_root import platform
+        asyncio.run(platform.initialize())
 
         providers = getattr(settings, "providers", None)
         openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
