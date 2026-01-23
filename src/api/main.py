@@ -20,17 +20,23 @@ from src.api.middleware.rate_limit import RateLimitMiddleware, UploadSizeLimitMi
 from src.api.middleware.request_id import RequestIdMiddleware
 from src.api.middleware.timing import TimingMiddleware
 
-# from src.core.observability.tracer import setup_tracer
+# from src.core.admin_ops.infrastructure.observability.tracer import setup_tracer
 # from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 # Import core routes (always available)
 from src.api.routes import health, query
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from src.core.admin_ops.infrastructure.observability.logging import configure_logging
+from src.core.admin_ops.infrastructure.observability.middleware import StructuredLoggingMiddleware
+from src.api.routes.admin import observability
+from src.shared.kernel.runtime import configure_settings
+
+# Configure logging (JSON in prod, text in dev usually, but forcing JSON for consistency if needed or use arg)
+configure_logging(log_level=settings.log_level, json_format=os.getenv("LOG_FORMAT", "json") == "json")
 logger = logging.getLogger(__name__)
+
+
+def _configure_runtime_settings() -> None:
+    configure_settings(settings)
 
 
 @asynccontextmanager
@@ -43,10 +49,19 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
+    _configure_runtime_settings()
+
+    # Initialize Platform Clients (Neo4j, Redis, MinIO)
+    try:
+        from src.amber_platform.composition_root import platform
+        await platform.initialize()
+        logger.info("Platform clients initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize platform clients: {e}")
 
     # Initialize LLM Providers
     try:
-        from src.core.providers.factory import init_providers
+        from src.core.generation.infrastructure.providers.factory import init_providers
         init_providers(
             openai_api_key=settings.openai_api_key,
             anthropic_api_key=settings.anthropic_api_key,
@@ -57,6 +72,26 @@ async def lifespan(app: FastAPI):
         logger.info("LLM Providers initialized")
     except Exception as e:
         logger.error(f"Failed to initialize LLM providers: {e}")
+
+    # Initialize Shared Security
+    try:
+        from src.shared.security import configure_security
+        configure_security(settings.secret_key)
+        logger.info("Security module configured")
+    except Exception as e:
+        logger.error(f"Failed to configure security: {e}")
+
+    # Initialize Database
+    try:
+        from src.core.database.session import configure_database
+        configure_database(
+            database_url=settings.db.database_url,
+            pool_size=settings.db.pool_size,
+            max_overflow=settings.db.max_overflow,
+        )
+        logger.info("Database module configured")
+    except Exception as e:
+        logger.error(f"Failed to configure database: {e}")
 
     # SAFETY WARNING
     if os.getenv("AMBER_RUNTIME") != "docker":
@@ -73,7 +108,7 @@ async def lifespan(app: FastAPI):
     # This ensures the API doesn't accept traffic until models are ready
     import asyncio
     try:
-        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         service = SparseEmbeddingService()
         await asyncio.to_thread(service.prewarm)
         logger.info("SPLADE model pre-warming complete - API ready")
@@ -83,8 +118,8 @@ async def lifespan(app: FastAPI):
     # Bootstrap API Key
     try:
         from src.api.deps import _get_async_session_maker
-        from src.core.services.api_key_service import ApiKeyService
-        from src.core.services.migration import EmbeddingMigrationService
+        from src.core.admin_ops.application.api_key_service import ApiKeyService
+        from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
 
         dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
         
@@ -123,12 +158,22 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
+    
+    # helper for safe shutdown
+    async def safe_shutdown(coro, name):
+        try:
+            await coro
+        except Exception as e:
+            logger.warning(f"Error closing {name}: {e}")
+
     # Close rate limiter Redis connection
-    try:
-        from src.core.rate_limiter import rate_limiter
-        await rate_limiter.close()
-    except Exception as e:
-        logger.warning(f"Error closing rate limiter: {e}")
+    from src.api.middleware.rate_limit import _rate_limiter
+    if _rate_limiter:
+        await safe_shutdown(_rate_limiter.close(), "rate limiter")
+
+    # Shutdown Platform Clients
+    from src.amber_platform.composition_root import platform
+    await safe_shutdown(platform.shutdown(), "platform clients")
 
 
 # =============================================================================
@@ -194,23 +239,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Timing middleware (measure total request time)
-app.add_middleware(TimingMiddleware)
-
-# Request ID middleware (generate/propagate request IDs)
-app.add_middleware(RequestIdMiddleware)
-
 # Upload size limit middleware
 app.add_middleware(UploadSizeLimitMiddleware)
 
 # Authentication middleware (innermost - runs after rate limiting)
-# Middleware is applied in reverse order of addition.
-# We want: Request -> RateLimit -> Auth -> Routes
-# So we must add Auth first (inner), them RateLimit (outer).
 app.add_middleware(AuthenticationMiddleware)
 
 # Rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
+
+# Structured logging middleware (Trace requests with latency/status)
+app.add_middleware(StructuredLoggingMiddleware)
+
+# Timing middleware (measure total request time)
+app.add_middleware(TimingMiddleware)
+
+# Request ID middleware (generate/propagate request IDs - Outermost to ensure ID availability)
+app.add_middleware(RequestIdMiddleware)
 
 # =============================================================================
 # Register Exception Handlers
@@ -230,6 +275,14 @@ v1_router = APIRouter(prefix="/v1")
 # Core routes (always available)
 v1_router.include_router(health.router)
 v1_router.include_router(query.router)
+
+# Chat routes (for history, etc.)
+try:
+    from src.api.routes import chat
+    v1_router.include_router(chat.router)
+    logger.info("Registered chat router")
+except ImportError as e:
+    logger.warning(f"Chat router not available: {e}")
 
 # Optional routes (require database/Phase 1 dependencies)
 try:
@@ -280,6 +333,12 @@ try:
     logger.info("Registered graph_history router")
 except ImportError as e:
     logger.warning(f"Graph History router not available: {e}")
+
+try:
+    v1_router.include_router(observability.router, prefix="/admin")
+    logger.info("Registered observability router")
+except Exception as e:
+    logger.warning(f"Observability router registration failed: {e}")
 
 
 try:

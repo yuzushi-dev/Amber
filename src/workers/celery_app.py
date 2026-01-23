@@ -12,8 +12,9 @@ import sys
 from celery import Celery
 from celery.signals import worker_process_init, worker_ready
 
-logger = logging.getLogger(__name__)
+from src.shared.kernel.runtime import configure_settings
 
+logger = logging.getLogger(__name__)
 # =============================================================================
 # SAFETY GUARDRAIL
 # =============================================================================
@@ -99,7 +100,9 @@ def init_worker_process(**kwargs):
     logger.info("Initializing worker process providers...")
     try:
         from src.api.config import settings
-        from src.core.providers.factory import init_providers
+        from src.core.generation.infrastructure.providers.factory import init_providers
+
+        configure_settings(settings)
 
         providers = getattr(settings, "providers", None)
         openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
