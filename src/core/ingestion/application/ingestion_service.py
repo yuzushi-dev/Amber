@@ -10,22 +10,18 @@ import hashlib
 import io
 import logging
 import sys
+from collections.abc import Callable
 from typing import Any
-
-
 
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
-from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 from src.shared.identifiers import generate_document_id
 
-from src.core.graph.infrastructure.neo4j_client import Neo4jClient
 from src.core.graph.application.processor import GraphProcessor
 from src.core.graph.application.enrichment import GraphEnricher
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
 
 logger = logging.getLogger(__name__)
@@ -34,6 +30,9 @@ logger = logging.getLogger(__name__)
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
+from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.graph_client import GraphPort
+from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 
 class IngestionService:
@@ -46,12 +45,13 @@ class IngestionService:
         document_repository: DocumentRepository,
         tenant_repository: TenantRepository,
         unit_of_work: UnitOfWork,
-        storage_client: MinIOClient,
-        neo4j_client: Neo4jClient,
-        vector_store: MilvusVectorStore,
+        storage_client: StoragePort,
+        neo4j_client: GraphPort,
+        vector_store: VectorStorePort | None,
         settings: Any = None,  # Settings object for embedding/LLM config
         task_dispatcher: TaskDispatcher | None = None,  # Optional for backward compat during migration
         event_dispatcher: EventDispatcher | None = None,
+        vector_store_factory: Callable[[int], VectorStorePort] | None = None,
     ):
         self.document_repository = document_repository
         self.tenant_repository = tenant_repository
@@ -59,6 +59,7 @@ class IngestionService:
         self.storage = storage_client
         self.neo4j_client = neo4j_client
         self.vector_store = vector_store
+        self.vector_store_factory = vector_store_factory
         self.settings = settings
         self.task_dispatcher = task_dispatcher
         self.event_dispatcher = event_dispatcher or EventDispatcher()
@@ -311,7 +312,6 @@ class IngestionService:
                 settings = self.settings
                 from src.core.retrieval.application.embeddings_service import EmbeddingService
                 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-                from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
                 from src.core.generation.infrastructure.providers.factory import ProviderFactory
                 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
                 from src.core.tenants.domain.tenant import Tenant
@@ -341,13 +341,13 @@ class IngestionService:
                 )
                 sparse_service = SparseEmbeddingService()
 
-                milvus_config = MilvusConfig(
-                    host=settings.db.milvus_host,
-                    port=settings.db.milvus_port,
-                    collection_name="document_chunks",
-                    dimensions=res_dims
-                )
-                vector_store = MilvusVectorStore(milvus_config)
+                if self.vector_store_factory:
+                    vector_store = self.vector_store_factory(res_dims)
+                else:
+                    vector_store = self.vector_store
+
+                if vector_store is None:
+                    raise RuntimeError("Vector store not configured")
 
                 chunk_contents = [c.content for c in chunks_to_process]
                 embeddings, _ = await embedding_service.embed_texts(chunk_contents)

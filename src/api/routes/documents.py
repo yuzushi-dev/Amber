@@ -122,7 +122,7 @@ async def upload_document(
     """
     Upload a document for async ingestion.
     """
-    from src.core.use_cases.documents import UploadDocumentRequest, UploadDocumentUseCase
+    from src.core.ingestion.application.use_cases_documents import UploadDocumentRequest
     
     # Use default tenant if not provided
     tenant = tenant_id or settings.tenant_id
@@ -131,9 +131,10 @@ async def upload_document(
     content = await file.read()
     
     # Build use case with dependencies
-    storage = MinIOClient()
+    from src.amber_platform.composition_root import build_upload_document_use_case
+
     max_size = settings.uploads.max_size_mb * 1024 * 1024
-    use_case = UploadDocumentUseCase(session, storage, max_size)
+    use_case = build_upload_document_use_case(session=session, max_size_bytes=max_size)
     
     # Execute use case
     try:
