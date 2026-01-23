@@ -14,9 +14,9 @@ from src.api.config import settings
 
 
 def _get_session_maker():
-    """Get the canonical session maker from composition root."""
-    from src.platform.composition_root import build_session_factory
-    return build_session_factory()
+    """Get the canonical session maker from the core database module."""
+    from src.core.database.session import get_session_maker
+    return get_session_maker()
 
 
 # Backward compatibility: expose _async_session_maker for existing code
@@ -123,4 +123,3 @@ async def verify_tenant_admin(request: Request):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant Admin privileges required"
         )
-
