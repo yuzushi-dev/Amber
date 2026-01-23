@@ -6,32 +6,14 @@ Application layer use cases for document operations.
 These contain the business logic extracted from route handlers.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, Any
+from typing import Any
 
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
-
-
-# -----------------------------------------------------------------------------
-# Protocols for dependencies
-# -----------------------------------------------------------------------------
-
-class StoragePort(Protocol):
-    """Port for storage operations."""
-    
-    def upload_file(
-        self, object_name: str, data, length: int, content_type: str
-    ) -> None:
-        """Upload a file to storage."""
-        ...
-    
-    def get_file(self, object_name: str) -> bytes:
-        """Get file content from storage."""
-        ...
-
 
 # -----------------------------------------------------------------------------
 # DTOs
@@ -59,8 +41,14 @@ class UploadDocumentResult:
 # Use Case Implementation
 # -----------------------------------------------------------------------------
 
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
+from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.graph_client import GraphPort
+from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
 from src.core.events.dispatcher import EventDispatcher
+from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 
 class UploadDocumentUseCase:
     """
@@ -74,11 +62,14 @@ class UploadDocumentUseCase:
     
     def __init__(
         self,
-        session: AsyncSession,
+        document_repository: DocumentRepository,
+        tenant_repository: TenantRepository,
+        unit_of_work: UnitOfWork,
         storage: StoragePort,
         max_size_bytes: int,
-        neo4j_client: Any,
-        vector_store: Any,
+        graph_client: GraphPort,
+        vector_store: VectorStorePort | None,
+        vector_store_factory: Callable[[int], VectorStorePort] | None = None,
         task_dispatcher: TaskDispatcher | None = None,
         event_dispatcher: EventDispatcher | None = None,
     ):
@@ -86,18 +77,24 @@ class UploadDocumentUseCase:
         Initialize the use case.
         
         Args:
-            session: Database session for the transaction.
+            document_repository: Document persistence port.
+            tenant_repository: Tenant repository port.
+            unit_of_work: Unit of Work for transaction boundaries.
             storage: Storage adapter for file operations.
             max_size_bytes: Maximum allowed file size.
-            neo4j_client: Neo4j client instance.
+            graph_client: Graph database client port.
             vector_store: Vector store instance.
+            vector_store_factory: Optional vector store factory for dynamic configs.
             task_dispatcher: Dispatcher for background jobs.
         """
-        self._session = session
+        self._document_repository = document_repository
+        self._tenant_repository = tenant_repository
+        self._unit_of_work = unit_of_work
         self._storage = storage
         self._max_size_bytes = max_size_bytes
-        self._neo4j_client = neo4j_client
+        self._graph_client = graph_client
         self._vector_store = vector_store
+        self._vector_store_factory = vector_store_factory
         self._task_dispatcher = task_dispatcher
         self._event_dispatcher = event_dispatcher
     
@@ -125,21 +122,15 @@ class UploadDocumentUseCase:
         # Register document
         from src.core.ingestion.application.ingestion_service import IngestionService
         from src.core.state.machine import DocumentStatus
-        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
-        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
-        from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
-        
-        repository = PostgresDocumentRepository(self._session)
-        tenant_repo = PostgresTenantRepository(self._session)
-        uow = PostgresUnitOfWork(self._session)
         
         service = IngestionService(
-            document_repository=repository, 
-            tenant_repository=tenant_repo,
-            unit_of_work=uow,
+            document_repository=self._document_repository,
+            tenant_repository=self._tenant_repository,
+            unit_of_work=self._unit_of_work,
             storage_client=self._storage,
-            neo4j_client=self._neo4j_client,
+            neo4j_client=self._graph_client,
             vector_store=self._vector_store,
+            vector_store_factory=self._vector_store_factory,
             event_dispatcher=self._event_dispatcher,
         )
         document = await service.register_document(
@@ -149,9 +140,8 @@ class UploadDocumentUseCase:
             content_type=request.content_type,
         )
         
-        # Commit transaction
-        await self._session.commit()
-        await self._session.refresh(document)
+        # Commit transaction before dispatching async processing
+        await self._unit_of_work.commit()
         
         # Dispatch async processing if new document
         is_duplicate = document.status != DocumentStatus.INGESTED
@@ -169,30 +159,6 @@ class UploadDocumentUseCase:
             is_duplicate=is_duplicate,
             message="Document accepted for processing" if not is_duplicate else "Document deduplicated",
         )
-
-
-class GraphPort(Protocol):
-    """Port for graph database operations."""
-    
-    async def execute_write(self, query: str, parameters: dict) -> None:
-        """Execute a write query."""
-        ...
-
-    async def execute_read(self, query: str, parameters: dict) -> list[dict]:
-        """Execute a read query."""
-        ...
-
-
-class VectorStorePort(Protocol):
-    """Port for vector store operations."""
-    
-    async def delete_by_document(self, document_id: str, tenant_id: str) -> bool:
-        """Delete vectors for a document."""
-        ...
-        
-    async def disconnect(self) -> None:
-        """Close connection."""
-        ...
 
 
 @dataclass

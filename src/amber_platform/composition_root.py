@@ -230,6 +230,24 @@ def build_milvus_config():
     )
 
 
+def build_vector_store_factory():
+    """Build a factory for vector store instances with custom dimensions."""
+    from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+
+    base = build_milvus_config()
+
+    def make_vector_store(dimensions: int, collection_name: str | None = None):
+        config = MilvusConfig(
+            host=base.host,
+            port=base.port,
+            dimensions=dimensions,
+            collection_name=collection_name or base.collection_name,
+        )
+        return MilvusVectorStore(config)
+
+    return make_vector_store
+
+
 # -----------------------------------------------------------------------------
 # Database Session and Unit of Work Factories
 # -----------------------------------------------------------------------------
@@ -270,6 +288,39 @@ def build_uow_factory():
 # -----------------------------------------------------------------------------
 # Service Factories
 # -----------------------------------------------------------------------------
+
+# @lru_cache # Removed because it now depends on Session (request-scoped)
+def build_upload_document_use_case(
+    session,
+    max_size_bytes: int,
+    task_dispatcher=None,
+    event_dispatcher=None,
+):
+    """
+    Build UploadDocumentUseCase with concrete infrastructure adapters.
+    """
+    from src.core.ingestion.application.use_cases_documents import UploadDocumentUseCase
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
+    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
+    from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+    from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
+    from src.core.events.dispatcher import EventDispatcher
+    from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
+
+    vector_store_factory = build_vector_store_factory()
+
+    return UploadDocumentUseCase(
+        document_repository=PostgresDocumentRepository(session),
+        tenant_repository=PostgresTenantRepository(session),
+        unit_of_work=PostgresUnitOfWork(session),
+        storage=platform.minio_client,
+        max_size_bytes=max_size_bytes,
+        graph_client=platform.neo4j_client,
+        vector_store=None,
+        vector_store_factory=vector_store_factory,
+        task_dispatcher=task_dispatcher or CeleryTaskDispatcher(),
+        event_dispatcher=event_dispatcher or EventDispatcher(RedisStatePublisher()),
+    )
 
 # @lru_cache # Removed because it now depends on Session (request-scoped)
 def build_retrieval_service(session=None):

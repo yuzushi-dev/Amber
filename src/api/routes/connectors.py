@@ -480,13 +480,27 @@ async def run_selective_ingestion(
         await connector.authenticate(config)
         
         # 2. Setup Ingestion Service
-        minio = MinIOClient(
-            endpoint=f"{settings.db.minio_host}:{settings.db.minio_port}",
-            access_key=settings.db.minio_access_key,
-            secret_key=settings.db.minio_secret_key,
-            secure=False # Internal
+        # 2. Setup Ingestion Service
+        from src.amber_platform.composition_root import platform, build_vector_store_factory
+        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
+        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
+        from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+        from src.core.events.dispatcher import EventDispatcher
+        from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
+
+        vector_store_factory = build_vector_store_factory()
+        event_dispatcher = EventDispatcher(RedisStatePublisher())
+
+        ingestion_service = IngestionService(
+            document_repository=PostgresDocumentRepository(session),
+            tenant_repository=PostgresTenantRepository(session),
+            unit_of_work=PostgresUnitOfWork(session),
+            storage_client=platform.minio_client,
+            neo4j_client=platform.neo4j_client,
+            vector_store=None,
+            event_dispatcher=event_dispatcher,
+            vector_store_factory=vector_store_factory,
         )
-        ingestion_service = IngestionService(session, minio)
         
         # 3. Process Items
         success_count = 0
