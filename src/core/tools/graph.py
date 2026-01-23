@@ -8,11 +8,11 @@ Tools for the agent to interact with the Neo4j Knowledge Graph.
 import logging
 from typing import Any
 
-from src.core.graph.neo4j_client import neo4j_client
+from src.core.graph.domain.ports.graph_client import get_graph_client
 
 logger = logging.getLogger(__name__)
 
-async def query_graph(query: str, parameters: dict[str, Any] = None) -> str:
+async def query_graph(query: str, parameters: dict[str, Any] | None = None) -> str:
     """
     Execute a read-only Cypher query against the knowledge graph.
     
@@ -27,7 +27,7 @@ async def query_graph(query: str, parameters: dict[str, Any] = None) -> str:
         JSON string representation of the query results.
     """
     try:
-        results = await neo4j_client.execute_read(query, parameters)
+        results = await get_graph_client().execute_read(query, parameters)
         
         if not results:
             return "No results found."
