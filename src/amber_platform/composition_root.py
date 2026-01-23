@@ -98,6 +98,7 @@ class PlatformRegistry:
         settings = get_settings_lazy()
         
         # Neo4j
+        from src.core.graph.domain.ports.graph_client import set_graph_client
         from src.core.graph.infrastructure.neo4j_client import Neo4jClient
         self._neo4j_client = Neo4jClient(
             uri=settings.db.neo4j_uri,
@@ -108,6 +109,7 @@ class PlatformRegistry:
             await self._neo4j_client.connect()
         except Exception as e:
             logger.warning(f"Neo4j not available at startup: {e}")
+        set_graph_client(self._neo4j_client)
         
         # MinIO (sync client, no async init needed)
         from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
@@ -138,6 +140,8 @@ class PlatformRegistry:
             except Exception as e:
                 logger.warning(f"Error closing Neo4j: {e}")
             self._neo4j_client = None
+            from src.core.graph.domain.ports.graph_client import set_graph_client
+            set_graph_client(None)
             
         if self._redis_client:
             try:

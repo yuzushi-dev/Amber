@@ -2,6 +2,12 @@ from typing import Any, Protocol
 
 
 class GraphClientPort(Protocol):
+    async def connect(self) -> None:
+        ...
+
+    async def close(self) -> None:
+        ...
+
     async def execute_read(
         self,
         query: str,
