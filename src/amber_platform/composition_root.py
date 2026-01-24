@@ -32,6 +32,7 @@ def configure_settings(settings: SettingsProtocol) -> None:
     This is the only way settings should be provided to core modules.
     """
     global _settings
+    print(f"DEBUG: configure_settings called with {settings}")
     _settings = settings
 
 
@@ -45,6 +46,7 @@ def get_settings() -> SettingsProtocol:
         RuntimeError: If settings have not been configured.
     """
     if _settings is None:
+        print("DEBUG: get_settings FAILED - _settings is None")
         raise RuntimeError(
             "Settings not configured. Call configure_settings() at application startup."
         )
@@ -85,6 +87,8 @@ class PlatformRegistry:
         self._neo4j_client = None
         self._minio_client = None
         self._redis_client = None
+        self._graph_extractor = None
+        self._content_extractor = None
         self._initialized = False
         
     async def initialize(self) -> None:
@@ -96,10 +100,17 @@ class PlatformRegistry:
         logger = logging.getLogger(__name__)
         
         settings = get_settings_lazy()
+
+        # Observability tracer
+        from src.shared.kernel.observability import set_trace_span
+        from src.core.admin_ops.infrastructure.observability import tracer as infra_tracer
+        set_trace_span(infra_tracer.trace_span)
         
         # Neo4j
         from src.core.graph.domain.ports.graph_client import set_graph_client
+        from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
         from src.core.graph.infrastructure.neo4j_client import Neo4jClient
+        from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
         self._neo4j_client = Neo4jClient(
             uri=settings.db.neo4j_uri,
             user=settings.db.neo4j_user,
@@ -110,6 +121,10 @@ class PlatformRegistry:
         except Exception as e:
             logger.warning(f"Neo4j not available at startup: {e}")
         set_graph_client(self._neo4j_client)
+
+        # Graph extractor
+        self._graph_extractor = GraphExtractor(use_gleaning=True)
+        set_graph_extractor(self._graph_extractor)
         
         # MinIO (sync client, no async init needed)
         from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
@@ -121,6 +136,17 @@ class PlatformRegistry:
             secure=settings.minio.secure,
             bucket_name=settings.minio.bucket_name,
         )
+
+        # Content extractor (fallback chain)
+        from src.core.ingestion.domain.ports.content_extractor import set_content_extractor
+        from src.core.ingestion.infrastructure.extraction.fallback_extractor import FallbackContentExtractor
+        self._content_extractor = FallbackContentExtractor()
+        set_content_extractor(self._content_extractor)
+
+        # Provider factory builder (LLM/embedding/reranker)
+        from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder
+        from src.core.generation.infrastructure.providers.factory import ProviderFactory
+        set_provider_factory_builder(ProviderFactory)
         
         # Redis (shared connection for events)
         import redis.asyncio as aioredis
@@ -142,6 +168,21 @@ class PlatformRegistry:
             self._neo4j_client = None
             from src.core.graph.domain.ports.graph_client import set_graph_client
             set_graph_client(None)
+            from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+            set_graph_extractor(None)
+            self._graph_extractor = None
+
+        if self._content_extractor:
+            from src.core.ingestion.domain.ports.content_extractor import set_content_extractor
+            set_content_extractor(None)
+            self._content_extractor = None
+
+        from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder, set_provider_factory
+        set_provider_factory_builder(None)
+        set_provider_factory(None)
+
+        from src.shared.kernel.observability import set_trace_span
+        set_trace_span(None)
             
         if self._redis_client:
             try:
@@ -387,15 +428,20 @@ def build_retrieval_service(session=None):
     )
 
 
-@lru_cache
-def build_generation_service():
+# @lru_cache # Removed because it now depends on Session (request-scoped)
+def build_generation_service(session=None):
     """Build the GenerationService with configured providers."""
     from src.core.generation.application.generation_service import GenerationService
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
     
     settings = get_settings_lazy()
     providers = getattr(settings, "providers", None)
     openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
     anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
+
+    doc_repo = None
+    if session:
+        doc_repo = PostgresDocumentRepository(session)
 
     return GenerationService(
         openai_api_key=openai_key or None,
@@ -403,6 +449,7 @@ def build_generation_service():
         ollama_base_url=settings.ollama_base_url,
         default_llm_provider=settings.default_llm_provider,
         default_llm_model=settings.default_llm_model,
+        document_repository=doc_repo,
     )
 
 

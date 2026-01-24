@@ -6,7 +6,9 @@ import sys
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from src.core.graph.neo4j_client import neo4j_client
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
 
 async def debug_doc():
     target_id = "doc_1e54a28af3e548d6"

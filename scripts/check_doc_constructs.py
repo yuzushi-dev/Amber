@@ -21,7 +21,10 @@ from src.api.config import settings
 from src.core.database.session import async_session_maker
 from src.core.models.document import Document
 from src.core.models.chunk import Chunk
-from src.core.graph.neo4j_client import Neo4jClient
+from src.amber_platform.composition_root import platform
+Neo4jClient = type(platform.neo4j_client)
+neo4j_client = platform.neo4j_client
+
 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
 from sqlalchemy import select, func
 

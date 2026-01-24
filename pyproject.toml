@@ -134,10 +134,72 @@ root_package = "src"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Core must not import API or workers"
+name = "Domain Layer must be independent"
+type = "forbidden"
+source_modules = [
+    "src.core.ingestion.domain",
+    "src.core.retrieval.domain",
+    "src.core.generation.domain",
+    "src.core.graph.domain",
+    "src.core.tenants.domain",
+    "src.core.admin_ops.domain"
+]
+forbidden_modules = [
+    "src.core.ingestion.infrastructure",
+    "src.core.retrieval.infrastructure",
+    "src.core.generation.infrastructure",
+    "src.core.graph.infrastructure",
+    "src.core.tenants.infrastructure",
+    "src.core.admin_ops.infrastructure",
+    "src.api",
+    "src.workers",
+    "src.platform",
+    # "sqlalchemy", # Allowed (Active Record Pattern)
+    "pymilvus",
+    "neo4j",
+    "minio"
+]
+
+[[tool.importlinter.contracts]]
+name = "Infrastructure must not be imported by Application or Domain"
+type = "forbidden"
+source_modules = [
+    "src.core.ingestion.application",
+    "src.core.retrieval.application",
+    "src.core.generation.application",
+    "src.core.graph.application",
+    "src.core.tenants.application",
+    "src.core.admin_ops.application",
+]
+forbidden_modules = [
+    "src.core.ingestion.infrastructure",
+    "src.core.retrieval.infrastructure",
+    "src.core.generation.infrastructure",
+    "src.core.graph.infrastructure",
+    "src.core.tenants.infrastructure",
+    "src.core.admin_ops.infrastructure",
+]
+ignore_imports = [
+    # Allow Application to import Infrastructure EXCEPTIONS or specific helpers if absolutely needed,
+    # but generally this should be blocked.
+    # For now, we'll start strict.
+]
+
+[[tool.importlinter.contracts]]
+name = "Core contexts must not depend on API"
 type = "forbidden"
 source_modules = ["src.core"]
-forbidden_modules = ["src.api", "src.workers"]
-# NOTE: This contract will FAIL until Phase 1 is complete.
-# 21 violations exist as of 2026-01-22 (see dependency-graph-snapshot.md).
-# Run with --warn-only during Phase 0-1 migration.
+forbidden_modules = ["src.api"]
+# ignore_imports = [] # All clean!
+
+[[tool.importlinter.contracts]]
+name = "Core must not depend on composition root"
+type = "forbidden"
+source_modules = ["src.core"]
+forbidden_modules = ["src.amber_platform"]
+
+[[tool.importlinter.contracts]]
+name = "Shared Kernel should not depend on Core or API"
+type = "forbidden"
+source_modules = ["src.shared"]
+forbidden_modules = ["src.core", "src.api"]

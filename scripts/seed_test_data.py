@@ -5,13 +5,20 @@ import sys
 # Ensure project root is in path
 sys.path.append(os.getcwd())
 
-from src.core.database.session import async_session_maker
-from src.core.services.api_key_service import ApiKeyService
-from src.core.models.tenant import Tenant
+from src.core.database.session import async_session_maker, configure_database
+from src.core.admin_ops.application.api_key_service import ApiKeyService
+from src.core.tenants.domain.tenant import Tenant
 from sqlalchemy import select
 
 async def main():
     print("Seeding test database...")
+    
+    # Configure database
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set")
+    
+    configure_database(database_url)
     
     dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
     

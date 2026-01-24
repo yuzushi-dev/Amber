@@ -5,7 +5,9 @@ import os
 
 sys.path.append(os.getcwd())
 
-from src.core.graph.neo4j_client import neo4j_client
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
 from src.api.config import settings
 
 async def check_edges(filename_pattern: str):

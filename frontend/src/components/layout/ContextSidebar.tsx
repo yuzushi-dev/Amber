@@ -32,7 +32,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useChatStore } from '@/features/chat/store'
-import { chatHistoryApi, ChatHistoryItem } from '@/lib/api-admin'
+import { chatApi, ChatHistoryItem } from '@/lib/api-client'
 import DatabaseSidebarContent from '@/features/documents/components/DatabaseSidebarContent'
 import UploadWizard from '@/features/documents/components/UploadWizard'
 
@@ -75,7 +75,6 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             title: 'Database',
             items: [
                 { label: 'Statistics', icon: Database, to: '/admin/data/maintenance' },
-                { label: 'Query Log', icon: Activity, to: '/admin/queries' },
                 { label: 'Vector Store', icon: Layers, to: '/admin/data/vectors' },
             ]
         }
@@ -145,7 +144,7 @@ export default function ContextSidebar() {
             const fetchHistory = async () => {
                 try {
                     setLoadingHistory(true)
-                    const data = await chatHistoryApi.list({ limit: 10 })
+                    const data = await chatApi.list({ limit: 10 })
                     setRecentConversations(data.conversations)
                 } catch (err) {
                     console.error('Failed to load chat history:', err)
@@ -289,7 +288,7 @@ export default function ContextSidebar() {
                                                 e.stopPropagation()
                                                 if (confirm('Delete this conversation?')) {
                                                     try {
-                                                        await chatHistoryApi.delete(id)
+                                                        await chatApi.delete(id)
                                                         setRecentConversations(prev => prev.filter(c => c.request_id !== id))
                                                     } catch (err) {
                                                         console.error('Failed to delete conversation:', err)

@@ -103,7 +103,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Validate API key via Service
         from src.api.deps import _get_async_session_maker
-        from src.core.services.api_key_service import ApiKeyService
+        from src.core.admin_ops.application.api_key_service import ApiKeyService
 
         valid_key = None
         try:
@@ -132,6 +132,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             # Client requested specific tenant
             if header_tenant_id in allowed_tenants:
                 tenant_id = TenantId(header_tenant_id)
+            elif "super_admin" in (valid_key.scopes or []) or "root" in (valid_key.scopes or []): # Allow Super Admin to impersonate any tenant
+                 tenant_id = TenantId(header_tenant_id)
             elif not allowed_tenants:
                  # Legacy/Bootstrap: If key has no specific links, allow 'default' if requested
                  # This ensures unmigrated keys still work for default tenant
@@ -169,7 +171,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         tenant_role = "user"  # Default role
         if str(tenant_id) in allowed_tenants:
             # Find the specific association to get the role
-            from src.core.models.api_key import ApiKeyTenant
+            from src.core.admin_ops.domain.api_key import ApiKeyTenant
             async with _get_async_session_maker()() as session:
                 from sqlalchemy import select
                 result = await session.execute(

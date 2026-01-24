@@ -9,8 +9,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.core.graph.setup import setup_constraints
-from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+from src.core.graph.application.setup import setup_constraints
+from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore, MilvusConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

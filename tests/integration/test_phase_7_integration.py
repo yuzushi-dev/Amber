@@ -7,8 +7,8 @@ if "tiktoken" not in sys.modules:
 
 import asyncio
 
-from src.core.providers.base import GenerationResult, TokenUsage
-from src.core.services.generation import GenerationService
+from src.core.generation.infrastructure.providers.base import GenerationResult, TokenUsage
+from src.core.generation.application.generation_service import GenerationService
 
 
 async def test_generation_service_orchestration():

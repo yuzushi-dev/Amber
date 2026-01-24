@@ -115,6 +115,8 @@ def init_worker_process(**kwargs):
         init_providers(
             openai_api_key=openai_key,
             anthropic_api_key=anthropic_key,
+            default_embedding_provider=settings.default_embedding_provider,
+            default_embedding_model=settings.default_embedding_model,
         )
         logger.info("Worker process providers initialized successfully")
     except Exception as e:

@@ -17,7 +17,11 @@ import {
     DndContext,
     useDraggable,
     useDroppable,
-    type DragEndEvent
+    type DragEndEvent,
+    useSensor,
+    useSensors,
+    PointerSensor,
+    KeyboardSensor
 } from '@dnd-kit/core'
 import { apiClient, folderApi } from '@/lib/api-client'
 import {
@@ -52,6 +56,7 @@ function DraggableDocument({ doc, isActive }: {
     doc: Document,
     isActive: boolean
 }) {
+    const navigate = useNavigate()
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: `doc-${doc.id}`,
         data: { type: 'document', doc }
@@ -71,16 +76,14 @@ function DraggableDocument({ doc, isActive }: {
             {...attributes}
             className="group relative touch-none"
         >
-            <Link
-                to="/admin/data/documents/$documentId"
-                params={{ documentId: doc.id }}
+            <div
+                onClick={() => navigate({ to: '/admin/data/documents/$documentId', params: { documentId: doc.id } })}
                 className={cn(
-                    "flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors",
+                    "flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer",
                     isActive
                         ? "bg-accent text-accent-foreground font-medium"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
-            // Prevent link navigation when dragging if needed, but usually fine
             >
                 <div className="flex items-center gap-2 overflow-hidden flex-1 pr-2">
                     <FileText className="w-3.5 h-3.5 shrink-0" />
@@ -94,9 +97,7 @@ function DraggableDocument({ doc, isActive }: {
                         className="h-1.5 w-1.5 p-0"
                     />
                 )}
-            </Link>
-
-
+            </div>
         </li>
     )
 }
@@ -175,6 +176,16 @@ export default function DatabaseSidebarContent({
     const navigate = useNavigate()
     const currentPath = routerState.location.pathname
     const queryClient = useQueryClient()
+
+    // Sensors for drag and drop
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
+        useSensor(KeyboardSensor)
+    )
 
     // Fetch documents
     const { data: documents, isLoading: isLoadingDocs } = useQuery({
@@ -364,7 +375,7 @@ export default function DatabaseSidebarContent({
             {/* Content: Folders & Files */}
             {!collapsed && (
                 <>
-                    <DndContext onDragEnd={handleDragEnd}>
+                    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                         <ScrollArea className="flex-1 px-3">
                             <div className="space-y-6">
 

@@ -7,7 +7,7 @@ Welcome to the Amber backend architecture. This guide helps contributors underst
 1. **Clean Architecture**: Dependencies flow inward (delivery → application → domain)
 2. **Bounded Contexts**: Six contexts own their domain logic (ingestion, retrieval, graph, generation, admin_ops, tenants)
 3. **Dependency Inversion**: Core depends on abstractions, not frameworks
-4. **Explicit Wiring**: All dependencies are wired in the composition root
+4. **Explicit Wiring**: All dependencies are wired in the composition root (`src/amber_platform/composition_root.py`)
 
 ## Project Structure
 
@@ -24,7 +24,7 @@ src/
 │   └── tenants/      # Tenant config, access control
 ├── shared/
 │   └── kernel/       # Shared IDs, errors, interfaces
-└── platform/
+└── amber_platform/
     └── composition_root.py  # Dependency wiring
 ```
 
@@ -35,13 +35,35 @@ src/
 | Domain                | `shared/kernel`, own domain modules only  |
 | Application           | Domain + `shared/kernel`                  |
 | Infrastructure        | Application + Domain + external libraries |
-| Delivery (API/Worker) | Application ports + composition root      |
+| Delivery (API/Worker) | Application ports + composition root (`src/amber_platform`) |
 
 ### Forbidden Imports
 
 - ❌ `src.core` must NOT import `src.api` or `src.workers`
+- ❌ `src.core` must NOT import `src.amber_platform` (composition root)
 - ❌ No cross-context repository access
 - ❌ No framework-specific imports in domain/application layers
+
+### Architecture Contracts (lint-imports)
+
+These rules are enforced by `poetry run lint-imports`:
+
+- Domain layer independence
+- Application → Infrastructure isolation
+- Core → API decoupling
+- Core → Platform decoupling
+- Shared Kernel independence
+
+### Fixing lint-imports failures
+
+1. Identify the forbidden import from the lint output.
+2. Replace the import with a port from the domain/application layer.
+3. Wire the concrete implementation in `src/amber_platform/composition_root.py`.
+
+Common offenders and fixes:
+- Replace direct provider imports in application code with `ProviderFactoryPort` or `get_llm_provider`.
+- Swap any tracing import to `src/shared/kernel/observability`.
+- Use graph/document/embedding ports instead of infrastructure clients.
 
 ## Key Patterns
 

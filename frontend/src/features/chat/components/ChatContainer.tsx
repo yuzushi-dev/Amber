@@ -5,7 +5,7 @@ import QueryInput from './QueryInput'
 import CitationExplorer from './CitationExplorer'
 import { useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { chatHistoryApi } from '@/lib/api-admin'
+import { chatApi } from '@/lib/api-client'
 import { useCitationStore } from '../store/citationStore'
 import { Button } from '@/components/ui/button'
 import { Download, Loader2 } from 'lucide-react'
@@ -112,7 +112,7 @@ export default function ChatContainer() {
             const loadHistory = async () => {
                 try {
                     // Fetch full conversation details
-                    const initialDetail = await chatHistoryApi.getDetail(requestId)
+                    const initialDetail = await chatApi.getDetail(requestId)
 
                     if (!ignore && initialDetail) {
                         clearMessages()

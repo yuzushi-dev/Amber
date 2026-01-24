@@ -19,8 +19,11 @@ export MILVUS_HOST=localhost
 export MINIO_HOST=localhost
 export CELERY_BROKER_URL=redis://localhost:6379/1
 export CELERY_RESULT_BACKEND=redis://localhost:6379/2
-# Force synchronous execution for testing
 export CELERY_TASK_ALWAYS_EAGER=True 
+export DEFAULT_LLM_PROVIDER=openai
+export DEFAULT_LLM_MODEL=gpt-4o-mini
+export DEFAULT_EMBEDDING_PROVIDER=openai 
+export DEFAULT_EMBEDDING_MODEL=text-embedding-3-small 
 
 # Add current directory to PYTHONPATH for Alembic and tests
 export PYTHONPATH=$PYTHONPATH:. 
