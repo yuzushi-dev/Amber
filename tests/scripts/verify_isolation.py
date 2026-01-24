@@ -1,7 +1,9 @@
 import asyncio
 import logging
 
-from src.core.graph.neo4j_client import neo4j_client
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
 from src.core.security.graph_acl import graph_acl
 
 logging.basicConfig(level=logging.ERROR)
