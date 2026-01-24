@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.connectors.base import ConnectorItem
-from src.core.connectors.zendesk import ZendeskConnector
+from src.core.ingestion.infrastructure.connectors.base import ConnectorItem
+from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
 from src.core.ingestion.url_fetcher import URLFetcher
 
 

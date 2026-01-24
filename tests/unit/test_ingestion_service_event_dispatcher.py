@@ -15,6 +15,9 @@ class FakeDocumentRepository:
     async def save(self, document):
         self.saved.append(document)
 
+    async def get_titles_by_ids(self, document_ids):
+        return {}
+
 
 class FakeStorage:
     def __init__(self) -> None:

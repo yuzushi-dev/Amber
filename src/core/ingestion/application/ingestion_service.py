@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
+from src.core.ingestion.domain.ports.content_extractor import ContentExtractorPort, get_content_extractor
 from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.graph_client import GraphPort
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
@@ -48,6 +49,7 @@ class IngestionService:
         storage_client: StoragePort,
         neo4j_client: GraphPort,
         vector_store: VectorStorePort | None,
+        content_extractor: ContentExtractorPort | None = None,
         settings: Any = None,  # Settings object for embedding/LLM config
         task_dispatcher: TaskDispatcher | None = None,  # Optional for backward compat during migration
         event_dispatcher: EventDispatcher | None = None,
@@ -59,6 +61,7 @@ class IngestionService:
         self.storage = storage_client
         self.neo4j_client = neo4j_client
         self.vector_store = vector_store
+        self.content_extractor = content_extractor
         self.vector_store_factory = vector_store_factory
         self.settings = settings
         self.task_dispatcher = task_dispatcher
@@ -202,12 +205,12 @@ class IngestionService:
 
             # 4. Extract Content (Fallback Chain)
             import mimetypes
-            from src.core.ingestion.infrastructure.extraction.fallback import FallbackManager
             mime_type, _ = mimetypes.guess_type(document.filename)
             if not mime_type:
                 mime_type = "application/octet-stream"
 
-            extraction_result = await FallbackManager.extract_with_fallback(
+            extractor = self.content_extractor or get_content_extractor()
+            extraction_result = await extractor.extract(
                 file_content=file_content,
                 mime_type=mime_type,
                 filename=document.filename
@@ -312,7 +315,7 @@ class IngestionService:
                 settings = self.settings
                 from src.core.retrieval.application.embeddings_service import EmbeddingService
                 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-                from src.core.generation.infrastructure.providers.factory import ProviderFactory
+                from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
                 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
                 from src.core.tenants.domain.tenant import Tenant
 
@@ -327,22 +330,29 @@ class IngestionService:
                 res_model = t_config.get("embedding_model") or sys_model
                 res_dims = t_config.get("embedding_dimensions") or sys_dims
 
-                factory = ProviderFactory(
-                    openai_api_key=settings.openai_api_key,
-                    ollama_base_url=settings.ollama_base_url,
-                    default_embedding_provider=res_prov,
-                    default_embedding_model=res_model,
-                )
+                try:
+                    factory = build_provider_factory(
+                        openai_api_key=settings.openai_api_key,
+                        ollama_base_url=settings.ollama_base_url,
+                        default_embedding_provider=res_prov,
+                        default_embedding_model=res_model,
+                    )
+                except RuntimeError:
+                    factory = get_provider_factory()
                 
                 embedding_service = EmbeddingService(
-                    provider=factory.get_embedding_provider(),
+                    provider=factory.get_embedding_provider(
+                        provider_name=res_prov,
+                        model=res_model,
+                    ),
                     model=res_model,
                     dimensions=res_dims,
                 )
                 sparse_service = SparseEmbeddingService()
 
                 if self.vector_store_factory:
-                    vector_store = self.vector_store_factory(res_dims)
+                    collection_name = f"amber_{document.tenant_id}"
+                    vector_store = self.vector_store_factory(res_dims, collection_name=collection_name)
                 else:
                     vector_store = self.vector_store
 
@@ -433,11 +443,8 @@ class IngestionService:
             ))
 
             try:
-                from src.core.generation.infrastructure.providers.factory import init_providers
-                init_providers(
-                    openai_api_key=settings.openai_api_key,
-                    anthropic_api_key=settings.anthropic_api_key
-                )
+                from src.core.generation.domain.ports.provider_factory import get_provider_factory
+                get_provider_factory()
                 if chunks_to_process:
                     await self.graph_processor.process_chunks(
                         chunks_to_process, 

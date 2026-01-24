@@ -8,8 +8,8 @@ Verifies the extraction pipeline components (Registry, Extractors).
 
 import pytest
 
-from src.core.extraction.local.unstructured_extractor import UnstructuredExtractor
-from src.core.extraction.registry import ExtractorRegistry
+from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import UnstructuredExtractor
+from src.core.ingestion.infrastructure.extraction.registry import ExtractorRegistry
 
 # Mock data
 SAMPLE_PDF_CONTENT = b"%PDF-1.4..." # Not a real PDF, would fail actual extraction but good for registry test if we mock method
@@ -18,7 +18,7 @@ SAMPLE_TEXT_CONTENT = b"Hello world"
 @pytest.mark.asyncio
 async def test_extractor_registry():
     """Test that the registry returns appropriate extractors for different file types."""
-    from src.core.extraction.base import BaseExtractor
+    from src.core.ingestion.infrastructure.extraction.base import BaseExtractor
 
     # 1. Test PDF routing - should return some extractor
     extractor = ExtractorRegistry.get_extractor("application/pdf")
