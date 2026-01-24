@@ -12,8 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.api.deps import verify_admin
-from src.core.graph.neo4j_client import neo4j_client
-from src.core.graph.schema import NodeLabel, RelationshipType
+from src.amber_platform.composition_root import platform
+from src.core.graph.domain.schema import NodeLabel, RelationshipType
 
 router = APIRouter(prefix="/context-graph", tags=["admin", "context-graph"])
 logger = logging.getLogger(__name__)
@@ -54,22 +54,22 @@ async def get_context_graph_stats(
 ):
     """Get overall statistics of the Context Graph."""
     try:
-        await neo4j_client.connect()
+        await platform.neo4j_client.connect()
         
         # Count conversations
-        conv_result = await neo4j_client.execute_read(
+        conv_result = await platform.neo4j_client.execute_read(
             f"MATCH (c:{NodeLabel.Conversation.value}) RETURN count(c) as count"
         )
         conv_count = conv_result[0]["count"] if conv_result else 0
         
         # Count turns
-        turn_result = await neo4j_client.execute_read(
+        turn_result = await platform.neo4j_client.execute_read(
             f"MATCH (t:{NodeLabel.Turn.value}) RETURN count(t) as count"
         )
         turn_count = turn_result[0]["count"] if turn_result else 0
         
         # Count feedback
-        fb_result = await neo4j_client.execute_read(
+        fb_result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value})
             RETURN 
@@ -106,9 +106,9 @@ async def list_graph_feedback(
 ):
     """List feedback from the Context Graph with related turn and chunk info."""
     try:
-        await neo4j_client.connect()
+        await platform.neo4j_client.connect()
         
-        result = await neo4j_client.execute_read(
+        result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value})
             OPTIONAL MATCH (f)-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})
@@ -158,10 +158,10 @@ async def delete_graph_feedback(
 ):
     """Remove a feedback node and its relationships from the Context Graph."""
     try:
-        await neo4j_client.connect()
+        await platform.neo4j_client.connect()
         
         # Delete feedback node and its relationships
-        await neo4j_client.execute_write(
+        await platform.neo4j_client.execute_write(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value} {{id: $feedback_id}})
             DETACH DELETE f
@@ -184,9 +184,9 @@ async def get_chunk_feedback_impact(
 ):
     """Get the feedback impact score for a specific chunk."""
     try:
-        await neo4j_client.connect()
+        await platform.neo4j_client.connect()
         
-        result = await neo4j_client.execute_read(
+        result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
             RETURN 
@@ -247,9 +247,9 @@ async def list_conversations(
 ):
     """List conversations from the Context Graph."""
     try:
-        await neo4j_client.connect()
+        await platform.neo4j_client.connect()
         
-        result = await neo4j_client.execute_read(
+        result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (c:{NodeLabel.Conversation.value})
             OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
@@ -290,7 +290,7 @@ async def list_conversations(
         """
         
         # Use the simplified one to be safe
-        result = await neo4j_client.execute_read(
+        result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (c:{NodeLabel.Conversation.value})
             OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})

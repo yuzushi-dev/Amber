@@ -105,7 +105,7 @@ async def get_query_metrics(
     """
     try:
         from src.api.config import settings
-        from src.core.metrics.collector import MetricsCollector
+        from src.core.admin_ops.application.metrics.collector import MetricsCollector
 
         # Instantiate collector on the fly (it's lightweight)
         # In a real app we might want to inject this, but for now this is fine
@@ -504,8 +504,8 @@ async def _get_database_stats() -> DatabaseStats:
         from sqlalchemy.future import select
 
         from src.core.database.session import async_session_maker
-        from src.core.models.chunk import Chunk
-        from src.core.models.document import Document
+        from src.core.ingestion.domain.chunk import Chunk
+        from src.core.ingestion.domain.document import Document
         from src.core.state.machine import DocumentStatus
 
         async with async_session_maker() as session:
@@ -553,7 +553,7 @@ async def _get_database_stats() -> DatabaseStats:
 async def _get_neo4j_stats_consolidated() -> dict:
     """Get all Neo4j counts in a single optimized query."""
     try:
-        from src.core.graph.neo4j_client import neo4j_client
+        from src.amber_platform.composition_root import platform
 
         # OPTIMIZED: Single query returning all counts at once
         cypher = """
@@ -565,7 +565,7 @@ async def _get_neo4j_stats_consolidated() -> dict:
         RETURN entity_count, rel_count, count(c) as community_count
         """
 
-        result = await neo4j_client.execute_read(cypher)
+        result = await platform.neo4j_client.execute_read(cypher)
         if result and len(result) > 0:
             row = result[0]
             return {

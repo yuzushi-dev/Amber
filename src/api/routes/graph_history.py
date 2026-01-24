@@ -193,7 +193,7 @@ async def apply_pending_edit(
     payload = row["payload"]
     
     # Import graph editor functions
-    from src.core.graph.neo4j_client import neo4j_client
+    from src.amber_platform.composition_root import platform
     
     try:
         # Execute the action based on type
@@ -206,7 +206,7 @@ async def apply_pending_edit(
             SET r.type = $type, r.description = $description, r.weight = 1.0
             RETURN type(r)
             """
-            await neo4j_client.execute_write(query, {
+            await platform.neo4j_client.execute_write(query, {
                 "source": payload["source"],
                 "target": payload["target"],
                 "type": payload.get("type", "RELATED_TO"),
@@ -215,7 +215,7 @@ async def apply_pending_edit(
             })
             
         elif action_type == "merge":
-            success = await neo4j_client.merge_nodes(
+            success = await platform.neo4j_client.merge_nodes(
                 payload["target_id"],
                 payload["source_ids"],
                 tenant_id
@@ -228,7 +228,7 @@ async def apply_pending_edit(
             MATCH (s:Entity {name: $source, tenant_id: $tenant_id})-[r]->(t:Entity {name: $target, tenant_id: $tenant_id})
             DELETE r
             """
-            await neo4j_client.execute_write(query, {
+            await platform.neo4j_client.execute_write(query, {
                 "source": payload["source"],
                 "target": payload["target"],
                 "tenant_id": tenant_id
@@ -239,7 +239,7 @@ async def apply_pending_edit(
             MATCH (n:Entity {name: $node_id, tenant_id: $tenant_id})
             DETACH DELETE n
             """
-            await neo4j_client.execute_write(query, {
+            await platform.neo4j_client.execute_write(query, {
                 "node_id": payload["node_id"],
                 "tenant_id": tenant_id
             })
@@ -251,7 +251,7 @@ async def apply_pending_edit(
                 MATCH (n:Entity {name: $node_id, tenant_id: $tenant_id})
                 DETACH DELETE n
                 """
-                await neo4j_client.execute_write(query, {
+                await platform.neo4j_client.execute_write(query, {
                     "node_id": payload["node_id"],
                     "tenant_id": tenant_id
                 })
@@ -260,7 +260,7 @@ async def apply_pending_edit(
                 MATCH (s:Entity {name: $source, tenant_id: $tenant_id})-[r]->(t:Entity {name: $target, tenant_id: $tenant_id})
                 DELETE r
                 """
-                await neo4j_client.execute_write(query, {
+                await platform.neo4j_client.execute_write(query, {
                     "source": payload["source"],
                     "target": payload["target"],
                     "tenant_id": tenant_id
@@ -327,7 +327,7 @@ async def undo_applied_edit(
     payload = row["payload"]
     snapshot = row["snapshot"]
     
-    from src.core.graph.neo4j_client import neo4j_client
+    from src.amber_platform.composition_root import platform
     
     try:
         # Reverse the action
@@ -337,7 +337,7 @@ async def undo_applied_edit(
             MATCH (s:Entity {name: $source, tenant_id: $tenant_id})-[r]->(t:Entity {name: $target, tenant_id: $tenant_id})
             DELETE r
             """
-            await neo4j_client.execute_write(query, {
+            await platform.neo4j_client.execute_write(query, {
                 "source": payload["source"],
                 "target": payload["target"],
                 "tenant_id": tenant_id
@@ -353,7 +353,7 @@ async def undo_applied_edit(
                 MERGE (s)-[r:RELATED_TO]->(t)
                 SET r.type = $type, r.description = $description, r.weight = $weight
                 """
-                await neo4j_client.execute_write(query, {
+                await platform.neo4j_client.execute_write(query, {
                     "source": edge["source"],
                     "target": edge["target"],
                     "type": edge.get("type", "RELATED_TO"),
@@ -376,7 +376,7 @@ async def undo_applied_edit(
                     description: $description
                 })
                 """
-                await neo4j_client.execute_write(query, {
+                await platform.neo4j_client.execute_write(query, {
                     "name": node["name"],
                     "tenant_id": tenant_id,
                     "type": node.get("type", "Entity"),
@@ -391,7 +391,7 @@ async def undo_applied_edit(
                         MERGE (s)-[r:RELATED_TO]->(t)
                         SET r.type = $type
                         """
-                        await neo4j_client.execute_write(edge_query, {
+                        await platform.neo4j_client.execute_write(edge_query, {
                             "source": edge["source"],
                             "target": edge["target"],
                             "type": edge.get("type", "RELATED_TO"),
@@ -423,7 +423,7 @@ async def undo_applied_edit(
                     description: $description
                 })
                 """
-                await neo4j_client.execute_write(query, {
+                await platform.neo4j_client.execute_write(query, {
                     "name": node.get("label") or node.get("id"),  # Use label or id as name
                     "tenant_id": tenant_id,
                     "type": node.get("type", "Entity"),

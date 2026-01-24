@@ -11,8 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from src.core.models.memory import UserFact, ConversationSummary
-from src.core.memory.manager import memory_manager
+from src.core.generation.domain.memory_models import UserFact, ConversationSummary
+from src.core.generation.application.memory.manager import memory_manager
 from src.core.database import get_session_maker
 from sqlalchemy import select, desc, func
 from pydantic import BaseModel

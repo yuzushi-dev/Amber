@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.database.session import async_session_maker
-from src.core.services.tuning import TuningService
+from src.core.admin_ops.application.tuning_service import TuningService
 from src.api.config import settings
 
 logger = logging.getLogger(__name__)
@@ -364,9 +364,9 @@ async def get_default_prompts():
     Returns all built-in prompts that are used when no tenant override is set.
     These serve as the baseline/fallback for all prompt fields.
     """
-    from src.core.generation.prompts import PROMPTS, FACT_EXTRACTION_PROMPT
-    from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
-    from src.core.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT
+    from src.core.generation.application.prompts.templates import PROMPTS, FACT_EXTRACTION_PROMPT
+    from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
+    from src.core.generation.application.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT
 
     return DefaultPromptsResponse(
         rag_system_prompt=PROMPTS["rag_system"]["latest"],
@@ -438,7 +438,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
     try:
         from sqlalchemy.future import select
 
-        from src.core.models.tenant import Tenant
+        from src.core.tenants.domain.tenant import Tenant
 
         async with async_session_maker() as session:
             result = await session.execute(
@@ -509,7 +509,7 @@ async def reset_tenant_config(tenant_id: str):
     try:
         from sqlalchemy.future import select
 
-        from src.core.models.tenant import Tenant
+        from src.core.tenants.domain.tenant import Tenant
 
         async with async_session_maker() as session:
             result = await session.execute(

@@ -12,10 +12,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from src.api.deps import get_db_session
+from src.api.config import settings
 from src.api.schemas.base import ResponseSchema
-from src.core.services.migration import EmbeddingMigrationService
-from src.core.models.document import Document
+from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
+from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
+from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
+from src.amber_platform.composition_root import platform, build_vector_store_factory
+
+def _get_migration_service(db: AsyncSession) -> EmbeddingMigrationService:
+    """Factory to create EmbeddingMigrationService with all deps."""
+    vector_store_factory = build_vector_store_factory()
+    return EmbeddingMigrationService(
+        session=db,
+        settings=settings,
+        task_dispatcher=CeleryTaskDispatcher(),
+        graph_client=platform.neo4j_client,
+        vector_store_factory=vector_store_factory,
+    )
 
 router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"])
 
@@ -29,7 +43,7 @@ async def check_embedding_compatibility(
     """
     Check if the configured embedding model matches the stored data configuration for all tenants.
     """
-    service = EmbeddingMigrationService(db)
+    service = _get_migration_service(db)
     results = await service.get_compatibility_status()
     
     # Check if any mismatch exists to set overall message
@@ -52,7 +66,7 @@ async def migrate_embeddings(
     """
     global _migration_state
     
-    service = EmbeddingMigrationService(db)
+    service = _get_migration_service(db)
     
     try:
         # Initialize migration state
@@ -224,7 +238,7 @@ async def cancel_migration(
     state["message"] = "Migration cancelled by user. Stopping worker tasks..."
     
     # Revoke all tasks in worker
-    service = EmbeddingMigrationService(db)
+    service = _get_migration_service(db)
     await service.cancel_tenant_migration(state.get("task_ids", []))
     
     return ResponseSchema(

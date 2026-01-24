@@ -11,8 +11,10 @@ import logging
 import time
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.api.deps import get_db_session
 
 from src.api.config import settings
 from src.api.schemas.query import (
@@ -32,68 +34,7 @@ router = APIRouter(prefix="/query", tags=["query"])
 # Service Dependencies
 # =============================================================================
 
-# Lazy-loaded services to avoid import errors if dependencies missing
-_retrieval_service = None
-_generation_service = None
-_metrics_collector = None
 
-
-def _get_services():
-    """Get or initialize RAG services."""
-    global _retrieval_service, _generation_service, _metrics_collector
-
-    if _retrieval_service is None:
-        try:
-            from src.core.metrics.collector import MetricsCollector
-            from src.core.services.generation import GenerationService
-            from src.core.services.retrieval import RetrievalConfig, RetrievalService
-
-            providers = getattr(settings, "providers", None)
-            openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
-            anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
-
-            # Check if API keys are configured
-            if not openai_key and not anthropic_key:
-                logger.warning("No LLM API keys configured - RAG pipeline will fail")
-
-            retrieval_config = RetrievalConfig(
-                milvus_host=settings.db.milvus_host,
-                milvus_port=settings.db.milvus_port,
-            )
-
-            _retrieval_service = RetrievalService(
-                openai_api_key=openai_key or None,
-                anthropic_api_key=anthropic_key or None,
-                ollama_base_url=settings.ollama_base_url,
-                default_embedding_provider=settings.default_embedding_provider,
-                default_embedding_model=settings.default_embedding_model,
-                redis_url=settings.db.redis_url,
-                config=retrieval_config,
-            )
-
-            _generation_service = GenerationService(
-                openai_api_key=openai_key or None,
-                anthropic_api_key=anthropic_key or None,
-                ollama_base_url=settings.ollama_base_url,
-                default_llm_provider=settings.default_llm_provider,
-                default_llm_model=settings.default_llm_model,
-            )
-
-            _metrics_collector = MetricsCollector(
-                redis_url=settings.db.redis_url,
-            )
-
-            logger.info("RAG services initialized successfully")
-
-        except ImportError as e:
-            logger.error(f"Failed to import RAG services: {e}")
-            raise
-
-        except Exception as e:
-            logger.error(f"Failed to initialize RAG services: {e}")
-            raise
-
-    return _retrieval_service, _generation_service, _metrics_collector
 
 
 def _get_tenant_id(request: Request) -> str:
@@ -145,7 +86,11 @@ def _get_tenant_id(request: Request) -> str:
         }
     },
 )
-async def query(request: QueryRequest, http_request: Request) -> QueryResponse | StructuredQueryResponse:
+async def query(
+    request: QueryRequest, 
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session)
+) -> QueryResponse | StructuredQueryResponse:
     """
     Query the knowledge base.
 
@@ -163,296 +108,36 @@ async def query(request: QueryRequest, http_request: Request) -> QueryResponse |
     Returns:
         QueryResponse: Answer with sources and timing
     """
-    start_time = time.perf_counter()
+    from src.core.retrieval.application.use_cases_query import QueryUseCase
+    from src.amber_platform.composition_root import (
+        build_retrieval_service,
+        build_generation_service,
+        build_metrics_collector,
+    )
+
     tenant_id = _get_tenant_id(http_request)
-    include_trace = request.options.include_trace if request.options else False
-    max_chunks = request.options.max_chunks if request.options else 10
-
-    trace_steps: list[TraceStep] = []
-
-    # =========================================================================
-    # STRUCTURED QUERY CHECK - Bypass RAG for list/count queries
-    # =========================================================================
-    try:
-        from src.core.query.structured_query import structured_executor
-
-        structured_result = await structured_executor.try_execute(
-            query=request.query,
-            tenant_id=tenant_id,
-        )
-
-        if structured_result and structured_result.success:
-            # Return structured response (no LLM, no RAG)
-            logger.info(
-                f"Structured query executed: {structured_result.query_type.value} "
-                f"in {structured_result.execution_time_ms:.1f}ms"
-            )
-
-            # Generate human-readable message
-            count = structured_result.count
-            query_type = structured_result.query_type.value
-            if "count" in query_type:
-                message = f"Found {count} {query_type.replace('count_', '').replace('_', ' ')}"
-            else:
-                message = f"Retrieved {count} {query_type.replace('list_', '').replace('_', ' ')}"
-
-            return StructuredQueryResponse(
-                query_type=query_type,
-                data=structured_result.data,
-                count=count,
-                timing=TimingInfo(
-                    total_ms=round(structured_result.execution_time_ms, 2),
-                    retrieval_ms=round(structured_result.execution_time_ms, 2),
-                    generation_ms=0,
-                ),
-                message=message,
-            )
-
-    except Exception as e:
-        # If structured query fails, fall through to RAG pipeline
-        logger.debug(f"Structured query check failed, using RAG: {e}")
-
-    try:
-        retrieval_service, generation_service, metrics = _get_services()
-    except Exception as e:
-        # Fallback to no-op response if services unavailable
-        logger.error(f"Services unavailable: {e}")
-        return _fallback_response(request, start_time, str(e))
     
-    # =========================================================================
-    # AGENTIC MODE (Phase 1)
-    # =========================================================================
-    if request.options and request.options.agent_mode:
-        try:
-            from src.core.agent.orchestrator import AgentOrchestrator
-            from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
-            from src.core.tools.retrieval import create_retrieval_tool
-            from src.core.tools.filesystem import create_filesystem_tools
-            
-            # Initialize Tools
-            # Initialize Tools
-            retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
-            
-            tool_map = {
-                retrieval_tool_def["name"]: retrieval_tool_def["func"]
-            }
-            tool_schemas = [retrieval_tool_def["schema"]]
-
-            agent_role = request.options.agent_role
-            
-            # Role-Specific Tools
-            if agent_role == "maintainer":
-                 # Maintainer: Full filesystem access
-                fs_tools = create_filesystem_tools(base_path=".") 
-                for t in fs_tools:
-                    tool_map[t["name"]] = t["func"]
-                    tool_schemas.append(t["schema"])
-            else:
-                 # Knowledge (Default): RAG + Graph only
-                 from src.core.tools.graph import GRAPH_TOOLS, query_graph
-                 
-                 # Add Graph Tool
-                 tool_map["query_graph"] = query_graph
-                 tool_schemas.extend(GRAPH_TOOLS)
-                 
-                 # Note: We do NOT load filesystem tools here.
-            
-            # Initialize Agent
-            agent = AgentOrchestrator(
-                generation_service=generation_service,
-                tools=tool_map,
-                tool_schemas=tool_schemas,
-                system_prompt=AGENT_SYSTEM_PROMPT
-            )
-            
-            # Run Agent
-            agent_response = await agent.run(
-                query=request.query,
-                conversation_id=request.conversation_id
-            )
-            
-            # Fill in timing info (approximate)
-            total_ms = (time.perf_counter() - start_time) * 1000
-            agent_response.timing.total_ms = round(total_ms, 2)
-            
-            return agent_response
-            
-        except Exception as e:
-            logger.error(f"Agent execution failed: {e}")
-            # Fallback to standard RAG if agent crashes
-            pass
-
-    # Generate query ID for tracking
-    from src.shared.identifiers import generate_query_id
-    query_id = generate_query_id()
-
+    # Instantiate Use Case using Composition Root factories
     try:
-        # Track metrics
-        async with metrics.track_query(query_id, tenant_id, request.query) as query_metrics:
-            query_metrics.conversation_id = request.conversation_id or query_id
+        use_case = QueryUseCase(
+            retrieval_service=build_retrieval_service(session),
+            generation_service=build_generation_service(session),
+            metrics_collector=build_metrics_collector(),
+        )
+        
+        # Determine User ID (extract logic from previous implementation)
+        user_id = http_request.headers.get("X-User-ID", "default_user")
 
-            # Step 1: Parse query
-            step_start = time.perf_counter()
-            trace_steps.append(TraceStep(
-                step="parse_query",
-                duration_ms=(time.perf_counter() - step_start) * 1000,
-                details={"query_length": len(request.query), "query_id": query_id},
-            ))
-
-            # Step 2: Retrieval (embedding + search + rerank)
-            step_start = time.perf_counter()
-            document_ids = request.filters.document_ids if request.filters else None
-
-            retrieval_result = await retrieval_service.retrieve(
-                query=request.query,
-                tenant_id=tenant_id,
-                document_ids=document_ids,
-                top_k=max_chunks,
-                include_trace=include_trace,
-                options=request.options,
-                history=None,  # Placeholder until conversation service is implemented
-            )
-
-            retrieval_ms = (time.perf_counter() - step_start) * 1000
-            query_metrics.retrieval_latency_ms = retrieval_ms
-            query_metrics.chunks_retrieved = len(retrieval_result.chunks)
-            query_metrics.cache_hit = retrieval_result.cache_hit
-
-            # Add retrieval trace steps
-            for rt in retrieval_result.trace:
-                trace_steps.append(TraceStep(
-                    step=rt["step"],
-                    duration_ms=rt.get("duration_ms", 0),
-                    details={k: v for k, v in rt.items() if k not in ("step", "duration_ms")},
-                ))
-
-            # Step 3: Generation
-            step_start = time.perf_counter()
-
-            if not retrieval_result.chunks:
-                # No relevant chunks found
-                answer = (
-                    "I couldn't find any relevant information in the knowledge base "
-                    f"to answer: \"{request.query[:100]}...\"\n\n"
-                    "This could mean:\n"
-                    "- No documents have been uploaded yet\n"
-                    "- The query doesn't match available content\n"
-                    "- Try rephrasing your question"
-                )
-                sources: list[Source] = []
-                follow_ups = ["What documents are available?", "How do I upload documents?"]
-            else:
-                # Extract User ID (Phase 3 Memory)
-                user_id = http_request.headers.get("X-User-ID", "default_user")
-
-                # Generate answer from chunks
-                gen_result = await generation_service.generate(
-                    query=request.query,
-                    candidates=retrieval_result.chunks,
-                    include_trace=include_trace,
-                    options={
-                        "user_id": user_id,
-                        "tenant_id": tenant_id
-                    }
-                )
-
-                answer = gen_result.answer
-                query_metrics.tokens_used = gen_result.tokens_used
-                query_metrics.input_tokens = gen_result.input_tokens
-                query_metrics.output_tokens = gen_result.output_tokens
-                query_metrics.cost_estimate = gen_result.cost_estimate
-                query_metrics.model = gen_result.model
-                query_metrics.provider = gen_result.provider
-                query_metrics.sources_cited = len(gen_result.sources)
-                query_metrics.answer_length = len(answer)
-                # Set operation type and response for tracking
-                query_metrics.operation = "rag_query"
-                query_metrics.response = answer[:500] if len(answer) > 500 else answer
-
-                # Build source citations
-                sources = [
-                    Source(
-                        chunk_id=s.chunk_id,
-                        document_id=s.document_id,
-                        document_name=s.title,
-                        text=s.content_preview,
-                        score=s.score,
-                        page=None,
-                    )
-                    for s in gen_result.sources
-                ]
-
-                follow_ups = gen_result.follow_up_questions
-
-                # Add generation trace
-                for gt in gen_result.trace:
-                    trace_steps.append(TraceStep(
-                        step=gt["step"],
-                        duration_ms=gt.get("duration_ms", 0),
-                        details={k: v for k, v in gt.items() if k not in ("step", "duration_ms")},
-                    ))
-
-            generation_ms = (time.perf_counter() - step_start) * 1000
-            query_metrics.generation_latency_ms = generation_ms
-
-        # Calculate total time
-        total_ms = (time.perf_counter() - start_time) * 1000
-
-        # Log to Context Graph (background task - fire and forget)
-        try:
-            import asyncio
-            from src.core.graph.context_writer import context_graph_writer
-            from src.core.security.pii_scrubber import PIIScrubber
-
-            
-            source_data = [
-                {"chunk_id": s.chunk_id, "document_id": s.document_id, "score": s.score}
-                for s in sources
-            ] if sources else []
-            
-            # S02: Scrub PII from logs
-            scrubber = PIIScrubber()
-            safe_query = scrubber.scrub_text(request.query)
-            safe_answer = scrubber.scrub_text(answer)
-
-            asyncio.create_task(
-                context_graph_writer.log_turn(
-                    conversation_id=request.conversation_id or query_id,
-                    tenant_id=tenant_id,
-                    query=safe_query,
-                    answer=safe_answer,
-                    sources=source_data,
-                    trace_steps=trace_steps if include_trace else None,
-                    model=query_metrics.model if 'query_metrics' in dir() else None,
-                    latency_ms=total_ms,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to schedule context graph logging: {e}")
-
-        return QueryResponse(
-            answer=answer,
-            sources=sources if (request.options and request.options.include_sources) else [],
-            trace=trace_steps if include_trace else None,
-            timing=TimingInfo(
-                total_ms=round(total_ms, 2),
-                retrieval_ms=round(retrieval_ms, 2),
-                generation_ms=round(generation_ms, 2),
-            ),
-            conversation_id=request.conversation_id or query_id,
-            follow_up_questions=follow_ups,
+        return await use_case.execute(
+            request=request,
+            tenant_id=tenant_id,
+            http_request_state=http_request.state,
+            user_id=user_id,
         )
 
     except Exception as e:
-        logger.exception(f"Query failed: {e}")
-        # Note: metrics context manager auto-closes, but we need to mark failure if possible.
-        # Ideally, we should have access to query_metrics here, but it's scoped to the try block.
-        # Best practice: move try/except INSIDE the metrics context manager or handle it better.
-        # For now, we will rely on successful queries for most stats, but let's try to capture error if we can.
-        # Actually, since track_query is a context manager, if we want to capture exception, we should suppression=False
-        # and handle it in __aexit__.
-        # Let's modify collector.py's QueryTracker.__aexit__ to capture exception?
-        # A simpler way is to wrap the inner logic in try/except and set error on metrics.
+        start_time = time.perf_counter() # Fallback Start Time
+        logger.error(f"Query execution failed: {e}")
         return _fallback_response(request, start_time, str(e))
 
 
@@ -496,6 +181,7 @@ async def _query_stream_impl(
     query: str = None,
     agent_mode: bool = False,
     conversation_id: str = None,  # Added for threading support
+    session: AsyncSession = None,
 ):
     """
     Stream the query response.
@@ -534,7 +220,9 @@ async def _query_stream_impl(
     logger.info(f"SSE stream request: query={request.query[:50]}..., tenant={tenant_id}")
 
     try:
-        retrieval_service, generation_service, _ = _get_services()
+        from src.amber_platform.composition_root import build_retrieval_service, build_generation_service
+        retrieval_service = build_retrieval_service(session)
+        generation_service = build_generation_service(session)
         logger.info("SSE: Services loaded successfully")
     except Exception as e:
         raise HTTPException(
@@ -554,7 +242,7 @@ async def _query_stream_impl(
         # Check if this is a continuation of an AGENT conversation
         if request.conversation_id and not (request.options and request.options.agent_mode):
             try:
-                from src.core.models.memory import ConversationSummary
+                from src.core.generation.domain.memory_models import ConversationSummary
                 from src.api.deps import _get_async_session_maker
                 
                 async with _get_async_session_maker()() as session:
@@ -589,8 +277,8 @@ async def _query_stream_impl(
                     # Emit Routing Info
                     yield f"event: routing\ndata: {json.dumps({'categories': ['Agent Tools'], 'confidence': 1.0})}\n\n"
 
-                    from src.core.agent.orchestrator import AgentOrchestrator
-                    from src.core.agent.prompts import AGENT_SYSTEM_PROMPT
+                    from src.core.generation.application.agent.orchestrator import AgentOrchestrator
+                    from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
                     from src.core.tools.retrieval import create_retrieval_tool
                     from src.core.tools.filesystem import create_filesystem_tools
                     from src.core.tools.graph import GRAPH_TOOLS, query_graph
@@ -618,7 +306,7 @@ async def _query_stream_impl(
                     logger.info("Starting Agent Mode Setup...")
                     # Fetch active credentials for ALL active connectors
                     from src.api.routes.connectors import CONNECTOR_REGISTRY
-                    from src.core.models.connector_state import ConnectorState
+                    from src.core.ingestion.domain.connector_state import ConnectorState
                     from src.api.deps import _get_async_session_maker
                     from sqlalchemy import select
 
@@ -691,7 +379,7 @@ async def _query_stream_impl(
                     conversation_history = []
                     if request.conversation_id:
                         try:
-                            from src.core.models.memory import ConversationSummary  # Import here for history loading
+                            from src.core.generation.domain.memory_models import ConversationSummary  # Import here for history loading
                             async with _get_async_session_maker()() as history_session:
                                 existing_conv = await history_session.get(ConversationSummary, request.conversation_id)
                                 if existing_conv and existing_conv.metadata_:
@@ -727,7 +415,7 @@ async def _query_stream_impl(
                         title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
                         
                         from datetime import datetime
-                        from src.core.models.memory import ConversationSummary
+                        from src.core.generation.domain.memory_models import ConversationSummary
                         from src.api.deps import _get_async_session_maker
                         
                         async with _get_async_session_maker()() as session:
@@ -876,7 +564,7 @@ async def _query_stream_impl(
                 options={
                     "user_id": user_id,
                     "tenant_id": tenant_id
-                }
+                },
             ):
                 event = event_dict.get("event", "message")
                 data = event_dict.get("data", "")
@@ -905,7 +593,7 @@ async def _query_stream_impl(
                 title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
                 
                 from datetime import datetime
-                from src.core.models.memory import ConversationSummary
+                from src.core.generation.domain.memory_models import ConversationSummary
                 from src.api.deps import _get_async_session_maker
                 
                 async with _get_async_session_maker()() as session:
@@ -992,7 +680,7 @@ async def _query_stream_impl(
 
             # LOG TO CONTEXT GRAPH (Async - Fire and forget)
             try:
-                from src.core.graph.context_writer import context_graph_writer
+                from src.core.graph.application.context_writer import context_graph_writer
                 
                 # Transform collected sources to graph format
                 # collected_sources is list of dicts from 'sources' event
@@ -1020,7 +708,7 @@ async def _query_stream_impl(
             # RECORD METRICS for streaming queries
             try:
                 from src.api.config import settings
-                from src.core.metrics.collector import MetricsCollector, QueryMetrics
+                from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
                 from src.shared.identifiers import generate_query_id
                 from src.core.utils.tokenizer import Tokenizer
                 
@@ -1116,6 +804,7 @@ async def query_stream_get(
     query: str,
     agent_mode: bool = False,
     conversation_id: str = None,
+    session: AsyncSession = Depends(get_db_session),
 ):
     return await _query_stream_impl(
         http_request=http_request,
@@ -1123,6 +812,7 @@ async def query_stream_get(
         query=query,
         agent_mode=agent_mode,
         conversation_id=conversation_id,
+        session=session,
     )
 
 
@@ -1135,8 +825,10 @@ async def query_stream_get(
 async def query_stream_post(
     http_request: Request,
     request: QueryRequest,
+    session: AsyncSession = Depends(get_db_session),
 ):
     return await _query_stream_impl(
         http_request=http_request,
         request=request,
+        session=session,
     )

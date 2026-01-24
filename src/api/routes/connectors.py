@@ -17,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db_session
 from src.api.schemas.base import ResponseSchema
-from src.core.connectors.zendesk import ZendeskConnector
-from src.core.connectors.confluence import ConfluenceConnector
-from src.core.connectors.carbonio import CarbonioConnector
-from src.core.connectors.jira import JiraConnector
-from src.core.models.connector_state import ConnectorState
-from src.core.services.ingestion import IngestionService
+from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
+from src.core.ingestion.infrastructure.connectors.confluence import ConfluenceConnector
+from src.core.ingestion.infrastructure.connectors.carbonio import CarbonioConnector
+from src.core.ingestion.infrastructure.connectors.jira import JiraConnector
+from src.core.ingestion.domain.connector_state import ConnectorState
+from src.core.ingestion.application.ingestion_service import IngestionService
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -452,7 +452,6 @@ async def run_selective_ingestion(
     # We need to manually manage the session here
     from src.api.deps import _get_async_session_maker
     from src.api.config import settings
-    from src.core.storage.storage_client import MinIOClient
     
     logger.info(f"Starting selective ingestion for {connector_type} items: {item_ids}")
     
@@ -490,12 +489,12 @@ async def run_selective_ingestion(
 
         vector_store_factory = build_vector_store_factory()
         event_dispatcher = EventDispatcher(RedisStatePublisher())
-
+        
         ingestion_service = IngestionService(
             document_repository=PostgresDocumentRepository(session),
             tenant_repository=PostgresTenantRepository(session),
-            unit_of_work=PostgresUnitOfWork(session),
-            storage_client=platform.minio_client,
+            unit_of_work=PostgresUnitOfWork(session), 
+            storage_client=platform.minio_client, 
             neo4j_client=platform.neo4j_client,
             vector_store=None,
             event_dispatcher=event_dispatcher,

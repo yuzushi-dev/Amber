@@ -12,14 +12,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database.session import get_db
-from src.core.models.chunk import Chunk, EmbeddingStatus
-from src.core.models.document import Document
+from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
+from src.core.ingestion.domain.document import Document
 from src.shared.context import get_current_tenant
 from src.api.schemas.chunks import ChunkUpdate
 from src.api.config import settings
-from src.core.services.embeddings import EmbeddingService
-from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
-from src.core.graph.neo4j_client import neo4j_client
+from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.amber_platform.composition_root import platform, build_vector_store_factory
 
 import tiktoken
 import logging
@@ -149,12 +148,9 @@ async def update_chunk(
             openai_api_key=settings.openai_api_key or None,
         )
         
-        milvus_config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
-            collection_name=f"amber_{tenant_id}",
-        )
-        vector_store = MilvusVectorStore(milvus_config)
+        vector_store_factory = build_vector_store_factory()
+        dimensions = settings.embedding_dimensions or 1536
+        vector_store = vector_store_factory(dimensions, collection_name=f"amber_{tenant_id}")
 
         # Generate embedding
         embeddings, _ = await embedding_service.embed_texts([chunk.content])
@@ -170,6 +166,7 @@ async def update_chunk(
             **chunk.metadata_
         }
         await vector_store.upsert_chunks([chunk_data])
+        # disconnect is now safe close()
         await vector_store.disconnect()
 
         # Update status
@@ -217,12 +214,9 @@ async def delete_chunk(
 
     # 2. Delete from Milvus
     try:
-        milvus_config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
-            collection_name=f"amber_{tenant_id}",
-        )
-        vector_store = MilvusVectorStore(milvus_config)
+        vector_store_factory = build_vector_store_factory()
+        dimensions = settings.embedding_dimensions or 1536
+        vector_store = vector_store_factory(dimensions, collection_name=f"amber_{tenant_id}")
         await vector_store.delete_chunks([chunk_id], tenant_id)
         await vector_store.disconnect()
     except Exception as e:
@@ -231,7 +225,7 @@ async def delete_chunk(
 
     # 3. Delete from Neo4j
     try:
-        await neo4j_client.execute_write(
+        await platform.neo4j_client.execute_write(
             "MATCH (c:Chunk {id: $chunk_id}) DETACH DELETE c",
             {"chunk_id": chunk_id}
         )

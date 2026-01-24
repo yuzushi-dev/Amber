@@ -4,8 +4,8 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_admin
-from src.core.services.tenant_service import TenantService
-from src.core.models.tenant import Tenant
+from src.core.tenants.application.tenant_service import TenantService
+from src.core.tenants.domain.tenant import Tenant
 
 router = APIRouter(prefix="/tenants", tags=["admin-tenants"])
 

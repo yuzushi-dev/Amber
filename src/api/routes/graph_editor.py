@@ -4,10 +4,9 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 # from src.api.dependencies.auth import get_current_user_tenant_id # Removed invalid import
-from src.core.graph.neo4j_client import neo4j_client
-from src.core.vector_store.milvus import MilvusVectorStore, MilvusConfig
+from src.amber_platform.composition_root import platform, build_vector_store_factory
 from src.api.config import settings
-from src.core.services.embeddings import EmbeddingService
+from src.core.retrieval.application.embeddings_service import EmbeddingService
 
 router = APIRouter(prefix="/graph/editor", tags=["Graph Editor"])
 logger = logging.getLogger(__name__)
@@ -66,7 +65,7 @@ async def get_top_nodes(
     tenant_id: str = Depends(get_current_user_tenant_id)
 ):
     """Get top connected nodes for initial view."""
-    nodes = await neo4j_client.get_top_nodes(tenant_id, limit)
+    nodes = await platform.neo4j_client.get_top_nodes(tenant_id, limit)
     return [GraphNode(**n) for n in nodes]
 
 @router.get("/search", response_model=List[GraphNode])
@@ -78,7 +77,7 @@ async def search_nodes(
     """Search nodes by name or description."""
     if not q:
         return []
-    nodes = await neo4j_client.search_nodes(q, tenant_id, limit)
+    nodes = await platform.neo4j_client.search_nodes(q, tenant_id, limit)
     return [GraphNode(**n) for n in nodes]
 
 @router.get("/neighborhood", response_model=GraphData)
@@ -88,7 +87,7 @@ async def get_node_neighborhood(
     tenant_id: str = Depends(get_current_user_tenant_id)
 ):
     """Get node neighborhood (nodes + edges)."""
-    data = await neo4j_client.get_node_neighborhood_graph(node_id, tenant_id, limit)
+    data = await platform.neo4j_client.get_node_neighborhood_graph(node_id, tenant_id, limit)
     return GraphData(**data)
 
 @router.post("/heal", response_model=List[HealingSuggestion])
@@ -106,7 +105,7 @@ async def heal_node(
     """
     try:
         # 1. Get Node Context
-        context = await neo4j_client.get_node_context(request.node_id, tenant_id)
+        context = await platform.neo4j_client.get_node_context(request.node_id, tenant_id)
         if not context:
             raise HTTPException(status_code=404, detail="Node not found")
         
@@ -114,12 +113,9 @@ async def heal_node(
         
         # Initialize Vector Store
         # Note: In a real app, this should be a singleton dependency
-        milvus_config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
-            collection_name=f"amber_{tenant_id}"
-        )
-        vector_store = MilvusVectorStore(milvus_config)
+        vector_store_factory = build_vector_store_factory()
+        dimensions = settings.embedding_dimensions or 1536
+        vector_store = vector_store_factory(dimensions, collection_name=f"amber_{tenant_id}")
         
         query_vectors = []
         
@@ -163,7 +159,7 @@ async def heal_node(
             return []
 
         # 4. Get Entities from Candidates
-        entities = await neo4j_client.get_entities_from_chunks(list(candidate_chunk_ids), tenant_id)
+        entities = await platform.neo4j_client.get_entities_from_chunks(list(candidate_chunk_ids), tenant_id)
         
         # Filter out the node itself and existing neighbors (optional, but good UX)
         # For now, just filter self
@@ -198,7 +194,7 @@ async def merge_nodes(
     tenant_id: str = Depends(get_current_user_tenant_id)
 ):
     """Merge source nodes into target node."""
-    success = await neo4j_client.merge_nodes(request.target_id, request.source_ids, tenant_id)
+    success = await platform.neo4j_client.merge_nodes(request.target_id, request.source_ids, tenant_id)
     if not success:
         raise HTTPException(status_code=500, detail="Merge failed (check logs or APOC availability)")
     return {"status": "merged"}
@@ -216,7 +212,7 @@ async def create_edge(
     SET r.type = $type, r.description = $description, r.weight = 1.0
     RETURN type(r)
     """
-    await neo4j_client.execute_write(query, {
+    await platform.neo4j_client.execute_write(query, {
         "source": request.source,
         "target": request.target,
         "type": request.type,
@@ -235,7 +231,7 @@ async def delete_edge(
     MATCH (s:Entity {name: $source, tenant_id: $tenant_id})-[r]->(t:Entity {name: $target, tenant_id: $tenant_id})
     DELETE r
     """
-    await neo4j_client.execute_write(query, {
+    await platform.neo4j_client.execute_write(query, {
         "source": request.source,
         "target": request.target,
         "tenant_id": tenant_id
@@ -252,6 +248,5 @@ async def delete_node(
     MATCH (n:Entity {name: $node_id, tenant_id: $tenant_id})
     DETACH DELETE n
     """
-    await neo4j_client.execute_write(query, {"node_id": node_id, "tenant_id": tenant_id})
+    await platform.neo4j_client.execute_write(query, {"node_id": node_id, "tenant_id": tenant_id})
     return {"status": "deleted"}
-

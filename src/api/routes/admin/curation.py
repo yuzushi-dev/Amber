@@ -17,7 +17,7 @@ from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
 
 from src.core.database.session import async_session_maker
-from src.core.models.flag import Flag, FlagStatus
+from src.core.admin_ops.domain.flag import Flag, FlagStatus
 
 logger = logging.getLogger(__name__)
 

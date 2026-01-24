@@ -22,11 +22,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.api.config import settings
 from src.api.deps import get_db_session as get_db_session
-from src.core.graph.neo4j_client import neo4j_client
-from src.core.models.document import Document
-from src.core.services.ingestion import IngestionService
+from src.amber_platform.composition_root import platform, build_vector_store_factory
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
-from src.core.storage.storage_client import MinIOClient
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +114,9 @@ class DocumentResponse(BaseModel):
     """,
 )
 async def upload_document(
+    request: Request,
     file: UploadFile = File(..., description="Document file to upload"),
-    tenant_id: str = Form(default=None, description="Tenant ID (optional, uses default)"),
+    tenant_id: str = Form(default=None, description="Tenant ID (optional, super admin only)"),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentUploadResponse:
     """
@@ -124,9 +124,16 @@ async def upload_document(
     """
     from src.core.ingestion.application.use_cases_documents import UploadDocumentRequest
     
-    # Use default tenant if not provided
-    tenant = tenant_id or settings.tenant_id
+    # Resolve Tenant
+    permissions = getattr(request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
     
+    target_tenant_id = None
+    if is_super_admin and tenant_id:
+        target_tenant_id = tenant_id
+    else:
+        target_tenant_id = _get_tenant_id(request)
+
     # Read file content
     content = await file.read()
     
@@ -140,7 +147,7 @@ async def upload_document(
     try:
         result = await use_case.execute(
             UploadDocumentRequest(
-                tenant_id=tenant,
+                tenant_id=target_tenant_id,
                 filename=file.filename or "unnamed",
                 content=content,
                 content_type=file.content_type or "application/octet-stream",
@@ -353,138 +360,47 @@ async def get_document(
     """
     Get document details with enrichment data and statistics.
     """
-    logger.info(f"DEBUG: Processing get_document for {document_id}")
-    
+    from src.core.ingestion.application.use_cases_documents import GetDocumentUseCase, GetDocumentRequest, DocumentOutput
+
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
-
-    query = select(Document).where(Document.id == document_id)
-
+    tenant_id = None
     if not is_super_admin:
         tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
 
-    if not document:
+    use_case = GetDocumentUseCase(session=session, graph_client=platform.neo4j_client)
+    try:
+        output: DocumentOutput = await use_case.execute(
+            GetDocumentRequest(
+                document_id=document_id,
+                tenant_id=tenant_id,
+                is_super_admin=is_super_admin
+            )
+        )
+    except LookupError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document {document_id} not found"
+            detail=str(e)
         )
-
-    # Compute stats from chunks and graph
-    stats = await _compute_document_stats(document_id, document.tenant_id, session)
-
+    
     return DocumentResponse(
-        id=document.id,
-        filename=document.filename,
-        title=document.filename,  # Alias for frontend
-        status=document.status.value,
-        domain=document.domain,
-        tenant_id=document.tenant_id,
-        folder_id=document.folder_id,
-        source_type=document.source_type,
-        content_type=_get_content_type(document),
-        created_at=document.created_at,
-        # Enrichment fields
-        summary=document.summary,
-        document_type=document.document_type,
-        keywords=document.keywords or [],
-        hashtags=document.hashtags or [],
-        metadata=document.metadata_,
-        stats=stats,
+        id=output.id,
+        filename=output.filename,
+        title=output.title,
+        status=output.status,
+        domain=output.domain,
+        tenant_id=output.tenant_id,
+        folder_id=output.folder_id,
+        source_type=output.source_type,
+        content_type=output.content_type,
+        created_at=output.created_at,
+        summary=output.summary,
+        document_type=output.document_type,
+        keywords=output.keywords,
+        hashtags=output.hashtags,
+        metadata=output.metadata,
+        stats=output.stats,
     )
-
-
-async def _compute_document_stats(
-    document_id: str,
-    tenant_id: str,
-    session: AsyncSession
-) -> dict[str, int]:
-    """
-    Compute document statistics: chunk count, entity count, relationship count.
-    """
-    from sqlalchemy import func
-
-    from src.core.models.chunk import Chunk
-
-    # Chunk count from PostgreSQL
-    chunk_result = await session.execute(
-        select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)
-    )
-    chunk_count = chunk_result.scalar() or 0
-
-    # Entity and relationship counts from Neo4j
-    entity_count = 0
-    relationship_count = 0
-    community_count = 0
-    similarity_count = 0
-
-    try:
-        # Entity count query (MATCH using document_id only)
-        entity_cypher = """
-            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[:MENTIONS]->(e:Entity)
-            RETURN count(DISTINCT e) as entity_count
-        """
-        entity_records = await neo4j_client.execute_read(
-            entity_cypher,
-            {"document_id": document_id}
-        )
-        if entity_records:
-            entity_count = entity_records[0].get("entity_count", 0)
-
-        # Relationship count query
-        rel_cypher = """
-            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[:MENTIONS]->(s:Entity)-[r]->(t:Entity)
-            WHERE exists {
-                MATCH (d)-[:HAS_CHUNK]->(:Chunk)-[:MENTIONS]->(t)
-            }
-            RETURN count(DISTINCT r) as rel_count
-        """
-        rel_records = await neo4j_client.execute_read(
-            rel_cypher,
-            {"document_id": document_id}
-        )
-        if rel_records:
-            relationship_count = rel_records[0].get("rel_count", 0)
-
-        # Community count (via BELONGS_TO relationship)
-        comm_cypher = """
-            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
-            MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
-            RETURN count(DISTINCT comm) as comm_count
-        """
-        comm_records = await neo4j_client.execute_read(
-            comm_cypher,
-            {"document_id": document_id}
-        )
-        if comm_records:
-            community_count = comm_records[0].get("comm_count", 0)
-
-        # Similarity count
-        sim_records = await neo4j_client.execute_read(
-            """
-            MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)-[r:SIMILAR_TO]->(:Chunk)
-            RETURN count(r) as sim_count
-            """,
-            {"document_id": document_id}
-        )
-        if sim_records:
-            similarity_count = sim_records[0].get("sim_count", 0)
-
-    except Exception as e:
-        logger.warning(f"Failed to compute Neo4j stats for document {document_id}: {e}")
-        # Stats will remain at 0 if Neo4j queries fail
-
-    return {
-        "chunks": chunk_count,
-        "entities": entity_count,
-        "relationships": relationship_count,
-        "communities": community_count,
-        "similarities": similarity_count,
-    }
 
 
 @router.get(
@@ -556,7 +472,7 @@ async def get_document_communities(
     """
 
     try:
-        records = await neo4j_client.execute_read(
+        records = await platform.neo4j_client.execute_read(
             cypher,
             {
                 "document_id": document_id,
@@ -616,7 +532,7 @@ async def get_document_file(
 
     # Get file from MinIO
     try:
-        storage = MinIOClient()
+        storage = platform.minio_client
         # Get the raw stream from MinIO (urllib3 response)
         file_stream = storage.get_file_stream(document.storage_path)
 
@@ -662,72 +578,48 @@ async def update_document(
     """
     Update a document.
     """
+    from src.core.ingestion.application.use_cases_documents import UpdateDocumentUseCase, UpdateDocumentRequest, DocumentOutput
+
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
-
-    query = select(Document).where(Document.id == document_id)
-
+    tenant_id = None
     if not is_super_admin:
         tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
 
-    if not document:
+    use_case = UpdateDocumentUseCase(session=session, graph_client=platform.neo4j_client)
+    try:
+        output: DocumentOutput = await use_case.execute(
+            UpdateDocumentRequest(
+                document_id=document_id,
+                tenant_id=tenant_id,
+                is_super_admin=is_super_admin,
+                title=update_data.title,
+                folder_id=update_data.folder_id
+            )
+        )
+    except LookupError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document {document_id} not found"
+            detail=str(e)
         )
-        
-    # Apply updates
-    if update_data.title is not None:
-        document.filename = update_data.title # Alias for now
-        # Also update metadata title if exists
-        # document.metadata_['title'] = update_data.title
-
-    if update_data.folder_id is not None:
-        # Verify folder exists if not clearing it
-        # Actually Pydantic won't let it be None here if not explicit? 
-        # Wait, str | None = None means it defaults to None. 
-        # If client sends null for folder_id, update_data.folder_id will be None? 
-        # No, if client sends explicit null, it depends on Pydantic config.
-        # But here I want to allow clearing folder_id.
-        # Let's verify folder logic.
-        
-        # If string "null" or empty string, clear it? No, explicit None or empty string.
-        # Let's support an empty string as "unfile".
-        if update_data.folder_id == "":
-             document.folder_id = None
-        else:
-             # Verify folder exists and belongs to tenant
-             from src.core.models.folder import Folder
-             folder = await session.get(Folder, update_data.folder_id)
-             if not folder or folder.tenant_id != tenant_id:
-                  raise HTTPException(status_code=404, detail="Folder not found")
-             document.folder_id = update_data.folder_id
-             
-    await session.commit()
-    await session.refresh(document)
     
-    # Re-fetch stats for response
-    stats = await _compute_document_stats(document_id, document.tenant_id, session)
-
     return DocumentResponse(
-        id=document.id,
-        filename=document.filename,
-        title=document.filename,
-        status=document.status.value,
-        domain=document.domain,
-        tenant_id=document.tenant_id,
-        source_type=document.source_type,
-        content_type=_get_content_type(document),
-        created_at=document.created_at,
-        summary=document.summary,
-        document_type=document.document_type,
-        keywords=document.keywords or [],
-        hashtags=document.hashtags or [],
-        metadata=document.metadata_,
-        stats=stats,
+        id=output.id,
+        filename=output.filename,
+        title=output.title,
+        status=output.status,
+        domain=output.domain,
+        tenant_id=output.tenant_id,
+        folder_id=output.folder_id,
+        source_type=output.source_type,
+        content_type=output.content_type,
+        created_at=output.created_at,
+        summary=output.summary,
+        document_type=output.document_type,
+        keywords=output.keywords,
+        hashtags=output.hashtags,
+        metadata=output.metadata,
+        stats=output.stats,
     )
 
 
@@ -745,72 +637,62 @@ async def delete_document(
     """
     Delete a document.
     """
+    from src.core.ingestion.application.use_cases_documents import DeleteDocumentRequest, DeleteDocumentUseCase
+    
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
-
-    query = select(Document).where(Document.id == document_id)
-
+    
+    # 1. Resolve Tenant
+    tenant_id = None
     if not is_super_admin:
         tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
+    else:
+        # If super admin, we might need tenant_id? 
+        # The use case finds document by ID. If super admin, ignores tenant_id.
+        # But we still need to pass something for strict typing if expected.
+        # Use Case handles it.
+        tenant_id = "super_admin_context" 
 
-    if not document:
+    # 2. Build Dependencies
+    # 2. Build Dependencies
+    
+    vector_store_factory = build_vector_store_factory()
+    dimensions = settings.embedding_dimensions or 1536
+
+    def make_vector_store(tid: str):
+        return vector_store_factory(dimensions, collection_name=f"amber_{tid}")
+    
+    use_case = DeleteDocumentUseCase(
+        session=session,
+        storage=platform.minio_client,
+        graph_client=platform.neo4j_client,
+        vector_store_factory=make_vector_store
+    )
+    
+    # 3. Execute
+    try:
+        await use_case.execute(
+            DeleteDocumentRequest(
+                document_id=document_id,
+                tenant_id=tenant_id,
+                is_super_admin=is_super_admin
+            )
+        )
+    except LookupError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document {document_id} not found"
-        )
-
-    # Delete from Neo4j graph
-    try:
-        cypher = """
-        MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
-        OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
-        OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
-        WITH d, c, collect(DISTINCT e) AS entities
-        DETACH DELETE d, c
-        WITH entities
-        UNWIND entities AS entity
-        WITH entity
-        WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
-        DETACH DELETE entity
-        """
-        await neo4j_client.execute_write(
-            cypher,
-            {"document_id": document_id, "tenant_id": document.tenant_id},
+            detail=str(e)
         )
     except Exception as e:
-        logger.warning(f"Failed to delete graph data for document {document_id}: {e}")
-
-    # Delete from Milvus vector store
-    try:
-        from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
-
-        milvus_config = MilvusConfig(
-            host=settings.db.milvus_host,
-            port=settings.db.milvus_port,
-            collection_name=f"amber_{document.tenant_id}",
+        logger.error(f"Error deleting document {document_id}: {e}")
+        # In case of other errors, we might still want to return 500 or just generic error
+        # Use case swallows non-critical errors (graph/milvus cleanup failure), 
+        # so this catches unexpected ones.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during deletion"
         )
-        vector_store = MilvusVectorStore(milvus_config)
-        try:
-            await vector_store.delete_by_document(document_id, document.tenant_id)
-        finally:
-            await vector_store.disconnect()
-    except Exception as e:
-        logger.warning(f"Failed to delete vectors for document {document_id}: {e}")
-
-    # Delete from MinIO
-    try:
-        storage = MinIOClient()
-        storage.delete_file(document.storage_path)
-    except Exception as e:
-        logger.warning(f"Failed to delete file from storage: {e}")
-
-    # Delete from DB (cascades to chunks)
-    await session.delete(document)
-    await session.commit()
-
+    
     logger.info(f"Document {document_id} deleted")
 
 
@@ -868,7 +750,7 @@ async def get_document_entities(
     """
 
     try:
-        records = await neo4j_client.execute_read(
+        records = await platform.neo4j_client.execute_read(
             cypher,
             {
                 "document_id": document_id,
@@ -951,7 +833,7 @@ async def get_document_relationships(
     """
 
     try:
-        records = await neo4j_client.execute_read(
+        records = await platform.neo4j_client.execute_read(
             cypher,
             {
                 "document_id": document_id,
@@ -965,7 +847,7 @@ async def get_document_relationships(
         return []
 
 
-from src.core.models.chunk import Chunk  # noqa: E402
+from src.core.ingestion.domain.chunk import Chunk  # noqa: E402
 
 
 @router.get(
@@ -1073,7 +955,7 @@ async def get_document_similarities(
     
     try:
         # 1. Fetch relations from Neo4j
-        records = await neo4j_client.execute_read(
+        records = await platform.neo4j_client.execute_read(
             cypher,
             {
                 "document_id": document_id, 
@@ -1092,7 +974,7 @@ async def get_document_similarities(
             chunk_ids.add(r["target_id"])
         
         # 3. Fetch Chunk text from Postgres
-        from src.core.models.chunk import Chunk
+        from src.core.ingestion.domain.chunk import Chunk
         chunk_query = select(Chunk.id, Chunk.content).where(
             Chunk.id.in_(chunk_ids)
         )
