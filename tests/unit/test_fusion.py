@@ -1,5 +1,5 @@
-from src.core.models.candidate import Candidate
-from src.core.retrieval.fusion import fuse_results
+from src.core.retrieval.domain.candidate import Candidate
+from src.core.retrieval.application.search.fusion import fuse_results
 
 
 def test_rrf_fusion_basic():

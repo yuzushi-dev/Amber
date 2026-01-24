@@ -15,7 +15,7 @@ def verify():
     try:
         # We need to mock settings if imports trigger it
         os.environ["TENANT_ID"] = "test"
-        from src.core.services.sparse_embeddings import HAS_DEPS
+        from src.core.retrieval.application.sparse_embeddings_service import HAS_DEPS
 
         if HAS_DEPS:
             logger.info("✅ SparseEmbeddingService dependencies (torch/transformers) found.")

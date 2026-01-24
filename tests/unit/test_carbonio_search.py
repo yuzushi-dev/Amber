@@ -1,7 +1,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.core.connectors.carbonio import CarbonioConnector
+from src.core.ingestion.infrastructure.connectors.carbonio import CarbonioConnector
 
 @pytest.mark.asyncio
 async def test_chat_search_query():
@@ -41,11 +41,11 @@ async def test_chat_search_query():
     ]
     
     # Mock XMPP client import and instance
-    # The function imports: from src.core.connectors.carbonio_xmpp import get_chat_history as xmpp_get_history
+    # The function imports: from src.core.ingestion.infrastructure.connectors.carbonio_xmpp import get_chat_history as xmpp_get_history
     # We must patch it in the target module if it were top level, but it is local import.
     # However, sys.modules patching works.
     
-    with patch("src.core.connectors.carbonio_xmpp.get_chat_history") as mock_xmpp_get_history:
+    with patch("src.core.ingestion.infrastructure.connectors.carbonio_xmpp.get_chat_history") as mock_xmpp_get_history:
             
         async def side_effect(*args, **kwargs):
             query = kwargs.get("search_query")
@@ -56,12 +56,12 @@ async def test_chat_search_query():
         mock_xmpp_get_history.side_effect = side_effect
         
         # We also need to mock the IMPORT inside the function.
-        # This is tricky with local imports. A better way is to mock 'sys.modules["src.core.connectors.carbonio_xmpp"]'
+        # This is tricky with local imports. A better way is to mock 'sys.modules["src.core.ingestion.infrastructure.connectors.carbonio_xmpp"]'
         # OR just mock the function if we can reachable it.
         # But wait, we can just patch 'src.core.connectors.carbonio.get_chat_history' which is NOT the tool func.
         
         # Let's try patching the module where the tool is defined so the import returns our mock.
-        with patch.dict("sys.modules", {"src.core.connectors.carbonio_xmpp": MagicMock(get_chat_history=mock_xmpp_get_history)}):
+        with patch.dict("sys.modules", {"src.core.ingestion.infrastructure.connectors.carbonio_xmpp": MagicMock(get_chat_history=mock_xmpp_get_history)}):
             
             # Mock httpx client
             with patch("httpx.AsyncClient") as mock_client_cls:

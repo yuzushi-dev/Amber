@@ -1,9 +1,9 @@
 import asyncio
 import logging
 
-from src.core.graph.neo4j_client import Neo4jClient
-from src.core.models.candidate import Candidate
-from src.core.observability.tracer import trace_span
+from src.core.retrieval.domain.candidate import Candidate
+from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
+from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ class GraphTraversalService:
     Implements Beam Search traversal for multi-hop graph exploration.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
+    def __init__(self, neo4j_client: GraphStorePort):
         self.neo4j = neo4j_client
 
     @trace_span("GraphTraversal.beam_search")

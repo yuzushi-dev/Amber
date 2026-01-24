@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from src.core.vector_store.milvus import MilvusVectorStore
+from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +12,9 @@ class EntitySearcher:
     as seeds for graph traversal.
     """
 
-    def __init__(self, vector_store: MilvusVectorStore):
-        # Note: We assume MilvusVectorStore is configured for the 'entities' collection
-        # or we pass a specifically configured instance.
+    def __init__(self, vector_store: VectorStorePort):
+        # Note: The vector store must target the entity embeddings collection,
+        # or support collection selection via search options.
         self.vector_store = vector_store
 
     async def search(

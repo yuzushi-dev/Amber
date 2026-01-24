@@ -11,7 +11,7 @@ class TestSparseEmbeddingServiceBatch:
 
     def test_embed_batch_empty_input(self):
         """Empty input should return empty list."""
-        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         
         with patch.object(SparseEmbeddingService, '_load_model'):
             service = SparseEmbeddingService()
@@ -20,7 +20,7 @@ class TestSparseEmbeddingServiceBatch:
 
     def test_embed_sparse_delegates_to_batch(self):
         """Single text should delegate to embed_batch."""
-        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         
         service = SparseEmbeddingService()
         
@@ -32,7 +32,7 @@ class TestSparseEmbeddingServiceBatch:
 
     def test_embed_sparse_returns_empty_on_empty_batch(self):
         """When batch returns empty list, embed_sparse returns empty dict."""
-        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         
         service = SparseEmbeddingService()
         
@@ -54,7 +54,7 @@ class TestSparseEmbeddingServiceIntegration:
         except ImportError:
             pytest.skip("torch/transformers not available")
         
-        from src.core.services.sparse_embeddings import SparseEmbeddingService
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         return SparseEmbeddingService()
 
     def test_embed_batch_produces_results(self, service):

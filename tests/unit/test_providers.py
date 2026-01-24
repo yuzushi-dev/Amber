@@ -8,7 +8,7 @@ Tests for the model provider abstraction layer.
 
 import pytest
 
-from src.core.providers.base import (
+from src.core.generation.infrastructure.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
     EmbeddingResult,
@@ -19,7 +19,7 @@ from src.core.providers.base import (
     RateLimitError,
     TokenUsage,
 )
-from src.core.providers.factory import (
+from src.core.generation.infrastructure.providers.factory import (
     FailoverEmbeddingProvider,
     FailoverLLMProvider,
     ProviderFactory,
@@ -279,7 +279,7 @@ class TestCostEstimation:
     """Tests for cost estimation."""
 
     def test_openai_cost_estimation(self):
-        from src.core.providers.openai import OpenAILLMProvider
+        from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
 
         # Create with mock config (won't validate since we don't call generate)
         provider = object.__new__(OpenAILLMProvider)
@@ -303,7 +303,7 @@ class TestProviderExceptions:
     """Tests for provider exceptions."""
 
     def test_provider_error_format(self):
-        from src.core.providers.base import ProviderError
+        from src.core.generation.infrastructure.providers.base import ProviderError
 
         error = ProviderError("Test error", provider="test", model="test-model")
         assert "[test]" in str(error)

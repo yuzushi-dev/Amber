@@ -2,8 +2,8 @@ import asyncio
 import logging
 from typing import Any
 
-from src.core.providers.base import BaseLLMProvider
-from src.core.vector_store.milvus import MilvusVectorStore
+from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +14,14 @@ class GlobalSearchService:
 
     def __init__(
         self,
-        vector_store: MilvusVectorStore,
-        llm_provider: BaseLLMProvider,
+        vector_store: VectorStorePort,
+        llm_provider: LLMProviderPort,
+        embedding_service: Any,
         map_chunk_size: int = 2000
     ):
         self.vector_store = vector_store
         self.llm = llm_provider
+        self.embedding_service = embedding_service
         self.map_chunk_size = map_chunk_size
 
     async def search(
@@ -36,10 +38,12 @@ class GlobalSearchService:
         2. Reduce: Synthesize the final answer.
         """
         # 1. Retrieve relevant community reports via vector search
+        # Embed the query
+        query_vector = await self.embedding_service.embed_single(query)
+        
         # Community report embeddings were stored in Phase 4
         reports = await self.vector_store.search(
-            query_vector=None, # Will be filled by embedding the 'query'
-            query_text=query,
+            query_vector=query_vector,
             tenant_id=tenant_id,
             limit=max_reports,
             collection_name="community_embeddings"

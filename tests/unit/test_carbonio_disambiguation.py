@@ -1,7 +1,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.core.connectors.carbonio import CarbonioConnector
+from src.core.ingestion.infrastructure.connectors.carbonio import CarbonioConnector
 
 @pytest.mark.asyncio
 async def test_chat_disambiguation():

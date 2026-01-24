@@ -1,18 +1,18 @@
 import logging
 from typing import Any
 
-from src.core.models.candidate import Candidate
-from src.core.observability.tracer import trace_span
-from src.core.vector_store.milvus import MilvusVectorStore
+from src.core.retrieval.domain.candidate import Candidate
+from src.shared.kernel.observability import trace_span
+from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
 class VectorSearcher:
     """
-    Handles semantic search against the Milvus vector store.
+    Handles semantic search against a vector store.
     """
 
-    def __init__(self, vector_store: MilvusVectorStore):
+    def __init__(self, vector_store: VectorStorePort):
         self.vector_store = vector_store
 
     @trace_span("VectorSearcher.search")
