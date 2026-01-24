@@ -16,10 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, get_current_tenant_id
-from src.core.models.export_job import ExportJob, ExportStatus
-from src.core.models.memory import ConversationSummary
-from src.core.services.export_service import ExportService
-from src.core.storage.storage_client import MinIOClient
+from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
+from src.core.generation.domain.memory_models import ConversationSummary
+from src.amber_platform.composition_root import platform
+from src.core.admin_ops.application.export_service import ExportService
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def export_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     try:
-        storage = MinIOClient()
+        storage = platform.minio_client
         export_service = ExportService(session, storage)
         
         zip_bytes = await export_service.generate_single_conversation_zip(conversation_id)
@@ -220,7 +220,7 @@ async def download_export(
         raise HTTPException(status_code=500, detail="Export completed but no file found")
     
     try:
-        storage = MinIOClient()
+        storage = platform.minio_client
         file_bytes = storage.get_file(job.result_path)
         
         filename = f"amber_export_{job_id[:8]}.zip"
@@ -266,7 +266,7 @@ async def cancel_export_job(
     # If job has a result file, try to delete it
     if job.result_path:
         try:
-            storage = MinIOClient()
+            storage = platform.minio_client
             storage.delete_file(job.result_path)
             logger.info(f"Deleted export file: {job.result_path}")
         except Exception as e:
@@ -286,4 +286,3 @@ async def cancel_export_job(
     await session.commit()
     
     return {"status": "cancelled", "message": f"Export job {job_id} cancelled and deleted"}
-

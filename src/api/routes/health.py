@@ -12,9 +12,26 @@ from fastapi import APIRouter, status
 from pydantic import BaseModel
 
 from src.api.config import settings
-from src.core.health import health_checker
+from src.core.admin_ops.application.health_service import HealthChecker
 
 router = APIRouter(prefix="/health", tags=["health"])
+
+# Factory function to create HealthChecker with settings
+_health_checker = None
+
+def _get_health_checker() -> HealthChecker:
+    """Get health checker instance, initializing if needed."""
+    global _health_checker
+    if _health_checker is None:
+        _health_checker = HealthChecker(
+            database_url=settings.db.database_url,
+            redis_url=settings.db.redis_url,
+            neo4j_uri=settings.db.neo4j_uri,
+            neo4j_user=settings.db.neo4j_user,
+            neo4j_password=settings.db.neo4j_password,
+            milvus_host=settings.db.milvus_host,
+        )
+    return _health_checker
 
 
 # =============================================================================
@@ -102,7 +119,7 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
         ReadinessResponse: Detailed dependency status
     """
     try:
-        system_health = await health_checker.check_all()
+        system_health = await _get_health_checker().check_all()
         
         # Convert to response model
         dependencies: dict[str, DependencyStatus] = {}
@@ -120,7 +137,7 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
         )
     except Exception as e:
         # Fallback if health checker itself fails (e.g. startup race conditions)
-        from src.core.health import HealthStatus # Import locally to avoid circulars if needed
+        from src.core.admin_ops.application.health_service import HealthStatus # Import locally to avoid circulars if needed
         
         response = ReadinessResponse(
             status="unhealthy",

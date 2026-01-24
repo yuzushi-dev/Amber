@@ -115,7 +115,7 @@ def check_anthropic_availability() -> tuple[bool, str | None]:
 def check_local_embeddings_availability() -> tuple[bool, str | None]:
     """Check if local embedding provider is available."""
     try:
-        from src.core.providers.local import LocalEmbeddingProvider
+        from src.core.generation.infrastructure.providers.local import LocalEmbeddingProvider
         return True, None
     except ImportError as e:
         return False, f"Local embeddings not available: {e}"

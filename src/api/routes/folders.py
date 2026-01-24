@@ -7,8 +7,8 @@ from datetime import datetime
 import uuid
 
 from src.api.deps import get_db_session as get_db_session, get_current_tenant_id
-from src.core.models.folder import Folder
-from src.core.models.document import Document
+from src.core.ingestion.domain.folder import Folder
+from src.core.ingestion.domain.document import Document
 
 router = APIRouter()
 

@@ -13,15 +13,30 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db
+from src.api.config import settings
 from src.api.schemas.base import ResponseSchema
 from src.core.database.session import async_session_maker
-from src.core.models.feedback import Feedback
-from src.core.rate_limiter import RateLimitCategory, rate_limiter
-from src.core.services.tuning import TuningService
+from src.core.admin_ops.domain.feedback import Feedback
+from src.core.admin_ops.infrastructure.rate_limiter import RateLimitCategory, get_rate_limiter
+from src.core.admin_ops.application.tuning_service import TuningService
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 logger = logging.getLogger(__name__)
+
+# Rate limiter factory
+_rate_limiter = None
+
+def _get_rate_limiter_instance():
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = get_rate_limiter(
+            redis_url=settings.db.redis_url,
+            requests_per_minute=settings.rate_limits.requests_per_minute,
+            queries_per_minute=settings.rate_limits.queries_per_minute,
+            uploads_per_hour=settings.rate_limits.uploads_per_hour,
+        )
+    return _rate_limiter
 
 # from pydantic import BaseModel # Moved to top
 
@@ -51,7 +66,7 @@ async def create_feedback(
     tenant_id = get_current_tenant() or "default"
 
     # Safety Check: Rate Limit for Feedback
-    rl_result = await rate_limiter.check(str(tenant_id), RateLimitCategory.GENERAL)
+    rl_result = await _get_rate_limiter_instance().check(str(tenant_id), RateLimitCategory.GENERAL)
     if not rl_result.allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

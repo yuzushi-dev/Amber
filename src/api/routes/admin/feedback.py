@@ -8,11 +8,11 @@ import io
 
 from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
-from src.core.models.feedback import Feedback
-from src.core.models.memory import ConversationSummary
-from src.core.services.embeddings import EmbeddingService
-from src.core.services.tuning import TuningService
-from src.core.graph.context_writer import context_graph_writer
+from src.core.admin_ops.domain.feedback import Feedback
+from src.core.generation.domain.memory_models import ConversationSummary
+from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.core.admin_ops.application.tuning_service import TuningService
+from src.core.graph.application.context_writer import context_graph_writer
 from src.core.database.session import async_session_maker
 from src.shared.context import get_current_tenant
 import asyncio
@@ -245,7 +245,7 @@ async def get_approved_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """List all VERIFIED Q&A pairs for the Q&A Library."""
-    from src.core.models.memory import ConversationSummary
+    from src.core.generation.domain.memory_models import ConversationSummary
     
     tenant_id = get_current_tenant() or "default"
     

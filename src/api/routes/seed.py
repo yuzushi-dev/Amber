@@ -218,8 +218,8 @@ async def seed_sample_data(
     try:
         import hashlib
 
-        from src.core.models.chunk import Chunk
-        from src.core.models.document import Document
+        from src.core.ingestion.domain.chunk import Chunk
+        from src.core.ingestion.domain.document import Document
         from src.core.state.machine import DocumentStatus
         from src.shared.identifiers import generate_chunk_id, generate_document_id
 

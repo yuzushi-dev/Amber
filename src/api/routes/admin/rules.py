@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db, verify_admin
 from src.api.schemas.base import ResponseSchema
-from src.core.models.global_rule import GlobalRule
+from src.core.admin_ops.domain.global_rule import GlobalRule
 
 router = APIRouter(prefix="/rules", tags=["admin", "rules"])
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ async def create_rule(
     await db.refresh(rule)
     
     # Invalidate cache
-    from src.core.services.rules import RulesService
+    from src.core.admin_ops.application.rules_service import RulesService
     RulesService.invalidate_cache()
     
     logger.info(f"Created global rule: {rule.id}")
@@ -129,7 +129,7 @@ async def update_rule(
     await db.refresh(rule)
     
     # Invalidate cache
-    from src.core.services.rules import RulesService
+    from src.core.admin_ops.application.rules_service import RulesService
     RulesService.invalidate_cache()
     
     logger.info(f"Updated global rule: {rule.id}")
@@ -151,7 +151,7 @@ async def delete_rule(
     await db.commit()
     
     # Invalidate cache
-    from src.core.services.rules import RulesService
+    from src.core.admin_ops.application.rules_service import RulesService
     RulesService.invalidate_cache()
     
     logger.info(f"Deleted global rule: {rule_id}")
@@ -212,7 +212,7 @@ async def upload_rules_file(
     await db.commit()
     
     # Invalidate cache
-    from src.core.services.rules import RulesService
+    from src.core.admin_ops.application.rules_service import RulesService
     RulesService.invalidate_cache()
     
     logger.info(f"Uploaded {created_count} rules from {file.filename}")

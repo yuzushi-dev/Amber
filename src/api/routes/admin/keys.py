@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_admin
-from src.core.services.api_key_service import ApiKeyService
+from src.core.admin_ops.application.api_key_service import ApiKeyService
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ async def link_key_to_tenant(
     session: AsyncSession = Depends(get_db_session)
 ):
     """Link an API key to a tenant."""
-    from src.core.services.tenant_service import TenantService
+    from src.core.tenants.application.tenant_service import TenantService
     tenant_service = TenantService(session)
     success = await tenant_service.add_key_to_tenant(key_id, link.tenant_id, link.role)
     if not success:
@@ -227,7 +227,7 @@ async def unlink_key_from_tenant(
     session: AsyncSession = Depends(get_db_session)
 ):
     """Unlink an API key from a tenant."""
-    from src.core.services.tenant_service import TenantService
+    from src.core.tenants.application.tenant_service import TenantService
     tenant_service = TenantService(session)
     success = await tenant_service.remove_key_from_tenant(key_id, tenant_id)
     if not success:

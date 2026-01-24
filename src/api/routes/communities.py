@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.core.graph.neo4j_client import neo4j_client
+from src.amber_platform.composition_root import platform
 from src.shared.context import get_current_tenant as get_tenant_id
 
 router = APIRouter(prefix="/communities", tags=["Communities"])
@@ -41,7 +41,7 @@ async def list_communities(
     ORDER BY c.level DESC, c.rating DESC
     """
 
-    results = await neo4j_client.execute_read(query, {"tenant_id": tenant_id, "level": level})
+    results = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id, "level": level})
     return [CommunityResponse(**r) for r in results]
 
 @router.get("/{community_id}", response_model=CommunityResponse)
@@ -59,7 +59,7 @@ async def get_community(
            c.status as status, c.is_stale as is_stale,
            toString(c.last_updated_at) as last_updated_at
     """
-    results = await neo4j_client.execute_read(query, {"id": community_id, "tenant_id": tenant_id})
+    results = await platform.neo4j_client.execute_read(query, {"id": community_id, "tenant_id": tenant_id})
     if not results:
         raise HTTPException(status_code=404, detail="Community not found")
 

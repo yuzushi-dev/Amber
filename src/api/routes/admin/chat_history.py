@@ -13,8 +13,8 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session
-from src.core.models.feedback import Feedback
-from src.core.models.usage import UsageLog
+from src.core.admin_ops.domain.feedback import Feedback
+from src.core.admin_ops.domain.usage import UsageLog
 
 router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
 
@@ -93,7 +93,7 @@ async def list_chat_history(
     - Admins can see metadata for all conversations.
     - Query/Response content is REDACTED unless the conversation has user feedback.
     """
-    from src.core.models.memory import ConversationSummary
+    from src.core.generation.domain.memory_models import ConversationSummary
 
     try:
         # Build query for conversation summaries
@@ -123,7 +123,7 @@ async def list_chat_history(
         
         # Fetch QueryMetrics for cost/token data
         from src.api.config import settings
-        from src.core.metrics.collector import MetricsCollector
+        from src.core.admin_ops.application.metrics.collector import MetricsCollector
         
         collector = MetricsCollector(redis_url=settings.db.redis_url)
         all_metrics = await collector.get_recent(tenant_id=tenant_id, limit=500)
@@ -144,8 +144,8 @@ async def list_chat_history(
         
         # Fetch all conversation IDs with feedback for bulk lookup
         conv_ids = [conv.id for conv in rows]
-        feedback_query = select(Feedback.conversation_id).where(
-            Feedback.conversation_id.in_(conv_ids)
+        feedback_query = select(Feedback.request_id).where(
+            Feedback.request_id.in_(conv_ids)
         ).distinct()
         feedback_result = await session.execute(feedback_query)
         conversations_with_feedback = {row[0] for row in feedback_result.fetchall()}
@@ -202,7 +202,8 @@ async def list_chat_history(
         )
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Chat history query failed: {e}")
+        import traceback
+        logging.getLogger(__name__).error(f"Chat history query failed: {e}\n{traceback.format_exc()}")
         return ChatHistoryResponse(
             conversations=[],
             total=0,
@@ -223,7 +224,7 @@ async def get_conversation_detail(
     Privacy Rules:
     - Query/Response content is REDACTED unless the conversation has user feedback.
     """
-    from src.core.models.memory import ConversationSummary
+    from src.core.generation.domain.memory_models import ConversationSummary
 
     # Query conversation summary
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
@@ -275,7 +276,7 @@ async def delete_conversation(
     """
     Delete a specific conversation.
     """
-    from src.core.models.memory import ConversationSummary
+    from src.core.generation.domain.memory_models import ConversationSummary
 
     # Query conversation summary
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
