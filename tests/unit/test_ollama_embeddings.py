@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.providers.base import (
+from src.core.generation.infrastructure.providers.base import (
     EmbeddingResult,
     ProviderConfig,
     ProviderUnavailableError,
     TokenUsage,
 )
-from src.core.providers.ollama import OllamaEmbeddingProvider
+from src.core.generation.infrastructure.providers.ollama import OllamaEmbeddingProvider
 
 
 class TestOllamaEmbeddingProvider:
@@ -173,7 +173,7 @@ class TestOllamaEmbeddingProviderFactory:
 
     def test_factory_creates_ollama_embedding_provider(self):
         """Test that factory can create Ollama embedding provider."""
-        from src.core.providers.factory import ProviderFactory
+        from src.core.generation.infrastructure.providers.factory import ProviderFactory
         
         factory = ProviderFactory(
             ollama_base_url="http://localhost:11434/v1",
@@ -186,7 +186,7 @@ class TestOllamaEmbeddingProviderFactory:
 
     def test_factory_with_custom_model(self):
         """Test factory respects custom embedding model."""
-        from src.core.providers.factory import ProviderFactory
+        from src.core.generation.infrastructure.providers.factory import ProviderFactory
         
         factory = ProviderFactory(
             ollama_base_url="http://localhost:11434/v1",

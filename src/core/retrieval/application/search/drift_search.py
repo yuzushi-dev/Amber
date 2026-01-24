@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 # from src.core.services.retrieval import RetrievalService # Removed to avoid circular import
-from src.core.providers.base import BaseLLMProvider
+from src.core.generation.domain.ports.providers import LLMProviderPort
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class DriftSearchService:
     def __init__(
         self,
         retrieval_service: Any, # Avoid circular import with RetrievalService
-        llm_provider: BaseLLMProvider,
+        llm_provider: LLMProviderPort,
         max_iterations: int = 3,
         max_follow_ups: int = 3
     ):

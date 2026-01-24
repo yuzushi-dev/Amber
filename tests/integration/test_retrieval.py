@@ -26,11 +26,11 @@ from sqlalchemy import text
 # ----------------------------------------------------------------------
 from src.api.main import app
 from src.core.database.session import get_session_maker
-from src.core.models.document import Document
-from src.core.models.chunk import Chunk
-from src.core.models.memory import UserFact, ConversationSummary
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.chunk import Chunk
+from src.core.generation.domain.memory_models import UserFact, ConversationSummary
 from src.core.state.machine import DocumentStatus
-from src.core.vector_store.milvus import SearchResult
+from src.core.retrieval.infrastructure.vector_store.milvus import SearchResult
 
 # ----------------------------------------------------------------------
 # 3. Test Class
@@ -51,90 +51,96 @@ class TestChatRetrievalDirectSeeding:
         Setup mocks for External Services.
         """
         # Patch MilvusVectorStore
-        self.mock_vector_store_cls = patch("src.core.services.retrieval.MilvusVectorStore").start()
+        self.mock_vector_store_cls = patch("src.core.retrieval.infrastructure.vector_store.milvus.MilvusVectorStore").start()
         self.mock_vector_store = self.mock_vector_store_cls.return_value
         self.mock_vector_store.search = AsyncMock(return_value=[]) 
         self.mock_vector_store.disconnect = AsyncMock()
         
         # Patch EmbeddingService
-        self.mock_embed_cls = patch("src.core.services.retrieval.EmbeddingService").start()
+        self.mock_embed_cls = patch("src.core.retrieval.application.retrieval_service.EmbeddingService").start()
         self.mock_embed = self.mock_embed_cls.return_value
         self.mock_embed.embed_single = AsyncMock(return_value=[0.1] * 1536)
         
-        # Patch Reranker
-        patch("src.core.services.retrieval.BaseRerankerProvider").start()
-        
         # Patch Hybrid/Sparse (if used)
-        patch("src.core.services.retrieval.SparseEmbeddingService").start()
+        patch("src.core.retrieval.application.retrieval_service.SparseEmbeddingService").start()
 
         # Patch Caches to force MISS (return None)
         # If we don't mock them, they might fail on connection or return truthy mocks
-        self.mock_result_cache_cls = patch("src.core.services.retrieval.ResultCache").start()
+        self.mock_result_cache_cls = patch("src.core.retrieval.application.retrieval_service.ResultCache").start()
         self.mock_result_cache = self.mock_result_cache_cls.return_value
         self.mock_result_cache.get = AsyncMock(return_value=None)
         self.mock_result_cache.set = AsyncMock() # Must be awaitable
         
-        self.mock_semantic_cache_cls = patch("src.core.services.retrieval.SemanticCache").start()
+        self.mock_semantic_cache_cls = patch("src.core.retrieval.application.retrieval_service.SemanticCache").start()
         self.mock_semantic_cache = self.mock_semantic_cache_cls.return_value
         self.mock_semantic_cache.get = AsyncMock(return_value=None)
         self.mock_semantic_cache.set = AsyncMock() # Must be awaitable
 
-        # Patch LLM Generation AND Retrieval Components
-        # We patch at the source (src.core.providers.factory) to catch all usages
-        with patch("src.core.providers.factory.ProviderFactory") as MockFactory:
-            self.mock_llm = AsyncMock()
-            # Default response
-            self.mock_llm.generate.return_value = MagicMock(
-                text="I am a mocked LLM response.",
-                model="mock-model",
-                provider="mock-provider",
-                usage=MagicMock(total_tokens=10, input_tokens=5, output_tokens=5),
-                cost_estimate=0.0
-            )
-            # Make sure generate_stream is an async generator
-            async def mock_stream(*args, **kwargs):
-                yield "Mocked"
-                yield " "
-                yield "Stream"
-                yield " "
-                yield "[DONE]"
-            self.mock_llm.generate_stream = mock_stream
-            
-            MockFactory.return_value.get_llm_provider.return_value = self.mock_llm
-            MockFactory.return_value.get_embedding_provider.return_value = MagicMock()
-            # Setup Reranker Mock
-            self.mock_reranker = AsyncMock()
-            async def pass_through_rerank(query, texts):
-                # Return result structure expected by RetrievalService
-                # Use MagicMock for the result object
-                result = MagicMock()
-                # Create results list where each item corresponds to input text index
-                # Ensure high score to prevent filtering
-                result.results = [
-                    MagicMock(index=i, score=0.99) 
-                    for i in range(len(texts))
-                ]
-                return result
-            self.mock_reranker.rerank = AsyncMock(side_effect=pass_through_rerank)
-            MockFactory.return_value.get_reranker_provider.return_value = self.mock_reranker
-            
-            # Auth Mocking (Tenant)
-            self.tenant_id = f"tenant_{uuid.uuid4().hex[:8]}"
-            self.user_id = f"user_{uuid.uuid4().hex[:8]}"
-            
-            # Reset global services in query route to force re-initialization with mocks
-            import src.api.routes.query as query_routes
-            query_routes._retrieval_service = None
-            query_routes._generation_service = None
-            query_routes._metrics_collector = None
-            
-            # Mock Context Graph Writer to prevent Neo4j errors
-            self.mock_graph_writer = patch("src.core.graph.context_writer.context_graph_writer").start()
-            self.mock_graph_writer.log_turn = AsyncMock()
-            
-            with patch("src.core.services.api_key_service.ApiKeyService") as MockApiKeyService:
+        # Use explicit setters instead of patching ports (more reliable for global state)
+        from src.core.generation.domain.ports.provider_factory import set_provider_factory, set_provider_factory_builder
+        
+        factory = MagicMock()
+        set_provider_factory(factory)
+        # Also set the builder, because GenerationService calls it if API keys are detected
+        set_provider_factory_builder(lambda **kwargs: factory)
+
+        self.mock_llm = AsyncMock()
+        # Default response
+        self.mock_llm.generate.return_value = MagicMock(
+            text="I am a mocked LLM response.",
+            model="mock-model",
+            provider="mock-provider",
+            usage=MagicMock(total_tokens=10, input_tokens=5, output_tokens=5),
+            cost_estimate=0.0
+        )
+        # Make sure generate_stream is an async generator
+        async def mock_stream(*args, **kwargs):
+            yield {"event": "status", "data": "Generating..."}
+            yield {"event": "token", "data": "Mocked"}
+            yield {"event": "token", "data": " "}
+            yield {"event": "token", "data": "Stream"}
+            yield {"event": "done", "data": {"model": "mock-model"}}
+        self.mock_llm.generate_stream = mock_stream
+        
+        factory.get_llm_provider.return_value = self.mock_llm
+        factory.get_embedding_provider.return_value = MagicMock()
+        # Setup Reranker Mock
+        self.mock_reranker = AsyncMock()
+        async def pass_through_rerank(query, texts):
+            # Return result structure expected by RetrievalService
+            # Use MagicMock for the result object
+            result = MagicMock()
+            # Create results list where each item corresponds to input text index
+            # Ensure high score to prevent filtering
+            result.results = [
+                MagicMock(index=i, score=0.99) 
+                for i in range(len(texts))
+            ]
+            return result
+        self.mock_reranker.rerank = AsyncMock(side_effect=pass_through_rerank)
+        factory.get_reranker_provider.return_value = self.mock_reranker
+        
+        # Auth Mocking (Tenant)
+        self.tenant_id = f"tenant_{uuid.uuid4().hex[:8]}"
+        self.user_id = f"user_{uuid.uuid4().hex[:8]}"
+        
+        # Reset global services in query route to force re-initialization with mocks
+        # (This is still good to keep)
+        import src.api.routes.query as query_routes
+        query_routes._retrieval_service = None
+        query_routes._generation_service = None
+        query_routes._metrics_collector = None
+        
+        # Mock Context Graph Writer if needed
+        self.mock_graph_writer = patch("src.core.graph.application.context_writer.context_graph_writer").start()
+        self.mock_graph_writer.log_turn = AsyncMock()
+        
+        # We must clean up set_provider_factory after test
+        try:
+            with patch("src.core.admin_ops.application.api_key_service.ApiKeyService") as MockApiKeyService:
                 mock_service = MockApiKeyService.return_value
                 mock_key = MagicMock()
+                mock_key.id = "test-key-id"
                 mock_key.name = "Test Key"
                 mock_key.scopes = ["admin"]
                 
@@ -147,15 +153,20 @@ class TestChatRetrievalDirectSeeding:
                 # Cleanup DB
                 async_session = get_session_maker()
                 async with async_session() as session:
-                    await session.execute(text("DELETE FROM documents WHERE 1=1"))
                     await session.execute(text("DELETE FROM chunks WHERE 1=1"))
+                    await session.execute(text("DELETE FROM documents WHERE 1=1"))
                     await session.execute(text("DELETE FROM user_facts WHERE 1=1"))
                     await session.execute(text("DELETE FROM conversation_summaries WHERE 1=1"))
                     await session.commit()
                 
                 yield
 
-        patch.stopall()
+        finally:
+            set_provider_factory(None)
+            set_provider_factory_builder(None)
+            patch.stopall()
+            # Allow background tasks (like log_turn) to finish/cancel to avoid "Task pending" errors
+            await asyncio.sleep(0.1)
 
     @pytest_asyncio.fixture
     async def client(self):
@@ -244,14 +255,19 @@ class TestChatRetrievalDirectSeeding:
         resp = await ac.post("/v1/query", json=payload, headers=headers)
         assert resp.status_code == 200
         
-        # 4. Verify Context Injection via Mock LLM call args
-        call_args = self.mock_llm.generate.call_args
-        assert call_args is not None
+        # 4. Verify Context Injection via Mock LLM calls
+        # Note: The LLM might be called multiple times (e.g. for Memory Extraction).
+        # We need to find the call that corresponds to Answer Generation.
         
-        # Args could be (messages, ...) or (prompt, ...) depending on implementation
-        # We convert all args to string to search for the fact
-        args_str = str(call_args)
-        assert secret_fact in args_str, "Context was not injected into LLM prompt"
+        found_fact = False
+        all_calls = self.mock_llm.generate.call_args_list
+        for call in all_calls:
+            args_str = str(call)
+            if secret_fact in args_str:
+                found_fact = True
+                break
+                
+        assert found_fact, f"Context '{secret_fact}' was not injected into any LLM prompt. Calls: {len(all_calls)}"
 
     @pytest.mark.asyncio
     async def test_multi_doc_synthesis(self, client):
@@ -273,10 +289,13 @@ class TestChatRetrievalDirectSeeding:
         await ac.post("/v1/query", json=payload, headers=headers)
         
         # Verify Context
-        call_args = self.mock_llm.generate.call_args
-        prompt = str(call_args)
-        assert "Alice is a Engineer" in prompt
-        assert "Alice lives in Paris" in prompt
+        found_context = False
+        for call in self.mock_llm.generate.call_args_list:
+            prompt = str(call)
+            if "Alice is a Engineer" in prompt and "Alice lives in Paris" in prompt:
+                found_context = True
+                break
+        assert found_context, "Merged context from multiple docs not found in LLM prompt"
 
     @pytest.mark.asyncio
     async def test_user_facts_injection(self, client):
@@ -310,9 +329,15 @@ class TestChatRetrievalDirectSeeding:
         # Verify Context
         # Note: User facts might be injected via MemoryService calling get_user_facts
         # This test verifies that the system pulls them.
-        call_args = self.mock_llm.generate.call_args
-        prompt = str(call_args)
-        assert fact_text in prompt, "User fact not found in LLM prompt"
+        # Verify Context
+        # Note: User facts might be injected via MemoryService calling get_user_facts
+        # This test verifies that the system pulls them.
+        found_fact = False
+        for call in self.mock_llm.generate.call_args_list:
+            if fact_text in str(call):
+                found_fact = True
+                break
+        assert found_fact, "User fact not found in LLM prompt"
 
     @pytest.mark.asyncio
     async def test_conversation_summaries(self, client):
@@ -339,9 +364,9 @@ class TestChatRetrievalDirectSeeding:
         payload = {"query": "Update on that project?", "user_id": self.user_id}
         await ac.post("/v1/query", json=payload, headers=headers)
         
-        call_args = self.mock_llm.generate.call_args
-        prompt = str(call_args)
-        assert summary_text in prompt, "Conversation summary not found in LLM prompt"
+        call_args_list = self.mock_llm.generate.call_args_list
+        found_summary = any(summary_text in str(call) for call in call_args_list)
+        assert found_summary, "Conversation summary not found in LLM prompt"
     
     @pytest.mark.asyncio
     async def test_context_window_seed(self, client):
@@ -358,8 +383,10 @@ class TestChatRetrievalDirectSeeding:
         # Ensure it doesn't crash on tokenization
         await ac.post("/v1/query", json={"query": "test"}, headers=headers)
         
-        call_args = self.mock_llm.generate.call_args
-        assert "Word" in str(call_args)
+        await ac.post("/v1/query", json={"query": "test"}, headers=headers)
+        
+        found_word = any("Word" in str(call) for call in self.mock_llm.generate.call_args_list)
+        assert found_word, "Large context (Word...Word) not found in prompt"
 
     @pytest.mark.asyncio
     async def test_fallback_behavior(self, client):
@@ -374,6 +401,11 @@ class TestChatRetrievalDirectSeeding:
     async def test_streaming_sse(self, client):
         """6. Streaming: Verify SSE chunks."""
         ac, headers = client
+        
+        # Mock successful retrieval so pipeline proceeds to generation
+        self.mock_vector_store.search.return_value = [
+            SearchResult(chunk_id="c_stream", document_id="d_stream", tenant_id=self.tenant_id, score=0.9, metadata={"content": "Streaming context."})
+        ]
         
         payload = {"query": "Stream me", "stream": True}
         

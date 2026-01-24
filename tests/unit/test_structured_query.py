@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.core.query.structured_query import (
+from src.core.retrieval.application.query.structured_query import (
     CypherGenerator,
     StructuredIntent,
     StructuredKGDetector,
@@ -182,15 +182,17 @@ class TestStructuredQueryExecutor:
         ]
 
         with patch.object(executor.detector, "detect") as mock_detect, \
-             patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
+             patch("src.core.retrieval.application.query.structured_query.get_graph_client") as mock_get_graph_client:
 
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.LIST_DOCUMENTS,
                 original_query="list documents"
             )
 
-            mock_neo4j.connect = AsyncMock()
-            mock_neo4j.execute_read = AsyncMock(return_value=mock_results)
+            mock_graph_client = AsyncMock()
+            mock_graph_client.connect = AsyncMock()
+            mock_graph_client.execute_read = AsyncMock(return_value=mock_results)
+            mock_get_graph_client.return_value = mock_graph_client
 
             result = await executor.try_execute(
                 query="list documents",
@@ -209,15 +211,17 @@ class TestStructuredQueryExecutor:
         mock_results = [{"count": 42}]
 
         with patch.object(executor.detector, "detect") as mock_detect, \
-             patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
+             patch("src.core.retrieval.application.query.structured_query.get_graph_client") as mock_get_graph_client:
 
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.COUNT_DOCUMENTS,
                 original_query="how many documents"
             )
 
-            mock_neo4j.connect = AsyncMock()
-            mock_neo4j.execute_read = AsyncMock(return_value=mock_results)
+            mock_graph_client = AsyncMock()
+            mock_graph_client.connect = AsyncMock()
+            mock_graph_client.execute_read = AsyncMock(return_value=mock_results)
+            mock_get_graph_client.return_value = mock_graph_client
 
             result = await executor.try_execute(
                 query="how many documents",
@@ -233,15 +237,17 @@ class TestStructuredQueryExecutor:
     async def test_execution_error_returns_failure(self, executor):
         """Test that execution errors return failure result."""
         with patch.object(executor.detector, "detect") as mock_detect, \
-             patch("src.core.query.structured_query.neo4j_client") as mock_neo4j:
+             patch("src.core.retrieval.application.query.structured_query.get_graph_client") as mock_get_graph_client:
 
             mock_detect.return_value = StructuredIntent(
                 query_type=StructuredQueryType.LIST_DOCUMENTS,
                 original_query="list documents"
             )
 
-            mock_neo4j.connect = AsyncMock()
-            mock_neo4j.execute_read = AsyncMock(side_effect=Exception("DB error"))
+            mock_graph_client = AsyncMock()
+            mock_graph_client.connect = AsyncMock()
+            mock_graph_client.execute_read = AsyncMock(side_effect=Exception("DB error"))
+            mock_get_graph_client.return_value = mock_graph_client
 
             result = await executor.try_execute(
                 query="list documents",
