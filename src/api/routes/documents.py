@@ -545,7 +545,8 @@ async def get_document_file(
             file_stream,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'inline; filename="{document.filename}"'
+                "Content-Disposition": f'attachment; filename="{document.filename}"',
+                "X-Content-Type-Options": "nosniff"
             }
         )
 

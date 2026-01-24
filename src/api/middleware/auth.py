@@ -84,20 +84,44 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if _is_public_path(path):
             return await call_next(request)
 
-        # Extract API key from header
-        api_key = request.headers.get("X-API-Key")
+        api_key = None
 
-        # Fallback: For SSE endpoints, check query params since EventSource can't set headers
+        # 1. Try Ticket Auth (Secure SSE)
+        ticket = request.query_params.get("ticket")
         is_sse_path = any(p in path for p in ["/stream", "/events"])
+        
+        if ticket and is_sse_path:
+            from src.core.auth.application.ticket_service import TicketService
+            ticket_service = TicketService()
+            try:
+                # Redeem ticket (consume it)
+                api_key = await ticket_service.redeem_ticket(ticket)
+                if not api_key:
+                    logger.warning(f"Invalid or expired ticket used for {path}")
+                    return _cors_error_response(401, "UNAUTHORIZED", "Invalid or expired ticket.", origin)
+            except Exception as e:
+                logger.error(f"Ticket redemption error: {e}")
+                return _cors_error_response(500, "INTERNAL_ERROR", "Auth error", origin)
+            finally:
+                await ticket_service.close()
+
+        # 2. Try Standard Header Auth
+        if not api_key:
+            api_key = request.headers.get("X-API-Key")
+
+        # 3. Fallback: Legacy Query Param for SSE (Deprecated but kept for compat if needed, 
+        #    but we prefer Ticket now. We can log a warning if used.)
         if not api_key and is_sse_path:
             api_key = request.query_params.get("api_key")
+            if api_key:
+                 logger.warning(f"Legacy query param auth used for {path}. migrate to ticket auth.")
 
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
             return _cors_error_response(
                 401,
                 "UNAUTHORIZED",
-                "Missing API key. Provide X-API-Key header.",
+                "Missing API key. Provide X-API-Key header or valid ticket.",
                 origin
             )
 
