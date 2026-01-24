@@ -219,3 +219,14 @@ frontend/frontend_lint_final.txt
 .ruff_cache
 /.venv_mig
 /Antigravity-Bridge
+
+# Internal Documentation & Planning
+amber_tenant_role_model_proposal.md
+findings.md
+progress.md
+task_plan.md
+
+# Generated Artifacts
+openapi.json
+openapi_v2.json
+frontend/test-results/
