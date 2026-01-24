@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from src.core.graph.neo4j_client import Neo4jClient
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +10,8 @@ class CommunityLifecycleManager:
     Manages the lifecycle of communities: staleness, versioning, and cleanup.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
-        self.neo4j = neo4j_client
+    def __init__(self, graph_client: GraphClientPort):
+        self.graph = graph_client
 
     async def mark_stale_by_entities(self, entity_ids: list[str]):
         """
@@ -26,7 +26,7 @@ class CommunityLifecycleManager:
         SET c.is_stale = true, c.updated_at = datetime()
         RETURN count(DISTINCT c) as count
         """
-        result = await self.neo4j.execute_write(query, {"entity_ids": entity_ids})
+        result = await self.graph.execute_write(query, {"entity_ids": entity_ids})
         count = result[0]["count"] if result else 0
         if count > 0:
             logger.info(f"Marked {count} communities as stale due to entity changes")
@@ -44,7 +44,7 @@ class CommunityLifecycleManager:
         SET c.is_stale = true, c.updated_at = datetime()
         RETURN count(DISTINCT c) as count
         """
-        result = await self.neo4j.execute_write(query, {"names": entity_names, "tenant_id": tenant_id})
+        result = await self.graph.execute_write(query, {"names": entity_names, "tenant_id": tenant_id})
         count = result[0]["count"] if result else 0
         if count > 0:
             logger.info(f"Marked {count} communities for tenant {tenant_id} as stale due to entity changes")
@@ -57,7 +57,7 @@ class CommunityLifecycleManager:
         MATCH (c:Community {tenant_id: $tenant_id})
         SET c.is_stale = true, c.updated_at = datetime()
         """
-        await self.neo4j.execute_write(query, {"tenant_id": tenant_id})
+        await self.graph.execute_write(query, {"tenant_id": tenant_id})
         logger.info(f"Marked all communities for tenant {tenant_id} as stale")
 
     async def cleanup_orphans(self, tenant_id: str):
@@ -70,7 +70,7 @@ class CommunityLifecycleManager:
         WHERE NOT (e)-[:BELONGS_TO]->(:Community)
         RETURN e.id as id
         """
-        results = await self.neo4j.execute_read(query, {"tenant_id": tenant_id})
+        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
         if not results:
             return
 
@@ -87,7 +87,7 @@ class CommunityLifecycleManager:
             c.status = 'ready'
         RETURN c.id as id
         """
-        await self.neo4j.execute_write(misc_query, {"tenant_id": tenant_id})
+        await self.graph.execute_write(misc_query, {"tenant_id": tenant_id})
 
         # 3. Link orphans
         link_query = """
@@ -95,7 +95,7 @@ class CommunityLifecycleManager:
         WHERE e.id IN $entity_ids
         MERGE (e)-[:BELONGS_TO]->(c)
         """
-        await self.neo4j.execute_write(link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids})
+        await self.graph.execute_write(link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids})
         logger.info(f"Assigned {len(entity_ids)} entities to 'Misc' community")
 
     async def get_community_stats(self, tenant_id: str) -> dict[str, Any]:
@@ -109,7 +109,7 @@ class CommunityLifecycleManager:
             sum(case when c.status = 'failed' then 1 else 0 end) as failed,
             max(c.level) as max_level
         """
-        results = await self.neo4j.execute_read(query, {"tenant_id": tenant_id})
+        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
         if not results:
             return {"total": 0}
         return results[0]

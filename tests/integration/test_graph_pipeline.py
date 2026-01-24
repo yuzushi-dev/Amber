@@ -2,10 +2,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.core.graph.neo4j_client import neo4j_client
-from src.core.graph.schema import NodeLabel, RelationshipType
-from src.core.graph.writer import graph_writer
-from src.core.prompts.entity_extraction import (
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
+from src.core.graph.domain.schema import NodeLabel, RelationshipType
+from src.core.graph.application.writer import graph_writer
+from src.core.generation.application.prompts.entity_extraction import (
     ExtractedEntity,
     ExtractedRelationship,
     ExtractionResult,

@@ -161,10 +161,11 @@ class ContextGraphWriter:
         timestamp = datetime.utcnow().isoformat()
         
         try:
-            await platform.neo4j_client.connect()
+            graph_client = get_graph_client()
+            await graph_client.connect()
             
             # Create UserFeedback node
-            await platform.neo4j_client.execute_write(
+            await graph_client.execute_write(
                 f"""
                 CREATE (f:{NodeLabel.UserFeedback.value} {{
                     id: $fb_id,
@@ -185,7 +186,7 @@ class ContextGraphWriter:
             
             # Link Feedback -> Turn
             if turn_id:
-                await platform.neo4j_client.execute_write(
+                await graph_client.execute_write(
                     f"""
                     MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id}})
                     MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
@@ -195,7 +196,7 @@ class ContextGraphWriter:
                 )
             else:
                 # Find most recent turn in conversation and link
-                await platform.neo4j_client.execute_write(
+                await graph_client.execute_write(
                     f"""
                     MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id}})
                     MATCH (c:{NodeLabel.Conversation.value} {{id: $conv_id}})-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
@@ -222,16 +223,17 @@ class ContextGraphWriter:
             Dict with positive_count, negative_count, and net_score
         """
         try:
-            await platform.neo4j_client.connect()
+            graph_client = get_graph_client()
+            await graph_client.connect()
             
-            result = await platform.neo4j_client.execute_read(
+            result = await graph_client.execute_read(
                 f"""
                 MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
                 RETURN 
                     sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
                     sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count
                 """,
-                chunk_id=chunk_id
+                {"chunk_id": chunk_id}
             )
             
             if result:

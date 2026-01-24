@@ -3,7 +3,7 @@ from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, basic_auth
 
-from src.core.admin_ops.infrastructure.observability.tracer import trace_span
+from src.shared.kernel.observability import trace_span
 from src.shared.kernel.runtime import get_settings
 
 logger = logging.getLogger(__name__)
@@ -336,7 +336,6 @@ class Neo4jClient:
             "nodes": list(nodes.values()),
             "edges": edges
         }
-
 
 
 
