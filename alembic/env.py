@@ -16,23 +16,22 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 # Import your models' Base for autogenerate support
-from src.core.models.base import Base
+from src.shared.kernel.models.base import Base
 
 # Import all models so they are registered with Base metadata
-from src.core.models.api_key import ApiKey
-from src.core.models.tenant import Tenant
-from src.core.models.connector_state import ConnectorState
-from src.core.models.document import Document
-from src.core.models.chunk import Chunk
-from src.core.models.folder import Folder
-from src.core.models.benchmark_run import BenchmarkRun
-from src.core.models.usage import UsageLog
-from src.core.models.flag import Flag
-from src.core.models.memory import UserFact, ConversationSummary
-from src.core.models.audit import AuditLog
-from src.core.models.feedback import Feedback
-from src.core.models.candidate import Candidate
-# from src.core.models.kg import ... # Check if KG has models
+from src.core.admin_ops.domain.api_key import ApiKey
+from src.core.tenants.domain.tenant import Tenant
+from src.core.ingestion.domain.connector_state import ConnectorState
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.chunk import Chunk
+from src.core.ingestion.domain.folder import Folder
+from src.core.admin_ops.domain.benchmark_run import BenchmarkRun
+from src.core.admin_ops.domain.usage import UsageLog
+from src.core.admin_ops.domain.flag import Flag
+from src.core.generation.domain.memory_models import UserFact, ConversationSummary
+from src.core.admin_ops.domain.audit import AuditLog
+from src.core.admin_ops.domain.feedback import Feedback
+# Candidate in src/core/retrieval/domain/candidate.py is not a SQLAlchemy model (no Base)
 
 # Alembic Config object
 config = context.config

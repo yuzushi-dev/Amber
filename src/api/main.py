@@ -67,7 +67,9 @@ async def lifespan(app: FastAPI):
             anthropic_api_key=settings.anthropic_api_key,
             ollama_base_url=settings.ollama_base_url,
             default_llm_provider=settings.default_llm_provider,
-            default_llm_model=settings.default_llm_model
+            default_llm_model=settings.default_llm_model,
+            default_embedding_provider=settings.default_embedding_provider,
+            default_embedding_model=settings.default_embedding_model,
         )
         logger.info("LLM Providers initialized")
     except Exception as e:
@@ -118,8 +120,10 @@ async def lifespan(app: FastAPI):
     # Bootstrap API Key
     try:
         from src.api.deps import _get_async_session_maker
+        from src.amber_platform.composition_root import platform, build_vector_store_factory
         from src.core.admin_ops.application.api_key_service import ApiKeyService
         from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
+        from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
 
         dev_key = os.getenv("DEV_API_KEY", "amber-dev-key-2024")
         
@@ -137,7 +141,14 @@ async def lifespan(app: FastAPI):
 
             # Check Embedding Compatibility
             if os.getenv("AMBER_RUNTIME") == "docker": # Only run inside docker/prod context usually
-                migration_service = EmbeddingMigrationService(session)
+                vector_store_factory = build_vector_store_factory()
+                migration_service = EmbeddingMigrationService(
+                    session=session,
+                    settings=settings,
+                    task_dispatcher=CeleryTaskDispatcher(),
+                    graph_client=platform.neo4j_client,
+                    vector_store_factory=vector_store_factory,
+                )
                 try:
                     statuses = await migration_service.get_compatibility_status()
                     for status in statuses:
@@ -174,6 +185,10 @@ async def lifespan(app: FastAPI):
     # Shutdown Platform Clients
     from src.amber_platform.composition_root import platform
     await safe_shutdown(platform.shutdown(), "platform clients")
+    
+    # Shutdown Database
+    from src.core.database.session import close_database
+    await safe_shutdown(close_database(), "database")
 
 
 # =============================================================================
