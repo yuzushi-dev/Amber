@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.api.schemas.query import SearchMode
-from src.core.query.router import QueryRouter
+from src.shared.kernel.models.query import SearchMode
+from src.core.retrieval.application.query.router import QueryRouter
 
 
 @pytest.mark.asyncio

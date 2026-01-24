@@ -4,7 +4,7 @@ Unit tests for QueryParser
 
 from datetime import datetime
 
-from src.core.query.parser import QueryParser
+from src.core.retrieval.application.query.parser import QueryParser
 
 
 def test_parser_basic():

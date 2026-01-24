@@ -1,5 +1,5 @@
 
-from src.core.models.candidate import Candidate
+from src.core.retrieval.domain.candidate import Candidate
 
 
 def fuse_results(
