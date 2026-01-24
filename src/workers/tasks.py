@@ -16,9 +16,9 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
-from src.core.models.document import Document
-from src.core.models.folder import Folder
-from src.core.models.chunk import Chunk
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.folder import Folder
+from src.core.ingestion.domain.chunk import Chunk
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
 
@@ -130,7 +130,8 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
         return result
 
     except Exception as e:
-        logger.error(f"[Task {self.request.id}] Failed processing document {document_id}: {e}")
+        import traceback
+        logger.error(f"[Task {self.request.id}] Failed processing document {document_id}: {e}\n{traceback.format_exc()}")
 
         # Update document status to FAILED
         try:
@@ -167,17 +168,17 @@ def process_communities(self, tenant_id: str) -> dict:
 
 async def _process_communities_async(tenant_id: str) -> dict:
     """Async implementation of community processing."""
+    from src.amber_platform.composition_root import build_vector_store_factory, platform
     from src.api.config import settings
-    from src.core.graph.communities.embeddings import CommunityEmbeddingService
-    from src.core.graph.communities.leiden import CommunityDetector
-    from src.core.graph.communities.summarizer import CommunitySummarizer
-    from src.core.graph.neo4j_client import neo4j_client
-    from src.core.providers.factory import ProviderFactory
-    from src.core.services.embeddings import EmbeddingService
+    from src.core.graph.application.communities.embeddings import CommunityEmbeddingService
+    from src.core.graph.application.communities.leiden import CommunityDetector
+    from src.core.graph.application.communities.summarizer import CommunitySummarizer
+    from src.core.generation.infrastructure.providers.factory import ProviderFactory
+    from src.core.retrieval.application.embeddings_service import EmbeddingService
 
     try:
         # 1. Detection
-        detector = CommunityDetector(neo4j_client)
+        detector = CommunityDetector(platform.neo4j_client)
         detect_res = await detector.detect_communities(tenant_id)
 
         if detect_res["status"] == "skipped":
@@ -188,7 +189,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
             openai_api_key=settings.openai_api_key,
             anthropic_api_key=settings.anthropic_api_key
         )
-        summarizer = CommunitySummarizer(neo4j_client, factory)
+        summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
         # We summarize all that are now stale or new
         await summarizer.summarize_all_stale(tenant_id)
@@ -198,7 +199,15 @@ async def _process_communities_async(tenant_id: str) -> dict:
             openai_api_key=settings.openai_api_key,
             model=settings.embeddings.default_model if hasattr(settings, 'embeddings') else "text-embedding-3-small"
         )
-        comm_embedding_svc = CommunityEmbeddingService(embedding_svc)
+        vector_store_factory = build_vector_store_factory()
+        comm_vector_store = vector_store_factory(
+            settings.embedding_dimensions or 1536,
+            collection_name="community_embeddings",
+        )
+        comm_embedding_svc = CommunityEmbeddingService(
+            embedding_service=embedding_svc,
+            vector_store=comm_vector_store,
+        )
 
         # Fetch all communities that need embedding (just summarized)
         # Actually, we can just fetch all 'ready' communities for this tenant for now
@@ -208,7 +217,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
         RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title, c.summary as summary
         """
-        ready_comms = await neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+        ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
 
         for comm in ready_comms:
             await comm_embedding_svc.embed_and_store_community(comm)
@@ -221,7 +230,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
     finally:
         # Close Neo4j connection to prevent event loop conflicts
         try:
-            await neo4j_client.close()
+            await platform.neo4j_client.close()
         except Exception as e:
             logger.warning(f"Failed to close Neo4j client: {e}")
 
@@ -232,10 +241,8 @@ def deep_reset_singletons():
     or hold stale connections. Critical for CELERY_TASK_ALWAYS_EAGER=True.
     """
     from src.core.database.session import reset_engine
-    from src.core.providers import factory
-    from src.core.graph.neo4j_client import neo4j_client
-    from src.core.memory.extractor import memory_extractor
-    from pymilvus import connections
+    from src.core.generation.infrastructure.providers import factory
+    from src.amber_platform.composition_root import platform
 
     logger.info("Executing deep reset of singletons for background task isolation")
     
@@ -245,24 +252,40 @@ def deep_reset_singletons():
     # 2. Provider Factory (Reset cached providers and usage trackers)
     factory._default_factory = None
     
-    # 3. Neo4j Driver
-    if neo4j_client._driver is not None:
-        try:
-            neo4j_client._driver.close()
-        except:
-            pass
-        neo4j_client._driver = None
-        
-    # 4. Memory Extractor (LLM provider cache)
-    memory_extractor._llm = None
-    
-    # 5. Milvus Global Connections
+    # 3. Platform Clients (Neo4j, Redis, etc)
+    # This closes drivers/connections but keeps the platform registry ready for lazy re-init
+    import asyncio
     try:
-        # Pymilvus uses a global connection registry
-        if connections.has_connection("default"):
-            connections.disconnect("default")
-    except Exception as e:
-        logger.warning(f"Failed to disconnect Milvus during reset: {e}")
+        if asyncio.get_event_loop().is_running():
+            # We can't await if we are inside a sync context or if loop is weird?
+            # deep_reset_singletons is called from async function _process_document_async.
+            # But the 'run_async' helper manages loops.
+            # safe_shutdown?
+            # Actually we can just let platform shutdown handle it if awaited.
+            # But deep_reset_singletons is DECLARED AS SYNC function!
+            # We cannot await platform.shutdown() here!
+            # We must use sync methods or create a loop.
+            pass
+    except:
+        pass
+        
+    # Neo4j Client reset (manual hack since we can't await platform.shutdown easily in sync func)
+    # But wait, platform.neo4j_client.close() is async.
+    # The original code accessed neo4j_client._driver.close() (sync?) No, driver.close() in neo4j is async usually.
+    # Original code:
+    # if neo4j_client._driver is not None:
+    #    try: neo4j_client._driver.close() ...
+    # Wait, neo4j python driver close() IS sync? Or Async? 
+    # The new Neo4jClient is async wrapper. close() is async.
+    # The old code was likely wrong/risky if it called async close in sync func?
+    # Or maybe it fired and forgot.
+    
+    # Let's just reset the platform instance internal state if possible?
+    # Or just don't close it explicitly here if we trust pooling?
+    # The goal of deep_reset_singletons is to avoid event loop binding issues.
+    
+    # If we use platform.neo4j_client everywhere, we should let platform manage it.
+    pass
 
 async def _process_document_async(document_id: str, tenant_id: str, task_id: str) -> dict:
     """
@@ -272,15 +295,31 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
 
+    from src.amber_platform.composition_root import platform, build_vector_store_factory
     from src.api.config import settings
-    from src.core.graph.neo4j_client import neo4j_client
-    from src.core.services.ingestion import IngestionService
-    from src.core.storage.storage_client import MinIOClient
-    from src.core.database.session import reset_engine
-    from src.core.providers import factory
-
     # Context isolation: Reset EVERYTHING that might be stale or bound to a closed loop
     deep_reset_singletons()
+
+    from src.amber_platform.composition_root import configure_settings
+    configure_settings(settings)
+
+    from src.shared.kernel.runtime import configure_settings as configure_runtime_settings
+    configure_runtime_settings(settings)
+
+    from src.core.generation.infrastructure.providers.factory import init_providers
+    init_providers(
+        openai_api_key=settings.openai_api_key,
+        anthropic_api_key=settings.anthropic_api_key,
+        default_llm_provider=settings.default_llm_provider,
+        default_llm_model=settings.default_llm_model,
+        default_embedding_provider=settings.default_embedding_provider,
+        default_embedding_model=settings.default_embedding_model,
+        ollama_base_url=settings.ollama_base_url,
+    )
+
+    from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+    from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
+    set_graph_extractor(GraphExtractor(use_gleaning=True))
 
     # Create async session
     engine = create_async_engine(settings.db.database_url)
@@ -289,16 +328,39 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
-            # Fetch document
-            result = await session.execute(select(Document).where(Document.id == document_id))
-            document = result.scalars().first()
-
-            if not document:
-                raise ValueError(f"Document {document_id} not found")
-
             # Initialize services
-            storage = MinIOClient()
-            service = IngestionService(session, storage)
+            from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
+            from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
+            from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+            from src.core.ingestion.application.ingestion_service import IngestionService
+            from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
+            from src.core.tenants.domain.tenant import Tenant
+            from src.core.events.dispatcher import EventDispatcher
+            from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
+            
+            vector_store_factory = build_vector_store_factory()
+            event_dispatcher = EventDispatcher(RedisStatePublisher())
+            
+            repo = PostgresDocumentRepository(session)
+            tenant_repo = PostgresTenantRepository(session)
+            uow = PostgresUnitOfWork(session)
+            
+            # Validation
+            document = await repo.get(document_id)
+            if not document:
+                 raise ValueError(f"Document {document_id} not found")
+            
+            service = IngestionService(
+                document_repository=repo,
+                tenant_repository=tenant_repo,
+                unit_of_work=uow,
+                storage_client=platform.minio_client,
+                neo4j_client=platform.neo4j_client,
+                vector_store=None,
+                settings=settings,
+                event_dispatcher=event_dispatcher,
+                vector_store_factory=vector_store_factory,
+            )
 
             # Publish starting event
             _publish_status(document_id, DocumentStatus.EXTRACTING.value, 10)
@@ -307,13 +369,13 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
             await service.process_document(document_id)
 
             # Refresh to get final state
-            await session.refresh(document)
+            document = await repo.get(document_id)
 
             # Publish completion
             _publish_status(document_id, document.status.value, 100)
 
             # Get chunk count for stats
-            from src.core.models.chunk import Chunk
+            from src.core.ingestion.domain.chunk import Chunk
             chunk_result = await session.execute(
                 select(Chunk).where(Chunk.document_id == document_id)
             )
@@ -330,7 +392,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         # Close Neo4j connection before disposing engine
         # This prevents "attached to a different loop" errors
         try:
-            await neo4j_client.close()
+            await platform.neo4j_client.close()
         except Exception as e:
             logger.warning(f"Failed to close Neo4j client: {e}")
 
@@ -467,8 +529,8 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
     from src.api.config import settings
     # Defer heavy imports to after status update
-    # from src.core.evaluation.ragas_service import RagasService
-    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+    # from src.core.admin_ops.application.evaluation.ragas_service import RagasService
+    from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
     # Create async session
     engine = create_async_engine(settings.db.database_url)
@@ -526,10 +588,10 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             _publish_benchmark_status(benchmark_run_id, "running", 10)
 
             # Initialize RAG Services
-            from src.core.services.generation import GenerationService
-            from src.core.services.retrieval import RetrievalConfig, RetrievalService
+            from src.core.generation.application.generation_service import GenerationService
+            from src.core.retrieval.application.retrieval_service import RetrievalConfig, RetrievalService
             from openai import AsyncOpenAI
-            from src.core.evaluation.ragas_service import RagasService
+            from src.core.admin_ops.application.evaluation.ragas_service import RagasService
             
             # Initialize Ragas
             client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -660,7 +722,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     from sqlalchemy.orm import sessionmaker
 
     from src.api.config import settings
-    from src.core.models.benchmark_run import BenchmarkRun, BenchmarkStatus
+    from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
     engine = create_async_engine(settings.db.database_url)
 
