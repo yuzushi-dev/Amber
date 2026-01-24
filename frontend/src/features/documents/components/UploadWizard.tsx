@@ -132,19 +132,22 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         }
     }
 
-    const startMonitoring = (documentId: string, eventsUrl?: string) => {
+    const startMonitoring = async (documentId: string, eventsUrl?: string) => {
         // Initial state after upload
         setStatus('extracting')
         setStatusMessage('Extracting content...')
         setProgress(STAGE_PROGRESS.extracting)
 
         // Get API key for SSE auth
-        const apiKey = localStorage.getItem('api_key')
-
-        if (!apiKey) {
-            console.error('SSE: No API key found in localStorage')
+        // Fetch Ticket for Secure SSE
+        let ticket = ''
+        try {
+            const ticketRes = await apiClient.post<{ ticket: string }>('/auth/ticket')
+            ticket = ticketRes.data.ticket
+        } catch (e) {
+            console.error('Failed to fetch auth ticket for SSE:', e)
             setStatus('failed')
-            setErrorMessage('Authentication required. Please refresh and log in again.')
+            setErrorMessage('Authentication failed.')
             return
         }
 
@@ -153,10 +156,10 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         // We use /api/v1 prefix which the Vite proxy rewrites to the VITE_API_TARGET
         const baseUrl = eventsUrl || `/api/v1/documents/${documentId}/events`
 
-        // Append API key preserving existing query params if any
+        // Append ticket parameter
         const monitorUrl = baseUrl.includes('?')
-            ? `${baseUrl}&api_key=${encodeURIComponent(apiKey)}`
-            : `${baseUrl}?api_key=${encodeURIComponent(apiKey)}`
+            ? `${baseUrl}&ticket=${encodeURIComponent(ticket)}`
+            : `${baseUrl}?ticket=${encodeURIComponent(ticket)}`
 
 
         // Status precedence for aggregation (SSE + Polling)

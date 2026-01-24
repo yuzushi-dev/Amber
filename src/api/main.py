@@ -291,6 +291,14 @@ v1_router = APIRouter(prefix="/v1")
 v1_router.include_router(health.router)
 v1_router.include_router(query.router)
 
+# Auth routes
+try:
+    from src.api.routes import auth
+    v1_router.include_router(auth.router)
+    logger.info("Registered auth router")
+except ImportError as e:
+    logger.warning(f"Auth router not available: {e}")
+
 # Chat routes (for history, etc.)
 try:
     from src.api.routes import chat

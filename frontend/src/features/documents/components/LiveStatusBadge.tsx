@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { SSEManager } from '@/lib/sse'
+import { apiClient } from '@/lib/api-client'
 
 interface LiveStatusBadgeProps {
     documentId: string
@@ -25,38 +26,57 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete,
             return
         }
 
-        const apiKey = localStorage.getItem('api_key')
-        // Use relative path for SSE to leverage Vite proxy / Nginx
-        const apiBaseUrl = '/api/v1'
-        const monitorUrl = `${apiBaseUrl}/documents/${documentId}/events?api_key=${encodeURIComponent(apiKey || '')}`
+        let manager: SSEManager | null = null;
+        let mounted = true;
 
-        const manager = new SSEManager(
-            monitorUrl,
-            (event) => {
-                try {
-                    const data = JSON.parse(event.data)
-                    if (data.status) {
-                        setStatus(data.status)
+        const connect = async () => {
+            try {
+                // Fetch Ticket (Secure)
+                const ticketRes = await apiClient.post<{ ticket: string }>('/auth/ticket')
+                const ticket = ticketRes.data.ticket
 
-                        if (['ready', 'completed', 'failed'].includes(data.status.toLowerCase())) {
-                            manager.disconnect()
-                            if (onComplete) onComplete()
+                if (!mounted) return;
+
+                // Use relative path for SSE to leverage Vite proxy / Nginx
+                const apiBaseUrl = '/api/v1'
+                const monitorUrl = `${apiBaseUrl}/documents/${documentId}/events?ticket=${encodeURIComponent(ticket)}`
+
+                manager = new SSEManager(
+                    monitorUrl,
+                    (event) => {
+                        try {
+                            const data = JSON.parse(event.data)
+                            if (mounted && data.status) {
+                                setStatus(data.status)
+
+                                if (['ready', 'completed', 'failed'].includes(data.status.toLowerCase())) {
+                                    manager?.disconnect()
+                                    if (onComplete) onComplete()
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse SSE event:', e)
                         }
+                    },
+                    (error) => {
+                        // Silent error handling for badge to avoid UI flicker
+                        console.debug('SSE connection issue for badge:', error)
                     }
-                } catch (e) {
-                    console.error('Failed to parse SSE event:', e)
-                }
-            },
-            (error) => {
-                // Silent error handling for badge to avoid UI flicker
-                console.debug('SSE connection issue for badge:', error)
-            }
-        )
+                )
 
-        manager.connect()
+                manager.connect()
+            } catch (e) {
+                console.error('Failed to connect to SSE:', e)
+            }
+        }
+
+        connect()
 
         return () => {
-            manager.disconnect()
+            mounted = false
+            if (manager) {
+                manager.disconnect()
+            }
         }
     }, [documentId, status, onComplete])
 
