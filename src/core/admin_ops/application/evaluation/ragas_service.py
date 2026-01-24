@@ -228,12 +228,15 @@ class RagasService:
             settings = get_settings()
             from src.core.admin_ops.application.evaluation.judge import JudgeService
             from src.core.generation.application.registry import PromptRegistry
-            from src.core.generation.infrastructure.providers.factory import ProviderFactory
+            from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
 
-            factory = ProviderFactory(
-                openai_api_key=settings.openai_api_key,
-                anthropic_api_key=settings.anthropic_api_key
-            )
+            try:
+                factory = build_provider_factory(
+                    openai_api_key=settings.openai_api_key,
+                    anthropic_api_key=settings.anthropic_api_key,
+                )
+            except RuntimeError:
+                factory = get_provider_factory()
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()
 
@@ -255,12 +258,15 @@ class RagasService:
             settings = get_settings()
             from src.core.admin_ops.application.evaluation.judge import JudgeService
             from src.core.generation.application.registry import PromptRegistry
-            from src.core.generation.infrastructure.providers.factory import ProviderFactory
+            from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
 
-            factory = ProviderFactory(
-                openai_api_key=settings.openai_api_key,
-                anthropic_api_key=settings.anthropic_api_key
-            )
+            try:
+                factory = build_provider_factory(
+                    openai_api_key=settings.openai_api_key,
+                    anthropic_api_key=settings.anthropic_api_key,
+                )
+            except RuntimeError:
+                factory = get_provider_factory()
             llm = factory.get_llm_provider("openai")
             registry = PromptRegistry()
 

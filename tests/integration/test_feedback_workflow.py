@@ -159,8 +159,8 @@ class TestFeedbackWorkflow:
         # --- CLEANUP ---
         # Clean up created data to prevent polluting the dev DB
         from src.api.deps import _async_session_maker
-        from src.core.models.feedback import Feedback
-        from src.core.models.memory import ConversationSummary
+        from src.core.admin_ops.domain.feedback import Feedback
+        from src.core.generation.domain.memory_models import ConversationSummary
         from sqlalchemy import delete
         
         async with _async_session_maker() as session:
@@ -178,7 +178,7 @@ class TestFeedbackWorkflow:
     async def setup_conversation_data(self):
         """Create ConversationSummary data for the tests."""
         from src.api.deps import _async_session_maker
-        from src.core.models.memory import ConversationSummary
+        from src.core.generation.domain.memory_models import ConversationSummary
         
         async with _async_session_maker() as session:
             # Create summaries used by the test

@@ -1,15 +1,45 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.core.services.migration import EmbeddingMigrationService
-from src.core.services.embeddings import EmbeddingService
+from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
 
 @pytest.fixture
 def mock_session():
     return AsyncMock()
 
 @pytest.fixture
-def service(mock_session):
-    return EmbeddingMigrationService(mock_session)
+def mock_settings():
+    settings = MagicMock()
+    settings.openai_api_key = None
+    settings.ollama_base_url = None
+    return settings
+
+@pytest.fixture
+def mock_task_dispatcher():
+    return AsyncMock()
+
+@pytest.fixture
+def mock_graph_client():
+    return AsyncMock()
+
+@pytest.fixture
+def mock_vector_store_factory():
+    return MagicMock()
+
+@pytest.fixture
+def service(
+    mock_session,
+    mock_settings,
+    mock_task_dispatcher,
+    mock_graph_client,
+    mock_vector_store_factory,
+):
+    return EmbeddingMigrationService(
+        mock_session,
+        mock_settings,
+        mock_task_dispatcher,
+        mock_graph_client,
+        mock_vector_store_factory,
+    )
 
 @pytest.mark.asyncio
 async def test_resolve_dimensions_known_model(service):
@@ -35,8 +65,8 @@ async def test_resolve_dimensions_unknown_model_dynamic_check(service):
     # Mocking ProviderFactory and EmbeddingService flow
     # Since imports are inside the method, we must patch the classes where they are defined
     
-    with patch("src.core.providers.factory.ProviderFactory") as MockFactory, \
-         patch("src.core.services.embeddings.EmbeddingService") as MockEmbeddingService:
+    with patch("src.core.generation.domain.ports.provider_factory.build_provider_factory") as MockFactory, \
+         patch("src.core.retrieval.application.embeddings_service.EmbeddingService") as MockEmbeddingService:
         
         # Setup mock factory to return a provider
         mock_provider = MagicMock()
@@ -66,8 +96,8 @@ async def test_resolve_dimensions_unknown_model_dynamic_check(service):
 async def test_resolve_dimensions_dynamic_failure_defaults(service):
     """Test that if dynamic resolution fails, it falls back to default 1536."""
     
-    with patch("src.core.providers.factory.ProviderFactory"), \
-         patch("src.core.services.embeddings.EmbeddingService") as MockEmbeddingService:
+    with patch("src.core.generation.domain.ports.provider_factory.build_provider_factory"), \
+         patch("src.core.retrieval.application.embeddings_service.EmbeddingService") as MockEmbeddingService:
         
         mock_service_instance = MockEmbeddingService.return_value
         mock_service_instance.embed_texts = AsyncMock(side_effect=Exception("Connection error"))

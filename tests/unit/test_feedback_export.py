@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from src.api.routes.admin.feedback import export_golden_dataset
-from src.core.models.feedback import Feedback
+from src.core.admin_ops.domain.feedback import Feedback
 
 @pytest.mark.asyncio
 async def test_export_golden_dataset():
