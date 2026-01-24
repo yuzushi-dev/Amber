@@ -1,4 +1,4 @@
-from src.core.generation.context_builder import ContextBuilder
+from src.core.generation.application.context_builder import ContextBuilder
 
 
 def test_context_builder_budget():

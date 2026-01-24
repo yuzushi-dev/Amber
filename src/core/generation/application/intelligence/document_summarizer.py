@@ -10,8 +10,8 @@ import logging
 import re
 from typing import Any
 
-from src.core.generation.infrastructure.providers.base import ProviderTier
-from src.core.generation.infrastructure.providers.factory import ProviderFactory
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,13 @@ class DocumentSummarizer:
         if self._llm is None:
             from src.shared.kernel.runtime import get_settings
             settings = get_settings()
-            factory = ProviderFactory(
-                openai_api_key=settings.openai_api_key,
-                anthropic_api_key=settings.anthropic_api_key
-            )
+            if settings.openai_api_key or settings.anthropic_api_key:
+                factory = build_provider_factory(
+                    openai_api_key=settings.openai_api_key,
+                    anthropic_api_key=settings.anthropic_api_key,
+                )
+            else:
+                factory = get_provider_factory()
             self._llm = factory.get_llm_provider(tier=ProviderTier.ECONOMY)
         return self._llm
 

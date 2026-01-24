@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.models.memory import ConversationSummary, UserFact
+from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 
 
 class TestConversationMemoryManager:
@@ -30,8 +30,8 @@ class TestConversationMemoryManager:
         """Test adding a user fact successfully."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
 
@@ -62,8 +62,8 @@ class TestConversationMemoryManager:
         """Test that default importance is 0.5."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
             mock_session.refresh = AsyncMock()
@@ -82,8 +82,8 @@ class TestConversationMemoryManager:
         """Test that get_user_facts uses correct query filters."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
 
@@ -107,8 +107,8 @@ class TestConversationMemoryManager:
         """Test that get_user_facts returns facts from query."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
 
@@ -136,8 +136,8 @@ class TestConversationMemoryManager:
         """Test saving a conversation summary successfully."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
             mock_session.refresh = AsyncMock()
@@ -165,8 +165,8 @@ class TestConversationMemoryManager:
         """Test retrieving recent conversation summaries."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.memory.manager.get_session_maker", return_value=mock_factory):
-            from src.core.memory.manager import ConversationMemoryManager
+        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
 

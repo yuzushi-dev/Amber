@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.models.candidate import Candidate
+from src.core.retrieval.domain.candidate import Candidate
 from src.core.security.pii_scrubber import PIIScrubber
 from src.core.utils.tokenizer import Tokenizer
 
