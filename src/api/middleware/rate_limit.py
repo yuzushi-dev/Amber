@@ -13,10 +13,25 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from src.api.config import settings
-from src.core.rate_limiter import RateLimitCategory, rate_limiter
+from src.core.admin_ops.infrastructure.rate_limiter import RateLimitCategory, get_rate_limiter
 from src.shared.context import get_current_tenant
 
 logger = logging.getLogger(__name__)
+
+# Initialize rate limiter with settings (lazy singleton via factory)
+_rate_limiter = None
+
+def _get_rate_limiter():
+    """Get rate limiter instance, initializing if needed."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = get_rate_limiter(
+            redis_url=settings.db.redis_url,
+            requests_per_minute=settings.rate_limits.requests_per_minute,
+            queries_per_minute=settings.rate_limits.queries_per_minute,
+            uploads_per_hour=settings.rate_limits.uploads_per_hour,
+        )
+    return _rate_limiter
 
 # Path patterns for different rate limit categories
 QUERY_PATHS = {"/v1/query", "/v1/chat"}
@@ -85,7 +100,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Check rate limit
         try:
-            result = await rate_limiter.check(str(tenant_id), category)
+            result = await _get_rate_limiter().check(str(tenant_id), category)
         except Exception as e:
             # Fail open if rate limiter fails (e.g. Redis down)
             logger.warning(f"Rate limiter failed (fail open): {e}")

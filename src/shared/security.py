@@ -10,12 +10,18 @@ import hmac
 import secrets
 from base64 import b64encode
 
-from src.api.config import settings
+# from src.api.config import settings # DELETED: direct import violation
 
+_SECRET_KEY: str = "default-insecure-key"
+
+def configure_security(secret_key: str) -> None:
+    """Configure security module with application secret."""
+    global _SECRET_KEY
+    _SECRET_KEY = secret_key
 
 def _get_salt() -> bytes:
     """Get the salt for hashing from the secret key."""
-    return settings.secret_key.encode("utf-8")
+    return _SECRET_KEY.encode("utf-8")
 
 
 def hash_api_key(key: str) -> str:

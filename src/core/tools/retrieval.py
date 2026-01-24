@@ -7,7 +7,7 @@ Tools that allow the Agent to access the Vector Knowledge Base.
 
 from typing import Any, Callable
 
-from src.core.services.retrieval import RetrievalService
+from src.core.retrieval.application.retrieval_service import RetrievalService
 
 def create_retrieval_tool(service: RetrievalService, tenant_id: str) -> dict[str, Any]:
     """

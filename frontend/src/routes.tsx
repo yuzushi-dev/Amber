@@ -31,7 +31,6 @@ import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
 import RagasSubPanel from './features/admin/components/RagasSubPanel'
-import QueryLogPage from './features/admin/pages/QueryLogPage'
 import ApiKeyPage from './features/admin/pages/ApiKeyPage'
 import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
 import FeedbackPage from './features/admin/pages/FeedbackPage'
@@ -127,11 +126,8 @@ const adminChatRoute = createRoute({
     component: () => <ChatContainer />,
 })
 
-const adminQueriesRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/queries',
-    component: () => <QueryLogPage />,
-})
+// Query Logs removed
+
 
 // =============================================================================
 // Data Section (/admin/data/*)
@@ -375,7 +371,6 @@ const routeTree = rootRoute.addChildren([
     adminLayoutRoute.addChildren([
         adminIndexRoute,
         adminChatRoute,
-        adminQueriesRoute,
         // Data section
         dataIndexRoute,
         dataDocumentsRoute,

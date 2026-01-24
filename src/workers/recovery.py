@@ -34,8 +34,8 @@ async def recover_stale_documents() -> dict[str, Any]:
         dict: {"recovered": int, "failed": int, "total": int}
     """
     from src.api.config import settings
-    from src.core.models.chunk import Chunk
-    from src.core.models.document import Document
+    from src.core.ingestion.domain.chunk import Chunk
+    from src.core.ingestion.domain.document import Document
     from src.core.state.machine import DocumentStatus
 
     # Processing states that indicate incomplete work

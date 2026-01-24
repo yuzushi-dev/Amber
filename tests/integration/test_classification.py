@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.intelligence.classifier import DomainClassifier
-from src.core.intelligence.strategies import DocumentDomain, get_strategy
-from src.core.models.chunk import Chunk
-from src.core.models.document import Document
-from src.core.services.ingestion import IngestionService
+from src.core.generation.application.intelligence.classifier import DomainClassifier
+from src.core.generation.application.intelligence.strategies import DocumentDomain, get_strategy
+from src.core.ingestion.domain.chunk import Chunk
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
 
 

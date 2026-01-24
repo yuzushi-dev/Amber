@@ -87,9 +87,9 @@ async def _export_all_conversations_async(job_id: str, tenant_id: str, task_id: 
     from sqlalchemy.orm import sessionmaker
     
     from src.api.config import settings
-    from src.core.models.export_job import ExportJob, ExportStatus
-    from src.core.services.export_service import ExportService
-    from src.core.storage.storage_client import MinIOClient
+    from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
+    from src.core.admin_ops.application.export_service import ExportService
+    from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
     
     engine = create_async_engine(settings.db.database_url)
     
@@ -154,7 +154,7 @@ async def _mark_export_failed(job_id: str, error: str):
     from sqlalchemy.orm import sessionmaker
     
     from src.api.config import settings
-    from src.core.models.export_job import ExportJob, ExportStatus
+    from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
     
     engine = create_async_engine(settings.db.database_url)
     

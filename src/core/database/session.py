@@ -20,6 +20,22 @@ from sqlalchemy.ext.asyncio import (
 _engine: AsyncEngine | None = None
 _async_session_maker: async_sessionmaker[AsyncSession] | None = None
 
+# Database configuration holder
+_db_config: dict = {}
+
+def configure_database(
+    database_url: str,
+    pool_size: int = 5,
+    max_overflow: int = 10
+) -> None:
+    """Configure database connection parameters. Called by API layer on startup."""
+    global _db_config
+    _db_config = {
+        "database_url": database_url,
+        "pool_size": pool_size,
+        "max_overflow": max_overflow
+    }
+
 
 def get_engine() -> AsyncEngine:
     """
@@ -30,14 +46,14 @@ def get_engine() -> AsyncEngine:
     """
     global _engine
     if _engine is None:
-        from src.platform.composition_root import get_settings_lazy
-        settings = get_settings_lazy()
+        if not _db_config:
+            raise RuntimeError("Database not configured. Call configure_database() first.")
         _engine = create_async_engine(
-            settings.db.database_url,
+            _db_config["database_url"],
             echo=False,
             pool_pre_ping=True,
-            pool_size=settings.db.pool_size,
-            max_overflow=settings.db.max_overflow,
+            pool_size=_db_config.get("pool_size", 5),
+            max_overflow=_db_config.get("max_overflow", 10),
         )
     return _engine
 
@@ -98,6 +114,20 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def close_database() -> None:
+    """
+    Dispose the engine and reset globals.
+    Should be called on application shutdown.
+    """
+    global _engine, _async_session_maker
+    try:
+        if _engine:
+            await _engine.dispose()
+    finally:
+        _engine = None
+        _async_session_maker = None
 
 
 def reset_engine() -> None:

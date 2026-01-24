@@ -2,16 +2,16 @@ import argparse
 import asyncio
 import logging
 
-from src.core.graph.maintenance import GraphMaintenanceService
-from src.core.graph.neo4j_client import neo4j_client
+from src.core.graph.application.maintenance import GraphMaintenanceService
+from src.amber_platform.composition_root import platform
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def main(tenant_id: str):
-    maintenance = GraphMaintenanceService(neo4j_client)
+    maintenance = GraphMaintenanceService(platform.neo4j_client)
     await maintenance.run_maintenance(tenant_id)
-    await neo4j_client.close()
+    await platform.neo4j_client.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Maintain Knowledge Graph integrity.")
