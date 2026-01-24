@@ -128,7 +128,7 @@ class GraphWriter:
             # Trigger community staleness (Phase 4.3)
             try:
                 from src.core.graph.application.communities.lifecycle import CommunityLifecycleManager
-                lifecycle = CommunityLifecycleManager(platform.neo4j_client)
+                lifecycle = CommunityLifecycleManager(get_graph_client())
                 # Find the entity IDs from the graph (we only have names in params)
                 # We can just use names if we update lifecycle to handle names and tenant_id
                 # but it's safer to use the 'id' which we don't have here yet.

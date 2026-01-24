@@ -1,7 +1,7 @@
 import logging
 
-from src.core.graph.communities.lifecycle import CommunityLifecycleManager
-from src.core.graph.neo4j_client import Neo4jClient
+from src.core.graph.application.communities.lifecycle import CommunityLifecycleManager
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +10,9 @@ class GraphMaintenanceService:
     Service for periodic graph maintenance and integrity checks.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
-        self.neo4j = neo4j_client
-        self.lifecycle = CommunityLifecycleManager(neo4j_client)
+    def __init__(self, graph_client: GraphClientPort):
+        self.graph = graph_client
+        self.lifecycle = CommunityLifecycleManager(graph_client)
 
     async def run_maintenance(self, tenant_id: str):
         """
@@ -42,7 +42,7 @@ class GraphMaintenanceService:
         DELETE r
         RETURN count(r) as count
         """
-        result = await self.neo4j.execute_write(query, {"tenant_id": tenant_id})
+        result = await self.graph.execute_write(query, {"tenant_id": tenant_id})
         count = result[0]["count"] if result else 0
         if count > 0:
             logger.warning(f"Removed {count} broken BELONGS_TO links for tenant {tenant_id}")
@@ -59,7 +59,7 @@ class GraphMaintenanceService:
         SET c.status = 'failed', c.error = 'Stalled job timeout'
         RETURN count(c) as count
         """
-        result = await self.neo4j.execute_write(query, {"tenant_id": tenant_id})
+        result = await self.graph.execute_write(query, {"tenant_id": tenant_id})
         count = result[0]["count"] if result else 0
         if count > 0:
             logger.warning(f"Reset {count} stalled community summarization jobs for tenant {tenant_id}")

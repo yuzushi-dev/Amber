@@ -4,7 +4,7 @@ from typing import Any
 import igraph as ig
 import leidenalg
 
-from src.core.graph.neo4j_client import Neo4jClient
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.shared.identifiers import generate_community_id
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,8 @@ class CommunityDetector:
     Detects communities in the Knowledge Graph and persists them back to Neo4j.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
-        self.neo4j = neo4j_client
+    def __init__(self, graph_client: GraphClientPort):
+        self.graph = graph_client
 
     async def detect_communities(self, tenant_id: str, resolution: float = 1.0, max_levels: int = 2) -> dict[str, Any]:
         """
@@ -67,7 +67,7 @@ class CommunityDetector:
           AND NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
         RETURN s.name as source, t.name as target, type(r) as rel_type, properties(r) as props
         """
-        results = await self.neo4j.execute_read(query, {"tenant_id": tenant_id})
+        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
         nodes = set()
         edges = []
@@ -264,5 +264,4 @@ class CommunityDetector:
         batch_size = 100
         for i in range(0, len(communities), batch_size):
             batch = communities[i:i+batch_size]
-            await self.neo4j.execute_write(query, {"communities": batch, "tenant_id": tenant_id})
-
+            await self.graph.execute_write(query, {"communities": batch, "tenant_id": tenant_id})

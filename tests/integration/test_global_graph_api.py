@@ -2,7 +2,9 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from src.api.main import app
-from src.core.graph.neo4j_client import neo4j_client
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
 
 # Mock Key Object
 class MockKey:
@@ -15,7 +17,7 @@ class MockKey:
 def client():
     # We need to permit the unauthenticated request OR mock the auth process.
     # Approach: Mock ApiKeyService.validate_key
-    with patch("src.core.services.api_key_service.ApiKeyService.validate_key", new_callable=AsyncMock) as mock_validate:
+    with patch("src.core.admin_ops.application.api_key_service.ApiKeyService.validate_key", new_callable=AsyncMock) as mock_validate:
         mock_validate.return_value = MockKey()
         with TestClient(app) as c:
             yield c

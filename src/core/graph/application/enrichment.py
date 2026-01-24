@@ -1,17 +1,9 @@
-import math
-import itertools
 import logging
-from src.core.graph.domain.ports.graph_client import get_graph_client
-from src.core.graph.domain.schema import NodeLabel, RelationshipType
-from src.shared.kernel.runtime import get_settings
+import math
 
-# Import Vector Store Client (Assuming interface)
-# Ideally dependency injection, but simple import for now
-try:
-    from src.core.retrieval.infrastructure.vector_store.milvus import MilvusStore
-    # Or get from factory/gloabl
-except ImportError:
-    MilvusStore = None
+from src.core.graph.domain.ports.graph_client import GraphClientPort, get_graph_client
+from src.core.graph.domain.schema import NodeLabel, RelationshipType
+from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +14,12 @@ class GraphEnricher:
     - CO_OCCURS (Entity -> Entity) based on shared chunks (implicit or explicit).
     """
 
-    def __init__(self, neo4j_client=None, vector_store=None):
-        self.neo4j_client = neo4j_client or get_graph_client()
+    def __init__(
+        self,
+        graph_client: GraphClientPort | None = None,
+        vector_store: VectorStorePort | None = None,
+    ):
+        self.graph_client = graph_client or get_graph_client()
         self.vector_store = vector_store
 
     def _calculate_cosine_similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
@@ -99,7 +95,7 @@ class GraphEnricher:
                  """
                  # We execute one by one for simplicity and safety, though batching is faster.
                  # Given async nature and connection pooling, this is acceptable for now.
-                 await self.neo4j_client.execute_write(query, {
+                 await self.graph_client.execute_write(query, {
                      "id1": id1,
                      "id2": id2,
                      "score": score,
@@ -115,25 +111,13 @@ class GraphEnricher:
         Find similar chunks and create SIMILAR_TO edges.
         """
         if not self.vector_store:
-            # Try to lazy load or fail
-            try:
-                settings = get_settings()
-                from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
-                
-                config = MilvusConfig(
-                    host=settings.db.milvus_host,
-                    port=settings.db.milvus_port,
-                    collection_name=f"amber_{tenant_id}" 
-                )
-                self.vector_store = MilvusVectorStore(config)
-            except Exception as e:
-                logger.error(f"Vector store not available: {e}")
-                return
+            logger.error("Vector store not configured for similarity edges.")
+            return
 
         # 1. Search Vector Store
         try:
             # Assume search returns list of matches: [{"id": "...", "score": 0.8}]
-            # Implementation depends on Milvus wrapper signature
+            # Implementation depends on vector store adapter signature
             results = await self.vector_store.search(
                 query_vector=embedding,
                 tenant_id=tenant_id,
@@ -142,21 +126,12 @@ class GraphEnricher:
             )
 
             for result in results:
-                # result is expected to be a dict or object with 'id' and 'score'
-                # Adjust based on actual return type of MilvusVectorStore.search
-                # It returns list of matches. match.id, match.score?
-                # Or dict?
-                # MilvusVectorStore.search returns: List[dict] usually?
-                # Milvus wrapper usually returns dicts like {'id': ..., 'score': ...}
-                # Assuming result is dict for now based on typical implementation, 
-                # but if it's an object we might need getattr.
-                if hasattr(result, 'chunk_id'):
+                if hasattr(result, "chunk_id"):
                     other_id = result.chunk_id
                     score = result.score
                 else:
-                    # Fallback if it's a dict (e.g. mock)
-                    other_id = result.get('chunk_id') or result.get('id')
-                    score = result.get('score')
+                    other_id = result.get("chunk_id") or result.get("id")
+                    score = result.get("score")
                 
                 if other_id == chunk_id:
                     continue
@@ -168,7 +143,7 @@ class GraphEnricher:
                     MERGE (c1)-[r:{RelationshipType.SIMILAR_TO.value}]->(c2)
                     SET r.score = $score
                     """
-                    await self.neo4j_client.execute_write( 
+                    await self.graph_client.execute_write( 
                         query,
                         {"id1": chunk_id, "id2": other_id, "score": float(score)}
                     )
@@ -197,9 +172,8 @@ class GraphEnricher:
         # Note: Dynamic rel type
 
         try:
-             await self.neo4j_client.execute_write(query, {"tenant_id": tenant_id, "min_weight": min_weight})
+             await self.graph_client.execute_write(query, {"tenant_id": tenant_id, "min_weight": min_weight})
              logger.info(f"Computed co-occurrence edges for tenant {tenant_id}")
         except Exception as e:
             logger.error(f"Failed to compute co-occurrence: {e}")
 
-graph_enricher = GraphEnricher()

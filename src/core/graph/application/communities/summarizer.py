@@ -4,13 +4,13 @@ import logging
 import re
 from typing import Any
 
-from src.core.graph.neo4j_client import Neo4jClient
-from src.core.prompts.community_summary import (
+from src.core.graph.domain.ports.graph_client import GraphClientPort
+from src.core.generation.application.prompts.community_summary import (
     COMMUNITY_SUMMARY_SYSTEM_PROMPT,
     COMMUNITY_SUMMARY_USER_PROMPT,
 )
-from src.core.providers.base import ProviderTier
-from src.core.providers.factory import ProviderFactory
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class CommunitySummarizer:
     Generates structured reports for communities using LLMs.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, provider_factory: ProviderFactory):
-        self.neo4j = neo4j_client
+    def __init__(self, graph_client: GraphClientPort, provider_factory: ProviderFactoryPort):
+        self.graph = graph_client
         self.factory = provider_factory
         # Use Economy tier for summarization as it's often a high-volume task
         self.llm = self.factory.get_llm_provider(tier=ProviderTier.ECONOMY)
@@ -79,7 +79,7 @@ class CommunitySummarizer:
         except Exception as e:
             logger.error(f"Failed to summarize community {community_id}: {e}")
             # Set a failure status on the node
-            await self.neo4j.execute_write(
+            await self.graph.execute_write(
                 "MATCH (c:Community {id: $id}) SET c.status = 'failed', c.error = $error",
                 {"id": community_id, "error": str(e)}
             )
@@ -96,7 +96,7 @@ class CommunitySummarizer:
         RETURN c.id as id
         ORDER BY c.level ASC
         """
-        results = await self.neo4j.execute_read(query, {"tenant_id": tenant_id})
+        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
         community_ids = [r["id"] for r in results]
         logger.info(f"Found {len(community_ids)} communities needing summarization for tenant {tenant_id}")
@@ -145,10 +145,10 @@ class CommunitySummarizer:
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
-        entities = await self.neo4j.execute_read(entity_query, {"id": community_id})
-        relationships = await self.neo4j.execute_read(rel_query, {"id": community_id})
-        child_summaries = await self.neo4j.execute_read(child_query, {"id": community_id})
-        text_units = await self.neo4j.execute_read(chunk_query, {"id": community_id})
+        entities = await self.graph.execute_read(entity_query, {"id": community_id})
+        relationships = await self.graph.execute_read(rel_query, {"id": community_id})
+        child_summaries = await self.graph.execute_read(child_query, {"id": community_id})
+        text_units = await self.graph.execute_read(chunk_query, {"id": community_id})
 
         return {
             "entities": entities,
@@ -214,4 +214,4 @@ class CommunitySummarizer:
             "key_entities": summary.get("key_entities", []),
             "findings": summary.get("findings", [])
         }
-        await self.neo4j.execute_write(query, params)
+        await self.graph.execute_write(query, params)

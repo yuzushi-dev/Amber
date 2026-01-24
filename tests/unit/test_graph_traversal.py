@@ -1,8 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.graph.neo4j_client import Neo4jClient
-from src.core.retrieval.search.graph_traversal import GraphTraversalService
+from src.core.graph.infrastructure.neo4j_client import Neo4jClient
+from src.core.retrieval.application.search.graph_traversal import GraphTraversalService
 
 
 def test_beam_search_basic():

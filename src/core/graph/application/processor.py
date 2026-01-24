@@ -2,11 +2,11 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from src.core.extraction.graph_extractor import GraphExtractor
-from src.core.graph.writer import graph_writer
+from src.core.graph.application.writer import graph_writer
+from src.core.graph.domain.ports.graph_extractor import GraphExtractorPort, get_graph_extractor
 
 if TYPE_CHECKING:
-    from src.core.models.chunk import Chunk
+    from src.core.ingestion.domain.chunk import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +16,8 @@ class GraphProcessor:
     Takes chunks, runs extraction, and writes to Neo4j.
     """
 
-    def __init__(self):
-        # Configuration could be passed here
-        self.extractor = GraphExtractor(use_gleaning=True)
+    def __init__(self, graph_extractor: GraphExtractorPort | None = None):
+        self.extractor = graph_extractor
         self.writer = graph_writer
 
     async def process_chunks(self, chunks: list["Chunk"], tenant_id: str, filename: str = None):
@@ -41,7 +40,8 @@ class GraphProcessor:
                     if len(chunk.content) < 50:
                         return
 
-                    result = await self.extractor.extract(chunk.content)
+                    extractor = self.extractor or get_graph_extractor()
+                    result = await extractor.extract(chunk.content)
 
                     if result.entities:
                         await self.writer.write_extraction_result(

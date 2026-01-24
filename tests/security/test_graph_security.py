@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.core.retrieval.search.graph import GraphSearcher
+from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.security.graph_traversal_guard import GraphTraversalGuard
 
 
