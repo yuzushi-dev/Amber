@@ -353,11 +353,11 @@ Amber follows a microservices architecture designed for scalability, resilience,
 
 Amber's ingestion pipeline moves beyond simple text splitting by employing **structure-aware semantic chunking**.
 
-*   **Hierarchy-First Splitting**: The `SemanticChunker` (`src/core/chunking/semantic.py`) respects document anatomy. It protects code blocks first, then splits by:
+*   **Hierarchy-First Splitting**: The `SemanticChunker` (`src/core/ingestion/application/chunking/semantic.py`) respects document anatomy. It protects code blocks first, then splits by:
     1.  **Markdown Headers** (`#`, `##`, ...) to preserve topological context.
     2.  **Paragraphs** (`\n\n`) to maintain flow.
     3.  **Sentences** (via regex) as a last resort for dense text.
-*   **Domain-Adaptive Sizing**: Chunk sizes and overlaps are automatically optimized based on document type (defined in `src/core/intelligence/strategies.py`):
+*   **Domain-Adaptive Sizing**: Chunk sizes and overlaps are automatically optimized based on document type (defined in `src/core/generation/application/intelligence/strategies.py`):
     *   **General** (Default): 600 tokens / 50 overlap
     *   **Technical** (Code/Manuals): 800 tokens / 50 overlap
     *   **Scientific/Legal**: 1000 tokens / 100 overlap
@@ -400,7 +400,7 @@ Retrieval is handled by a sophisticated orchestration layer that combines determ
     *   **Graph Fusion**: These results are then fused with graph traversals.
     *   Formula: `score = sum(weight / (k + rank))`
     *   This ensures that a document appearing in *both* top-lists is ranked significantly higher than one appearing in only one.
-*   **Drift Search (Agentic)**: Defined in `DriftSearchService`, this is our most powerful retrieval mode:
+*   **Drift Search (Agentic)**: Defined in `DriftSearchService` (`src/core/retrieval/application/search/drift_search.py`), this is our most powerful retrieval mode:
     1.  **Primer**: Performs an initial standard retrieval (Top-5) to get a baseline context.
     2.  **Expansion Loop**: The LLM analyzes the Primer results and generates **Follow-Up Questions**. These sub-queries are executed to "drift" to related graph neighborhoods.
     3.  **Synthesis**: All accumulated context (Primer + Expansion) is deduplicated and fed to the LLM for a final, citation-backed answer.
@@ -409,7 +409,7 @@ Retrieval is handled by a sophisticated orchestration layer that combines determ
 
 For complex queries requiring multi-step reasoning, Amber employs a full **Agentic RAG** architecture using a ReAct (Reason+Act) loop.
 
-*   **Agent Orchestrator**: The `AgentOrchestrator` (`src/core/agent/orchestrator.py`) manages the loop:
+*   **Agent Orchestrator**: The `AgentOrchestrator` (`src/core/generation/application/agent/orchestrator.py`) manages the loop:
     1.  Receive query → LLM decides: call a tool OR give final answer.
     2.  If tool: execute, append result to context, repeat.
     3.  Max 10 steps to prevent infinite loops.
@@ -782,7 +782,7 @@ make migrate      # Run migrations
 
 ## Testing
 
-See [TESTING.md](TESTING.md) for a comprehensive guide on running unit, integration, and E2E tests.
+See [docs/TESTING.md](docs/TESTING.md) for a comprehensive guide on running unit, integration, and E2E tests.
 ```bash
 make test          # Run all tests
 make test-unit     # Unit tests only
@@ -872,7 +872,7 @@ Document Ready
 
 #### 1. Storage Layer
 
-**Implementation**: [src/core/storage/storage_client.py](src/core/storage/storage_client.py:1)
+**Implementation**: [src/core/ingestion/infrastructure/storage/storage_client.py](src/core/ingestion/infrastructure/storage/storage_client.py)
 
 - Raw documents stored in **MinIO** (S3-compatible object storage)
 - Content-addressed storage using SHA-256 hashing
@@ -881,7 +881,7 @@ Document Ready
 
 #### 2. Format Detection & Extraction
 
-**Implementation**: [src/core/extraction/api/](src/core/extraction/api/)
+**Implementation**: [src/core/ingestion/infrastructure/extraction/](src/core/ingestion/infrastructure/extraction/)
 
 Multi-parser fallback strategy:
 
@@ -908,7 +908,7 @@ async def extract_pdf(file_content: bytes) -> str:
 
 #### 3. Semantic Chunking
 
-**Implementation**: [src/core/chunking/semantic.py](src/core/chunking/semantic.py:35)
+**Implementation**: [src/core/ingestion/application/chunking/semantic.py](src/core/ingestion/application/chunking/semantic.py)
 
 **Hierarchical Splitting Strategy**:
 
@@ -966,7 +966,7 @@ Output:
 
 #### 4. Embedding Generation
 
-**Implementation**: [src/core/services/embeddings.py](src/core/services/embeddings.py:46)
+**Implementation**: [src/core/graph/application/communities/embeddings.py](src/core/graph/application/communities/embeddings.py)
 
 **Production-Grade Embedding Pipeline**:
 
@@ -1003,7 +1003,7 @@ async def _embed_batch_with_retry(texts, model):
 
 **Semantic Caching**:
 
-**Implementation**: [src/core/cache/semantic_cache.py](src/core/cache/semantic_cache.py:37)
+**Implementation**: [src/core/cache/semantic_cache.py](src/core/cache/semantic_cache.py)
 
 ```python
 # Cache embeddings to avoid re-computation
@@ -1026,7 +1026,7 @@ else:
 
 #### 5. Graph Extraction
 
-**Implementation**: [src/core/extraction/graph_extractor.py](src/core/extraction/graph_extractor.py:16)
+**Implementation**: [src/core/ingestion/infrastructure/extraction/graph_extractor.py](src/core/ingestion/infrastructure/extraction/graph_extractor.py)
 
 **Two-Pass Extraction with Gleaning**:
 
@@ -1099,7 +1099,7 @@ for iteration in range(max_gleaning_steps):  # default: 1
 
 #### 6. Vector Storage (Milvus)
 
-**Implementation**: [src/core/vector_store/milvus.py](src/core/vector_store/milvus.py:1)
+**Implementation**: [src/core/retrieval/infrastructure/vector_store/milvus.py](src/core/retrieval/infrastructure/vector_store/milvus.py)
 
 **Collection Schema**:
 ```python
@@ -1140,7 +1140,7 @@ results = collection.search(
 
 #### 7. Graph Storage (Neo4j)
 
-**Implementation**: [src/core/graph/neo4j_client.py](src/core/graph/neo4j_client.py:1)
+**Implementation**: [src/core/graph/infrastructure/neo4j_client.py](src/core/graph/infrastructure/neo4j_client.py)
 
 **Graph Schema**:
 
@@ -1182,7 +1182,7 @@ async def write_entities(entities: List[Entity]):
 
 #### 8. Community Detection (Leiden Algorithm)
 
-**Implementation**: [src/core/graph/communities/leiden.py](src/core/graph/communities/leiden.py:12)
+**Implementation**: [src/core/graph/application/communities/leiden.py](src/core/graph/application/communities/leiden.py)
 
 **Hierarchical Leiden Clustering**:
 
@@ -1335,7 +1335,7 @@ Response
 
 #### 1. Query Rewriting
 
-**Implementation**: [src/core/query/rewriter.py](src/core/query/rewriter.py:19)
+**Implementation**: [src/core/retrieval/application/query/rewriter.py](src/core/retrieval/application/query/rewriter.py)
 
 **Purpose**: Convert context-dependent queries into standalone versions.
 
@@ -1374,7 +1374,7 @@ rewritten = await llm.generate(prompt, temperature=0.0)
 
 #### 2. Query Parsing & Filtering
 
-**Implementation**: [src/core/query/parser.py](src/core/query/parser.py:1)
+**Implementation**: [src/core/retrieval/application/query/parser.py](src/core/retrieval/application/query/parser.py)
 
 **Extract Structured Filters**:
 
@@ -1401,7 +1401,7 @@ parsed = QueryParser.parse(query)
 
 #### 3. Query Routing
 
-**Implementation**: [src/core/query/router.py](src/core/query/router.py:1)
+**Implementation**: [src/core/retrieval/application/query/router.py](src/core/retrieval/application/query/router.py)
 
 **Automatic Search Mode Selection**:
 
@@ -1440,7 +1440,7 @@ async def route(query: str) -> SearchMode:
 
 **HyDE (Hypothetical Document Embeddings)**
 
-**Implementation**: [src/core/query/hyde.py](src/core/query/hyde.py:19)
+**Implementation**: [src/core/retrieval/application/query/hyde.py](src/core/retrieval/application/query/hyde.py)
 
 **Technique**: Generate hypothetical answers, embed them instead of the query.
 
@@ -1478,7 +1478,7 @@ if avg_similarity < 0.7:
 
 **Query Decomposition**
 
-**Implementation**: [src/core/query/decomposer.py](src/core/query/decomposer.py:1)
+**Implementation**: [src/core/retrieval/application/query/decomposer.py](src/core/retrieval/application/query/decomposer.py)
 
 **Technique**: Break complex multi-part questions into sub-queries.
 
@@ -1521,7 +1521,7 @@ results = milvus.search(
 
 **Local Mode: Entity-Focused Graph Traversal**
 
-**Implementation**: [src/core/retrieval/search/graph.py](src/core/retrieval/search/graph.py:1)
+**Implementation**: [src/core/retrieval/application/search/graph_search.py](src/core/retrieval/application/search/graph_search.py)
 
 ```python
 # 1. Find entities matching query
@@ -1548,7 +1548,7 @@ for entity in entities:
 
 **Global Mode: Community Summary Map-Reduce**
 
-**Implementation**: [src/core/retrieval/global_search.py](src/core/retrieval/global_search.py:1)
+**Implementation**: [src/core/retrieval/application/search/global_search.py](src/core/retrieval/application/search/global_search.py)
 
 ```python
 # 1. Search community summaries
@@ -1583,7 +1583,7 @@ Question: {query}
 
 **Drift Mode: Iterative Agentic Search**
 
-**Implementation**: [src/core/retrieval/drift_search.py](src/core/retrieval/drift_search.py:10)
+**Implementation**: [src/core/retrieval/application/search/drift_search.py](src/core/retrieval/application/search/drift_search.py)
 
 DRIFT = **D**ynamic **R**easoning and **I**nference with **F**lexible **T**raversal
 
@@ -1678,7 +1678,7 @@ return format_list(results)
 
 **Reciprocal Rank Fusion (RRF)**
 
-**Implementation**: [src/core/retrieval/fusion.py](src/core/retrieval/fusion.py:1)
+**Implementation**: [src/core/retrieval/application/search/fusion.py](src/core/retrieval/application/search/fusion.py)
 
 When combining results from multiple sources (vector + graph + entity), use RRF:
 
@@ -1721,7 +1721,7 @@ Fused: [A, B, C, E, D, F, G]
 
 **Semantic Reranking**
 
-**Implementation**: [src/core/providers/local.py](src/core/providers/local.py:1) (FlashRank)
+**Implementation**: [src/core/generation/infrastructure/providers/local.py](src/core/generation/infrastructure/providers/local.py) (FlashRank)
 
 After fusion, rerank top-k candidates using a cross-encoder:
 
@@ -1746,7 +1746,7 @@ reranked = await reranker.rerank(
 
 #### 7. Answer Generation
 
-**Implementation**: [src/core/services/generation.py](src/core/services/generation.py:1)
+**Implementation**: [src/core/generation/application/generation_service.py](src/core/generation/application/generation_service.py)
 
 **Prompt Engineering**:
 
@@ -1865,7 +1865,7 @@ results = await asyncio.gather(
 
 #### Circuit Breaker
 
-**Implementation**: [src/core/system/circuit_breaker.py](src/core/system/circuit_breaker.py:1)
+**Implementation**: [src/core/system/circuit_breaker.py](src/core/system/circuit_breaker.py)
 
 Prevents cascade failures:
 
