@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.core.providers.base import GenerationResult, ProviderUnavailableError, TokenUsage
-from src.core.providers.failover import FailoverLLMProvider
-from src.core.providers.resilience import CircuitBreaker, CircuitState
+from src.core.generation.infrastructure.providers.base import GenerationResult, ProviderUnavailableError, TokenUsage
+from src.core.generation.infrastructure.providers.failover import FailoverLLMProvider
+from src.core.generation.infrastructure.providers.resilience import CircuitBreaker, CircuitState
 
 
 class TestCircuitBreaker:

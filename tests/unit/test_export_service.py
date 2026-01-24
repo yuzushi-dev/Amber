@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.models.export_job import ExportJob, ExportStatus
-from src.core.models.memory import ConversationSummary
+from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
+from src.core.generation.domain.memory_models import ConversationSummary
 # Import all models to ensure SQLAlchemy relationships resolve properly
-from src.core.models.document import Document
-from src.core.models.folder import Folder
-from src.core.models.chunk import Chunk
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.folder import Folder
+from src.core.ingestion.domain.chunk import Chunk
 
 
 class TestExportService:
@@ -74,12 +74,11 @@ class TestExportService:
         mock_result.scalar_one_or_none.return_value = sample_conversation
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        with patch("src.core.services.export_service.MinIOClient", return_value=mock_storage):
-            from src.core.services.export_service import ExportService
+        from src.core.admin_ops.application.export_service import ExportService
 
-            service = ExportService(mock_session, mock_storage)
-            
-            zip_bytes = await service.generate_single_conversation_zip("conv_123")
+        service = ExportService(mock_session, mock_storage)
+        
+        zip_bytes = await service.generate_single_conversation_zip("conv_123")
 
         # Verify ZIP is valid and has expected files
         assert len(zip_bytes) > 0
@@ -109,7 +108,7 @@ class TestExportService:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        from src.core.services.export_service import ExportService
+        from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
 
@@ -135,7 +134,7 @@ class TestExportService:
         # Return conversation first, then document
         mock_session.execute = AsyncMock(side_effect=[mock_conv_result, mock_doc_result])
 
-        from src.core.services.export_service import ExportService
+        from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
         
@@ -169,7 +168,7 @@ class TestExportService:
         # Storage raises FileNotFoundError
         mock_storage.get_file = MagicMock(side_effect=FileNotFoundError("File not found"))
 
-        from src.core.services.export_service import ExportService
+        from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
         
@@ -204,7 +203,7 @@ class TestExportService:
         mock_result.scalar_one_or_none.return_value = conv
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        from src.core.services.export_service import ExportService
+        from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
         

@@ -1,8 +1,8 @@
 import pytest
 import pytest_asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
-from src.core.services.tuning import TuningService
-from src.core.providers.base import BaseLLMProvider
+from src.core.admin_ops.application.tuning_service import TuningService
+from src.core.generation.infrastructure.providers.base import BaseLLMProvider
 
 @pytest.mark.asyncio
 async def test_analyze_feedback_positive_ignores():
@@ -35,7 +35,7 @@ async def test_analyze_feedback_retrieval_failure_suggestion():
     # Return JSON indicating retrieval failure
     mock_llm.generate = AsyncMock(return_value='{"reason": "RETRIEVAL_FAILURE", "confidence": 0.9, "explanation": "Context missing"}')
     
-    with patch("src.core.services.tuning.get_llm_provider", return_value=mock_llm):
+    with patch("src.core.admin_ops.application.tuning_service.get_llm_provider", return_value=mock_llm):
         with patch.object(service, "get_tenant_config", new_callable=AsyncMock) as mock_config:
             with patch.object(service, "update_tenant_weights", new_callable=AsyncMock) as mock_update:
                  

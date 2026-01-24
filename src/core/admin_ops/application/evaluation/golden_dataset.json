@@ -1,0 +1,17 @@
+[
+    {
+        "query": "What are the core components of the GraphRAG system?",
+        "ideal_context": "The system combines Milvus for vector search and Neo4j for graph-based retrieval, using a hybrid fusion approach with RRF.",
+        "ideal_answer": "The core components are Milvus (vector store), Neo4j (graph database), and a hybrid retrieval service that uses Reciprocal Rank Fusion (RRF) to combine results."
+    },
+    {
+        "query": "How does the system handle multi-hop queries?",
+        "ideal_context": "Multi-hop queries are handled via a Beam Search traversal on the Neo4j knowledge graph starting from extracted entities.",
+        "ideal_answer": "It uses a GraphTraversalService that implements a Beam Search algorithm to explore entities and relationships in Neo4j across multiple hops."
+    },
+    {
+        "query": "Who is the lead developer of Amber?",
+        "ideal_context": "Amber 2.0 is a project by the Core Engineering team, with no single lead developer publicly specified in the internal docs.",
+        "ideal_answer": "According to internal documentation, Amber 2.0 is developed by the Core Engineering team."
+    }
+]
