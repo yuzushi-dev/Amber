@@ -1,4 +1,4 @@
-from src.core.quality.citation_verifier import CitationVerifier
+from src.core.admin_ops.application.quality.citation_verifier import CitationVerifier
 
 
 def test_citation_verifier_grounding():

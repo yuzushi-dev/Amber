@@ -11,9 +11,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.services.ingestion import IngestionService
+from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
-from src.core.storage.storage_client import MinIOClient
+from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
 
 # Helper to clear data

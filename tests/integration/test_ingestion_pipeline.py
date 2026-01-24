@@ -22,8 +22,8 @@ from httpx import ASGITransport, AsyncClient
 
 from src.api.config import settings
 from src.api.main import app
-from src.core.graph.neo4j_client import neo4j_client
-from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
+from src.amber_platform.composition_root import platform, build_session_factory
+from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
 
 # Test PDF content as bytes
 TEST_PDF_CONTENT = b"""%PDF-1.4
@@ -143,7 +143,20 @@ def test_pdf_file() -> tuple[str, bytes, str]:
 
 
 class TestIngestionPipeline:
-    """Integration tests for the complete ingestion pipeline."""
+    @pytest.fixture(autouse=True)
+    async def setup_api_key(self, api_key: str):
+        """Ensure API key exists in DB."""
+        from src.core.admin_ops.application.api_key_service import ApiKeyService
+
+        session_maker = build_session_factory()
+        async with session_maker() as session:
+            service = ApiKeyService(session)
+            await service.ensure_bootstrap_key(api_key, name="Test Integration Key")
+        
+        # Close database to release engine bound to this loop
+        from src.core.database.session import close_database
+        await close_database()
+
 
     @pytest.mark.asyncio
     async def test_complete_pipeline(
@@ -168,8 +181,23 @@ class TestIngestionPipeline:
 
         # Force eager execution to run tasks synchronously in the test process
         from src.workers.celery_app import celery_app
+        import src.workers.tasks # Register tasks for eager execution
         celery_app.conf.task_always_eager = True
         celery_app.conf.task_eager_propagates = True
+
+        # Step 0: Ensure clean state (Drop Milvus Collection)
+        print("\n0. Cleaning up Milvus...")
+        try:
+            config = MilvusConfig(
+                host=settings.db.milvus_host,
+                port=settings.db.milvus_port,
+                collection_name=f"amber_default"
+            )
+            store = MilvusVectorStore(config)
+            await store.drop_collection()
+            print("   ✓ Milvus collection dropped")
+        except Exception as e:
+            print(f"   ⚠️ Milvus cleanup warning: {e}")
 
         # Step 1: Upload document
         print("\n1. Uploading document...")
@@ -260,6 +288,19 @@ class TestIngestionPipeline:
 
         # Step 6: Verify Neo4j graph structure
         print("6. Verifying Neo4j graph...")
+        # Ensure we use the platform client which is managed (or not? Test creates its own mostly for connection control?)
+        # platform.neo4j_client might not be initialized if we didn't call platform.initialize().
+        # api.main calls platform.initialize() on startup.
+        # But we are using AsyncClient with ASGITransport(app=app).
+        # We need to make sure startup event ran.
+        # But for direct verification in test code, we can access platform.neo4j_client.
+        # Wait, if app is not running via Uvicorn, startup events might run via TestClient?
+        # httpx AsyncClient blocks startup?
+        # If not, we should manually initialize platform or assume app did it.
+        # Let's assume app did it or we do it.
+        
+        # Accessing platform.neo4j_client property will lazy init if not explicit.
+        neo4j_client = platform.neo4j_client
         await neo4j_client.connect()
 
         try:
@@ -295,7 +336,7 @@ class TestIngestionPipeline:
             print(f"   ✓ Neo4j verified: 1 doc, {neo4j_chunks} chunks, {neo4j_entities} entities")
 
         finally:
-            await neo4j_client.close()
+            pass
 
         # Step 7: Verify Milvus embeddings
         print("7. Verifying Milvus embeddings...")
@@ -311,8 +352,9 @@ class TestIngestionPipeline:
         try:
             milvus_results = vector_store._collection.query(
                 expr=f'document_id == "{document_id}"',
-                output_fields=["chunk_id", "document_id"],
-                limit=100
+                output_fields=["chunk_id", "document_id", "tenant_id"],
+                limit=100,
+                consistency_level="Strong"
             )
 
             assert len(milvus_results) == len(chunks), f"Milvus mismatch: {len(milvus_results)} vs {len(chunks)}"
@@ -345,7 +387,7 @@ class TestIngestionPipeline:
              # Let's assert >= 0. But to verify it works, ideally > 0.
              print(f"   ✓ Similarity edges found: {similarity_count}")
         finally:
-             await neo4j_client.close()
+             pass
 
         # Step 9: Verify Communities (Background Task)
         print("9. Verifying Communities...")
@@ -394,7 +436,7 @@ class TestIngestionPipeline:
                 # Don't fail the test yet if strictly ingestion pipeline, but user asked "are communities created?"
                 # So we should probably warn or assert.
         finally:
-            await neo4j_client.close()
+            pass
 
         print("\n✅ All pipeline stages verified!")
 
