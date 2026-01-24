@@ -3,9 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.core.graph.communities.leiden import CommunityDetector
-from src.core.graph.communities.summarizer import CommunitySummarizer
-from src.core.graph.neo4j_client import neo4j_client
+from src.core.graph.application.communities.leiden import CommunityDetector
+from src.core.graph.application.communities.summarizer import CommunitySummarizer
+from src.amber_platform.composition_root import platform
+neo4j_client = platform.neo4j_client
+
 
 
 @pytest.mark.asyncio
@@ -23,15 +25,32 @@ async def test_full_community_pipeline():
         query_str = query.strip()
         if "RETURN count(c)" in query_str:
             return [{"count": 2}]
-        # Mock graph data for Community Detector
-        # It likely queries nodes and relationships to build the graph
-        if "MATCH" in query_str and "RETURN" in query_str and "id" in query_str:
-             # Return minimal graph data format expected by standard graph loaders
-             # Assuming it asks for n.id, m.id, etc.
+        
+        # Handle "find stale communities" query (Summarizer)
+        if "RETURN c.id as id" in query_str:
+            return [{"id": "comm_1"}, {"id": "comm_2"}]
+            
+        # Handle "fetch graph" query (Leiden)
+        # Matches: properties(r) as props
+        if "properties(r) as props" in query_str:
              return [
                  {"source": "e1", "target": "e2", "rel_type": "RELATED_TO", "props": {"weight": 1.0}},
                  {"source": "e3", "target": "e4", "rel_type": "RELATED_TO", "props": {"weight": 1.0}}
              ]
+
+        # Handle "fetch community relationships" query (Summarizer)
+        # Matches: type(r) as type, r.description as description
+        if "type(r) as type" in query_str:
+             return [
+                 {"source": "e1", "target": "e2", "type": "RELATED_TO", "description": "Rel Desc"},
+                 {"source": "e3", "target": "e4", "type": "RELATED_TO", "description": "Rel Desc"}
+             ]
+             
+        # Handle entity/relationship fetching in Summarizer
+        # Matches: RETURN e.name as name
+        if "RETURN e.name as name" in query_str:
+            return [{"name": "Entity A", "type": "Org", "description": "Desc"}]
+            
         return []
 
     neo4j_client.execute_read = AsyncMock(side_effect=mock_read)

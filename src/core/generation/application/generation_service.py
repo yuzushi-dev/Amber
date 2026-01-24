@@ -12,11 +12,13 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.generation.application.context_builder import ContextBuilder
 from src.core.generation.application.registry import PromptRegistry
-from src.core.admin_ops.infrastructure.observability.tracer import trace_span
-from src.core.generation.infrastructure.providers.base import BaseLLMProvider, ProviderTier
-from src.core.generation.infrastructure.providers.factory import ProviderFactory
+from src.shared.kernel.observability import trace_span
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.security.source_verifier import SourceVerifier
 
 logger = logging.getLogger(__name__)
@@ -85,27 +87,38 @@ class GenerationService:
 
     def __init__(
         self,
-        llm_provider: BaseLLMProvider | None = None,
+        llm_provider: LLMProviderPort | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
         ollama_base_url: str | None = None,
         default_llm_provider: str | None = None,
         default_llm_model: str | None = None,
         config: GenerationConfig | None = None,
+        document_repository: DocumentRepository | None = None,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
+        self.document_repository = document_repository
 
         if llm_provider:
             self.llm = llm_provider
         else:
-            factory = ProviderFactory(
-                openai_api_key=openai_api_key,
-                anthropic_api_key=anthropic_api_key,
-                ollama_base_url=ollama_base_url,
-                default_llm_provider=default_llm_provider,
-                default_llm_model=default_llm_model,
-            )
+            if (
+                openai_api_key
+                or anthropic_api_key
+                or ollama_base_url
+                or default_llm_provider
+                or default_llm_model
+            ):
+                factory = build_provider_factory(
+                    openai_api_key=openai_api_key,
+                    anthropic_api_key=anthropic_api_key,
+                    ollama_base_url=ollama_base_url,
+                    default_llm_provider=default_llm_provider,
+                    default_llm_model=default_llm_model,
+                )
+            else:
+                factory = get_provider_factory()
             self.llm = factory.get_llm_provider(tier=self.config.tier)
 
         self.verifier = SourceVerifier()
@@ -516,7 +529,10 @@ class GenerationService:
 
         return follow_ups[:3]
 
-    async def _get_document_titles(self, candidates: list[Any]) -> dict[str, str]:
+    async def _get_document_titles(
+        self,
+        candidates: list[Any],
+    ) -> dict[str, str]:
         """
         Fetch document titles (filenames) from database for display in sources.
 
@@ -540,24 +556,9 @@ class GenerationService:
             return {}
 
         try:
-            from sqlalchemy import select
-            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-            from sqlalchemy.orm import sessionmaker
-
-            from src.shared.kernel.runtime import get_settings
-            settings = get_settings()
-            from src.core.ingestion.domain.document import Document
-
-            engine = create_async_engine(settings.db.database_url)
-            async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-            async with async_session() as session:
-                result = await session.execute(
-                    select(Document.id, Document.filename).where(Document.id.in_(list(doc_ids)))
-                )
-                rows = result.all()
-
-                return {row.id: row.filename for row in rows}
+            if not self.document_repository:
+                return {}
+            return await self.document_repository.get_titles_by_ids(list(doc_ids))
 
         except Exception as e:
             logger.warning(f"Failed to fetch document titles: {e}")

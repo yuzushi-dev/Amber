@@ -7,7 +7,6 @@ import logging
 from unittest.mock import MagicMock, AsyncMock, patch
 from src.api.schemas.query import SearchMode
 
-# ----------------------------------------------------------------------
 # 1. Environment Overrides
 # ----------------------------------------------------------------------
 import os
@@ -15,27 +14,27 @@ import sys
 sys.path.append(os.getcwd())
 
 # DATABASE_URL is now handled by the runner or inherits from env
-# os.environ["DATABASE_URL"] = "postgresql+asyncpg://graphrag:graphrag@localhost:5433/graphrag"
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "postgresql+asyncpg://graphrag:graphrag@localhost:5433/graphrag_test"
-os.environ["REDIS_URL"] = "redis://localhost:6379/0"
-os.environ["MILVUS_HOST"] = "localhost"
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://graphrag:graphrag@127.0.0.1:5433/graphrag_test"
+os.environ["REDIS_URL"] = "redis://127.0.0.1:6379/0"
+os.environ["MILVUS_HOST"] = "127.0.0.1"
 os.environ["MILVUS_PORT"] = "19530"
 os.environ["OPENAI_API_KEY"] = "sk-test-key-mock"
 
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import text 
+from src.core.generation.infrastructure.providers.base import GenerationResult as LLMGenerationResult, TokenUsage
+from src.core.generation.application.generation_service import GenerationResult as AppGenerationResult
 
 # ----------------------------------------------------------------------
 # 2. Application Imports
 # ----------------------------------------------------------------------
 from src.api.main import app
-from src.core.database.session import get_session_maker
-from src.core.models.document import Document
-from src.core.models.chunk import Chunk
-from src.core.models.memory import UserFact, ConversationSummary
+from src.core.database.session import get_session_maker, configure_database, reset_engine
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.chunk import Chunk
+from src.core.generation.domain.memory_models import UserFact, ConversationSummary
 from src.core.state.machine import DocumentStatus
-from src.core.vector_store.milvus import SearchResult
+from src.core.retrieval.infrastructure.vector_store.milvus import SearchResult
 
 # ----------------------------------------------------------------------
 # 3. Test Class
@@ -50,65 +49,79 @@ class TestChatPipelineComprehensive:
     async def setup_dependencies(self):
         """Mock all external dependencies securely."""
         
+        # 0. Provider Factory Patch (Global)
+        self.mock_factory = MagicMock()
+        self.mock_factory.get_embedding_provider.return_value = AsyncMock()
+        self.mock_factory.get_llm_provider.return_value = AsyncMock()
+        self.mock_factory.get_reranker_provider.return_value = AsyncMock()
+        
+        self.patch_factory_builder = patch("src.core.generation.domain.ports.provider_factory._provider_factory_builder", return_value=self.mock_factory).start()
+
+        # 0.1 Configure Database explicitly
+        reset_engine()
+        configure_database(
+            database_url=os.environ["DATABASE_URL"],
+            pool_size=5,
+            max_overflow=10
+        )
+
         # 1. Vector Store
-        self.mock_vector_store_cls = patch("src.core.services.retrieval.MilvusVectorStore").start()
+        self.mock_vector_store_cls = patch("src.core.retrieval.infrastructure.vector_store.milvus.MilvusVectorStore").start()
         self.mock_vector_store = self.mock_vector_store_cls.return_value
         self.mock_vector_store.search = AsyncMock(return_value=[]) 
         self.mock_vector_store.disconnect = AsyncMock()
         
         # 2. Embedding
-        self.mock_embed_cls = patch("src.core.services.retrieval.EmbeddingService").start()
-        self.mock_embed = self.mock_embed_cls.return_value
-        self.mock_embed.embed_single = AsyncMock(return_value=[0.1] * 1536)
+        from src.core.retrieval.application.embeddings_service import EmbeddingService
+        self.mock_embed_service = MagicMock(spec=EmbeddingService)
+        self.mock_embed_service.embed_single = AsyncMock(return_value=[0.1]*1536)
         
-        # 3. Reranker & Sparse (Disable/Mock)
-        patch("src.core.services.retrieval.BaseRerankerProvider").start()
-        patch("src.core.services.retrieval.SparseEmbeddingService").start()
-        
-        # 4. Query Router - CRITICAL FIX: Force VECTOR mode to avoid LLM dependency in routing
-        self.mock_router_cls = patch("src.core.services.retrieval.QueryRouter").start()
-        self.mock_router = self.mock_router_cls.return_value
-        self.mock_router.route = AsyncMock(return_value=SearchMode.BASIC)
+        # 3. Reranker
+        from src.core.generation.infrastructure.providers.base import BaseRerankerProvider
+        self.mock_reranker = MagicMock(spec=BaseRerankerProvider)
 
-        # 5. Caches
-        self.mock_result_cache_cls = patch("src.core.services.retrieval.ResultCache").start()
+        # 3.1 Caches (Must be patched BEFORE RetrievalService init)
+        self.mock_result_cache_cls = patch("src.core.retrieval.application.retrieval_service.ResultCache").start()
         self.mock_result_cache = self.mock_result_cache_cls.return_value
         self.mock_result_cache.get = AsyncMock(return_value=None)
         self.mock_result_cache.set = AsyncMock()
         
-        self.mock_semantic_cache_cls = patch("src.core.services.retrieval.SemanticCache").start()
+        self.mock_semantic_cache_cls = patch("src.core.retrieval.application.retrieval_service.SemanticCache").start()
         self.mock_semantic_cache_cls.return_value.get = AsyncMock(return_value=None)
         self.mock_semantic_cache_cls.return_value.set = AsyncMock()
+        
+        # 4. Retrieval Service
+        # 4. Retrieval Service
+        from src.core.retrieval.application.retrieval_service import RetrievalService
+        from src.core.generation.infrastructure.providers.base import ProviderTier
+        mock_config = MagicMock(enable_reranking=False, enable_hybrid=False, top_k=5)
+        mock_config.llm_tier = ProviderTier.ECONOMY
+        self.mock_neo4j = AsyncMock() # Neo4j client mock
+        
+        from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+        self.mock_doc_repo = MagicMock(spec=DocumentRepository)
+        self.mock_doc_repo.get_chunks = AsyncMock(return_value=[])
 
-        # 6. Config (Ensure Reranking is Disabled)
-        self.mock_config_cls = patch("src.core.services.retrieval.RetrievalConfig").start()
-        # Important: Set attributes on the return_value instance, not the class mock
-        conf_instance = self.mock_config_cls.return_value
-        conf_instance.enable_reranking = False
-        conf_instance.enable_hybrid = False
-        conf_instance.score_threshold = 0.0
-        conf_instance.top_k = 5
-        conf_instance.initial_k = 20
-        conf_instance.embedding_dimensions = 1536
-        conf_instance.enable_embedding_cache = False
-        conf_instance.enable_result_cache = False
+        self.retrieval_service = RetrievalService(
+            document_repository=self.mock_doc_repo,
+            vector_store=self.mock_vector_store,
+            neo4j_client=self.mock_neo4j,
+            openai_api_key="test",
+            config=mock_config
+        )
+        self.retrieval_service.embedding_service = self.mock_embed_service
+        self.retrieval_service.reranker = None # Disable for simplicity
         
-        # 7. Provider Factory & LLM
-        # 7. Provider Factory & LLM (Patch where USED, not just defined)
-        self.mock_factory_retrieval_cls = patch("src.core.services.retrieval.ProviderFactory").start()
-        self.mock_factory_generation_cls = patch("src.core.services.generation.ProviderFactory").start()
-        
-        # Configure both mocks to return the same factory mock
-        self.mock_factory = self.mock_factory_retrieval_cls.return_value
-        self.mock_factory_generation_cls.return_value = self.mock_factory
-        
+
+
+        # 6. LLM
         self.mock_llm = AsyncMock()
         self.mock_llm.model_name = "mock-model"
-        self.mock_llm.generate.return_value = MagicMock(
+        self.mock_llm.generate.return_value = LLMGenerationResult(
             text="I am a mocked LLM response.",
             model="mock-model",
             provider="mock-provider",
-            usage=MagicMock(total_tokens=10, input_tokens=5, output_tokens=5),
+            usage=TokenUsage(input_tokens=5, output_tokens=5),
             cost_estimate=0.0
         )
         # Streaming mock
@@ -120,9 +133,17 @@ class TestChatPipelineComprehensive:
             yield "[DONE]"
         self.mock_llm.generate_stream = mock_stream
         
-        self.mock_factory.get_llm_provider.return_value = self.mock_llm
-        self.mock_factory.get_embedding_provider.return_value = MagicMock()
-        self.mock_factory.get_reranker_provider.return_value = MagicMock()
+        # 7. Generation Service
+        from src.core.generation.application.generation_service import GenerationService
+        self.generation_service = GenerationService(llm_provider=self.mock_llm)
+        
+        # 8. Patch Composition Root Builders
+        self.patch_retrieval_builder = patch("src.amber_platform.composition_root.build_retrieval_service", return_value=self.retrieval_service).start()
+        self.patch_generation_builder = patch("src.amber_platform.composition_root.build_generation_service", return_value=self.generation_service).start()
+        
+        self.mock_metrics_collector = MagicMock()
+        self.mock_metrics_collector.track_query.return_value.__aenter__.return_value = MagicMock()
+        self.patch_metrics_builder = patch("src.amber_platform.composition_root.build_metrics_collector", return_value=self.mock_metrics_collector).start()
 
         self.tenant_id = f"tenant_{uuid.uuid4().hex[:8]}"
         self.user_id = f"user_{uuid.uuid4().hex[:8]}"
@@ -134,13 +155,14 @@ class TestChatPipelineComprehensive:
         query_routes._metrics_collector = None
         
         # 9. Graph Writer & Context
-        patch("src.core.graph.context_writer.context_graph_writer").start()
+        patch("src.core.graph.application.context_writer.context_graph_writer").start()
         
         # 10. Auth / ApiKeyService
-        self.mock_api_key_service_cls = patch("src.core.services.api_key_service.ApiKeyService").start()
+        self.mock_api_key_service_cls = patch("src.core.admin_ops.application.api_key_service.ApiKeyService").start()
         mock_auth_service = self.mock_api_key_service_cls.return_value
         
         mock_key = MagicMock()
+        mock_key.id = "test-key-id"
         mock_key.name = "Test Key"
         mock_key.scopes = ["admin"]
         mock_tenant = MagicMock()
@@ -152,8 +174,8 @@ class TestChatPipelineComprehensive:
         # 11. Database Cleanup
         async_session = get_session_maker()
         async with async_session() as session:
-            await session.execute(text("DELETE FROM documents WHERE 1=1"))
             await session.execute(text("DELETE FROM chunks WHERE 1=1"))
+            await session.execute(text("DELETE FROM documents WHERE 1=1"))
             await session.execute(text("DELETE FROM user_facts WHERE 1=1"))
             await session.execute(text("DELETE FROM conversation_summaries WHERE 1=1"))
             await session.commit()

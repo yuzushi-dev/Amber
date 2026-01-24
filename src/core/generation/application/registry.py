@@ -7,7 +7,7 @@ Manages prompt versions and retrieval.
 
 import logging
 
-from src.core.generation.prompts import PROMPTS
+from src.core.generation.application.prompts.templates import PROMPTS
 
 logger = logging.getLogger(__name__)
 
