@@ -364,10 +364,29 @@ class IngestionService:
                     raise RuntimeError("Vector store not configured")
 
                 chunk_contents = [c.content for c in chunks_to_process]
-                embeddings, _ = await embedding_service.embed_texts(
+                embeddings, stats = await embedding_service.embed_texts(
                     chunk_contents,
                     metadata={"document_id": document.id}
                 )
+
+                # Log Aggregated Ingestion Metrics
+                try:
+                    from src.shared.kernel.runtime import get_settings
+                    from src.core.admin_ops.application.metrics.collector import MetricsCollector
+                    from src.shared.identifiers import generate_query_id
+                    
+                    m_settings = get_settings()
+                    m_collector = MetricsCollector(redis_url=m_settings.db.redis_url)
+                    m_label = f"Ingestion: {document.filename} ({len(chunks_to_process)} chunks)"
+                    
+                    async with m_collector.track_query(generate_query_id(), document.tenant_id, m_label) as qm:
+                        qm.operation = "ingestion"
+                        qm.tokens_used = stats.total_tokens
+                        qm.cost_estimate = stats.total_cost
+                        qm.response = f"Generated {len(chunks_to_process)} embeddings. Tokens: {stats.total_tokens}, Cost: ${stats.total_cost:.4f}"
+                        qm.success = True
+                except Exception as e:
+                    logger.error(f"Failed to log aggregated ingestion metrics: {e}")
 
                 sparse_embeddings = []
                 try:

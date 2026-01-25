@@ -14,9 +14,18 @@ class ExtractedRelationship(BaseModel):
     description: str = Field(..., description="Description of how the source is related to the target.")
     weight: float = Field(default=1.0, description="Strength of the relationship (0.0-1.0) based on importance/frequency.")
 
+class ExtractionUsage(BaseModel):
+    total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_estimate: float = 0.0
+    model: str = ""
+    provider: str = ""
+
 class ExtractionResult(BaseModel):
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relationships: list[ExtractedRelationship] = Field(default_factory=list)
+    usage: ExtractionUsage | None = None
 
 
 # Dynamic Tuple-based Prompt Generation
