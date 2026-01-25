@@ -251,6 +251,96 @@ class Neo4jClient:
             logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
             raise
 
+    async def prune_orphans(self, valid_doc_ids: list[str], valid_chunk_ids: list[str]) -> dict[str, int]:
+        """
+        Remove chunks and entities that are not valid.
+        
+        Args:
+            valid_doc_ids: List of valid Document IDs from Postgres.
+            valid_chunk_ids: List of valid Chunk IDs from Postgres.
+            
+        Returns:
+            Dictionary with counts of deleted items.
+        """
+        # 1. Delete orphan Documents
+        # If document ID is not in valid_doc_ids, delete it
+        # UNWIND creates rows, we want to filter EXISTING nodes against the list
+        # Passing huge lists to Cypher can be slow, but for maintenance it's acceptable usually.
+        # However, for huge datasets, logic should be inverted (find orphans via exclusion).
+        
+        # Strategy:
+        # We can't pass ALL valid IDs if millions.
+        # But here we assume this usage is for maintenance/debugging or moderate scale.
+        # If lists are huge, we should batch. For now, simplistic implementation as requested.
+        
+        counts = {"documents": 0, "chunks": 0, "entities": 0}
+        
+        try:
+            # A. Prune Documents
+            # Find all documents in Graph
+            # Check if they are in valid_docs. If not, delete.
+            # Doing this entirely in Cypher requires passing the full list of valid IDs.
+            # "MATCH (d:Document) WHERE NOT d.id IN $valid_ids DETACH DELETE d"
+            
+            # Batching is safer. But for now:
+            query_docs = """
+            MATCH (d:Document)
+            WHERE NOT d.id IN $valid_ids
+            DETACH DELETE d
+            RETURN count(d) as deleted
+            """
+            res_docs = await self.execute_write(query_docs, {"valid_ids": valid_doc_ids})
+            counts["documents"] = res_docs[0]["deleted"] if res_docs else 0
+            
+            # B. Prune Chunks
+            query_chunks = """
+            MATCH (c:Chunk)
+            WHERE NOT c.id IN $valid_ids
+            DETACH DELETE c
+            RETURN count(c) as deleted
+            """
+            res_chunks = await self.execute_write(query_chunks, {"valid_ids": valid_chunk_ids})
+            counts["chunks"] = res_chunks[0]["deleted"] if res_chunks else 0
+            
+            # C. Prune Entities (Orphans with no relationships)
+            # This logic assumes entities must be connected to something.
+            # "Entities not connected to any chunks" - wait, chunks are deleted above.
+            # So entities that were ONLY mentioned by deleted chunks are now orphans?
+            # Or entities that have no relationships at all.
+            query_entities = """
+            MATCH (e:Entity)
+            WHERE NOT (e)--()
+            DELETE e
+            RETURN count(e) as deleted
+            """
+            res_entities = await self.execute_write(query_entities)
+            counts["entities"] = res_entities[0]["deleted"] if res_entities else 0
+            
+            # D. Prune Stale Communities
+            # Delete communities that are not reachable from any Entity.
+            # This handles hierarchical communities (C <- C <- E) correctly.
+            # Note: We use DETACH DELETE to remove PARENT_OF relationships.
+            # We use *1.. to handle any depth of IN_COMMUNITY or PARENT_OF hierarchy
+            # effectively checking if the community roots a subgraph containing at least one Entity.
+            # Logic: If no Entity points to this community (directly or indirectly), it is empty.
+            query_communities = """
+            MATCH (c:Community)
+            WHERE NOT EXISTS { (:Entity)-[:IN_COMMUNITY|HAS_MEMBER*1..]->(c) }
+            DETACH DELETE c
+            RETURN count(c) as deleted
+            """
+            # Note: We include HAS_MEMBER in the pattern just in case data model varies, though verification showed absent.
+            
+            res_comm = await self.execute_write(query_communities)
+            counts["communities"] = res_comm[0]["deleted"] if res_comm else 0
+            
+            logger.info(f"Pruned orphans: {counts}")
+            return counts
+            
+        except Exception as e:
+            logger.error(f"Failed to prune orphans: {e}")
+            raise
+
     async def get_top_nodes(self, tenant_id: str, limit: int = 15) -> list[dict[str, Any]]:
         """
         Get top connected nodes for the global graph background.

@@ -105,16 +105,82 @@ async def get_query_metrics(
     """
     try:
         from src.api.config import settings
-        from src.core.admin_ops.application.metrics.collector import MetricsCollector
-
-        # Instantiate collector on the fly (it's lightweight)
-        # In a real app we might want to inject this, but for now this is fine
+        from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
+        from src.core.admin_ops.domain.usage import UsageLog
+        from src.core.database.session import async_session_maker
+        from sqlalchemy import select, func, desc, text
+        
+        # 1. Fetch real-time query metrics from Redis
+        redis_metrics = []
         collector = MetricsCollector(redis_url=settings.db.redis_url)
         try:
-            metrics = await collector.get_recent(tenant_id=tenant_id, limit=limit)
-            return metrics
+            redis_metrics = await collector.get_recent(tenant_id=tenant_id, limit=limit)
         finally:
             await collector.close()
+
+        # 2. Fetch aggregated ingestion logs from Postgres
+        # Group by document_id (from metadata) for 'embedding' operations
+        ingestion_metrics = []
+        
+        async with async_session_maker() as session:
+            # We want: document_id, sum(cost), sum(total_tokens), max(created_at)
+            # metadata_json->>'document_id' syntax depends on dialect, assuming Postgres
+            
+            # Using text() for JSON operator to ensure compatibility
+            doc_id_expr = func.json_extract_path_text(UsageLog.metadata_json, 'document_id')
+            
+            stmt = (
+                select(
+                    doc_id_expr.label('document_id'),
+                    func.sum(UsageLog.cost).label('total_cost'),
+                    func.sum(UsageLog.total_tokens).label('total_tokens'),
+                    func.max(UsageLog.created_at).label('latest_at'),
+                    func.max(UsageLog.model).label('model'),
+                    func.max(UsageLog.provider).label('provider')
+                )
+                .where(UsageLog.operation == 'embedding')
+                .group_by(doc_id_expr)
+                .order_by(desc('latest_at'))
+                .limit(limit)
+            )
+            
+            if tenant_id:
+                stmt = stmt.where(UsageLog.tenant_id == tenant_id)
+                
+            result = await session.execute(stmt)
+            rows = result.all()
+            
+            for row in rows:
+                if not row.document_id:
+                    continue
+                    
+                # Create a synthetic QueryMetrics object for the ingestion event
+                metric = QueryMetrics(
+                    query_id=f"ingest_{row.document_id}",
+                    tenant_id=tenant_id or "unknown", # Row doesn't have tenant_id in group by, but we filter by it or it's mixed
+                    query=f"Ingestion: {row.document_id}", # improved by frontend later
+                    timestamp=row.latest_at,
+                    operation="ingestion",
+                    response="Document Embedding",
+                    tokens_used=int(row.total_tokens or 0),
+                    cost_estimate=float(row.total_cost or 0),
+                    model=row.model,
+                    provider=row.provider,
+                    success=True,
+                    # Store minimal metadata to help frontend display
+                    conversation_id=row.document_id 
+                )
+                ingestion_metrics.append(metric)
+
+        # 3. Merge and Sort
+        # Convert dataclasses to dicts if needed, or keep as objects. 
+        # The endpoint response_model is list[Any], so Pydantic will serialize dataclasses fine.
+        
+        all_metrics = redis_metrics + ingestion_metrics
+        # Sort by timestamp descending
+        all_metrics.sort(key=lambda x: x.timestamp, reverse=True)
+        
+        return all_metrics[:limit]
 
     except Exception as e:
         logger.error(f"Failed to get query metrics: {e}")
@@ -198,26 +264,46 @@ async def prune_orphans():
     Remove orphan nodes from the graph.
 
     Finds and removes:
-    - Entities not connected to any chunks
-    - Chunks not connected to any documents
-    - Communities with no members
+    - Documents in Graph not in Postgres
+    - Chunks in Graph not in Postgres
+    - Entities not connected to anything
     """
     import time
+    from sqlalchemy.future import select
+    from src.core.database.session import async_session_maker
+    from src.core.ingestion.domain.document import Document
+    from src.core.ingestion.domain.chunk import Chunk
+    from src.amber_platform.composition_root import platform
+
     start = time.time()
 
     try:
-        # TODO: Implement actual orphan detection and removal with Neo4j
-        # This is a placeholder implementation
+        # 1. Fetch valid IDs from Postgres
+        async with async_session_maker() as session:
+            # We fetch all IDs. 
+            # NOTE: Ideally this should be batched or streamed for massive datasets.
+            # But for maintenance tool it's acceptable to hold ID lists in memory for now (IDs are small).
+            # If > 100k docs, we should paginate.
+            
+            # Fetch valid Doc IDs
+            result_docs = await session.execute(select(Document.id))
+            valid_doc_ids = result_docs.scalars().all()
+            
+            # Fetch valid Chunk IDs
+            result_chunks = await session.execute(select(Chunk.id))
+            valid_chunk_ids = result_chunks.scalars().all()
+            
+        # 2. Call Neo4j Pruning
+        # Convert UUIDs to strings just in case
+        valid_doc_ids = [str(uid) for uid in valid_doc_ids]
+        valid_chunk_ids = [str(uid) for uid in valid_chunk_ids]
+        
+        counts = await platform.neo4j_client.prune_orphans(valid_doc_ids, valid_chunk_ids)
 
-        orphans_removed = 0
-
-        # In production, this would run queries like:
-        # MATCH (e:Entity) WHERE NOT (e)<-[:HAS_ENTITY]-() DELETE e
-        # MATCH (c:Chunk) WHERE NOT (c)<-[:HAS_CHUNK]-() DELETE c
-
+        orphans_removed = sum(counts.values())
         duration = time.time() - start
-        message = f"Removed {orphans_removed} orphan nodes"
-
+        
+        message = f"Removed orphans: {counts}"
         logger.info(f"Orphan pruning completed: {message}")
 
         return MaintenanceResult(
