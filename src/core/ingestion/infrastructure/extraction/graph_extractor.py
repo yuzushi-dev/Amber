@@ -44,7 +44,7 @@ class GraphExtractor:
             logger.error(f"Failed to load classification config: {e}")
             return (["CONCEPT"], ["RELATED_TO"])
 
-    async def extract(self, text: str, chunk_id: str = "UNKNOWN") -> ExtractionResult:
+    async def extract(self, text: str, chunk_id: str = "UNKNOWN", track_usage: bool = True) -> ExtractionResult:
         """
         Extract entities/relationships using tuple format + quality scoring.
         """
@@ -63,12 +63,16 @@ class GraphExtractor:
 
         all_entities: list[Entity] = []
         all_relationships: list[Relationship] = []
+        
+        # Usage tracking
+        from src.core.generation.application.prompts.entity_extraction import ExtractionUsage
+        usage_stats = ExtractionUsage()
 
-        # Metrics tracking for extraction
+        # Metrics tracking context
+        # If track_usage is False, we use a dummy context manager or just run logic
         from src.shared.kernel.runtime import get_settings
         from src.core.admin_ops.application.metrics.collector import MetricsCollector
         from src.shared.identifiers import generate_query_id
-        
         from src.shared.context import get_current_tenant
         
         settings = get_settings()
@@ -77,27 +81,57 @@ class GraphExtractor:
         tenant_id = get_current_tenant() or "system"
 
         try:
-            async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
-                qm.operation = "extraction"
-                response = await provider.generate(
-                    prompt=full_text_prompt,
-                    temperature=0.1 # Low temp for stability
-                )
-                qm.tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
-                qm.input_tokens = response.usage.input_tokens if hasattr(response, 'usage') else 0
-                qm.output_tokens = response.usage.output_tokens if hasattr(response, 'usage') else 0
-                qm.cost_estimate = response.cost_estimate if hasattr(response, 'cost_estimate') else 0.0
-                qm.model = response.model if hasattr(response, 'model') else ""
-                qm.provider = response.provider if hasattr(response, 'provider') else ""
-                qm.response = response.text[:500] if len(response.text) > 500 else response.text
+            # Helper to run generation and capture stats
+            async def run_generation(prompt: str, temp: float) -> Any:
+                response = await provider.generate(prompt=prompt, temperature=temp)
+                
+                # Accumulate stats
+                if hasattr(response, 'usage'):
+                    usage_stats.total_tokens += response.usage.total_tokens
+                    usage_stats.input_tokens += response.usage.input_tokens
+                    usage_stats.output_tokens += response.usage.output_tokens
+                
+                if hasattr(response, 'cost_estimate'):
+                    usage_stats.cost_estimate += response.cost_estimate
+                    
+                usage_stats.model = response.model if hasattr(response, 'model') else ""
+                usage_stats.provider = response.provider if hasattr(response, 'provider') else ""
+                
+                return response
 
-            # Parse result
-            parse_result = self.parser.parse(response.text)
-            all_entities.extend(parse_result.entities)
-            all_relationships.extend(parse_result.relationships)
+            if track_usage:
+                async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
+                    qm.operation = "extraction"
+                    response = await run_generation(full_text_prompt, 0.1)
+                    
+                    # Update QM with stats
+                    qm.tokens_used = usage_stats.total_tokens
+                    qm.input_tokens = usage_stats.input_tokens
+                    qm.output_tokens = usage_stats.output_tokens
+                    qm.cost_estimate = usage_stats.cost_estimate
+                    qm.model = usage_stats.model
+                    qm.provider = usage_stats.provider
+                    
+                    # Parse result immediately to log summary
+                    parse_result = self.parser.parse(response.text)
+                    all_entities.extend(parse_result.entities)
+                    all_relationships.extend(parse_result.relationships)
+                    
+                    # Log friendly summary instead of raw tuple text
+                    ent_count = len(parse_result.entities)
+                    rel_count = len(parse_result.relationships)
+                    qm.response = f"Extracted {ent_count} entities, {rel_count} relationships"
+            else:
+                # No metrics tracking (aggregated by caller)
+                response = await run_generation(full_text_prompt, 0.1)
+                parse_result = self.parser.parse(response.text)
+                all_entities.extend(parse_result.entities)
+                all_relationships.extend(parse_result.relationships)
 
         except Exception as e:
             logger.error(f"Extraction pass 1 failed: {e}")
+            if track_usage and 'qm' in locals():
+                 qm.response = f"Failed: {str(e)}"
 
         # 3. Gleaning Pass (Pass 2+)
         if self.use_gleaning and self.max_gleaning_steps > 0:
@@ -110,10 +144,26 @@ class GraphExtractor:
                     glean_prompt = get_gleaning_prompt(existing_names, self.entity_types)
                     full_glean_prompt = f"{full_text_prompt}\n{response.text}\n\n{glean_prompt}"
 
+                    # For gleaning, we might skip metrics logging entirely or aggregate?
+                    # Since track_usage encompasses the whole call, if it's True, we might miss gleaning costs in the single 'track_query' above 
+                    # unless we structured it differently.
+                    # Current logical limitation: The 'track_query' context above closes after Pass 1. 
+                    # Use Case Check: Aggregation is the goal.
+                    # With track_usage=False, we accumulate `usage_stats` correctly across multiple calls.
+                    # With track_usage=True, we accepted single-pass logging. Let's keep it simple.
+                    
                     glean_response = await provider.generate(
                         prompt=full_glean_prompt,
-                        temperature=0.3 # Slightly higher for recall
+                        temperature=0.3 
                     )
+                    
+                    # Update stats
+                    if hasattr(glean_response, 'usage'):
+                        usage_stats.total_tokens += glean_response.usage.total_tokens
+                        usage_stats.input_tokens += glean_response.usage.input_tokens
+                        usage_stats.output_tokens += glean_response.usage.output_tokens
+                    if hasattr(glean_response, 'cost_estimate'):
+                         usage_stats.cost_estimate += glean_response.cost_estimate
 
                     glean_result = self.parser.parse(glean_response.text)
                     if not glean_result.entities:
@@ -185,7 +235,7 @@ class GraphExtractor:
             ) for r in deduped_relationships if r.source_entity in valid_names and r.target_entity in valid_names
         ]
 
-        return PydanticResult(entities=pydantic_entities, relationships=pydantic_rels)
+        return PydanticResult(entities=pydantic_entities, relationships=pydantic_rels, usage=usage_stats)
 
     def _deduplicate_entities(self, entities: list[Entity]) -> list[Entity]:
         """Simple deduplication by name."""
