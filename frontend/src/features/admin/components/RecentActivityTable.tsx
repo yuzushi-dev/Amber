@@ -13,14 +13,18 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { QueryMetrics } from '@/lib/api-admin';
-import { ChevronLeft, ChevronRight, FileText, MessageSquare, Database, Zap, CheckCircle, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, MessageSquare, Database, Zap, CheckCircle, XCircle, FileUp, Network } from 'lucide-react';
+
 
 // Operation category mapping based on backend operation types
 const OPERATION_INFO: Record<string, { icon: React.ReactNode; variant: 'success' | 'warning' | 'info' | 'destructive' | 'secondary'; label: string }> = {
     'rag_query': { icon: <MessageSquare className="w-3 h-3" />, variant: 'success', label: 'RAG' },
     'chat_query': { icon: <MessageSquare className="w-3 h-3" />, variant: 'info', label: 'Chat' },
     'summarization': { icon: <FileText className="w-3 h-3" />, variant: 'warning', label: 'Summary' },
-    'extraction': { icon: <Database className="w-3 h-3" />, variant: 'secondary', label: 'Extraction' },
+    'embedding': { label: "Embedding", icon: <Database className="w-3 h-3" />, variant: "secondary" },
+    'ingestion': { label: "Ingestion", icon: <FileUp className="w-3 h-3" />, variant: "secondary" },
+    'extraction': { label: "Graph Extraction", icon: <Network className="w-3 h-3" />, variant: "secondary" },
+    'summary': { label: "Summary", icon: <FileText className="w-3 h-3" />, variant: "secondary" },
 };
 
 const getOperationInfo = (op: string) => {
@@ -108,6 +112,19 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                             const time = new Date(row.timestamp);
                             const costColor = row.cost_estimate < 0.001 ? 'text-emerald-400' : row.cost_estimate < 0.01 ? 'text-amber-400' : 'text-red-400';
 
+                            // For ingestion, input/output are synthetic, customize them
+                            const isIngestion = row.operation === 'ingestion';
+                            const inputContent = isIngestion ? (
+                                <span className="font-mono text-xs text-neutral-400 flex items-center gap-1">
+                                    <FileText className="w-3 h-3" />
+                                    {row.conversation_id || 'Unknown Document'}
+                                </span>
+                            ) : (row.query || '-');
+
+                            const outputContent = isIngestion ? (
+                                <span className="text-neutral-500 italic">Embedded Content</span>
+                            ) : (row.response || <span className="text-neutral-500 italic">No output</span>);
+
                             return (
                                 <TableRow key={row.query_id} className="border-neutral-800 hover:bg-neutral-800/50">
                                     {/* Time */}
@@ -127,15 +144,15 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
 
                                     {/* Input (Query) */}
                                     <TableCell>
-                                        <div className="max-w-[250px] truncate text-sm" title={row.query}>
-                                            {row.query || '-'}
+                                        <div className="max-w-[250px] truncate text-sm" title={isIngestion ? 'Document ID' : row.query}>
+                                            {inputContent}
                                         </div>
                                     </TableCell>
 
                                     {/* Output (Response) */}
                                     <TableCell>
                                         <div className="max-w-[250px] truncate text-sm text-neutral-400" title={row.response || ''}>
-                                            {row.response || <span className="text-neutral-500 italic">No output</span>}
+                                            {outputContent}
                                         </div>
                                     </TableCell>
 

@@ -69,12 +69,15 @@ class GraphExtractor:
         from src.core.admin_ops.application.metrics.collector import MetricsCollector
         from src.shared.identifiers import generate_query_id
         
+        from src.shared.context import get_current_tenant
+        
         settings = get_settings()
         query_id = generate_query_id()
         collector = MetricsCollector(redis_url=settings.db.redis_url)
+        tenant_id = get_current_tenant() or "system"
 
         try:
-            async with collector.track_query(query_id, "system", f"Extract: {chunk_id}") as qm:
+            async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
                 qm.operation = "extraction"
                 response = await provider.generate(
                     prompt=full_text_prompt,
