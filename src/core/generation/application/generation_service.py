@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.core.generation.application.context_builder import ContextBuilder
 from src.core.generation.application.registry import PromptRegistry
 from src.shared.kernel.observability import trace_span
@@ -95,10 +96,12 @@ class GenerationService:
         default_llm_model: str | None = None,
         config: GenerationConfig | None = None,
         document_repository: DocumentRepository | None = None,
+        tenant_repository: TenantRepository | None = None,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
         self.document_repository = document_repository
+        self.tenant_repository = tenant_repository
 
         if llm_provider:
             self.llm = llm_provider
@@ -206,8 +209,23 @@ class GenerationService:
 
         # Step 2: Get prompts from registry
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
-        
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
+
+        # Apply Tenant Overrides
+        if tenant_id and tenant_id != "default" and self.tenant_repository:
+            try:
+                tenant_obj = await self.tenant_repository.get(tenant_id)
+                if tenant_obj and tenant_obj.config:
+                    t_conf = tenant_obj.config
+                    if t_conf.get("rag_system_prompt"):
+                        system_prompt = t_conf.get("rag_system_prompt")
+                        logger.debug(f"Applied tenant system prompt override for {tenant_id}")
+                    
+                    if t_conf.get("rag_user_prompt"):
+                        user_prompt_template = t_conf.get("rag_user_prompt")
+                        logger.debug(f"Applied tenant user prompt override for {tenant_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load tenant config for prompt override: {e}")
 
         # Inject memory_context if not empty
         try:
@@ -402,6 +420,19 @@ class GenerationService:
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
         
+        # Apply Tenant Overrides (Stream)
+        if tenant_id and tenant_id != "default" and self.tenant_repository:
+            try:
+                tenant_obj = await self.tenant_repository.get(tenant_id)
+                if tenant_obj and tenant_obj.config:
+                    t_conf = tenant_obj.config
+                    if t_conf.get("rag_system_prompt"):
+                        system_prompt = t_conf.get("rag_system_prompt")
+                    if t_conf.get("rag_user_prompt"):
+                        user_prompt_template = t_conf.get("rag_user_prompt")
+            except Exception as e:
+                logger.warning(f"Failed to load tenant config for stream prompt override: {e}")
+
         try:
             user_prompt = user_prompt_template.format(
                 context=ctx.content, 

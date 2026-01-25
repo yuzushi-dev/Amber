@@ -379,7 +379,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 output_tokens=0,
             )
 
-            return EmbeddingResult(
+            result = EmbeddingResult(
                 embeddings=embeddings,
                 model=model,
                 provider=self.provider_name,
@@ -387,7 +387,30 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 dimensions=actual_dimensions,
                 latency_ms=elapsed_ms,
                 cost_estimate=0.0,  # Local is free
+                metadata={"response_id": None}, # Ollama embed response might not have ID
             )
+
+            # Record usage if tracker is available
+            if self.config.usage_tracker:
+                span_context = trace.get_current_span().get_span_context()
+                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
+                
+                # Merge metadata from kwargs (e.g. document_id) with result metadata
+                usage_metadata = {**result.metadata, **kwargs.get("metadata", {})}
+
+                await self.config.usage_tracker.record_usage(
+                    tenant_id=get_current_tenant() or "default",
+                    operation="embedding",
+                    provider=self.provider_name,
+                    model=model,
+                    usage=usage,
+                    cost=result.cost_estimate,
+                    request_id=get_request_id(),
+                    trace_id=trace_id,
+                    metadata=usage_metadata,
+                )
+
+            return result
 
         except Exception as e:
             self._handle_error(e, model)

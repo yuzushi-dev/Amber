@@ -12,14 +12,18 @@ Usage:
 import asyncio
 import argparse
 import logging
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.api.config import settings
 from src.core.graph.infrastructure.neo4j_client import Neo4jClient
 from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore, MilvusConfig
-from src.core.ingestion.domain.document import Document
-from src.core.ingestion.domain.chunk import Chunk
+# Removed mapped class imports to avoid validation issues
+# from src.core.ingestion.domain.document import Document
+# from src.core.ingestion.domain.chunk import Chunk
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -28,6 +32,10 @@ async def cleanup(dry_run=True):
     print("\n" + "="*50)
     print(f"   ORPHAN CLEANUP {'(DRY RUN)' if dry_run else ''}")
     print("="*50 + "\n")
+
+    
+    # Debug credentials
+    # print(f"Neo4j URI: {settings.db.neo4j_uri}")
 
     # 1. PostgreSQL Source of Truth
     db_url = settings.db.database_url
@@ -39,11 +47,11 @@ async def cleanup(dry_run=True):
     async_session = async_sessionmaker(engine, expire_on_commit=False)
     
     async with async_session() as session:
-        # Get all valid IDs
-        res_docs = await session.execute(select(Document.id))
+        # Get all valid IDs using raw SQL to avoid ORM issues in script context
+        res_docs = await session.execute(text("SELECT id FROM documents"))
         valid_doc_ids = set(res_docs.scalars().all())
         
-        res_chunks = await session.execute(select(Chunk.id))
+        res_chunks = await session.execute(text("SELECT id FROM chunks"))
         valid_chunk_ids = set(res_chunks.scalars().all())
         
     print(f"Postgres Source of Truth:")
@@ -58,11 +66,11 @@ async def cleanup(dry_run=True):
     )
     await g_client.connect()
     
-    # Find orphaned documents in Neo4j
+    # A. Find orphaned Documents
     neo_docs = await g_client.execute_read("MATCH (d:Document) RETURN d.id as id", {})
     orphan_neo_docs = [d['id'] for d in neo_docs if d['id'] not in valid_doc_ids]
     
-    print(f"Neo4j Audit:")
+    print(f"Neo4j Audit - Documents:")
     print(f" - Found {len(orphan_neo_docs)} orphaned Document nodes.")
     
     if not dry_run and orphan_neo_docs:
@@ -73,12 +81,37 @@ async def cleanup(dry_run=True):
                 {"id": doc_id}
             )
 
-    # Find orphaned entities (no mentions)
+    # B. Find orphaned Chunks
+    # Chunks define what entities are "mentioned". If chunks are zombies, entities stay alive.
+    neo_chunks = await g_client.execute_read("MATCH (c:Chunk) RETURN c.id as id", {})
+    neo_chunk_ids = set([c['id'] for c in neo_chunks])
+    orphan_chunk_ids = neo_chunk_ids - valid_chunk_ids
+    
+    print(f"Neo4j Audit - Chunks:")
+    print(f" - Total Chunks in Graph: {len(neo_chunk_ids)}")
+    print(f" - Orphan Chunks:         {len(orphan_chunk_ids)}")
+    
+    if not dry_run and orphan_chunk_ids:
+        print(f"   Deleting {len(orphan_chunk_ids)} orphaned chunks...")
+        # Batch delete for efficiency
+        batch_size = 100
+        orphan_list = list(orphan_chunk_ids)
+        for i in range(0, len(orphan_list), batch_size):
+            batch = orphan_list[i:i+batch_size]
+            await g_client.execute_write(
+                "MATCH (c:Chunk) WHERE c.id IN $ids DETACH DELETE c",
+                {"ids": batch}
+            )
+        print("   Chunks deleted.")
+
+    # C. Find orphaned Entities (no mentions)
+    # Now that we (potentially) deleted orphan chunks, we check for entities that have no remaining mentions
     orphaned_entities = await g_client.execute_read(
         "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-(:Chunk) RETURN count(e) as c", {}
     )
     orphan_count = orphaned_entities[0].get('c', 0)
-    print(f" - Found {orphan_count} orphaned Entity nodes.")
+    print(f"Neo4j Audit - Entities:")
+    print(f" - Found {orphan_count} orphaned Entity nodes (no mentions).")
     
     if not dry_run and orphan_count > 0:
         print(f"   Deleting {orphan_count} orphaned entities...")
@@ -97,16 +130,13 @@ async def cleanup(dry_run=True):
         for col_name in collections:
             # We only touch amber_* collections or document_chunks
             if col_name.startswith("amber_") or col_name == "document_chunks":
-                # For document_chunks, we check internal IDs if possible, 
-                # but usually amber_tenant_* are tenant specific.
-                # Here we just check if the collection still exists.
-                if col_name.startswith("amber_tenant_"):
-                    tid = col_name.replace("amber_tenant_", "")
-                    # Check if tenant exists in DB? 
-                    # For now just log.
-                    print(f" - Found collection: {col_name}")
+                print(f" - Found collection: {col_name}")
+                # We could implement logic to delete empty collections here if needed
+    except Exception as e:
+        print(f"Milvus connection skipped or failed: {e}")
     finally:
-        connections.disconnect('default')
+         if connections.has_connection('default'):
+            connections.disconnect('default')
 
     print("\n" + "="*50)
     print("   CLEANUP COMPLETE")

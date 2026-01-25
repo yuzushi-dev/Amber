@@ -113,6 +113,7 @@ class EmbeddingService:
         model: str | None = None,
         dimensions: int | None = None,
         show_progress: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[list[list[float]], EmbeddingStats]:
         """
         Generate embeddings for a list of texts.
@@ -164,6 +165,7 @@ class EmbeddingService:
                 texts=batch_texts,
                 model=model,
                 dimensions=dimensions,
+                metadata=metadata,
             )
 
             # Place results in correct positions
@@ -193,12 +195,14 @@ class EmbeddingService:
         texts: list[str],
         model: str,
         dimensions: int | None,
+        metadata: dict[str, Any] | None = None,
     ) -> EmbeddingResult:
         """Embed a batch with automatic retries."""
         return await self.provider.embed(
             texts=texts,
             model=model,
             dimensions=dimensions,
+            metadata=metadata,
         )
 
     async def embed_single(

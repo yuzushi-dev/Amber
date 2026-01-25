@@ -391,10 +391,13 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 cost_estimate=usage.input_tokens * self.models.get(model, {}).get("cost_per_1k", 0) / 1000,
             )
 
-            # Record usage if tracker is available
+                # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
+                
+                # Merge metadata from kwargs (e.g. document_id) with result metadata
+                usage_metadata = {**result.metadata, **kwargs.get("metadata", {})}
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
@@ -405,6 +408,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                     cost=result.cost_estimate,
                     request_id=get_request_id(),
                     trace_id=trace_id,
+                    metadata=usage_metadata,
                 )
 
             return result

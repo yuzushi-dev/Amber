@@ -311,6 +311,7 @@ class DocumentOutput:
     hashtags: list[str]
     metadata: dict[str, Any] | None
     stats: dict[str, int]
+    ingestion_cost: float = 0.0
 
 
 class GetDocumentUseCase:
@@ -341,8 +342,9 @@ class GetDocumentUseCase:
         if not document:
              raise LookupError(f"Document {request.document_id} not found")
 
-        # 2. Compute Stats
+        # 2. Compute Stats & Cost
         stats = await compute_document_stats(self._session, self._graph_client, document.id)
+        cost = await compute_document_cost(self._session, document.id)
 
         # 3. Determine Content Type
         content_type = document.metadata_.get("content_type")
@@ -371,6 +373,7 @@ class GetDocumentUseCase:
             hashtags=document.hashtags or [],
             metadata=document.metadata_,
             stats=stats,
+            ingestion_cost=cost,
         )
 
 
@@ -435,8 +438,9 @@ class UpdateDocumentUseCase:
         await self._session.commit()
         await self._session.refresh(document)
         
-        # 3. Compute Stats & Return
+        # 3. Compute Stats & Cost & Return
         stats = await compute_document_stats(self._session, self._graph_client, document.id)
+        cost = await compute_document_cost(self._session, document.id)
         
         # Determine content type (duplicated logic, maybe extract to helper if needed often)
         content_type = document.metadata_.get("content_type")
@@ -464,6 +468,7 @@ class UpdateDocumentUseCase:
             hashtags=document.hashtags or [],
             metadata=document.metadata_,
             stats=stats,
+            ingestion_cost=cost,
         )
 
 
@@ -551,3 +556,27 @@ async def compute_document_stats(
         "communities": community_count,
         "similarities": similarity_count,
     }
+
+
+async def compute_document_cost(session: AsyncSession, document_id: str) -> float:
+    """
+    Compute total ingestion cost for a document by aggregating usage logs.
+    """
+    from sqlalchemy import func, select, text
+    from src.core.admin_ops.domain.usage import UsageLog
+
+    # We use text() for JSON operator since SQLAlchemy core doesn't always support it cleanly in all drivers without casts
+    # PostgreSQL: metadata_json ->> 'document_id'
+    
+    # Using func.json_extract_path_text for Postgres JSON/JSONB compatibility
+    # This matches usage in admin/feedback.py
+    query = select(func.sum(UsageLog.cost)).where(
+        func.json_extract_path_text(UsageLog.metadata_json, 'document_id') == document_id
+    )
+    
+    # Ideally should filter by operation='embedding' too, but document_id check is specific enough
+    
+    result = await session.execute(query)
+    total_cost = result.scalar()
+    
+    return float(total_cost) if total_cost else 0.0

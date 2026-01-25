@@ -17,6 +17,7 @@ from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.shared.identifiers import generate_document_id
+from src.shared.context import set_current_tenant
 
 from src.core.graph.application.processor import GraphProcessor
 from src.core.graph.application.enrichment import GraphEnricher
@@ -175,6 +176,9 @@ class IngestionService:
 
         if not document:
             raise ValueError(f"Document {document_id} not found")
+
+        # Set tenant context for this background task
+        set_current_tenant(document.tenant_id)
 
         # 2. Check State & Transition (INGESTED -> EXTRACTING)
         updated = await self.document_repository.update_status(
@@ -360,7 +364,10 @@ class IngestionService:
                     raise RuntimeError("Vector store not configured")
 
                 chunk_contents = [c.content for c in chunks_to_process]
-                embeddings, _ = await embedding_service.embed_texts(chunk_contents)
+                embeddings, _ = await embedding_service.embed_texts(
+                    chunk_contents,
+                    metadata={"document_id": document.id}
+                )
 
                 sparse_embeddings = []
                 try:
