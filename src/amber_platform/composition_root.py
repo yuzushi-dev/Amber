@@ -440,8 +440,11 @@ def build_generation_service(session=None):
     anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
 
     doc_repo = None
+    tenant_repo = None
     if session:
+        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
         doc_repo = PostgresDocumentRepository(session)
+        tenant_repo = PostgresTenantRepository(session)
 
     return GenerationService(
         openai_api_key=openai_key or None,
@@ -450,6 +453,7 @@ def build_generation_service(session=None):
         default_llm_provider=settings.default_llm_provider,
         default_llm_model=settings.default_llm_model,
         document_repository=doc_repo,
+        tenant_repository=tenant_repo,
     )
 
 

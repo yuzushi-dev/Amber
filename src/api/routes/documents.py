@@ -99,6 +99,7 @@ class DocumentResponse(BaseModel):
 
     # Stats (computed from chunks/entities/relationships)
     stats: dict[str, int] | None = None
+    ingestion_cost: float | None = 0.0
 
 
 @router.post(
@@ -341,7 +342,8 @@ async def list_documents(
             folder_id=doc.folder_id,
             source_type=doc.source_type,
             content_type=_get_content_type(doc),
-            created_at=doc.created_at
+            created_at=doc.created_at,
+            ingestion_cost=0.0,
         )
         for doc in documents
     ]
@@ -400,6 +402,7 @@ async def get_document(
         hashtags=output.hashtags,
         metadata=output.metadata,
         stats=output.stats,
+        ingestion_cost=output.ingestion_cost,
     )
 
 
@@ -621,6 +624,7 @@ async def update_document(
         hashtags=output.hashtags,
         metadata=output.metadata,
         stats=output.stats,
+        ingestion_cost=output.ingestion_cost,
     )
 
 
