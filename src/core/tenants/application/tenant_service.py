@@ -71,11 +71,40 @@ class TenantService:
         return tenant
 
     async def delete_tenant(self, tenant_id: str) -> bool:
-        """Delete a tenant."""
+        """
+        Delete a tenant and all associated data.
+        Performs cleanup in:
+        1. Neo4j (Graph data)
+        2. Milvus (Vector collections)
+        3. Postgres (Tenant record cascade)
+        """
         tenant = await self.get_tenant(tenant_id)
         if not tenant:
             return False
             
+        # 1. Cleanup Neo4j
+        from src.amber_platform.composition_root import platform, build_vector_store_factory
+        try:
+            await platform.neo4j_client.delete_tenant_data(tenant_id)
+        except Exception as e:
+            # Log but continue to ensure we don't block deletion on partial failure
+            # Ideally we might want a retry mechanism or job
+            from logging import getLogger
+            getLogger(__name__).error(f"Failed to cleanup Neo4j for tenant {tenant_id}: {e}")
+
+        # 2. Cleanup Milvus
+        try:
+            from src.api.config import settings
+            vector_store_factory = build_vector_store_factory()
+            # Dimensions don't match for deletion but required for config, using default
+            vector_store = vector_store_factory(settings.embedding_dimensions or 1536)
+            await vector_store.delete_tenant_collection(tenant_id)
+        except Exception as e:
+            # Log but continue 
+            from logging import getLogger
+            getLogger(__name__).error(f"Failed to cleanup Milvus for tenant {tenant_id}: {e}")
+
+        # 3. Cleanup Postgres
         await self.session.delete(tenant)
         await self.session.commit()
         return True

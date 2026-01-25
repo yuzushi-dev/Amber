@@ -785,3 +785,31 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Failed to drop collection: {e}")
             return False
+
+    async def delete_tenant_collection(self, tenant_id: str) -> bool:
+        """
+        Delete all vector data for a tenant.
+        
+        Strategies:
+        1. Checks for dedicated tenant collection (amber_{tenant_id_sanitized}) and drops it.
+        2. If not found, deletes vectors from the main collection by filtering.
+        """
+        await self.connect()
+        try:
+            cleaned_id = tenant_id.replace("-", "_")
+            tenant_collection = f"amber_{cleaned_id}"
+            
+            milvus = _get_milvus()
+            if milvus["utility"].has_collection(tenant_collection):
+                milvus["utility"].drop_collection(tenant_collection)
+                logger.info(f"Dropped dedicated tenant collection {tenant_collection}")
+                return True
+            else:
+                # Fallback: Delete from main shared collection
+                logger.info(f"Dedicated collection {tenant_collection} not found, deleting from main collection")
+                # We need to use the main collection context
+                return await self.delete_by_tenant(tenant_id) > 0
+                
+        except Exception as e:
+            logger.error(f"Failed to clean up vectors for tenant {tenant_id}: {e}")
+            return False
