@@ -4,7 +4,7 @@
 
 ## Overview
 
-Amber 2.0 includes a comprehensive **Feedback Loop** designed to continuously
+Amber includes a comprehensive **Feedback Loop** designed to continuously
 improve system accuracy through human-in-the-loop (HITL) validation.
 
 ## Architecture
