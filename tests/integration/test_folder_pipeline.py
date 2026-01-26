@@ -279,3 +279,50 @@ class TestDocumentFolderAssignment:
             headers={"X-API-Key": api_key},
         )
         assert update_response.status_code == 404
+
+    def test_delete_folder_with_contents(self, client, api_key):
+        """Deleting a folder with delete_contents=True should delete documents."""
+        # Create folder
+        folder_name = f"recursive-delete-{uuid.uuid4().hex[:8]}"
+        folder_response = client.post(
+            "/v1/folders",
+            json={"name": folder_name},
+            headers={"X-API-Key": api_key},
+        )
+        assert folder_response.status_code == 201
+        folder_id = folder_response.json()["id"]
+
+        # Get a document (assuming one exists or we might need to skip if empty env)
+        docs_response = client.get(
+            "/v1/documents",
+            headers={"X-API-Key": api_key},
+        )
+        documents = docs_response.json()
+        if not documents:
+            import pytest
+            pytest.skip("No documents available")
+
+        # Use the first document
+        doc_id = documents[0]["id"]
+
+        # Assign to folder
+        client.patch(
+            f"/v1/documents/{doc_id}",
+            json={"folder_id": folder_id},
+            headers={"X-API-Key": api_key},
+        )
+
+        # Delete folder with delete_contents=True
+        delete_response = client.delete(
+            f"/v1/folders/{folder_id}",
+            params={"delete_contents": True},
+            headers={"X-API-Key": api_key},
+        )
+        assert delete_response.status_code == 204
+
+        # Verify document is actually deleted (should return 404)
+        doc_response = client.get(
+            f"/v1/documents/{doc_id}",
+            headers={"X-API-Key": api_key},
+        )
+        assert doc_response.status_code == 404
