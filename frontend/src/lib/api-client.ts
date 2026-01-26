@@ -69,8 +69,8 @@ export const folderApi = {
         const response = await apiClient.post<Folder>('/folders', { name })
         return response.data
     },
-    delete: async (id: string) => {
-        await apiClient.delete(`/folders/${id}`)
+    delete: async (id: string, deleteContents: boolean = false) => {
+        await apiClient.delete(`/folders/${id}`, { params: { delete_contents: deleteContents } })
     },
     updateDocumentFolder: async (documentId: string, folderId: string | null) => {
         // null or empty string to unfile
