@@ -13,6 +13,7 @@ import { keysApi, ApiKeyResponse, CreatedKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ConfirmDialog } from '@/components/ui/dialog'
 import { PageHeader } from './PageHeader'
 import { PageSkeleton } from './PageSkeleton'
 
@@ -27,6 +28,10 @@ export default function ApiKeyManager() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [linkingKey, setLinkingKey] = useState<ApiKeyResponse | null>(null)
+
+    // Confirmation States
+    const [keyToRevoke, setKeyToRevoke] = useState<string | null>(null)
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
     const [newName, setNewName] = useState('')
     const [isSuperAdminToggle, setIsSuperAdminToggle] = useState(false)
@@ -77,15 +82,17 @@ export default function ApiKeyManager() {
         }
     }
 
-    const handleRevoke = async (id: string) => {
-        if (!confirm("Are you sure you want to revoke this key? Any scripts using it will stop working.")) return;
+    const handleConfirmRevoke = async () => {
+        if (!keyToRevoke) return;
 
         try {
-            await keysApi.revoke(id)
+            await keysApi.revoke(keyToRevoke)
             fetchKeys()
         } catch (err: unknown) {
             console.error(err)
-            alert("Failed to revoke key")
+            setError("Failed to revoke key")
+        } finally {
+            setKeyToRevoke(null)
         }
     }
 
@@ -124,12 +131,7 @@ export default function ApiKeyManager() {
                     <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                            if (confirm('Are you sure you want to logout?')) {
-                                clearApiKey()
-                                window.location.reload()
-                            }
-                        }}
+                        onClick={() => setShowLogoutConfirm(true)}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
                         <LogOut className="w-3 h-3 mr-1" />
@@ -275,7 +277,7 @@ export default function ApiKeyManager() {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() => handleRevoke(key.id)}
+                                                onClick={() => setKeyToRevoke(key.id)}
                                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                             >
                                                 <Trash className="w-3 h-3" />
@@ -308,6 +310,28 @@ export default function ApiKeyManager() {
                     }}
                 />
             )}
+
+            <ConfirmDialog
+                open={!!keyToRevoke}
+                onOpenChange={(open) => !open && setKeyToRevoke(null)}
+                title="Revoke API Key"
+                description="Are you sure you want to revoke this key? Any scripts using it will stop working immediately."
+                confirmText="Revoke Key"
+                variant="destructive"
+                onConfirm={handleConfirmRevoke}
+            />
+
+            <ConfirmDialog
+                open={showLogoutConfirm}
+                onOpenChange={setShowLogoutConfirm}
+                title="Confirm Logout"
+                description="Are you sure you want to log out of your current session?"
+                confirmText="Logout"
+                onConfirm={() => {
+                    clearApiKey()
+                    window.location.reload()
+                }}
+            />
         </div>
     )
 }

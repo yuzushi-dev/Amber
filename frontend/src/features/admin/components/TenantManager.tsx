@@ -4,6 +4,7 @@ import { tenantsApi, Tenant, keysApi, ApiKeyResponse } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ConfirmDialog } from '@/components/ui/dialog'
 import { Building2, Plus, Trash, RefreshCw, Layers, Key, Crown, Shield } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,9 @@ export default function TenantManager() {
     const [newName, setNewName] = useState('')
     const [newPrefix, setNewPrefix] = useState('')
     const [creating, setCreating] = useState(false)
+
+    // Delete State
+    const [tenantToDelete, setTenantToDelete] = useState<{ id: string, name: string } | null>(null)
 
     const fetchTenants = useCallback(async () => {
         setLoading(true)
@@ -68,15 +72,21 @@ export default function TenantManager() {
         }
     }
 
-    const handleDelete = async (id: string, name: string) => {
-        if (!window.confirm(`Are you sure you want to delete tenant "${name}"? This action cannot be undone.`)) return;
+    const handleDelete = (id: string, name: string) => {
+        setTenantToDelete({ id, name })
+    }
+
+    const handleConfirmDelete = async () => {
+        if (!tenantToDelete) return
 
         try {
-            await tenantsApi.delete(id)
+            await tenantsApi.delete(tenantToDelete.id)
             fetchTenants()
         } catch (err: unknown) {
             console.error(err)
-            alert("Failed to delete tenant")
+            setError("Failed to delete tenant")
+        } finally {
+            setTenantToDelete(null)
         }
     }
 
@@ -313,6 +323,16 @@ export default function TenantManager() {
                     </div>
                 )}
             </div>
+
+            <ConfirmDialog
+                open={!!tenantToDelete}
+                onOpenChange={(open) => !open && setTenantToDelete(null)}
+                title="Delete Tenant"
+                description={`Are you sure you want to delete tenant "${tenantToDelete?.name}"? This will delete all associated documents and keys. This action cannot be undone.`}
+                confirmText="Delete Tenant"
+                variant="destructive"
+                onConfirm={handleConfirmDelete}
+            />
         </div>
     )
 }

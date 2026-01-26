@@ -74,8 +74,8 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
+            <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden border-border shadow-2xl">
+                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                     <DialogTitle className="flex items-center gap-2">
                         <Sparkles className="h-5 w-5 text-amber-500" />
                         Healing: {nodeName}
@@ -85,70 +85,72 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                     </DialogDescription>
                 </DialogHeader>
 
-                <ScrollArea className="h-[300px] mt-4 pr-4">
-                    {loading ? (
-                        <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground p-8">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                            <p>Analyzing semantic context...</p>
-                        </div>
-                    ) : suggestions.length === 0 ? (
-                        <div className="text-center text-muted-foreground p-8">
-                            <p>No obvious missing connections found for this node.</p>
-                            <p className="text-xs mt-2">Try adding more documents to the knowledge graph.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {suggestions.map((suggestion) => (
-                                <div
-                                    key={suggestion.id}
-                                    className="flex items-start justify-between p-3 rounded-lg border bg-card/50 hover:bg-card/80 transition-colors"
-                                >
-                                    <div className="flex flex-col gap-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium text-amber-100">{suggestion.name}</span>
-                                            <Badge variant="outline" className="text-[10px] h-4 px-1">{suggestion.type}</Badge>
-                                        </div>
-                                        {suggestion.description && (
-                                            <p className="text-xs text-muted-foreground line-clamp-2">
-                                                {suggestion.description}
-                                            </p>
-                                        )}
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden" title="Confidence Score">
-                                                <div
-                                                    className="h-full bg-amber-500"
-                                                    style={{ width: `${Math.round(suggestion.confidence * 100)}%` }}
-                                                />
-                                            </div>
-                                            <span className="text-[10px] text-muted-foreground">
-                                                {Math.round(suggestion.confidence * 100)}% Match
-                                            </span>
-                                        </div>
-                                        <p className="text-[10px] text-amber-500/80 italic">
-                                            {suggestion.reason}
-                                        </p>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="ml-2 shrink-0 h-8 w-8 p-0"
-                                        onClick={() => handleConnect(suggestion)}
-                                        disabled={!!connecting}
+                <div className="p-6">
+                    <ScrollArea className="h-[300px] pr-4">
+                        {loading ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground p-8">
+                                <Loader2 className="h-8 w-8 animate-spin" />
+                                <p>Analyzing semantic context...</p>
+                            </div>
+                        ) : suggestions.length === 0 ? (
+                            <div className="text-center text-muted-foreground p-8">
+                                <p>No obvious missing connections found for this node.</p>
+                                <p className="text-xs mt-2">Try adding more documents to the knowledge graph.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {suggestions.map((suggestion) => (
+                                    <div
+                                        key={suggestion.id}
+                                        className="flex items-start justify-between p-3 rounded-lg border bg-card/50 hover:bg-card/80 transition-colors"
                                     >
-                                        {connecting === suggestion.id ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Network className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </ScrollArea>
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-amber-100">{suggestion.name}</span>
+                                                <Badge variant="outline" className="text-[10px] h-4 px-1">{suggestion.type}</Badge>
+                                            </div>
+                                            {suggestion.description && (
+                                                <p className="text-xs text-muted-foreground line-clamp-2">
+                                                    {suggestion.description}
+                                                </p>
+                                            )}
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden" title="Confidence Score">
+                                                    <div
+                                                        className="h-full bg-amber-500"
+                                                        style={{ width: `${Math.round(suggestion.confidence * 100)}%` }}
+                                                    />
+                                                </div>
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    {Math.round(suggestion.confidence * 100)}% Match
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-amber-500/80 italic">
+                                                {suggestion.reason}
+                                            </p>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="ml-2 shrink-0 h-8 w-8 p-0"
+                                            onClick={() => handleConnect(suggestion)}
+                                            disabled={!!connecting}
+                                        >
+                                            {connecting === suggestion.id ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <Network className="h-4 w-4" />
+                                            )}
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </ScrollArea>
+                </div>
 
-                <DialogFooter>
-                    <Button variant="ghost" onClick={onClose}>Done</Button>
+                <DialogFooter className="p-4 bg-muted/5 border-t border-white/5">
+                    <Button variant="ghost" onClick={onClose} className="hover:bg-white/5">Done</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

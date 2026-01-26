@@ -10,6 +10,7 @@ import { graphEditorApi } from '@/lib/api-client';
 // import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { GitMerge } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/dialog';
 
 // Lazy load ThreeGraph
 const ThreeGraph = React.lazy(() => import('../Graph/ThreeGraph'));
@@ -52,10 +53,28 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
     const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
     const [mergeCandidates, setMergeCandidates] = useState<GraphNode[]>([]);
 
+    // Prune/Delete Mode
+    const [nodeToDelete, setNodeToDelete] = useState<GraphNode | null>(null);
+
     // External Nodes (fetched via Search)
     const [extraNodes, setExtraNodes] = useState<GraphNode[]>([]);
     const [extraEdges, setExtraEdges] = useState<GraphEdge[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+
+    const handleConfirmDelete = async () => {
+        if (!nodeToDelete) return;
+
+        toast.promise(graphEditorApi.deleteNode(nodeToDelete.id), {
+            loading: 'Deleting node...',
+            success: () => {
+                fetchRelationships();
+                return 'Node deleted';
+            },
+            error: 'Failed to delete node'
+        });
+
+        setNodeToDelete(null);
+    };
 
     const fetchRelationships = async () => {
         try {
@@ -106,12 +125,14 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
                 setConnectSource(null); // Reset immediately to avoid double clicks
 
                 // toast.promise replacement
-                graphEditorApi.createEdge({ source: sourceId, target: node.id })
-                    .then(() => {
-                        fetchRelationships(); // Refresh graph
-                        alert('Nodes connected!');
-                    })
-                    .catch(() => alert('Failed to connect nodes'));
+                toast.promise(graphEditorApi.createEdge({ source: sourceId, target: node.id }), {
+                    loading: 'Connecting nodes...',
+                    success: () => {
+                        fetchRelationships();
+                        return 'Nodes connected!';
+                    },
+                    error: 'Failed to connect nodes'
+                });
             }
         }
         else if (mode === 'heal') {
@@ -130,14 +151,7 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
             });
         }
         else if (mode === 'prune') {
-            if (confirm(`Are you sure you want to delete node "${node.label}"? This will also remove its connections.`)) {
-                graphEditorApi.deleteNode(node.id)
-                    .then(() => {
-                        alert("Node deleted");
-                        fetchRelationships();
-                    })
-                    .catch(() => alert("Failed to delete node"));
-            }
+            setNodeToDelete(node);
         }
     };
 
@@ -385,6 +399,16 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
                     setMergeCandidates([]);
                     fetchRelationships();
                 }}
+            />
+
+            <ConfirmDialog
+                open={!!nodeToDelete}
+                onOpenChange={(open) => !open && setNodeToDelete(null)}
+                title="Delete Node"
+                description={`Are you sure you want to delete node "${nodeToDelete?.label}"? This will also remove its connections.`}
+                confirmText="Delete"
+                variant="destructive"
+                onConfirm={handleConfirmDelete}
             />
 
             {connectSource && (

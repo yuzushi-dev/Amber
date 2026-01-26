@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, GitMerge } from 'lucide-react';
 import { graphEditorApi } from '@/lib/api-client';
 import { GraphNode } from '@/types/graph';
+import { toast } from 'sonner';
 
 interface MergeNodesModalProps {
     isOpen: boolean;
@@ -41,12 +42,12 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                 target_id: targetId,
                 source_ids: sourceIds
             });
-            alert("Nodes merged successfully"); // Replaced toast
+            toast.success("Nodes merged successfully");
             onMergeComplete();
             onClose();
         } catch (error) {
             console.error(error);
-            alert("Failed to merge nodes"); // Replaced toast
+            toast.error("Failed to merge nodes");
         } finally {
             setLoading(false);
         }
@@ -54,8 +55,8 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
+            <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden border-border shadow-2xl">
+                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                     <DialogTitle className="flex items-center gap-2">
                         <GitMerge className="h-5 w-5 text-amber-500" />
                         Merge Nodes
@@ -65,7 +66,7 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="py-4 space-y-3">
+                <div className="p-6 space-y-3">
                     {/* Native Radio Group Replacement */}
                     {nodes.map(node => (
                         <div key={node.id} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50 cursor-pointer" onClick={() => setTargetId(node.id)}>
@@ -93,11 +94,11 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                 </div>
 
 
-                <DialogFooter className="gap-2 sm:gap-0">
+                <DialogFooter className="gap-2 sm:gap-0 p-4 bg-muted/5 border-t border-white/5">
                     <div className="text-[10px] text-muted-foreground flex-1 flex items-center">
                         {nodes.length - 1} node(s) will be deleted.
                     </div>
-                    <Button variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
+                    <Button variant="ghost" onClick={onClose} disabled={loading} className="hover:bg-white/5">Cancel</Button>
                     <Button onClick={handleMerge} disabled={loading || !targetId}>
                         {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Merge
