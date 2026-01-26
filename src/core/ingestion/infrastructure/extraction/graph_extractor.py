@@ -2,6 +2,8 @@ import json
 import logging
 from pathlib import Path
 
+from typing import Any
+
 from src.core.ingestion.infrastructure.extraction.tuple_parser import TupleParser
 from src.core.graph.domain.models import Entity, Relationship
 from src.core.generation.application.prompts.entity_extraction import (
