@@ -5,7 +5,7 @@
 ## Overview
 
 This document is a full implementation walkthrough of the **Agentic RAG** system
-implemented in Amber 2.0. Unlike traditional "retrieve-then-generate" pipelines,
+implemented in Amber. Unlike traditional "retrieve-then-generate" pipelines,
 the Agentic RAG employs a **ReAct (Reason+Act) loop**, enabling the LLM to
 iteratively call tools, evaluate results, and refine its strategy until it
 finds a satisfactory answer.
@@ -229,7 +229,7 @@ answered correctly without any awareness of the recovery.
 
 ## Summary
 
-The Agentic RAG implementation transforms Amber 2.0 from a passive search engine
+The Agentic RAG implementation transforms Amber from a passive search engine
 into an **intelligent investigator**. It can:
 
 - Decompose complex queries.
