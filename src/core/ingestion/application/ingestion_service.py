@@ -16,7 +16,7 @@ from typing import Any
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
-from src.shared.identifiers import generate_document_id
+from src.shared.identifiers import generate_document_id, DocumentId
 from src.shared.context import set_current_tenant
 
 from src.core.graph.application.processor import GraphProcessor
@@ -110,7 +110,10 @@ class IngestionService:
             return existing_doc
 
         # 3. Create New Document
-        doc_id = generate_document_id()
+        # We include tenant_id in the hash to ensure uniqueness per tenant while remaining deterministic
+        hash_input = f"{tenant_id}_{content_hash}"
+        doc_hex = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+        doc_id = DocumentId(f"doc_{doc_hex}")
         storage_path = f"{tenant_id}/{doc_id}/{filename}"
         
         # 4. Upload to MinIO

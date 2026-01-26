@@ -119,6 +119,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        seed: int | None = None,
         stop: list[str] | None = None,
         **kwargs: Any,
     ) -> GenerationResult:
@@ -138,6 +139,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
                 stop=stop,
                 **kwargs,
             )
@@ -220,6 +222,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        seed: int | None = None,
         **kwargs: Any,
     ):
         """Stream text generation."""
@@ -236,6 +239,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
                 stream=True,
                 **{k: v for k, v in kwargs.items() if k != 'history'},
             )
@@ -396,7 +400,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
                 
                 # Merge metadata from kwargs (e.g. document_id) with result metadata
-                usage_metadata = {**result.metadata, **kwargs.get("metadata", {})}
+                usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",

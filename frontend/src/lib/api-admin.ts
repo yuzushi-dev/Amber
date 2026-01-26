@@ -66,6 +66,9 @@ export interface TenantConfig {
     llm_model: string
     embedding_provider: string
     embedding_model: string
+    // Determinism
+    seed?: number | null
+    temperature?: number | null
     // Prompt overrides (per-tenant)
     rag_system_prompt: string | null
     rag_user_prompt: string | null

@@ -85,7 +85,18 @@ class GraphExtractor:
         try:
             # Helper to run generation and capture stats
             async def run_generation(prompt: str, temp: float) -> Any:
-                response = await provider.generate(prompt=prompt, temperature=temp)
+                from src.shared.kernel.runtime import get_settings
+                settings = get_settings()
+                
+                import hashlib
+                prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
+                logger.debug(f"[DET] run_generation: seed={settings.seed}, temp={temp}, prompt_hash={prompt_hash}")
+                
+                response = await provider.generate(
+                    prompt=prompt, 
+                    temperature=temp,
+                    seed=settings.seed
+                )
                 
                 # Accumulate stats
                 if hasattr(response, 'usage'):
@@ -104,7 +115,7 @@ class GraphExtractor:
             if track_usage:
                 async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
                     qm.operation = "extraction"
-                    response = await run_generation(full_text_prompt, 0.1)
+                    response = await run_generation(full_text_prompt, 0.0)
                     
                     # Update QM with stats
                     qm.tokens_used = usage_stats.total_tokens
@@ -125,7 +136,7 @@ class GraphExtractor:
                     qm.response = f"Extracted {ent_count} entities, {rel_count} relationships"
             else:
                 # No metrics tracking (aggregated by caller)
-                response = await run_generation(full_text_prompt, 0.1)
+                response = await run_generation(full_text_prompt, 0.0)
                 parse_result = self.parser.parse(response.text)
                 all_entities.extend(parse_result.entities)
                 all_relationships.extend(parse_result.relationships)
@@ -156,7 +167,8 @@ class GraphExtractor:
                     
                     glean_response = await provider.generate(
                         prompt=full_glean_prompt,
-                        temperature=0.3 
+                        temperature=0.0,
+                        seed=settings.seed
                     )
                     
                     # Update stats

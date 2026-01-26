@@ -130,6 +130,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        seed: int | None = None,
         stop: list[str] | None = None,
         **kwargs: Any,
     ) -> GenerationResult:
@@ -143,12 +144,15 @@ class OpenAILLMProvider(BaseLLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        logger.debug(f"[PROVIDER] openai.generate: model={model}, temp={temperature}, seed={seed}, prompt_len={len(prompt)}")
+
         try:
             response = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
                 stop=stop,
                 **kwargs,
             )
@@ -164,6 +168,9 @@ class OpenAILLMProvider(BaseLLMProvider):
             # Get response text
             text = response.choices[0].message.content or ""
             finish_reason = response.choices[0].finish_reason
+            
+            system_fingerprint = response.system_fingerprint
+            logger.debug(f"[PROVIDER] openai.response: fingerprint={system_fingerprint}, finish={finish_reason}")
 
             result = GenerationResult(
                 text=text,
@@ -231,6 +238,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        seed: int | None = None,
         **kwargs: Any,
     ):
         """Stream text generation."""
@@ -247,6 +255,7 @@ class OpenAILLMProvider(BaseLLMProvider):
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
                 stream=True,
                 **{k: v for k, v in kwargs.items() if k != 'history'},
             )
@@ -397,7 +406,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
                 
                 # Merge metadata from kwargs (e.g. document_id) with result metadata
-                usage_metadata = {**result.metadata, **kwargs.get("metadata", {})}
+                usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
