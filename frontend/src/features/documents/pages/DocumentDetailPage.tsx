@@ -133,7 +133,14 @@ export default function DocumentDetailPage() {
                             <h1 className="text-xl font-semibold truncate max-w-md" title={document.title || document.filename}>
                                 {document.title || document.filename}
                             </h1>
-                            <LiveStatusBadge documentId={documentId} initialStatus={document.status} />
+                            <LiveStatusBadge
+                                documentId={documentId}
+                                initialStatus={document.status}
+                                onComplete={() => {
+                                    queryClient.invalidateQueries({ queryKey: ['document', documentId] });
+                                    queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
+                                }}
+                            />
                         </div>
                         <p className="text-xs text-muted-foreground font-mono mt-0.5">{documentId}</p>
                     </div>
@@ -255,6 +262,7 @@ export default function DocumentDetailPage() {
                     await apiClient.delete(`/documents/${documentId}`);
                     // Invalidate queries to refresh lists
                     await queryClient.invalidateQueries({ queryKey: ['documents'] });
+                    await queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
                     // Navigate back to library
                     navigate({ to: '/admin/data/documents' });
                 }}
