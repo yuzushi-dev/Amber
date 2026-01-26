@@ -137,8 +137,8 @@ export const GraphHistoryModal: React.FC<GraphHistoryModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
-                <DialogHeader>
+            <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col p-0 gap-0 overflow-hidden border-border shadow-2xl">
+                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
                     <DialogTitle className="flex items-center gap-2">
                         <Clock className="h-5 w-5 text-amber-500" />
                         Graph Edit History
