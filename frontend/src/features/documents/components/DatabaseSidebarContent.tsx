@@ -145,9 +145,7 @@ function DroppableFolder({ folder, isActiveFolder, onClick, onDelete }: {
                         className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
                         onClick={(e) => {
                             e.stopPropagation()
-                            if (confirm(`Delete folder "${folder.name}"? Documents will be unfiled.`)) {
-                                onDelete(folder.id)
-                            }
+                            onDelete(folder.id)
                         }}
                     >
                         <Trash2 className="w-3 h-3" />
@@ -157,6 +155,8 @@ function DroppableFolder({ folder, isActiveFolder, onClick, onDelete }: {
         </div>
     )
 }
+
+import { DeleteFolderModal } from './DeleteFolderModal'
 
 interface DatabaseSidebarContentProps {
     collapsed?: boolean
@@ -171,6 +171,7 @@ export default function DatabaseSidebarContent({
     const [activeFolderId, setActiveFolderId] = useState<string>('all')
     const [isCreatingFolder, setIsCreatingFolder] = useState(false)
     const [newFolderName, setNewFolderName] = useState('')
+    const [deletingFolder, setDeletingFolder] = useState<{ id: string, name: string } | null>(null)
 
     const routerState = useRouterState()
     const navigate = useNavigate()
@@ -213,10 +214,11 @@ export default function DatabaseSidebarContent({
     })
 
     const deleteFolderMutation = useMutation({
-        mutationFn: folderApi.delete,
+        mutationFn: ({ id, deleteContents }: { id: string, deleteContents: boolean }) =>
+            folderApi.delete(id, deleteContents),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['folders'] })
-            queryClient.invalidateQueries({ queryKey: ['documents'] }) // Docs get unfiled
+            queryClient.invalidateQueries({ queryKey: ['documents'] }) // Docs get unfiled or deleted
             if (activeFolderId !== 'all' && activeFolderId !== 'unfiled') {
                 setActiveFolderId('all')
             }
@@ -431,7 +433,7 @@ export default function DatabaseSidebarContent({
                                                 folder={folder}
                                                 isActiveFolder={activeFolderId === folder.id}
                                                 onClick={setActiveFolderId}
-                                                onDelete={(id) => deleteFolderMutation.mutate(id)}
+                                                onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name })}
                                             />
                                         ))}
                                     </div>
@@ -489,6 +491,19 @@ export default function DatabaseSidebarContent({
                         <Folder className="w-4 h-4" />
                     </Button>
                 </div>
+            )}
+
+            {deletingFolder && (
+                <DeleteFolderModal
+                    open={!!deletingFolder}
+                    onOpenChange={(open) => !open && setDeletingFolder(null)}
+                    folderName={deletingFolder.name}
+                    documents={documents?.filter(d => d.folder_id === deletingFolder.id) || []}
+                    onConfirm={(deleteContents) => {
+                        deleteFolderMutation.mutate({ id: deletingFolder.id, deleteContents })
+                        setDeletingFolder(null)
+                    }}
+                />
             )}
         </div>
     )
