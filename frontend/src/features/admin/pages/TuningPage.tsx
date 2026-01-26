@@ -10,6 +10,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Save, RotateCcw, CheckCircle, Info, AlertTriangle } from 'lucide-react'
 import { configApi, providersApi, ConfigSchema, TenantConfig, ConfigSchemaField, AvailableProviders, DefaultPrompts } from '@/lib/api-admin'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
     Dialog,
@@ -546,28 +547,49 @@ function LabelWithTooltip({ label, description }: { label: string, description: 
 function FieldInput({ field, value, onChange, defaultPrompts }: FieldInputProps) {
     switch (field.type) {
         case 'number':
+            // If min/max are provided, use Slider. Otherwise use Input (e.g. seed)
+            const isSlider = field.min !== undefined && field.max !== undefined
+
             return (
                 <div>
                     <div className="flex items-center justify-between mb-2">
                         <LabelWithTooltip label={field.label} description={field.description} />
-                        <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded">
-                            {typeof value === 'number' ? value.toFixed(field.step && field.step < 1 ? 2 : 0) : String(value ?? '')}
-                        </span>
+                        {isSlider && (
+                            <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded">
+                                {typeof value === 'number' ? value.toFixed(field.step && field.step < 1 ? 2 : 0) : String(value ?? '')}
+                            </span>
+                        )}
                     </div>
                     <div className="pt-2">
-                        <Slider
-                            min={field.min ?? 0}
-                            max={field.max ?? 100}
-                            step={field.step ?? 1}
-                            value={[value as number ?? field.default as number]}
-                            onValueChange={(vals: number[]) => onChange(vals[0])}
-                            showValue={true}
-                            disabled={field.read_only}
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground mt-2 px-1">
-                            <span>{field.min}</span>
-                            <span>{field.max}</span>
-                        </div>
+                        {isSlider ? (
+                            <>
+                                <Slider
+                                    min={field.min ?? 0}
+                                    max={field.max ?? 100}
+                                    step={field.step ?? 1}
+                                    value={[value as number ?? field.default as number]}
+                                    onValueChange={(vals: number[]) => onChange(vals[0])}
+                                    showValue={true}
+                                    disabled={field.read_only}
+                                />
+                                <div className="flex justify-between text-xs text-muted-foreground mt-2 px-1">
+                                    <span>{field.min}</span>
+                                    <span>{field.max}</span>
+                                </div>
+                            </>
+                        ) : (
+                            <Input
+                                type="number"
+                                value={value !== null && value !== undefined ? String(value) : ''}
+                                onChange={(e) => {
+                                    const val = e.target.value === '' ? null : Number(e.target.value)
+                                    onChange(val)
+                                }}
+                                disabled={field.read_only}
+                                className="font-mono"
+                                placeholder={field.default !== null ? String(field.default) : "Not set"}
+                            />
+                        )}
                     </div>
                 </div>
             )

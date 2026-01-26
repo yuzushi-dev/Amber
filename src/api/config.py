@@ -162,6 +162,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL")
     default_llm_provider: str | None = Field(default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider")
     default_llm_model: str | None = Field(default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model")
+    default_llm_temperature: float = Field(default=0.0, alias="DEFAULT_LLM_TEMPERATURE", description="Default LLM temperature")
+    seed: int = Field(default=42, alias="SEED", description="Global random seed")
 
     # Embedding Provider Configuration
     default_embedding_provider: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_PROVIDER", description="Default embedding provider (openai, ollama, local)")

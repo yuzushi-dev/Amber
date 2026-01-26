@@ -69,6 +69,7 @@ class GenerationConfig:
     model: str | None = None  # Use provider default
     tier: ProviderTier = ProviderTier.ECONOMY  # Use cost-effective model for generation
     temperature: float = 0.1  # Low temperature for factual RAG
+    seed: int | None = None
     max_tokens: int = 2048
     max_context_tokens: int = 8000  # Default to 8k context budget
     enable_follow_up: bool = True
@@ -212,11 +213,15 @@ class GenerationService:
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
 
         # Apply Tenant Overrides
+        tenant_seed = None
+        tenant_temp = None
+        
         if tenant_id and tenant_id != "default" and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
                 if tenant_obj and tenant_obj.config:
                     t_conf = tenant_obj.config
+                    
                     if t_conf.get("rag_system_prompt"):
                         system_prompt = t_conf.get("rag_system_prompt")
                         logger.debug(f"Applied tenant system prompt override for {tenant_id}")
@@ -224,6 +229,12 @@ class GenerationService:
                     if t_conf.get("rag_user_prompt"):
                         user_prompt_template = t_conf.get("rag_user_prompt")
                         logger.debug(f"Applied tenant user prompt override for {tenant_id}")
+                        
+                    # Determinism overrides
+                    if t_conf.get("seed") is not None:
+                        tenant_seed = int(t_conf.get("seed"))
+                    if t_conf.get("temperature") is not None:
+                        tenant_temp = float(t_conf.get("temperature"))
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for prompt override: {e}")
 
@@ -245,11 +256,23 @@ class GenerationService:
         print(f"DEBUG: LLM User Prompt: {user_prompt}")
 
         # Step 3: LLM Call
+        from src.api.config import settings
+
+        # Priority: Config > Tenant > Global
+        temp = self.config.temperature 
+        if temp is None:
+            temp = tenant_temp if tenant_temp is not None else settings.default_llm_temperature
+
+        seed = self.config.seed
+        if seed is None:
+            seed = tenant_seed if tenant_seed is not None else settings.seed
+
         llm_result = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
-            temperature=self.config.temperature,
+            temperature=temp,
             max_tokens=self.config.max_tokens,
+            seed=seed,
         )
         
         # Step 3.5: Trigger Async Memory Extraction
@@ -421,6 +444,9 @@ class GenerationService:
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
         
         # Apply Tenant Overrides (Stream)
+        tenant_seed = None
+        tenant_temp = None
+
         if tenant_id and tenant_id != "default" and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
@@ -430,6 +456,12 @@ class GenerationService:
                         system_prompt = t_conf.get("rag_system_prompt")
                     if t_conf.get("rag_user_prompt"):
                         user_prompt_template = t_conf.get("rag_user_prompt")
+                        
+                    # Determinism overrides
+                    if t_conf.get("seed") is not None:
+                        tenant_seed = int(t_conf.get("seed"))
+                    if t_conf.get("temperature") is not None:
+                        tenant_temp = float(t_conf.get("temperature"))
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for stream prompt override: {e}")
 
@@ -447,14 +479,26 @@ class GenerationService:
             )
 
         # Step 5: Stream tokens
+        from src.api.config import settings
+        
+        # Priority: Config > Tenant > Global
+        temp = self.config.temperature 
+        if temp is None:
+            temp = tenant_temp if tenant_temp is not None else settings.default_llm_temperature
+
+        seed = self.config.seed
+        if seed is None:
+            seed = tenant_seed if tenant_seed is not None else settings.seed
+
         full_answer = ""
         try:
             logger.info(f"Starting LLM stream with model: {self.llm.model_name}")
             async for token in self.llm.generate_stream(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                temperature=self.config.temperature,
+                temperature=temp,
                 max_tokens=self.config.max_tokens,
+                seed=seed,
                 history=conversation_history
             ):
                 full_answer += token

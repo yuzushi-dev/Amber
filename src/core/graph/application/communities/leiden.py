@@ -18,7 +18,7 @@ class CommunityDetector:
     def __init__(self, graph_client: GraphClientPort):
         self.graph = graph_client
 
-    async def detect_communities(self, tenant_id: str, resolution: float = 1.0, max_levels: int = 2) -> dict[str, Any]:
+    async def detect_communities(self, tenant_id: str, resolution: float = 1.0, max_levels: int = 2, seed: int = 42) -> dict[str, Any]:
         """
         Main entry point for detection and persistence.
 
@@ -41,7 +41,7 @@ class CommunityDetector:
         logger.info(f"Fetched {len(nodes)} entities and {len(edges)} edges.")
 
         # 2. Run Hierarchical Leiden
-        hierarchy = self._run_hierarchical_leiden(nodes, edges, resolution, max_levels)
+        hierarchy = self._run_hierarchical_leiden(nodes, edges, resolution, max_levels, seed)
 
         # 3. Persist
         await self._persist_communities(tenant_id, hierarchy)
@@ -90,9 +90,9 @@ class CommunityDetector:
                 edges.append((src, tgt, weight))
 
         # If no relationships, we still have nodes. Leiden handles disconnected graphs.
-        return list(nodes), edges
+        return sorted(list(nodes)), edges
 
-    def _run_hierarchical_leiden(self, nodes: list[str], edges: list[tuple[str, str, float]], resolution: float, max_levels: int) -> list[dict[str, Any]]:
+    def _run_hierarchical_leiden(self, nodes: list[str], edges: list[tuple[str, str, float]], resolution: float, max_levels: int, seed: int) -> list[dict[str, Any]]:
         """
         Runs Leiden recursively.
         Returns list of community dicts to persist.
@@ -125,7 +125,8 @@ class CommunityDetector:
             g,
             leidenalg.RBConfigurationVertexPartition,
             weights=ig_weights if ig_weights else None,
-            resolution_parameter=resolution
+            resolution_parameter=resolution,
+            seed=seed
         )
 
         # Group members by community index
@@ -179,7 +180,8 @@ class CommunityDetector:
                 induced_graph,
                 leidenalg.RBConfigurationVertexPartition,
                 weights=induced_graph.es['weight'] if 'weight' in induced_graph.es.attribute_names() else None,
-                resolution_parameter=resolution
+                resolution_parameter=resolution,
+                seed=seed
             )
 
             # Map new clusters to old clusters (uuids)

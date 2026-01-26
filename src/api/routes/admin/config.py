@@ -61,6 +61,10 @@ class TenantConfigResponse(BaseModel):
     # Embedding Provider/Model settings
     embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
     embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
+    
+    # Determinism Settings
+    seed: int | None = None
+    temperature: float | None = None
 
     # Custom prompts (per-tenant overrides)
     rag_system_prompt: str | None = None
@@ -96,6 +100,10 @@ class TenantConfigUpdate(BaseModel):
     # Embedding Provider/Model settings
     embedding_provider: str | None = None
     embedding_model: str | None = None
+    
+    # Determinism Settings
+    seed: int | None = None
+    temperature: float | None = None
 
     # Custom prompts (per-tenant overrides)
     rag_system_prompt: str | None = None
@@ -199,6 +207,27 @@ async def get_config_schema():
             description="Model for generating embeddings",
             default=settings.default_embedding_model or "text-embedding-3-small",
             options=[],  # Populated dynamically based on selected provider
+            group="models"
+        ),
+
+        # Model Parameters (Determinism)
+        ConfigSchemaField(
+            name="temperature",
+            type="number",
+            label="Temperature",
+            description="Controls randomness (0.0 = deterministic, 1.0 = creative)",
+            default=settings.default_llm_temperature,
+            min=0.0,
+            max=2.0,
+            step=0.1,
+            group="models"
+        ),
+        ConfigSchemaField(
+            name="seed",
+            type="number",
+            label="Random Seed",
+            description="Fixed integer for reproducible outputs (best effort)",
+            default=settings.seed,  # Show global default in UI
             group="models"
         ),
 
@@ -412,6 +441,8 @@ async def get_tenant_config(tenant_id: str):
             llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
             embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
+            seed=config.get("seed"),
+            temperature=config.get("temperature"),
             # Prompt overrides (per-tenant)
             rag_system_prompt=config.get("rag_system_prompt"),
             rag_user_prompt=config.get("rag_user_prompt"),
