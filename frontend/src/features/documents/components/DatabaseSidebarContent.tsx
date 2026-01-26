@@ -219,6 +219,7 @@ export default function DatabaseSidebarContent({
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['folders'] })
             queryClient.invalidateQueries({ queryKey: ['documents'] }) // Docs get unfiled or deleted
+            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
             if (activeFolderId !== 'all' && activeFolderId !== 'unfiled') {
                 setActiveFolderId('all')
             }

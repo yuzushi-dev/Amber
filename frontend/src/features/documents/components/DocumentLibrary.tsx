@@ -85,6 +85,7 @@ export default function DocumentLibrary() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['documents'] })
+            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
             setConfirmAction(null)
             setDeleteError(null)
         },
@@ -112,6 +113,7 @@ export default function DocumentLibrary() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['documents'] })
+            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
             setConfirmAction(null)
             setDeleteError(null)
         },
@@ -319,7 +321,10 @@ export default function DocumentLibrary() {
                                                 <LiveStatusBadge
                                                     documentId={doc.id}
                                                     initialStatus={doc.status}
-                                                    onComplete={() => refetch()}
+                                                    onComplete={() => {
+                                                        refetch()
+                                                        queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
+                                                    }}
                                                 />
                                             </div>
 
@@ -354,6 +359,7 @@ export default function DocumentLibrary() {
                 <UploadWizard onClose={() => setIsUploadOpen(false)} onComplete={() => {
                     setIsUploadOpen(false)
                     refetch()
+                    queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
                 }} />
             )}
 
