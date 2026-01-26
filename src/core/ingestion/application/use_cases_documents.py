@@ -159,6 +159,17 @@ class UploadDocumentUseCase:
             is_duplicate=is_duplicate,
             message="Document accepted for processing" if not is_duplicate else "Document deduplicated",
         )
+        
+        # Invalidate stats cache so numbers update immediately on frontend
+        try:
+            from src.core.cache.decorators import delete_cache
+            # Invalidate for the uploader's tenant
+            await delete_cache(f"admin:stats:database:{request.tenant_id}")
+            await delete_cache(f"admin:stats:vectors:{request.tenant_id}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate stats cache: {e}")
+        
+        return result
 
 
 @dataclass
@@ -243,6 +254,25 @@ class DeleteDocumentUseCase:
                 {"document_id": request.document_id, "tenant_id": tenant_id},
             )
             logger.info(f"Cleaned up Neo4j data for document {request.document_id}")
+            
+            # Post-deletion cleanup: Remove communities and isolated entities that became orphans
+            # This is a best-effort background cleanup to keep the graph healthy
+            cleanup_cypher = """
+            MATCH (c:Community {tenant_id: $tenant_id})
+            WHERE NOT EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) }
+            DETACH DELETE c
+            """
+            await self._graph_client.execute_write(cleanup_cypher, {"tenant_id": tenant_id})
+
+            # Clean isolated entities (no relationships at all or only connected to other entities but not chunks)
+            # More aggressive: Delete any Entity that is NOT reachable from a Chunk
+            orphan_cypher = """
+            MATCH (e:Entity {tenant_id: $tenant_id})
+            WHERE NOT (:Chunk)-[:MENTIONS]->(e)
+            DETACH DELETE e
+            """
+            await self._graph_client.execute_write(orphan_cypher, {"tenant_id": tenant_id})
+
         except Exception as e:
             logger.warning(f"Failed to delete graph data for document {request.document_id}: {e}")
 
@@ -276,6 +306,17 @@ class DeleteDocumentUseCase:
             logger.info(f"Removed Postgres record for document {request.document_id}")
         else:
             logger.info(f"Document {request.document_id} already absent from Postgres")
+        
+        # 6. Invalidate Stats Cache
+        # Ensure stats update immediately
+        try:
+            from src.core.cache.decorators import delete_cache
+            await delete_cache(f"admin:stats:database:{tenant_id}")
+            await delete_cache(f"admin:stats:vectors:{tenant_id}")
+            # Cache keys might be just the prefix if used with @cached, but here we manually constructed them in maintenance.py
+        except Exception as e:
+            logger.warning(f"Failed to invalidate stats cache: {e}")
+
         
         return DeleteDocumentResult(document_id=request.document_id)
 

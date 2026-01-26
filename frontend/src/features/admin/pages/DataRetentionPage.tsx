@@ -12,9 +12,9 @@ import {
     Download,
     Loader2,
     XCircle,
-    FileArchive,
     Database,
     HardDrive,
+    FileArchive,
     FileText,
     BrainCircuit,
     MessageSquare,
@@ -34,6 +34,8 @@ export default function DataRetentionPage() {
     const [isExporting, setIsExporting] = useState(false)
     const [exportJobId, setExportJobId] = useState<string | null>(null)
     const [exportStatus, setExportStatus] = useState<ExportJobResponse | null>(null)
+
+
 
     // --- Memory State ---
     const [facts, setFacts] = useState<UserFact[]>([])
@@ -163,6 +165,8 @@ export default function DataRetentionPage() {
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     }
+
+
 
     return (
         <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">

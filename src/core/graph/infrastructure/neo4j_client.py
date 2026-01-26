@@ -302,15 +302,16 @@ class Neo4jClient:
             res_chunks = await self.execute_write(query_chunks, {"valid_ids": valid_chunk_ids})
             counts["chunks"] = res_chunks[0]["deleted"] if res_chunks else 0
             
-            # C. Prune Entities (Orphans with no relationships)
-            # This logic assumes entities must be connected to something.
-            # "Entities not connected to any chunks" - wait, chunks are deleted above.
-            # So entities that were ONLY mentioned by deleted chunks are now orphans?
-            # Or entities that have no relationships at all.
+            # C. Prune Entities (Orphans)
+            # STRATEGY CHANGE: Instead of just deleting completely isolated nodes (WHERE NOT (e)--()),
+            # we now delete ANY entity that is not mentioned by a valid chunk.
+            # This handles "island" clusters that are connected to each other but detached from the knowledge base.
+            
+            # Since we just deleted invalid chunks in step B, we can trust existing chunks.
             query_entities = """
             MATCH (e:Entity)
-            WHERE NOT (e)--()
-            DELETE e
+            WHERE NOT (:Chunk)-[:MENTIONS]->(e)
+            DETACH DELETE e
             RETURN count(e) as deleted
             """
             res_entities = await self.execute_write(query_entities)
