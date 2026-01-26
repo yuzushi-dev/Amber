@@ -1,8 +1,8 @@
-# Testing in Amber 2.0
+# Testing in Amber
 
 ## Overview
 
-Amber 2.0 employs a comprehensive testing strategy covering backend services,
+Amber employs a comprehensive testing strategy covering backend services,
 frontend interfaces, and end-to-end user flows. This guide details how to run,
 debug, and extend test coverage.
 
