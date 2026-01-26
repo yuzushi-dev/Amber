@@ -26,7 +26,6 @@ import DocumentLibrary from './features/documents/components/DocumentLibrary'
 import JobsAndQueuesPage from './features/admin/pages/JobsAndQueuesPage'
 import TuningPage from './features/admin/pages/TuningPage'
 import CurationPage from './features/admin/pages/CurationPage'
-import MaintenancePage from './features/admin/pages/MaintenancePage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
@@ -153,11 +152,7 @@ const dataDocumentDetailRoute = createRoute({
     component: () => <DocumentDetailPage />,
 })
 
-const dataMaintenanceRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/data/maintenance',
-    component: () => <MaintenancePage />,
-})
+
 
 const dataVectorsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
@@ -325,7 +320,7 @@ const legacyDatabaseRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/database',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/data/maintenance' })
+        throw redirect({ to: '/admin/data/documents' })
     },
 })
 
@@ -376,7 +371,6 @@ const routeTree = rootRoute.addChildren([
         dataDocumentsRoute,
         dataDocumentDetailRoute,
         dataGraphRoute,
-        dataMaintenanceRoute,
         dataVectorsRoute,
         // Settings section
         settingsIndexRoute,

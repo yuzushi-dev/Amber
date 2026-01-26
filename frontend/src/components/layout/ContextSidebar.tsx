@@ -11,7 +11,6 @@ import { useState, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
     Files,
-    Database,
     Layers,
     Activity,
     Gauge,
@@ -74,7 +73,6 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
         {
             title: 'Database',
             items: [
-                { label: 'Statistics', icon: Database, to: '/admin/data/maintenance' },
                 { label: 'Vector Store', icon: Layers, to: '/admin/data/vectors' },
             ]
         }

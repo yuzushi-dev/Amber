@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { graphEditorApi, graphHistoryApi } from '@/lib/api-client';
 import { GraphNode, GraphEdge } from '@/types/graph';
@@ -7,8 +7,17 @@ import ThreeGraph from '../../documents/components/Graph/ThreeGraph';
 import { GraphToolbar, GraphMode } from '../../documents/components/Graph/GraphToolbar';
 import { GraphSearchInput } from '../components/GraphSearchInput';
 import { GraphHistoryModal } from '../components/GraphHistoryModal';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Settings2, Trash2, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { maintenanceApi } from '@/lib/api-admin';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from '@/components/ui/dialog';
 
 export default function GlobalGraphPage() {
     const queryClient = useQueryClient();
@@ -21,6 +30,7 @@ export default function GlobalGraphPage() {
     const [cameraFocusNode, setCameraFocusNode] = useState<string | null>(null);
     const [graphMode, setGraphMode] = useState<GraphMode>('view');
     const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
 
     // Query for pending edit count
     const { data: pendingCount = 0 } = useQuery({
@@ -33,18 +43,34 @@ export default function GlobalGraphPage() {
     const isInteractive = hasSearched || isExploring;
 
     // Initial load of top nodes for background
+    // Initial load of top nodes for background
+    const { data: topNodes = [] } = useQuery({
+        queryKey: ['graph-top-nodes'],
+        queryFn: async () => {
+            const nodes = await graphEditorApi.getTopNodes(15);
+            setGraphData(prev => {
+                // Only update if we are not in exploring/search mode to avoid overriding user interaction
+                if (!hasSearched && !isExploring) {
+                    return { nodes, edges: [] };
+                }
+                return prev;
+            });
+            return nodes;
+        },
+        // We sync state in queryFn or useEffect, but useQuery handles fetching.
+        // Actually, better pattern: useEffect to sync data when query changes, 
+        // OR just use 'topNodes' directly if strictly viewing top nodes.
+        // BUT 'graphData' is mutated by search/expand.
+        // So we use useQuery to fetch, and useEffect to Initialize graphData.
+        staleTime: 60 * 1000, // 1 min stale time unless invalidated
+    });
+
+    // Sync query data to local state for initial interaction
     useEffect(() => {
-        const loadTopNodes = async () => {
-            try {
-                // Fetch top 15 nodes for ambient background
-                const nodes = await graphEditorApi.getTopNodes(15);
-                setGraphData({ nodes, edges: [] });
-            } catch (error) {
-                console.error("Failed to load top nodes", error);
-            }
-        };
-        loadTopNodes();
-    }, []);
+        if (!hasSearched && !isExploring && topNodes.length > 0) {
+            setGraphData({ nodes: topNodes, edges: [] });
+        }
+    }, [topNodes, hasSearched, isExploring]);
 
     const handleSearch = async (query: string) => {
         if (!query.trim()) return;
@@ -221,6 +247,27 @@ export default function GlobalGraphPage() {
         }
     };
 
+    const pruneOrphansMutation = useMutation({
+        mutationFn: () => maintenanceApi.pruneOrphans(),
+        onSuccess: (result) => {
+            toast.success(`Pruned orphans: ${result.message}`);
+            // Invalidate everything to refresh
+            queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
+            queryClient.invalidateQueries({ queryKey: ['stats'] });
+            setShowMaintenanceModal(false);
+        },
+        onError: () => toast.error("Failed to prune orphans")
+    });
+
+    const clearCacheMutation = useMutation({
+        mutationFn: () => maintenanceApi.clearCache(),
+        onSuccess: () => {
+            toast.success("Cache cleared");
+            setShowMaintenanceModal(false);
+        },
+        onError: () => toast.error("Failed to clear cache")
+    });
+
     // Handle mode changes - process merge selections when switching back to view
     const handleModeChange = async (newMode: GraphMode) => {
         // If leaving merge mode with multiple selections, create pending merge
@@ -258,9 +305,10 @@ export default function GlobalGraphPage() {
         setHighlightedNodes([]);
         setCameraFocusNode(null);
         // Reload top nodes
-        const nodes = await graphEditorApi.getTopNodes(15);
-        setGraphData({ nodes, edges: [] });
-    }, []);
+        queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
+        // State update happens via useEffect on topNodes change or we can reset manually if needed immediate
+        // But invalidation is cleaner
+    }, [queryClient]);
 
     return (
         <div className="relative w-full h-full min-h-[calc(100vh-4rem)] bg-[#110c0a] overflow-hidden group/page">
@@ -299,6 +347,19 @@ export default function GlobalGraphPage() {
                             onHistoryClick={() => setShowHistoryModal(true)}
                             pendingCount={pendingCount}
                         />
+                    </div>
+                )}
+
+                {isInteractive && (
+                    <div className="absolute top-4 right-4 pointer-events-auto animate-in fade-in zoom-in duration-300">
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="bg-background/50 backdrop-blur-md border-white/10 hover:bg-white/10"
+                            onClick={() => setShowMaintenanceModal(true)}
+                        >
+                            <Settings2 className="w-5 h-5 text-muted-foreground" />
+                        </Button>
                     </div>
                 )}
 
@@ -376,6 +437,83 @@ export default function GlobalGraphPage() {
                     });
                 }}
             />
+
+            {/* Maintenance Modal */}
+            <Dialog open={showMaintenanceModal} onOpenChange={setShowMaintenanceModal}>
+                <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden bg-surface-950/95 backdrop-blur-xl border-white/10 shadow-2xl">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                        <DialogTitle className="flex items-center gap-2 text-xl tracking-tight">
+                            <Settings2 className="w-5 h-5 text-amber-500" />
+                            Graph Maintenance
+                        </DialogTitle>
+                        <DialogDescription className="text-zinc-400">
+                            Perform system-level cleanup on the knowledge graph nodes and cache.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="p-6 space-y-4">
+                        {/* Prune Action */}
+                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-all duration-300">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 font-semibold text-zinc-100">
+                                    <div className="p-2 rounded-lg bg-red-500/10 text-red-400 group-hover:scale-110 transition-transform">
+                                        <Trash2 className="w-4 h-4" />
+                                    </div>
+                                    Prune Orphans
+                                </div>
+                            </div>
+                            <p className="text-xs leading-relaxed text-zinc-400 pr-4">
+                                Remove disconnected nodes that are not linked to any valid documents.
+                                Fixes visual inconsistencies in the graph exploration.
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-1 border-red-500/20 hover:bg-red-500/10 hover:border-red-500/40 text-red-400 transition-all font-medium"
+                                onClick={() => pruneOrphansMutation.mutate()}
+                                disabled={pruneOrphansMutation.isPending || clearCacheMutation.isPending}
+                            >
+                                {pruneOrphansMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                ) : "Run Cleanup"}
+                            </Button>
+                        </div>
+
+                        {/* Cache Action */}
+                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-all duration-300">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 font-semibold text-zinc-100">
+                                    <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition-transform">
+                                        <HardDrive className="w-4 h-4" />
+                                    </div>
+                                    Clear Metadata Cache
+                                </div>
+                            </div>
+                            <p className="text-xs leading-relaxed text-zinc-400 pr-4">
+                                Wipe query results from Redis. Recommended if you updated documents
+                                but the global graph doesn't reflect changes yet.
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-1 border-amber-500/20 hover:bg-amber-500/10 hover:border-amber-500/40 text-amber-500 transition-all font-medium"
+                                onClick={() => clearCacheMutation.mutate()}
+                                disabled={pruneOrphansMutation.isPending || clearCacheMutation.isPending}
+                            >
+                                {clearCacheMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                ) : "Reset Cache"}
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="p-4 bg-white/[0.02] border-t border-white/5 flex justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => setShowMaintenanceModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                            Close
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

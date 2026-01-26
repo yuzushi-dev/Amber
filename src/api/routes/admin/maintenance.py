@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.deps import verify_admin
+from src.api.deps import verify_admin, get_current_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -188,16 +188,18 @@ async def get_query_metrics(
 
 
 @router.get("/stats", response_model=SystemStats)
-async def get_system_stats():
+async def get_system_stats(
+    tenant_id: str = Depends(get_current_tenant_id)
+):
     """
     Get comprehensive system statistics.
 
     Returns counts and metrics from database, cache, and vector store.
     """
     try:
-        db_stats = await _get_database_stats()
-        cache_stats = await _get_cache_stats()
-        vector_stats = await _get_vector_store_stats()
+        db_stats = await _get_database_stats(tenant_id)
+        cache_stats = await _get_cache_stats(tenant_id)
+        vector_stats = await _get_vector_store_stats(tenant_id)
 
         return SystemStats(
             database=db_stats,
@@ -575,13 +577,13 @@ async def delete_vector_collection(collection_name: str):
 # Helpers
 # =============================================================================
 
-async def _get_database_stats() -> DatabaseStats:
+async def _get_database_stats(tenant_id: str) -> DatabaseStats:
     """Get PostgreSQL/Neo4j statistics with optimized queries and caching."""
     try:
         from src.core.cache.decorators import get_from_cache, set_cache
 
         # Check cache first
-        cache_key = "admin:stats:database"
+        cache_key = f"admin:stats:database:{tenant_id}"
         cached = await get_from_cache(cache_key)
         if cached:
             return DatabaseStats(**cached)
@@ -608,15 +610,25 @@ async def _get_database_stats() -> DatabaseStats:
                     else_=0
                 )).label('processing'),
                 func.sum(case((Document.status == DocumentStatus.FAILED, 1), else_=0)).label('failed'),
-            )
+            ).where(Document.tenant_id == tenant_id)
+            
             result = await session.execute(count_query)
             row = result.one()
 
             # Chunk count (separate query as it's a different table)
-            chunk_count = await session.scalar(select(func.count(Chunk.id)))
+            # Need to join with Document if Chunk doesn't have tenant_id, OR check schema.
+            # Assuming Chunk has tenant_id based on typical multi-tenant design.
+            # If not, join: select(func.count(Chunk.id)).join(Document).where(Document.tenant_id == tenant_id)
+            # Let's check schema assumption. Assuming yes for now, but safer to join if unsure.
+            # Based on folders.py usage: select(Document).where... -> so Chunks likely child.
+            # In use_cases_documents.py: request.tenant_id is used.
+            # Let's use the explicit filter on Chunk if available, or Join.
+            # Given previous context, Chunks usually have tenant_id. Let's try simple filter.
+            chunk_query = select(func.count(Chunk.id)).where(Chunk.tenant_id == tenant_id)
+            chunk_count = await session.scalar(chunk_query)
 
             # OPTIMIZED: Get all Neo4j counts in a single query
-            neo4j_stats = await _get_neo4j_stats_consolidated()
+            neo4j_stats = await _get_neo4j_stats_consolidated(tenant_id)
 
             stats = DatabaseStats(
                 documents_total=row.total or 0,
@@ -636,22 +648,28 @@ async def _get_database_stats() -> DatabaseStats:
         return DatabaseStats()
 
 
-async def _get_neo4j_stats_consolidated() -> dict:
+async def _get_neo4j_stats_consolidated(tenant_id: str) -> dict:
     """Get all Neo4j counts in a single optimized query."""
     try:
         from src.amber_platform.composition_root import platform
 
         # OPTIMIZED: Single query returning all counts at once
         cypher = """
-        MATCH (e:Entity)
+        MATCH (e:Entity {tenant_id: $tenant_id})
+        WHERE (e)<-[:MENTIONS]-()  // Count only entities mentioned by at least one active chunk
         WITH count(e) as entity_count
-        MATCH ()-[r]->()
-        WITH entity_count, count(r) as rel_count
-        MATCH (c:Community)
-        RETURN entity_count, rel_count, count(c) as community_count
+        
+        MATCH (c:Community {tenant_id: $tenant_id})
+        WHERE EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) } // Count only non-empty communities
+        WITH entity_count, count(c) as community_count
+        
+        // Count relationships connected to valid entities
+        MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
+        WHERE (a)<-[:MENTIONS]-() AND (b)<-[:MENTIONS]-()
+        RETURN entity_count, count(r) as rel_count, community_count
         """
 
-        result = await platform.neo4j_client.execute_read(cypher)
+        result = await platform.neo4j_client.execute_read(cypher, {"tenant_id": tenant_id})
         if result and len(result) > 0:
             row = result[0]
             return {
@@ -685,7 +703,7 @@ async def _get_neo4j_community_count() -> int:
     return stats.get("communities_total", 0)
 
 
-async def _get_cache_stats() -> CacheStats:
+async def _get_cache_stats(tenant_id: str) -> CacheStats:
     """Get Redis cache statistics."""
     try:
         import redis
@@ -716,13 +734,13 @@ async def _get_cache_stats() -> CacheStats:
         return CacheStats()
 
 
-async def _get_vector_store_stats() -> VectorStoreStats:
+async def _get_vector_store_stats(tenant_id: str) -> VectorStoreStats:
     """Get Milvus vector store statistics with caching (optimized - no col.load())."""
     try:
         from src.core.cache.decorators import get_from_cache, set_cache
 
         # Check cache first
-        cache_key = "admin:stats:vectors"
+        cache_key = f"admin:stats:vectors:{tenant_id}"
         cached = await get_from_cache(cache_key)
         if cached:
             return VectorStoreStats(**cached)

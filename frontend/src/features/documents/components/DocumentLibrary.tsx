@@ -323,7 +323,9 @@ export default function DocumentLibrary() {
                                                     initialStatus={doc.status}
                                                     onComplete={() => {
                                                         refetch()
-                                                        queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
+                                                        queryClient.invalidateQueries({ queryKey: ['documents'] });
+                                                        queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
+                                                        queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
                                                     }}
                                                 />
                                             </div>

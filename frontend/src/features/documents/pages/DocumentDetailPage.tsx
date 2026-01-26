@@ -263,6 +263,7 @@ export default function DocumentDetailPage() {
                     // Invalidate queries to refresh lists
                     await queryClient.invalidateQueries({ queryKey: ['documents'] });
                     await queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
+                    await queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
                     // Navigate back to library
                     navigate({ to: '/admin/data/documents' });
                 }}
