@@ -134,13 +134,37 @@ async def update_tenant(
     t_model.document_count = counts.get(tenant.id, 0)
     return t_model
 
+async def cleanup_tenant_resources(tenant_id: str):
+    """Cleanup external resources for a tenant."""
+    from logging import getLogger
+    logger = getLogger(__name__)
+    
+    # 1. Cleanup Neo4j
+    try:
+        from src.amber_platform.composition_root import platform
+        await platform.neo4j_client.delete_tenant_data(tenant_id)
+    except Exception as e:
+        logger.error(f"Failed to cleanup Neo4j for tenant {tenant_id}: {e}")
+
+    # 2. Cleanup Milvus
+    try:
+        from src.api.config import settings
+        from src.amber_platform.composition_root import build_vector_store_factory
+        vector_store_factory = build_vector_store_factory()
+        # Dimensions don't match for deletion but required for config, using default
+        vector_store = vector_store_factory(settings.embedding_dimensions or 1536)
+        await vector_store.delete_tenant_collection(tenant_id)
+    except Exception as e:
+        logger.error(f"Failed to cleanup Milvus for tenant {tenant_id}: {e}")
+
+
 @router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_admin)])
 async def delete_tenant(
     tenant_id: str, 
     session: AsyncSession = Depends(get_db_session)
 ):
     service = TenantService(session)
-    success = await service.delete_tenant(tenant_id)
+    success = await service.delete_tenant(tenant_id, cleanup_callback=cleanup_tenant_resources)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
