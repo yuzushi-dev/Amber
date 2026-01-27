@@ -69,6 +69,7 @@ export interface TenantConfig {
     // Determinism
     seed?: number | null
     temperature?: number | null
+    llm_steps?: Record<string, LlmStepOverride>
     // Prompt overrides (per-tenant)
     rag_system_prompt: string | null
     rag_user_prompt: string | null
@@ -82,6 +83,22 @@ export interface TenantConfig {
         graph_weight: number
         rerank_weight: number
     }
+}
+
+export interface LlmStepOverride {
+    provider?: string | null
+    model?: string | null
+    temperature?: number | null
+    seed?: number | null
+}
+
+export interface LlmStepMeta {
+    id: string
+    label: string
+    feature: string
+    description: string
+    default_temperature: number | null
+    default_seed: number | null
 }
 
 export interface DefaultPrompts {
@@ -340,6 +357,11 @@ export const configApi = {
 
     getTenant: async (tenantId: string) => {
         const response = await apiClient.get<TenantConfig>(`/admin/config/tenants/${tenantId}`)
+        return response.data
+    },
+
+    getLlmSteps: async () => {
+        const response = await apiClient.get<{ steps: LlmStepMeta[] }>('/admin/config/llm-steps')
         return response.data
     },
 
@@ -1107,4 +1129,3 @@ export const retentionApi = {
         await apiClient.delete<{ status: string; message: string }>(`/admin/retention/summaries/${summaryId}`)
     },
 }
-

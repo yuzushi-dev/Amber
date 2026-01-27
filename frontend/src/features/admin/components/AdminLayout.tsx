@@ -14,7 +14,8 @@ import {
     Flag,
     ChevronLeft,
     Gauge,
-    Users
+    Users,
+    Sparkles
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +26,7 @@ interface AdminLayoutProps {
 const adminNavItems = [
     { label: 'Jobs', icon: Activity, to: '/admin/jobs' },
     { label: 'Queues', icon: Gauge, to: '/admin/queues' },
+    { label: 'LLM Settings', icon: Sparkles, to: '/admin/settings/llms' },
     { label: 'API Keys', icon: Settings2, to: '/admin/settings/apikeys' },
     { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
     { label: 'Curation', icon: Flag, to: '/admin/curation' },
