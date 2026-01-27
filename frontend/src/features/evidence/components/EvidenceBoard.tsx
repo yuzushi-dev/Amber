@@ -44,7 +44,7 @@ export default function EvidenceBoard() {
                     <button
                         onClick={() => setView('list')}
                         className={cn(
-                            "p-1.5 rounded-sm transition-all",
+                            "p-1.5 rounded-sm transition-[background-color,box-shadow] duration-200 ease-out",
                             view === 'list' ? "bg-background shadow-sm" : "hover:bg-background/50"
                         )}
                     >
@@ -53,7 +53,7 @@ export default function EvidenceBoard() {
                     <button
                         onClick={() => setView('graph')}
                         className={cn(
-                            "p-1.5 rounded-sm transition-all",
+                            "p-1.5 rounded-sm transition-[background-color,box-shadow] duration-200 ease-out",
                             view === 'graph' ? "bg-background shadow-sm" : "hover:bg-background/50"
                         )}
                     >

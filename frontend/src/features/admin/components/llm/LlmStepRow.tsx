@@ -27,10 +27,10 @@ export function LlmStepRow({
     return (
         <div
             className={cn(
-                "group relative overflow-hidden flex items-center justify-between p-4 rounded-lg border transition-all duration-300 cursor-pointer",
+                "group relative overflow-hidden flex items-center justify-between p-4 rounded-lg border transition-[background-color,border-color,box-shadow,transform] duration-300 ease-out cursor-pointer",
                 isOverridden
-                    ? "bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10 hover:border-amber-500/30"
-                    : "bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-white/10"
+                    ? "bg-primary/5 border-primary/20 hover:bg-primary/10 hover:border-primary/30"
+                    : "bg-foreground/[0.02] border-white/5 hover:bg-foreground/5 hover:border-border/60"
             )}
             onClick={() => onEdit(step.id)}
         >
@@ -40,7 +40,7 @@ export function LlmStepRow({
                         {step.label}
                     </h4>
                     {isOverridden && (
-                        <Badge variant="secondary" className="text-[9px] h-4 px-1.5 uppercase tracking-wider bg-amber-500/20 text-amber-500 border-amber-500/30 font-bold shrink-0">
+                        <Badge variant="secondary" className="text-[9px] h-4 px-1.5 uppercase tracking-wider bg-primary/20 text-primary border-primary/30 font-bold shrink-0">
                             Custom
                         </Badge>
                     )}
@@ -60,7 +60,7 @@ export function LlmStepRow({
                     </div>
                 </div>
 
-                <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-amber-500/70 transition-colors" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-primary/70 transition-colors" />
             </div>
         </div>
     )

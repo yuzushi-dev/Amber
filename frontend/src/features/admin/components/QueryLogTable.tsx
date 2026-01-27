@@ -44,7 +44,7 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
     if (isLoading) {
         return (
             <Card className="p-6">
-                <div className="flex items-center justify-center py-8 text-neutral-400">
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
                     Loading query logs...
                 </div>
             </Card>
@@ -54,7 +54,7 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
     if (data.length === 0) {
         return (
             <Card className="p-6">
-                <div className="flex items-center justify-center py-8 text-neutral-400">
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
                     No query logs found.
                 </div>
             </Card>
@@ -62,11 +62,11 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
     }
 
     return (
-        <Card className="overflow-hidden border-neutral-800 bg-neutral-900/50">
+        <Card className="overflow-hidden border-border bg-card/50">
             <div className="overflow-x-auto">
                 <Table>
-                    <TableHeader className="bg-neutral-900">
-                        <TableRow className="border-neutral-800 hover:bg-neutral-900">
+                    <TableHeader className="bg-muted/40">
+                        <TableRow className="border-border hover:bg-muted/30">
                             <TableHead className="w-[180px]">Time</TableHead>
                             <TableHead className="w-[100px]">Status</TableHead>
                             <TableHead className="min-w-[300px]">Query</TableHead>
@@ -78,24 +78,24 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                     </TableHeader>
                     <TableBody>
                         {paginatedData.map((row) => (
-                            <TableRow key={row.query_id} className="border-neutral-800 hover:bg-neutral-800/50">
-                                <TableCell className="whitespace-nowrap font-mono text-xs text-neutral-400">
+                            <TableRow key={row.query_id} className="border-border hover:bg-muted/20">
+                                <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                                     <div title={new Date(row.timestamp).toLocaleString()}>
                                         {timeAgo(new Date(row.timestamp))}
                                     </div>
-                                    <div className="text-[10px] text-neutral-500 truncate w-24">
+                                    <div className="text-[10px] text-muted-foreground/70 truncate w-24">
                                         {row.query_id}
                                     </div>
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
                                         {row.success ? (
-                                            <Badge variant="outline" className="border-green-500/30 text-green-400 bg-green-500/10">
+                                            <Badge variant="outline" className="border-success/30 text-success bg-success/10">
                                                 <CheckCircle className="w-3 h-3 mr-1" />
                                                 OK
                                             </Badge>
                                         ) : (
-                                            <Badge variant="outline" className="border-red-500/30 text-red-400 bg-red-500/10">
+                                            <Badge variant="outline" className="border-destructive/30 text-destructive bg-destructive/10">
                                                 <XCircle className="w-3 h-3 mr-1" />
                                                 ERR
                                             </Badge>
@@ -108,12 +108,12 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                                             {row.query}
                                         </div>
                                         {row.error_message && (
-                                            <div className="text-xs text-red-400 mt-1 truncate" title={row.error_message}>
+                                            <div className="text-xs text-destructive mt-1 truncate" title={row.error_message}>
                                                 {row.error_message}
                                             </div>
                                         )}
                                         {row.conversation_id && (
-                                            <div className="text-[10px] text-neutral-500 mt-0.5 truncate font-mono">
+                                            <div className="text-[10px] text-muted-foreground/70 mt-0.5 truncate font-mono">
                                                 Conv: {row.conversation_id}
                                             </div>
                                         )}
@@ -121,11 +121,11 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="font-mono text-xs">
-                                        <span className={row.total_latency_ms > 2000 ? 'text-amber-400' : ''}>
+                                        <span className={row.total_latency_ms > 2000 ? 'text-warning' : ''}>
                                             {Math.round(row.total_latency_ms)}ms
                                         </span>
                                     </div>
-                                    <div className="text-[10px] text-neutral-500">
+                                    <div className="text-[10px] text-muted-foreground/70">
                                         Ret: {Math.round(row.retrieval_latency_ms)} / Gen: {Math.round(row.generation_latency_ms)}
                                     </div>
                                 </TableCell>
@@ -133,18 +133,18 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                                     <div className="font-mono text-xs">
                                         {row.tokens_used.toLocaleString()}
                                     </div>
-                                    <div className="text-[10px] text-neutral-500" title="Input / Output">
+                                    <div className="text-[10px] text-muted-foreground/70" title="Input / Output">
                                         {row.input_tokens.toLocaleString()} / {row.output_tokens.toLocaleString()}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <div className={`font-mono text-xs ${row.cost_estimate > 0.01 ? 'text-amber-400' : 'text-neutral-300'}`}>
+                                    <div className={`font-mono text-xs ${row.cost_estimate > 0.01 ? 'text-warning' : 'text-foreground/80'}`}>
                                         ${row.cost_estimate.toFixed(4)}
                                     </div>
                                 </TableCell>
                                 <TableCell>
                                     <div className="text-xs font-medium">{row.model || '-'}</div>
-                                    <div className="text-[10px] text-neutral-500">{row.provider || '-'}</div>
+                                    <div className="text-[10px] text-muted-foreground/70">{row.provider || '-'}</div>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -154,8 +154,8 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
 
             {/* Pagination */}
             {totalPages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-neutral-800 bg-neutral-900/30">
-                    <div className="text-xs text-neutral-500">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
+                    <div className="text-xs text-muted-foreground/70">
                         Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, data.length)} of {data.length} entries
                     </div>
                     <div className="flex items-center gap-2">
@@ -165,10 +165,11 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                             onClick={() => setPage(p => Math.max(1, p - 1))}
                             disabled={page === 1}
                             className="h-8 w-8"
+                            aria-label="Previous page"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </Button>
-                        <span className="text-xs text-neutral-400">
+                        <span className="text-xs text-muted-foreground">
                             Page {page} of {totalPages}
                         </span>
                         <Button
@@ -177,6 +178,7 @@ export function QueryLogTable({ data, isLoading }: QueryLogTableProps) {
                             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                             disabled={page === totalPages}
                             className="h-8 w-8"
+                            aria-label="Next page"
                         >
                             <ChevronRight className="w-4 h-4" />
                         </Button>

@@ -106,7 +106,7 @@ export default function CommandDock() {
                 {/* Bottom Sheet Overlay */}
                 {mobileMenuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-40 animate-in fade-in duration-200"
+                        className="fixed inset-0 bg-background/60 z-40 animate-in fade-in duration-200"
                         onClick={() => setMobileMenuOpen(false)}
                     />
                 )}
@@ -135,7 +135,7 @@ export default function CommandDock() {
                                         to={item.to}
                                         onClick={() => setMobileMenuOpen(false)}
                                         className={cn(
-                                            "flex flex-col items-center justify-center p-4 rounded-xl transition-all",
+                                            "flex flex-col items-center justify-center p-4 rounded-xl transition-[transform,background-color,color] duration-200 ease-out",
                                             "active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary",
                                             active
                                                 ? "bg-primary/10 text-primary"
@@ -172,12 +172,12 @@ export default function CommandDock() {
                 {/* actual nav content */}
                 <nav
                     className={cn(
-                        "transition-all duration-300 ease-out origin-bottom",
+                        "transition-[opacity,transform] duration-300 ease-out origin-bottom",
                         // Base styles from .dock but applied conditionally
-                        "bg-black/80 backdrop-blur-2xl",
-                        "border border-white/10 rounded-2xl", // Premium stroke
+                        "bg-surface-950/80 backdrop-blur-2xl",
+                        "border border-white/5 rounded-2xl", // Premium stroke
                         "px-2 py-1.5",
-                        "shadow-[0_0_40px_rgba(0,0,0,0.5)]",
+                        "shadow-[0_0_40px_hsl(var(--surface-950)/0.5)]",
                         "flex items-center gap-1",
                         // Visibility states
                         "opacity-0 translate-y-4 scale-95 pointer-events-none", // Default hidden state
@@ -255,7 +255,7 @@ export default function CommandDock() {
 
                 {/* Collapsed Indicator (Primary Stroke) */}
                 <div className={cn(
-                    "absolute bottom-0 w-32 h-1.5 bg-primary rounded-t-full shadow-[0_0_15px_hsl(var(--primary)/0.6)] backdrop-blur-sm transition-all duration-300 delay-100",
+                    "absolute bottom-0 w-32 h-1.5 bg-primary rounded-t-full shadow-[0_0_15px_hsl(var(--primary)/0.6)] backdrop-blur-sm transition-[opacity,transform] duration-300 delay-100",
                     "group-hover:opacity-0 group-hover:translate-y-2 group-hover:scale-50"
                 )} />
             </div>

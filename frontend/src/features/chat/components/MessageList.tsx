@@ -4,17 +4,38 @@ import MessageItem from './MessageItem'
 
 interface MessageListProps {
     messages: Message[]
+    isStreaming?: boolean
 }
 
-export default function MessageList({ messages }: MessageListProps) {
+export default function MessageList({ messages, isStreaming }: MessageListProps) {
+    const scrollRef = useRef<HTMLDivElement>(null)
     const bottomRef = useRef<HTMLDivElement>(null)
+    const rafRef = useRef<number | null>(null)
 
+    // RAF-throttled scroll to keep latest content in view
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
+        // Skip scheduling if a frame is already pending
+        if (rafRef.current !== null) return
+
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = null
+            if (scrollRef.current) {
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+            } else {
+                bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' })
+            }
+        })
+    }, [messages, isStreaming])
+
+    // Cleanup RAF on unmount
+    useEffect(() => {
+        return () => {
+            if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+        }
+    }, [])
 
     return (
-        <div className="flex-1 overflow-y-auto w-full">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto w-full">
             {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-8">
                     <div className="max-w-md w-full text-center space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -32,7 +53,7 @@ export default function MessageList({ messages }: MessageListProps) {
 
                         {/* Hero Text */}
                         <div className="space-y-4">
-                            <h2 className="text-3xl font-display font-bold tracking-tight bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent">
+                            <h2 className="text-3xl font-display font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/60 bg-clip-text text-transparent">
                                 Hi, I'm Amber
                             </h2>
                             <p className="text-lg text-muted-foreground/80 leading-relaxed font-light">
@@ -41,8 +62,8 @@ export default function MessageList({ messages }: MessageListProps) {
                         </div>
 
                         {/* Warning/Disclaimer Badge */}
-                        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 text-xs text-muted-foreground/60">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500/50" />
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/5 border border-white/5 text-xs text-muted-foreground/60">
+                            <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />
                             AI can make mistakes. Please verify important information.
                         </div>
                     </div>
@@ -62,6 +83,7 @@ export default function MessageList({ messages }: MessageListProps) {
                             key={msg.id}
                             message={msg}
                             queryContent={queryContent}
+                            isStreaming={isStreaming}
                         />
                     );
                 })

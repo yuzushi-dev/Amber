@@ -86,7 +86,7 @@ export default function LiveStatusBadge({ documentId, initialStatus, onComplete,
     // Compact mode for sidebar - just show colored dot
     if (compact) {
         if (s === 'ready' || s === 'completed') {
-            return <span className={`w-2 h-2 rounded-full bg-green-500 ${className || ''}`} title="Ready" />
+            return <span className={`w-2 h-2 rounded-full bg-success ${className || ''}`} title="Ready" />
         }
         if (s === 'failed') {
             return <span className={`w-2 h-2 rounded-full bg-destructive ${className || ''}`} title="Failed" />

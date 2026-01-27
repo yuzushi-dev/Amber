@@ -68,17 +68,17 @@ export default function CurationPage() {
     const getTypeColor = (type: string) => {
         switch (type) {
             case 'wrong_fact':
-                return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                return 'bg-destructive/10 text-destructive border border-destructive/20'
             case 'bad_link':
-                return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
+                return 'bg-warning-muted text-warning-foreground border border-warning/30'
             case 'wrong_entity':
             case 'missing_entity':
-                return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+                return 'bg-info-muted text-info-foreground border border-info/30'
             case 'duplicate_entity':
             case 'merge_suggestion':
-                return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                return 'bg-primary/10 text-primary border border-primary/30'
             default:
-                return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                return 'bg-muted text-muted-foreground border border-border'
         }
     }
 
@@ -105,19 +105,19 @@ export default function CurationPage() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Pending</div>
-                        <div className="text-2xl font-bold text-yellow-600">{stats.pending_count}</div>
+                        <div className="text-2xl font-bold text-warning">{stats.pending_count}</div>
                     </div>
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Accepted</div>
-                        <div className="text-2xl font-bold text-green-600">{stats.accepted_count}</div>
+                        <div className="text-2xl font-bold text-success">{stats.accepted_count}</div>
                     </div>
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Rejected</div>
-                        <div className="text-2xl font-bold text-red-600">{stats.rejected_count}</div>
+                        <div className="text-2xl font-bold text-destructive">{stats.rejected_count}</div>
                     </div>
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Merged</div>
-                        <div className="text-2xl font-bold text-blue-600">{stats.merged_count}</div>
+                        <div className="text-2xl font-bold text-info">{stats.merged_count}</div>
                     </div>
                     <div className="bg-card border rounded-lg p-4">
                         <div className="text-sm text-muted-foreground">Avg Resolution</div>
@@ -145,8 +145,8 @@ export default function CurationPage() {
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                    <p className="text-destructive">{error}</p>
                 </div>
             )}
 
@@ -195,6 +195,7 @@ export default function CurationPage() {
                                             onClick={() => handleViewFlag(flag.id)}
                                             className="px-2 h-8 w-8"
                                             title="View details"
+                                            aria-label={`View details for flag ${flag.id.slice(0, 8)}`}
                                         >
                                             <Eye className="w-4 h-4" />
                                         </Button>
@@ -205,8 +206,9 @@ export default function CurationPage() {
                                                     size="sm"
                                                     onClick={() => handleResolve(flag.id, 'accept')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="px-2 h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                                    className="px-2 h-8 w-8 text-success hover:text-success/80 hover:bg-success/10"
                                                     title="Accept"
+                                                    aria-label={`Accept flag ${flag.id.slice(0, 8)}`}
                                                 >
                                                     <Check className="w-4 h-4" />
                                                 </Button>
@@ -215,8 +217,9 @@ export default function CurationPage() {
                                                     size="sm"
                                                     onClick={() => handleResolve(flag.id, 'reject')}
                                                     disabled={resolvingId === flag.id}
-                                                    className="px-2 h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                    className="px-2 h-8 w-8 text-destructive hover:text-destructive/80 hover:bg-destructive/10"
                                                     title="Reject"
+                                                    aria-label={`Reject flag ${flag.id.slice(0, 8)}`}
                                                 >
                                                     <X className="w-4 h-4" />
                                                 </Button>
@@ -255,7 +258,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
         <>
             {/* Backdrop */}
             <div
-                className="fixed inset-0 bg-black/50 z-40"
+                className="fixed inset-0 bg-background/60 z-40"
                 onClick={onClose}
             />
 
@@ -268,6 +271,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                             variant="ghost"
                             size="icon"
                             onClick={onClose}
+                            aria-label="Close flag details"
                         >
                             <X className="w-5 h-5" />
                         </Button>
@@ -338,7 +342,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                             <Button
                                 onClick={() => onResolve(flag.id, 'accept')}
                                 disabled={resolving}
-                                className="flex-1 gap-2 bg-green-600 hover:bg-green-700 text-white"
+                                className="flex-1 gap-2 bg-success text-success-foreground hover:bg-success/90"
                             >
                                 <Check className="w-4 h-4" />
                                 Accept
@@ -346,7 +350,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                             <Button
                                 onClick={() => onResolve(flag.id, 'reject')}
                                 disabled={resolving}
-                                className="flex-1 gap-2 bg-red-600 hover:bg-red-700 text-white"
+                                className="flex-1 gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
                                 <X className="w-4 h-4" />
                                 Reject
@@ -355,7 +359,7 @@ function FlagDetailDrawer({ flag, onClose, onResolve, resolving }: FlagDetailDra
                                 <Button
                                     onClick={() => onResolve(flag.id, 'merge')}
                                     disabled={resolving}
-                                    className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                                    className="flex-1 gap-2 bg-info text-info-foreground hover:bg-info/90"
                                 >
                                     <GitMerge className="w-4 h-4" />
                                     Merge

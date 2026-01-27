@@ -108,7 +108,7 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
             <DialogContent className="sm:max-w-[550px] p-0 gap-0 overflow-hidden">
 
                 {/* Header */}
-                <div className="p-6 border-b border-white/5 bg-white/[0.02]">
+                <div className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-3 text-xl">
                             <div className="p-2 rounded-lg bg-primary/10 text-primary">
@@ -126,16 +126,16 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
 
                 <div className="p-6 space-y-8">
                     {/* Super Admin Status */}
-                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-center justify-between">
+                    <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className={cn(
                                 "p-2 rounded-lg transition-colors",
-                                apiKey.scopes.includes('super_admin') ? "bg-amber-500/20 text-amber-500" : "bg-muted text-muted-foreground"
+                                apiKey.scopes.includes('super_admin') ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
                             )}>
                                 <Crown className="w-5 h-5" />
                             </div>
                             <div>
-                                <p className="text-sm font-bold text-amber-500 uppercase tracking-tight">Global Access</p>
+                                <p className="text-sm font-bold text-primary uppercase tracking-tight">Global Access</p>
                                 <p className="text-xs text-muted-foreground">Bypasses isolation to access all tenants</p>
                             </div>
                         </div>
@@ -145,10 +145,10 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
                             onClick={() => toggleSuperAdmin(!apiKey.scopes.includes('super_admin'))}
                             disabled={loading}
                             className={cn(
-                                "h-8 border-amber-500/20",
+                                "h-8 border-primary/20",
                                 apiKey.scopes.includes('super_admin')
-                                    ? "bg-amber-500 hover:bg-amber-600 text-white border-none"
-                                    : "text-amber-500 hover:bg-amber-500/10"
+                                    ? "bg-primary hover:bg-primary/90 text-primary-foreground border-none"
+                                    : "text-primary hover:bg-primary/10"
                             )}
                         >
                             {apiKey.scopes.includes('super_admin') ? 'Disable' : 'Enable'}
@@ -218,11 +218,11 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
                                                 exit={{ opacity: 0, scale: 0.8 }}
                                                 className={cn(
                                                     "group flex items-center gap-2 pl-3 pr-1 py-1.5",
-                                                    "bg-background border rounded-full shadow-sm hover:border-destructive/30 hover:shadow-md transition-all",
+                                                    "bg-background border rounded-full shadow-sm hover:border-destructive/30 hover:shadow-md transition-[border-color,box-shadow] duration-200 ease-out",
                                                     "cursor-default select-none"
                                                 )}
                                             >
-                                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                                <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
                                                 <span className="text-sm font-medium">{t.name}</span>
                                                 <Button
                                                     variant="ghost"
@@ -231,8 +231,9 @@ export default function TenantLinkingModal({ apiKey: initialApiKey, isOpen, onCl
                                                     disabled={loading}
                                                     className={cn(
                                                         "ml-1 h-5 w-5 rounded-full text-muted-foreground/50",
-                                                        "hover:bg-destructive hover:text-destructive-foreground transition-all duration-200"
+                                                        "hover:bg-destructive hover:text-destructive-foreground transition-[background-color,color] duration-200 ease-out"
                                                     )}
+                                                    aria-label={`Remove ${t.name} tenant`}
                                                 >
                                                     <X className="w-3 h-3" />
                                                 </Button>

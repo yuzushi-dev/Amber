@@ -44,39 +44,39 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
     const prefersDark = typeof window !== 'undefined'
         && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const isDark = activeTheme === 'dark' || (activeTheme !== 'light' && prefersDark);
-    const backgroundColor = isDark ? '#020817' : '#ffffff'; // Match shadcn ui background
-    const linkColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+    const style = typeof document !== 'undefined'
+        ? getComputedStyle(document.documentElement)
+        : null;
+    const readVar = (name: string, fallback: string) => {
+        if (!style) return fallback;
+        const value = style.getPropertyValue(name).trim();
+        return value ? `hsl(${value})` : fallback;
+    };
+    const readVarAlpha = (name: string, alpha: number, fallback: string) => {
+        if (!style) return fallback;
+        const value = style.getPropertyValue(name).trim();
+        return value ? `hsl(${value} / ${alpha})` : fallback;
+    };
+    const backgroundColor = readVar('--background', isDark ? 'hsl(0 0% 0%)' : 'hsl(0 0% 100%)');
+    const linkColor = readVarAlpha('--edge-default', 0.2, isDark ? 'hsl(0 0% 100% / 0.2)' : 'hsl(0 0% 0% / 0.2)');
 
     const processedData = useMemo(() => {
+        const fallbackColor = isDark ? 'hsl(0 0% 100%)' : 'hsl(0 0% 0%)';
         const defaultColors = {
-            entity: isDark ? '#60a5fa' : '#2563eb',
-            document: isDark ? '#f59e0b' : '#d97706',
-            community: isDark ? '#10b981' : '#059669',
-            chunk: isDark ? '#a855f7' : '#7c3aed',
-            default: isDark ? '#94a3b8' : '#64748b',
+            entity: fallbackColor,
+            document: fallbackColor,
+            community: fallbackColor,
+            chunk: fallbackColor,
+            default: fallbackColor,
         };
 
-        const getColorMap = () => {
-            if (typeof document === 'undefined') {
-                return defaultColors;
-            }
-
-            const style = getComputedStyle(document.documentElement);
-            const readVar = (name: string, fallback: string) => {
-                const value = style.getPropertyValue(name).trim();
-                return value ? `hsl(${value})` : fallback;
-            };
-
-            return {
-                entity: readVar('--node-entity', defaultColors.entity),
-                document: readVar('--node-document', defaultColors.document),
-                community: readVar('--node-community', defaultColors.community),
-                chunk: readVar('--node-chunk', defaultColors.chunk),
-                default: readVar('--muted-foreground', defaultColors.default),
-            };
+        const colorMap = {
+            entity: readVar('--node-entity', defaultColors.entity),
+            document: readVar('--node-document', defaultColors.document),
+            community: readVar('--node-community', defaultColors.community),
+            chunk: readVar('--node-chunk', defaultColors.chunk),
+            default: readVar('--muted-foreground', defaultColors.default),
         };
-
-        const colorMap = getColorMap();
 
         return {
             nodes: data.nodes.map(node => ({

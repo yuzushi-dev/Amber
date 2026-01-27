@@ -311,11 +311,11 @@ export default function GlobalGraphPage() {
     }, [queryClient]);
 
     return (
-        <div className="relative w-full h-full min-h-[calc(100vh-4rem)] bg-[#110c0a] overflow-hidden group/page">
+        <div className="relative w-full h-full min-h-[calc(100vh-4rem)] bg-surface-950 overflow-hidden group/page">
 
             {/* 3D Graph Container - Click to enter explore mode */}
             <div
-                className={`absolute inset-0 transition-all duration-1000 ease-in-out ${isInteractive ? 'blur-0' : 'blur-sm grayscale-[0.8] brightness-[0.4]'} cursor-pointer`}
+                className={`absolute inset-0 transition-[filter] duration-1000 ease-in-out ${isInteractive ? 'blur-0' : 'blur-sm grayscale-[0.8] brightness-[0.4]'} cursor-pointer`}
                 onClick={() => !isInteractive && setIsExploring(true)}
             >
                 <ThreeGraph
@@ -330,8 +330,8 @@ export default function GlobalGraphPage() {
             {/* Overlay Gradient: only present when NOT interactive to help text legibility */}
             {!isInteractive && (
                 <div
-                    className="absolute inset-0 bg-gradient-to-t from-[#110c0a] via-transparent to-transparent pointer-events-none"
-                    style={{ background: 'radial-gradient(circle at center, transparent 0%, #110c0a 120%)' }}
+                    className="absolute inset-0 bg-gradient-to-t from-surface-950 via-transparent to-transparent pointer-events-none"
+                    style={{ background: 'radial-gradient(circle at center, transparent 0%, hsl(var(--surface-950)) 120%)' }}
                 />
             )}
 
@@ -355,8 +355,9 @@ export default function GlobalGraphPage() {
                         <Button
                             variant="outline"
                             size="icon"
-                            className="bg-background/50 backdrop-blur-md border-white/10 hover:bg-white/10"
+                            className="bg-background/50 backdrop-blur-md border-border hover:bg-foreground/10"
                             onClick={() => setShowMaintenanceModal(true)}
+                            aria-label="Open graph settings"
                         >
                             <Settings2 className="w-5 h-5 text-muted-foreground" />
                         </Button>
@@ -376,17 +377,17 @@ export default function GlobalGraphPage() {
                     <div className="mb-6 text-center space-y-2 select-none">
                         <motion.h1
                             animate={{ opacity: isInteractive ? 0 : 1, y: isInteractive ? -20 : 0, height: isInteractive ? 0 : 'auto' }}
-                            className="text-5xl font-bold tracking-tighter text-white drop-shadow-2xl font-display"
-                            style={{ textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}
+                            className="text-5xl font-bold tracking-tighter text-foreground drop-shadow-2xl font-display"
+                            style={{ textShadow: '0 4px 20px hsl(var(--surface-950) / 0.8)' }}
                         >
                             Global Graph Explorer
                         </motion.h1>
                         <motion.p
                             animate={{ opacity: isInteractive ? 0 : 1, height: isInteractive ? 0 : 'auto' }}
-                            className="text-zinc-400 text-lg max-w-md mx-auto font-medium"
+                            className="text-muted-foreground text-lg max-w-md mx-auto font-medium"
                         >
                             Navigate the entire knowledge base. <br />
-                            <span className="text-zinc-500 text-sm">Type to search or click background to explore.</span>
+                            <span className="text-muted-foreground/70 text-sm">Type to search or click background to explore.</span>
                         </motion.p>
                     </div>
 
@@ -401,9 +402,9 @@ export default function GlobalGraphPage() {
 
                 {/* Loading State Overlay */}
                 {isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50">
-                        <div className="flex flex-col items-center gap-4 p-6 rounded-2xl bg-surface-900 border border-amber-500/20 shadow-xl">
-                            <Loader2 className="w-10 h-10 text-amber-500 animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-sm z-50">
+                        <div className="flex flex-col items-center gap-4 p-6 rounded-2xl bg-surface-900 border border-primary/20 shadow-xl">
+                            <Loader2 className="w-10 h-10 text-primary animate-spin" />
                             <p className="text-sm font-medium text-muted-foreground animate-pulse">Exploring connections...</p>
                         </div>
                     </div>
@@ -417,10 +418,10 @@ export default function GlobalGraphPage() {
                     animate={{ opacity: 1, x: 0 }}
                     className="absolute bottom-8 right-8 pointer-events-auto"
                 >
-                    <div className="p-4 rounded-xl bg-surface-950/80 backdrop-blur-md border border-white/10 shadow-xl">
+                    <div className="p-4 rounded-xl bg-surface-950/80 backdrop-blur-md border border-white/5 shadow-xl">
                         <div className="text-xs text-muted-foreground space-y-1">
-                            <p>Nodes: <span className="text-amber-500 font-mono">{graphData.nodes.length}</span></p>
-                            <p>Edges: <span className="text-amber-500 font-mono">{graphData.edges.length}</span></p>
+                            <p>Nodes: <span className="text-primary font-mono">{graphData.nodes.length}</span></p>
+                            <p>Edges: <span className="text-primary font-mono">{graphData.edges.length}</span></p>
                         </div>
                     </div>
                 </motion.div>
@@ -440,36 +441,36 @@ export default function GlobalGraphPage() {
 
             {/* Maintenance Modal */}
             <Dialog open={showMaintenanceModal} onOpenChange={setShowMaintenanceModal}>
-                <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden bg-surface-950/95 backdrop-blur-xl border-white/10 shadow-2xl">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden bg-surface-950/95 backdrop-blur-xl border-border shadow-2xl">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <DialogTitle className="flex items-center gap-2 text-xl tracking-tight">
-                            <Settings2 className="w-5 h-5 text-amber-500" />
+                            <Settings2 className="w-5 h-5 text-primary" />
                             Graph Maintenance
                         </DialogTitle>
-                        <DialogDescription className="text-zinc-400">
+                        <DialogDescription className="text-muted-foreground">
                             Perform system-level cleanup on the knowledge graph nodes and cache.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="p-6 space-y-4">
                         {/* Prune Action */}
-                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-all duration-300">
+                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-foreground/[0.03] border border-white/5 hover:bg-foreground/[0.05] transition-[background-color,border-color,box-shadow] duration-300 ease-out">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 font-semibold text-zinc-100">
-                                    <div className="p-2 rounded-lg bg-red-500/10 text-red-400 group-hover:scale-110 transition-transform">
+                                <div className="flex items-center gap-2 font-semibold text-foreground">
+                                    <div className="p-2 rounded-lg bg-destructive/10 text-destructive group-hover:scale-110 transition-transform">
                                         <Trash2 className="w-4 h-4" />
                                     </div>
                                     Prune Orphans
                                 </div>
                             </div>
-                            <p className="text-xs leading-relaxed text-zinc-400 pr-4">
+                            <p className="text-xs leading-relaxed text-muted-foreground pr-4">
                                 Remove disconnected nodes that are not linked to any valid documents.
                                 Fixes visual inconsistencies in the graph exploration.
                             </p>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="w-full mt-1 border-red-500/20 hover:bg-red-500/10 hover:border-red-500/40 text-red-400 transition-all font-medium"
+                                className="w-full mt-1 border-destructive/20 hover:bg-destructive/10 hover:border-destructive/40 text-destructive transition-[background-color,border-color,color] duration-200 ease-out font-medium"
                                 onClick={() => pruneOrphansMutation.mutate()}
                                 disabled={pruneOrphansMutation.isPending || clearCacheMutation.isPending}
                             >
@@ -480,23 +481,23 @@ export default function GlobalGraphPage() {
                         </div>
 
                         {/* Cache Action */}
-                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-all duration-300">
+                        <div className="group relative flex flex-col gap-3 p-4 rounded-xl bg-foreground/[0.03] border border-white/5 hover:bg-foreground/[0.05] transition-[background-color,border-color,box-shadow] duration-300 ease-out">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 font-semibold text-zinc-100">
-                                    <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition-transform">
+                                <div className="flex items-center gap-2 font-semibold text-foreground">
+                                    <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:scale-110 transition-transform">
                                         <HardDrive className="w-4 h-4" />
                                     </div>
                                     Clear Metadata Cache
                                 </div>
                             </div>
-                            <p className="text-xs leading-relaxed text-zinc-400 pr-4">
+                            <p className="text-xs leading-relaxed text-muted-foreground pr-4">
                                 Wipe query results from Redis. Recommended if you updated documents
                                 but the global graph doesn't reflect changes yet.
                             </p>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="w-full mt-1 border-amber-500/20 hover:bg-amber-500/10 hover:border-amber-500/40 text-amber-500 transition-all font-medium"
+                                className="w-full mt-1 border-primary/20 hover:bg-primary/10 hover:border-primary/40 text-primary transition-[background-color,border-color,color] duration-200 ease-out font-medium"
                                 onClick={() => clearCacheMutation.mutate()}
                                 disabled={pruneOrphansMutation.isPending || clearCacheMutation.isPending}
                             >
@@ -507,8 +508,8 @@ export default function GlobalGraphPage() {
                         </div>
                     </div>
 
-                    <div className="p-4 bg-white/[0.02] border-t border-white/5 flex justify-end">
-                        <Button variant="ghost" size="sm" onClick={() => setShowMaintenanceModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                    <div className="p-4 bg-foreground/[0.02] border-t border-white/5 flex justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => setShowMaintenanceModal(false)} className="text-muted-foreground hover:text-foreground">
                             Close
                         </Button>
                     </div>

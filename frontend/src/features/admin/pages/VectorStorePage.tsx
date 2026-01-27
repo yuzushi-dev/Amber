@@ -129,30 +129,30 @@ export default function VectorStorePage() {
                         label: 'Collections',
                         value: totalCollections,
                         icon: Layers,
-                        color: 'text-blue-400',
-                        gradient: 'from-blue-500/20 to-blue-600/5'
+                        color: 'text-chart-1',
+                        gradient: 'from-chart-1/20 to-chart-1/5'
                     },
                     {
                         label: 'Total Vectors',
                         value: totalVectors,
                         icon: Box,
-                        color: 'text-purple-400',
-                        gradient: 'from-purple-500/20 to-purple-600/5'
+                        color: 'text-chart-2',
+                        gradient: 'from-chart-2/20 to-chart-2/5'
                     },
                     {
                         label: 'Memory Usage',
                         value: formatBytes(totalMemoryMB * 1024 * 1024),
                         icon: HardDrive,
-                        color: 'text-green-400',
-                        gradient: 'from-green-500/20 to-green-600/5',
+                        color: 'text-chart-3',
+                        gradient: 'from-chart-3/20 to-chart-3/5',
                         isString: true
                     },
                     {
                         label: 'Dimensions',
                         value: collections[0]?.dimensions ?? '—',
                         icon: Cpu,
-                        color: 'text-orange-400',
-                        gradient: 'from-orange-500/20 to-orange-600/5',
+                        color: 'text-chart-4',
+                        gradient: 'from-chart-4/20 to-chart-4/5',
                         isString: true
                     }
                 ].map((card, idx) => (
@@ -180,7 +180,7 @@ export default function VectorStorePage() {
             {/* Collections Section */}
             <div className="space-y-4">
                 {/* Section Header Bar */}
-                <div className="p-2 rounded-xl border border-white/5 bg-black/20 backdrop-blur-md flex justify-between items-center shadow-inner">
+                <div className="p-2 rounded-xl border border-white/5 bg-background/20 backdrop-blur-md flex justify-between items-center shadow-inner">
                     <div className="flex items-center gap-2 px-3 text-sm text-muted-foreground">
                         <Database className="w-4 h-4" />
                         <span>{totalCollections} collection{totalCollections !== 1 ? 's' : ''}</span>
@@ -221,7 +221,7 @@ export default function VectorStorePage() {
                                         transition={{ duration: 0.2, delay: idx * 0.03 }}
                                         className="group"
                                     >
-                                        <div className="grid grid-cols-[2fr_100px_100px_120px_100px_80px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-white/10 hover:shadow-lg transition-all duration-300">
+                                        <div className="grid grid-cols-[2fr_100px_100px_120px_100px_80px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-border/60 hover:shadow-lg transition-[background-color,border-color,box-shadow] duration-300 ease-out">
                                             {/* Collection Name */}
                                             <div className="flex items-center gap-4 min-w-0">
                                                 <div className="p-2.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shrink-0">

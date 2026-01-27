@@ -96,6 +96,7 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                                     size="icon"
                                     className={`h-8 w-8 ${mode === tool.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
                                     onClick={() => onModeChange(tool.id)}
+                                    aria-label={tool.label}
                                 >
                                     <tool.icon className="h-4 w-4" />
                                 </Button>
@@ -118,10 +119,11 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                                         size="icon"
                                         className="h-8 w-8 text-muted-foreground relative"
                                         onClick={onHistoryClick}
+                                        aria-label="View edit history"
                                     >
                                         <History className="h-4 w-4" />
                                         {pendingCount > 0 && (
-                                            <span className="absolute -top-1 -right-1 bg-amber-500 text-black text-[10px] font-bold rounded-full h-4 min-w-4 px-1 flex items-center justify-center">
+                                            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full h-4 min-w-4 px-1 flex items-center justify-center">
                                                 {pendingCount > 9 ? '9+' : pendingCount}
                                             </span>
                                         )}
@@ -140,7 +142,13 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                     {onBackup && (
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={onBackup}>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground"
+                                    onClick={onBackup}
+                                    aria-label="Backup graph"
+                                >
                                     <Download className="h-4 w-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -150,7 +158,13 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                     {onRestore && (
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={onRestore}>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground"
+                                    onClick={onRestore}
+                                    aria-label="Restore graph"
+                                >
                                     <Upload className="h-4 w-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -167,6 +181,7 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground"
                                 onClick={() => setIsHelpOpen(true)}
+                                aria-label="Open graph help"
                             >
                                 <HelpCircle className="h-4 w-4" />
                             </Button>
@@ -187,7 +202,7 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <HelpCircle className="h-5 w-5 text-amber-500" />
+                            <HelpCircle className="h-5 w-5 text-primary" />
                             Graph Navigation & Actions
                         </DialogTitle>
                         <DialogDescription>
@@ -201,28 +216,28 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                             <h3 className="text-sm font-medium text-foreground border-b pb-1">3D Navigation</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <MousePointer2 className="h-5 w-5 text-amber-500 mt-0.5" />
+                                    <MousePointer2 className="h-5 w-5 text-primary mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Left Click</p>
                                         <p className="text-xs text-muted-foreground">Select nodes or trigger active tool</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Move className="h-5 w-5 text-amber-500 mt-0.5" />
+                                    <Move className="h-5 w-5 text-primary mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Right Click / Drag</p>
                                         <p className="text-xs text-muted-foreground">Pan the camera view</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Rotate3d className="h-5 w-5 text-amber-500 mt-0.5" />
+                                    <Rotate3d className="h-5 w-5 text-primary mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Left Drag</p>
                                         <p className="text-xs text-muted-foreground">Rotate (Orbit) around focus</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <ZoomIn className="h-5 w-5 text-amber-500 mt-0.5" />
+                                    <ZoomIn className="h-5 w-5 text-primary mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Scroll Wheel</p>
                                         <p className="text-xs text-muted-foreground">Zoom in / out</p>
@@ -236,28 +251,28 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({
                             <h3 className="text-sm font-medium text-foreground border-b pb-1">Editing Actions</h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Network className="h-5 w-5 text-sky-400 mt-0.5" />
+                                    <Network className="h-5 w-5 text-info mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Connect</p>
                                         <p className="text-xs text-muted-foreground">Link two nodes. Click source, then click target.</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Minimize2 className="h-5 w-5 text-purple-400 mt-0.5" />
+                                    <Minimize2 className="h-5 w-5 text-chart-3 mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Merge</p>
                                         <p className="text-xs text-muted-foreground">Combine nodes. 1st click = Target. Others = Sources (deleted).</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Scissors className="h-5 w-5 text-red-400 mt-0.5" />
+                                    <Scissors className="h-5 w-5 text-destructive mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Prune</p>
                                         <p className="text-xs text-muted-foreground">Delete items. Click a node to remove it and its edges.</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30">
-                                    <Wand2 className="h-5 w-5 text-amber-400 mt-0.5" />
+                                    <Wand2 className="h-5 w-5 text-primary mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium">Heal</p>
                                         <p className="text-xs text-muted-foreground">AI suggestions. Fix missing links or inconsistencies.</p>

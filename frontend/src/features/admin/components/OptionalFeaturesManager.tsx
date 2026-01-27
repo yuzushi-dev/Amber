@@ -153,21 +153,21 @@ export default function OptionalFeaturesManager() {
         switch (feature.status) {
             case 'installed':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-success-muted text-success">
                         <Check className="w-3 h-3" />
                         Installed
                     </span>
                 )
             case 'installing':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-info-muted text-info-foreground">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Installing...
                     </span>
                 )
             case 'failed':
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" title={feature.error_message}>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-destructive/10 text-destructive" title={feature.error_message}>
                         <AlertCircle className="w-3 h-3" />
                         Failed
                     </span>
@@ -221,7 +221,7 @@ export default function OptionalFeaturesManager() {
             />
 
             {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
                     {error}
                 </div>
             )}
