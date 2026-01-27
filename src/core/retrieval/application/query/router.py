@@ -9,7 +9,8 @@ import logging
 
 from src.shared.kernel.models.query import SearchMode
 from src.core.generation.application.prompts.query_analysis import QUERY_MODE_PROMPT
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory, ProviderFactoryPort
 from src.core.generation.domain.ports.providers import LLMProviderPort
 
 logger = logging.getLogger(__name__)
@@ -39,24 +40,30 @@ class QueryRouter:
         provider: LLMProviderPort | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        provider_factory: ProviderFactoryPort | None = None,
     ):
-        if provider:
-            self.provider = provider
+        if provider_factory:
+            self.factory = provider_factory
         else:
             if openai_api_key or anthropic_api_key:
-                factory = build_provider_factory(
+                self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,
                     anthropic_api_key=anthropic_api_key,
                 )
             else:
-                factory = get_provider_factory()
-            self.provider = factory.get_llm_provider(model_tier="economy")
+                self.factory = get_provider_factory()
+
+        if provider:
+            self.provider = provider
+        else:
+            self.provider = self.factory.get_llm_provider(model_tier="economy")
 
     async def route(
         self,
         query: str,
         explicit_mode: SearchMode | None = None,
         use_llm: bool = True,
+        tenant_config: dict | None = None,
     ) -> SearchMode:
         """
         Determine the SearchMode for a query.
@@ -92,8 +99,29 @@ class QueryRouter:
         # 2. LLM classification
         if use_llm:
             try:
+                from src.shared.kernel.runtime import get_settings
+                from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+                settings = get_settings()
+                tenant_config = tenant_config or {}
+                llm_cfg = resolve_llm_step_config(
+                    tenant_config=tenant_config,
+                    step_id="retrieval.query_router",
+                    settings=settings,
+                )
+                provider = self.factory.get_llm_provider(
+                    provider_name=llm_cfg.provider,
+                    model=llm_cfg.model,
+                    tier=ProviderTier.ECONOMY,
+                )
+                kwargs = {}
+                if llm_cfg.temperature is not None:
+                    kwargs["temperature"] = llm_cfg.temperature
+                if llm_cfg.seed is not None:
+                    kwargs["seed"] = llm_cfg.seed
+
                 prompt = QUERY_MODE_PROMPT.format(query=query)
-                mode_str = await self.provider.generate(prompt)
+                mode_str = await provider.generate(prompt, **kwargs)
                 mode_str = mode_str.strip().lower()
 
                 if mode_str in [m.value for m in SearchMode]:

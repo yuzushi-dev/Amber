@@ -9,7 +9,8 @@ import logging
 import time
 
 from src.core.generation.application.prompts.query_analysis import QUERY_REWRITE_PROMPT
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory, ProviderFactoryPort
 from src.core.generation.domain.ports.providers import LLMProviderPort
 
 logger = logging.getLogger(__name__)
@@ -25,24 +26,30 @@ class QueryRewriter:
         provider: LLMProviderPort | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        provider_factory: ProviderFactoryPort | None = None,
     ):
-        if provider:
-            self.provider = provider
+        if provider_factory:
+            self.factory = provider_factory
         else:
             if openai_api_key or anthropic_api_key:
-                factory = build_provider_factory(
+                self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,
                     anthropic_api_key=anthropic_api_key,
                 )
             else:
-                factory = get_provider_factory()
-            self.provider = factory.get_llm_provider(model_tier="economy")
+                self.factory = get_provider_factory()
+
+        if provider:
+            self.provider = provider
+        else:
+            self.provider = self.factory.get_llm_provider(model_tier="economy")
 
     async def rewrite(
         self,
         query: str,
         history: list[dict] | str = "",
         timeout_sec: float = 2.0,
+        tenant_config: dict | None = None,
     ) -> str:
         """
         Rewrite a query using conversation history.
@@ -70,8 +77,29 @@ class QueryRewriter:
 
         start_time = time.perf_counter()
         try:
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+            settings = get_settings()
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="retrieval.query_rewrite",
+                settings=settings,
+            )
+            provider = self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+            kwargs = {}
+            if llm_cfg.temperature is not None:
+                kwargs["temperature"] = llm_cfg.temperature
+            if llm_cfg.seed is not None:
+                kwargs["seed"] = llm_cfg.seed
+
             # We don't have a direct timeout in the provider yet, but we can check after
-            rewritten = await self.provider.generate(prompt)
+            rewritten = await provider.generate(prompt, **kwargs)
 
             elapsed = time.perf_counter() - start_time
             if elapsed > timeout_sec:

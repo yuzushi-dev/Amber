@@ -36,6 +36,7 @@ from src.core.retrieval.application.search.weights import get_adaptive_weights
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.admin_ops.application.tuning_service import TuningService
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.system.circuit_breaker import CircuitBreaker
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort, SearchResult
@@ -170,18 +171,22 @@ class RetrievalService:
         self.rewriter = QueryRewriter(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
+            provider_factory=factory,
         )
         self.decomposer = QueryDecomposer(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
+            provider_factory=factory,
         )
         self.hyde_service = HyDEService(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
+            provider_factory=factory,
         )
         self.router = QueryRouter(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
+            provider_factory=factory,
         )
 
         # Phase 6 & Graph Searchers
@@ -194,8 +199,13 @@ class RetrievalService:
 
         # Advanced Search Modes
         llm = factory.get_llm_provider(tier=self.config.llm_tier if hasattr(self.config, "llm_tier") else None)
-        self.global_search = GlobalSearchService(self.vector_store, llm, embedding_service=self.embedding_service)
-        self.drift_search = DriftSearchService(self, llm)
+        self.global_search = GlobalSearchService(
+            self.vector_store,
+            llm,
+            embedding_service=self.embedding_service,
+            provider_factory=factory,
+        )
+        self.drift_search = DriftSearchService(self, llm, provider_factory=factory)
 
         # Resilience
         self.circuit_breaker = CircuitBreaker()
@@ -214,6 +224,14 @@ class RetrievalService:
         # Ideally TuningService should be refactored too, but for now we rely on injection.
         self.tuning = tuning_service
         # or TuningService(session_factory=async_session_maker) - REMOVED DEFAULT
+
+    async def _resolve_active_collection(self, tenant_id: str) -> str:
+        """Resolve the active vector collection for a tenant."""
+        if self.tuning:
+            config = await self.tuning.get_tenant_config(tenant_id)
+            return resolve_active_vector_collection(tenant_id, config)
+        logger.warning("TuningService not provided; falling back to default active collection")
+        return resolve_active_vector_collection(tenant_id, {})
 
 
     @trace_span("RetrievalService.retrieve")
@@ -242,14 +260,23 @@ class RetrievalService:
         8. Caching & Return
         """
         start_time = time.perf_counter()
+        logger.info(f"DEBUG_TRACE: Retrieval/retrieve called for query: {query}, tenant: {tenant_id}")
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
+        tenant_config: dict[str, Any] = {}
+        if self.tuning:
+            tenant_config = await self.tuning.get_tenant_config(tenant_id)
+        active_collection = await self._resolve_active_collection(tenant_id)
 
         # Step 1: Contextual Rewriting
         processed_query = query
         if options.use_rewrite and history:
-            processed_query = await self.rewriter.rewrite(query, history)
+            processed_query = await self.rewriter.rewrite(
+                query,
+                history,
+                tenant_config=tenant_config,
+            )
 
         structured_query = QueryParser.parse(processed_query)
 
@@ -263,7 +290,8 @@ class RetrievalService:
         # Step 3: Query Routing
         search_mode = await self.router.route(
             structured_query.cleaned_query,
-            explicit_mode=options.search_mode
+            explicit_mode=options.search_mode,
+            tenant_config=tenant_config,
         )
 
         # Step 4 & 5: Search Execution based on Mode
@@ -279,7 +307,8 @@ class RetrievalService:
             if search_mode == SearchMode.GLOBAL:
                 res = await self.global_search.search(
                     query=structured_query.cleaned_query,
-                    tenant_id=tenant_id
+                    tenant_id=tenant_id,
+                    tenant_config=tenant_config,
                 )
                 result = RetrievalResult(
                     chunks=[{"content": res["answer"], "chunk_id": "summary", "score": 1.0}],
@@ -291,7 +320,8 @@ class RetrievalService:
             elif search_mode == SearchMode.DRIFT:
                 res = await self.drift_search.search(
                     query=structured_query.cleaned_query,
-                    tenant_id=tenant_id
+                    tenant_id=tenant_id,
+                    tenant_config=tenant_config,
                 )
                 result = RetrievalResult(
                     chunks=res["candidates"],
@@ -309,7 +339,9 @@ class RetrievalService:
                     filters=all_filters,
                     top_k=top_k,
                     options=options,
-                    trace=trace
+                    trace=trace,
+                    collection_name=active_collection,
+                    tenant_config=tenant_config,
                 )
         except Exception as e:
             logger.error(f"Retrieval failed for mode {search_mode}: {e}")
@@ -321,7 +353,8 @@ class RetrievalService:
                 filters=all_filters,
                 top_k=top_k,
                 options=options,
-                trace=trace
+                trace=trace,
+                collection_name=active_collection,
             )
 
         # Record latency for circuit breaker
@@ -346,6 +379,7 @@ class RetrievalService:
         top_k: int,
         options: QueryOptions,
         trace: list[dict],
+        collection_name: str | None,
     ) -> RetrievalResult:
         """Executes Hybrid (Vector + Graph) retrieval with RRF fusion."""
         step_start = time.perf_counter()
@@ -361,7 +395,8 @@ class RetrievalService:
             query_vector=embedding,
             tenant_id=tenant_id,
             document_ids=document_ids,
-            limit=self.config.initial_k
+            limit=self.config.initial_k,
+            collection_name=collection_name,
         )
 
         # 2. Entity + Graph Search
@@ -415,10 +450,9 @@ class RetrievalService:
         }
 
         # Adaptive weights with tenant overrides
-        tenant_config = await self.tuning.get_tenant_config(tenant_id)
         weights = get_adaptive_weights(
             query_type=options.search_mode,
-            tenant_config=tenant_config.get("weights", {})
+            tenant_config=(tenant_config or {}).get("weights", {})
         )
         fused = fuse_results(groups, weights=weights)
 
@@ -485,23 +519,34 @@ class RetrievalService:
         top_k: int,
         options: QueryOptions,
         trace: list[dict],
+        collection_name: str | None,
+        tenant_config: dict[str, Any] | None = None,
     ) -> RetrievalResult:
         """Helper to execute vector search with HyDE and Decomposition support."""
 
         # Handle Decomposition
         queries_to_run = [structured_query.cleaned_query]
         if options.use_decomposition:
-            queries_to_run = await self.decomposer.decompose(structured_query.cleaned_query)
+            queries_to_run = await self.decomposer.decompose(
+                structured_query.cleaned_query,
+                tenant_config=tenant_config,
+            )
+
+        logger.warning(f"DEBUG_TRACE: Starting vector search. Queries: {queries_to_run}")
 
         all_chunks = []
         seen_chunk_ids = set()
 
         for q in queries_to_run:
+            logger.warning(f"DEBUG_TRACE: Processing query: {q}")
             # Handle HyDE
             search_query = q
             if options.use_hyde:
                 step_start = time.perf_counter()
-                hypotheses = await self.hyde_service.generate_hypothesis(q)
+                hypotheses = await self.hyde_service.generate_hypothesis(
+                    q,
+                    tenant_config=tenant_config,
+                )
                 if hypotheses:
                     search_query = hypotheses[0]  # Use first hypothesis
                     trace.append({
@@ -515,43 +560,50 @@ class RetrievalService:
             cache_filters = {"document_ids": document_ids, **(filters or {})}
             cached_result = await self.result_cache.get(search_query, tenant_id, cache_filters)
             
+            logger.info(f"DEBUG_TRACE: Cache check for '{search_query}'. Result: {cached_result}")
+
+            # Force bypass for debugging
+            # if cached_result:
+            #     logger.info(f"DEBUG_TRACE: Utilizing cached result for: {search_query}")
+            #     # ... (skipped cache use code) ...
+            #     continue
+            cached_result = None # FORCE MISS
+            
             if cached_result:
-                sub_chunks = await self._fetch_chunks_by_ids(
-                    cached_result.chunk_ids[:top_k],
-                    cached_result.scores[:top_k],
-                )
-                for c in sub_chunks:
-                    if c["chunk_id"] not in seen_chunk_ids:
-                        all_chunks.append(c)
-                        seen_chunk_ids.add(c["chunk_id"])
-                continue
+                 # Original logic code blocked by force miss
+                 pass
+                # The original code block was:
+                # sub_chunks = await self._fetch_chunks_by_ids(
+                #     cached_result.chunk_ids[:top_k],
+                #     cached_result.scores[:top_k],
+                # )
+                # for c in sub_chunks:
+                #     if c["chunk_id"] not in seen_chunk_ids:
+                #         all_chunks.append(c)
+                #         seen_chunk_ids.add(c["chunk_id"])
+                # continue
 
             # Get embedding
+            logger.info(f"DEBUG_TRACE: Generating embedding for query: {search_query}")
             query_embedding = await self.embedding_service.embed_single(search_query)
             if not query_embedding:
                 logger.warning(f"Embedding failed for query: {search_query}. Skipping search.")
                 continue
+            logger.info(f"DEBUG_TRACE: Embedding generated. vector[:5]={query_embedding[:5] if query_embedding else 'None'}")
 
             # Vector search (Dense or Hybrid)
             search_results = None
 
             if self.sparse_embedding and self.config.enable_hybrid:
-                try:
-                    sparse_vec = self.sparse_embedding.embed_sparse(search_query)
-                    search_results = await self.vector_store.hybrid_search(
-                        dense_vector=query_embedding,
-                        sparse_vector=sparse_vec,
-                        tenant_id=tenant_id,
-                        document_ids=document_ids,
-                        limit=self.config.initial_k if self.reranker else top_k,
-                        filters=filters,
-                    )
-                except Exception as e:
-                    logger.warning(f"Hybrid search step failed: {e}")
-                    search_results = None
+                # ... (skipped for now)
+                pass
 
             if search_results is None:
                 step_start = time.perf_counter()
+                
+                target_collection = collection_name or resolve_active_vector_collection(tenant_id, {})
+                logger.info(f"DEBUG_TRACE: Searching collection: {target_collection} with tenant_id: {tenant_id}")
+                
                 search_results = await self.vector_searcher.search(
                     query_vector=query_embedding,
                     tenant_id=tenant_id,
@@ -559,12 +611,15 @@ class RetrievalService:
                     limit=self.config.initial_k if self.reranker else top_k,
                     score_threshold=self.config.score_threshold,
                     filters=filters,
+                    collection_name=target_collection,
                 )
+                logger.info(f"DEBUG_TRACE: Search returned {len(search_results)} results")
                 trace.append({
                     "step": "vector_search",
                     "duration_ms": (time.perf_counter() - step_start) * 1000,
                     "results_count": len(search_results),
-                    "mode": "dense"
+                    "mode": "dense",
+                    "collection": target_collection,
                 })
             else:
                 trace.append({
