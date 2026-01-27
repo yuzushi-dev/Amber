@@ -42,7 +42,8 @@ class MemoryExtractor:
         tenant_id: str,
         user_id: str,
         text: str,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
+        tenant_config: dict[str, Any] | None = None,
     ) -> list[str]:
         """
         Analyze text (usually a user query) for permanent user facts.
@@ -68,10 +69,33 @@ class MemoryExtractor:
             prompt = FACT_EXTRACTION_PROMPT.format(user_input=scrubbed_text)
             logger.debug(f"Triggering fact extraction for user {user_id}")
             
-            response = await self.llm.generate(
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.core.generation.domain.provider_models import ProviderTier
+            from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+            settings = get_settings()
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="memory.fact_extraction",
+                settings=settings,
+            )
+            provider = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+            kwargs: dict[str, Any] = {}
+            if llm_cfg.temperature is not None:
+                kwargs["temperature"] = llm_cfg.temperature
+            if llm_cfg.seed is not None:
+                kwargs["seed"] = llm_cfg.seed
+
+            response = await provider.generate(
                 prompt=prompt,
                 max_tokens=256,
-                temperature=0.0 # Strict parsing
+                **kwargs,
             )
             
             result = response.text.strip()
@@ -125,7 +149,8 @@ class MemoryExtractor:
         user_id: str,
         conversation_id: str,
         messages: list[dict[str, str]],
-        title: str | None = None
+        title: str | None = None,
+        tenant_config: dict[str, Any] | None = None,
     ) -> str | None:
         """
         Summarize a conversation history and save it.
@@ -156,10 +181,33 @@ class MemoryExtractor:
             prompt = CONVERSATION_SUMMARY_PROMPT.format(history=formatted_history)
             logger.debug(f"Triggering conversation summarization for {conversation_id}")
             
-            response = await self.llm.generate(
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.core.generation.domain.provider_models import ProviderTier
+            from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+            settings = get_settings()
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="memory.conversation_summary",
+                settings=settings,
+            )
+            provider = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+            kwargs: dict[str, Any] = {}
+            if llm_cfg.temperature is not None:
+                kwargs["temperature"] = llm_cfg.temperature
+            if llm_cfg.seed is not None:
+                kwargs["seed"] = llm_cfg.seed
+
+            response = await provider.generate(
                 prompt=prompt,
                 max_tokens=512,
-                temperature=0.1
+                **kwargs,
             )
             
             summary = response.text.strip()

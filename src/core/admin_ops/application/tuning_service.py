@@ -137,7 +137,22 @@ class TuningService:
 
         try:
             # Stage 1: Get LLM for analysis
-            llm = get_llm_provider(tier=ProviderTier.STANDARD)
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+            settings = get_settings()
+            tenant_config = await self.get_tenant_config(tenant_id)
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="admin.feedback_analysis",
+                settings=settings,
+            )
+            llm = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.STANDARD,
+            )
             
             # Stage 2: Construct Prompt
             snippets_text = "\n".join([f"- {s}" for s in selected_snippets]) if selected_snippets else "None"
@@ -158,7 +173,13 @@ class TuningService:
 
             # Stage 3: Call LLM
             # Note: We are using a direct generation call here. In a real system, we might use a structured output mode.
-            response = await llm.generate(prompt)
+            kwargs: dict[str, Any] = {}
+            if llm_cfg.temperature is not None:
+                kwargs["temperature"] = llm_cfg.temperature
+            if llm_cfg.seed is not None:
+                kwargs["seed"] = llm_cfg.seed
+
+            response = await llm.generate(prompt, **kwargs)
             
             # Parse JSON (naive parsing for now)
             try:

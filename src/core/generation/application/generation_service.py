@@ -68,7 +68,7 @@ class GenerationConfig:
 
     model: str | None = None  # Use provider default
     tier: ProviderTier = ProviderTier.ECONOMY  # Use cost-effective model for generation
-    temperature: float = 0.1  # Low temperature for factual RAG
+    temperature: float | None = None  # Use step defaults unless overridden
     seed: int | None = None
     max_tokens: int = 2048
     max_context_tokens: int = 8000  # Default to 8k context budget
@@ -106,6 +106,7 @@ class GenerationService:
 
         if llm_provider:
             self.llm = llm_provider
+            self.factory = None
         else:
             if (
                 openai_api_key
@@ -123,6 +124,7 @@ class GenerationService:
                 )
             else:
                 factory = get_provider_factory()
+            self.factory = factory
             self.llm = factory.get_llm_provider(tier=self.config.tier)
 
         self.verifier = SourceVerifier()
@@ -213,15 +215,15 @@ class GenerationService:
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
 
         # Apply Tenant Overrides
-        tenant_seed = None
-        tenant_temp = None
+        tenant_config: dict[str, Any] = {}
         
         if tenant_id and tenant_id != "default" and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
                 if tenant_obj and tenant_obj.config:
                     t_conf = tenant_obj.config
-                    
+                    tenant_config = t_conf
+
                     if t_conf.get("rag_system_prompt"):
                         system_prompt = t_conf.get("rag_system_prompt")
                         logger.debug(f"Applied tenant system prompt override for {tenant_id}")
@@ -230,11 +232,6 @@ class GenerationService:
                         user_prompt_template = t_conf.get("rag_user_prompt")
                         logger.debug(f"Applied tenant user prompt override for {tenant_id}")
                         
-                    # Determinism overrides
-                    if t_conf.get("seed") is not None:
-                        tenant_seed = int(t_conf.get("seed"))
-                    if t_conf.get("temperature") is not None:
-                        tenant_temp = float(t_conf.get("temperature"))
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for prompt override: {e}")
 
@@ -258,21 +255,31 @@ class GenerationService:
         # Step 3: LLM Call
         from src.api.config import settings
 
-        # Priority: Config > Tenant > Global
-        temp = self.config.temperature 
-        if temp is None:
-            temp = tenant_temp if tenant_temp is not None else settings.default_llm_temperature
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
 
-        seed = self.config.seed
-        if seed is None:
-            seed = tenant_seed if tenant_seed is not None else settings.seed
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="chat.generation",
+            settings=settings,
+        )
 
-        llm_result = await self.llm.generate(
+        # Priority: explicit config > step config
+        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
+
+        provider = self.factory.get_llm_provider(
+            provider_name=llm_cfg.provider,
+            model=llm_cfg.model,
+            tier=self.config.tier,
+        ) if self.factory else self.llm
+
+        llm_result = await provider.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
             temperature=temp,
             max_tokens=self.config.max_tokens,
             seed=seed,
+            model=llm_cfg.model,
         )
         
         # Step 3.5: Trigger Async Memory Extraction
@@ -286,7 +293,8 @@ class GenerationService:
                     memory_extractor.extract_and_save_facts(
                         tenant_id=tenant_id,
                         user_id=user_id,
-                        text=query
+                        text=query,
+                        tenant_config=tenant_config,
                     )
                 )
             except Exception as e:
@@ -444,24 +452,18 @@ class GenerationService:
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
         
         # Apply Tenant Overrides (Stream)
-        tenant_seed = None
-        tenant_temp = None
+        tenant_config: dict[str, Any] = {}
 
         if tenant_id and tenant_id != "default" and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
                 if tenant_obj and tenant_obj.config:
                     t_conf = tenant_obj.config
+                    tenant_config = t_conf
                     if t_conf.get("rag_system_prompt"):
                         system_prompt = t_conf.get("rag_system_prompt")
                     if t_conf.get("rag_user_prompt"):
                         user_prompt_template = t_conf.get("rag_user_prompt")
-                        
-                    # Determinism overrides
-                    if t_conf.get("seed") is not None:
-                        tenant_seed = int(t_conf.get("seed"))
-                    if t_conf.get("temperature") is not None:
-                        tenant_temp = float(t_conf.get("temperature"))
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for stream prompt override: {e}")
 
@@ -480,25 +482,33 @@ class GenerationService:
 
         # Step 5: Stream tokens
         from src.api.config import settings
-        
-        # Priority: Config > Tenant > Global
-        temp = self.config.temperature 
-        if temp is None:
-            temp = tenant_temp if tenant_temp is not None else settings.default_llm_temperature
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
 
-        seed = self.config.seed
-        if seed is None:
-            seed = tenant_seed if tenant_seed is not None else settings.seed
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="chat.generation",
+            settings=settings,
+        )
+
+        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
+
+        provider = self.factory.get_llm_provider(
+            provider_name=llm_cfg.provider,
+            model=llm_cfg.model,
+            tier=self.config.tier,
+        ) if self.factory else self.llm
 
         full_answer = ""
         try:
-            logger.info(f"Starting LLM stream with model: {self.llm.model_name}")
-            async for token in self.llm.generate_stream(
+            logger.info(f"Starting LLM stream with model: {provider.model_name}")
+            async for token in provider.generate_stream(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=temp,
                 max_tokens=self.config.max_tokens,
                 seed=seed,
+                model=llm_cfg.model,
                 history=conversation_history
             ):
                 full_answer += token
@@ -519,7 +529,8 @@ class GenerationService:
                     memory_extractor.extract_and_save_facts(
                         tenant_id=tenant_id,
                         user_id=user_id,
-                        text=query
+                        text=query,
+                        tenant_config=tenant_config,
                     )
                 )
             except Exception as e:
@@ -544,13 +555,48 @@ class GenerationService:
         Direct chat completion with tool support (Agentic Mode).
         Exposes the raw provider response object (e.g. ChatCompletion).
         """
-        return await self.llm.chat(
-            messages=messages,
-            tools=tools,
-            tool_choice=tool_choice,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens
+        from src.shared.context import get_current_tenant
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.api.config import settings
+
+        tenant_config: dict[str, Any] = {}
+        tenant_id = get_current_tenant()
+        if tenant_id and self.tenant_repository:
+            try:
+                tenant_obj = await self.tenant_repository.get(str(tenant_id))
+                if tenant_obj and tenant_obj.config:
+                    tenant_config = tenant_obj.config
+            except Exception as e:
+                logger.warning(f"Failed to load tenant config for agent completion: {e}")
+
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="chat.agent_completion",
+            settings=settings,
         )
+
+        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
+
+        provider = self.factory.get_llm_provider(
+            provider_name=llm_cfg.provider,
+            model=llm_cfg.model,
+            tier=self.config.tier,
+        ) if self.factory else self.llm
+
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "temperature": temp,
+            "max_tokens": self.config.max_tokens,
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
+        if llm_cfg.model is not None:
+            kwargs["model"] = llm_cfg.model
+
+        return await provider.chat(**kwargs)
 
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""

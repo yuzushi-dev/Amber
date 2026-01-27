@@ -29,14 +29,21 @@ class QualityScorer:
         answer: str,
         query: str,
         context_chunks: list[dict[str, Any]] = None,
-        sources: list[dict[str, Any]] = None
+        sources: list[dict[str, Any]] = None,
+        tenant_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Calculate comprehensive quality score.
         """
         try:
             # 1. Try single LLM call for all scores
-            scores = await self._score_with_single_llm(answer, query, context_chunks, sources)
+            scores = await self._score_with_single_llm(
+                answer,
+                query,
+                context_chunks,
+                sources,
+                tenant_config,
+            )
 
             if not scores:
                 scores = {}
@@ -71,7 +78,7 @@ class QualityScorer:
             logger.error(f"Quality calculation failed: {e}")
             return {"total": 0.0, "error": str(e)}
 
-    async def _score_with_single_llm(self, answer, query, context_chunks, sources):
+    async def _score_with_single_llm(self, answer, query, context_chunks, sources, tenant_config):
         try:
             chunks_text = "\n".join([c.get("content","")[:500] for c in (context_chunks or [])[:5]])
             prompt = f"""Evaluate answer quality on 0-10 scale. Return ONLY JSON.
@@ -82,9 +89,29 @@ Answer: {answer}
 Context: {chunks_text}
 
 JSON:"""
-            # Use Factory to get provider
-            provider = get_llm_provider(tier=ProviderTier.ECONOMY)
-            response = await provider.generate(prompt=prompt, temperature=0.0)
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+            settings = get_settings()
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="admin.quality_scorer",
+                settings=settings,
+            )
+            provider = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+            kwargs: dict[str, Any] = {}
+            if llm_cfg.temperature is not None:
+                kwargs["temperature"] = llm_cfg.temperature
+            if llm_cfg.seed is not None:
+                kwargs["seed"] = llm_cfg.seed
+
+            response = await provider.generate(prompt=prompt, **kwargs)
             text = response.text
 
             # Simple parsing logic
