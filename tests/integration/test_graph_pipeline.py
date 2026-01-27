@@ -23,6 +23,10 @@ async def test_graph_writer_integration():
     tenant_id = "test_tenant_integration"
     doc_id = "doc_integration_1"
     chunk_id = "chunk_integration_1"
+    
+    # Configure global graph client for Writer
+    from src.core.graph.domain.ports.graph_client import set_graph_client
+    set_graph_client(neo4j_client)
 
     # Cleanup before test
     await neo4j_client.connect()

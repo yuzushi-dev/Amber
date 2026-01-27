@@ -59,7 +59,8 @@ async def setup_constraints():
         logger.error(f"Failed to setup Neo4j schema: {e}")
         raise
     finally:
-        await graph_client.close()
+        if 'graph_client' in locals() and graph_client:
+            await graph_client.close()
 
 if __name__ == "__main__":
     asyncio.run(setup_constraints())

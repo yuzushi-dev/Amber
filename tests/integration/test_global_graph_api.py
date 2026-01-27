@@ -3,12 +3,13 @@ import pytest
 from fastapi.testclient import TestClient
 from src.api.main import app
 from src.amber_platform.composition_root import platform
-neo4j_client = platform.neo4j_client
+
 
 
 # Mock Key Object
 class MockKey:
     def __init__(self):
+        self.id = "mock_key_id"  # Required by auth middleware
         self.name = "test_key"
         self.tenants = [MagicMock(id="test_tenant")]
         self.scopes = ["read", "write"]
@@ -33,6 +34,9 @@ def test_get_top_nodes(client, auth_headers):
         {"id": "NodeB", "label": "NodeB", "type": "Entity", "community_id": 2, "degree": 5}
     ]
     
+    # Access the client instance currently in use by the platform
+    neo4j_client = platform.neo4j_client
+    
     with patch.object(neo4j_client, 'execute_read', new_callable=AsyncMock) as mock_read:
         mock_read.return_value = mock_data
         
@@ -51,6 +55,8 @@ def test_search_nodes(client, auth_headers):
     mock_data = [
         {"id": "Alpha", "label": "Alpha", "type": "Entity", "community_id": 1}
     ]
+    
+    neo4j_client = platform.neo4j_client
     
     with patch.object(neo4j_client, 'execute_read', new_callable=AsyncMock) as mock_read:
         mock_read.return_value = mock_data
@@ -74,6 +80,8 @@ def test_get_neighborhood(client, auth_headers):
             "n_id": "Neighbor", "n_type": "Node", "n_comm": 1
         }
     ]
+    
+    neo4j_client = platform.neo4j_client
     
     with patch.object(neo4j_client, 'execute_read', new_callable=AsyncMock) as mock_read:
         mock_read.return_value = mock_rows

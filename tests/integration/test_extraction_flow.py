@@ -24,7 +24,7 @@ async def test_extractor_registry():
     extractor = ExtractorRegistry.get_extractor("application/pdf")
     assert isinstance(extractor, BaseExtractor)
     # Could be PyMuPDF if enabled, or Unstructured as fallback
-    assert extractor.name in ("pymupdf4llm", "pymupdf", "unstructured")
+    assert extractor.name in ("pymupdf4llm", "pymupdf", "unstructured", "hybrid_marker")
 
     # 2. Test Text/plain routing
     extractor = ExtractorRegistry.get_extractor("text/plain")

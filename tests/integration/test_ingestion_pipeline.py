@@ -153,9 +153,28 @@ class TestIngestionPipeline:
             service = ApiKeyService(session)
             await service.ensure_bootstrap_key(api_key, name="Test Integration Key")
         
+        # Reset global dependencies to prevent loop leakage across tests
+        import src.api.middleware.rate_limit as rate_limit_module
+        rate_limit_module._rate_limiter = None
+
+        import src.api.deps as deps_module
+        deps_module._async_session_maker = None
+
         # Close database to release engine bound to this loop
         from src.core.database.session import close_database
         await close_database()
+
+        # Re-initialize providers since they might be cleared by global cleanup
+        from src.core.generation.infrastructure.providers.factory import init_providers
+        from src.api.config import settings
+        init_providers(
+            openai_api_key=settings.openai_api_key,
+            anthropic_api_key=settings.anthropic_api_key,
+            default_llm_provider=settings.default_llm_provider,
+            default_llm_model=settings.default_llm_model,
+            default_embedding_provider=settings.default_embedding_provider,
+            default_embedding_model=settings.default_embedding_model
+        )
 
 
     @pytest.mark.asyncio

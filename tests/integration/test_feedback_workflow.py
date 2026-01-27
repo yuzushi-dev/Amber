@@ -158,12 +158,12 @@ class TestFeedbackWorkflow:
         
         # --- CLEANUP ---
         # Clean up created data to prevent polluting the dev DB
-        from src.api.deps import _async_session_maker
+        from src.api.deps import _get_async_session_maker
         from src.core.admin_ops.domain.feedback import Feedback
         from src.core.generation.domain.memory_models import ConversationSummary
         from sqlalchemy import delete
         
-        async with _async_session_maker() as session:
+        async with _get_async_session_maker()() as session:
             # Delete Feedbacks
             await session.execute(
                 delete(Feedback).where(Feedback.id.in_([feedback_id_pos, feedback_id_neg, feedback_id_rej]))
@@ -177,10 +177,10 @@ class TestFeedbackWorkflow:
     @pytest.fixture(autouse=True)
     async def setup_conversation_data(self):
         """Create ConversationSummary data for the tests."""
-        from src.api.deps import _async_session_maker
+        from src.api.deps import _get_async_session_maker
         from src.core.generation.domain.memory_models import ConversationSummary
         
-        async with _async_session_maker() as session:
+        async with _get_async_session_maker()() as session:
             # Create summaries used by the test
             summaries = [
                 ConversationSummary(

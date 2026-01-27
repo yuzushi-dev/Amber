@@ -14,17 +14,9 @@ from fastapi.testclient import TestClient
 from src.api.main import app
 
 
-@pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
+# NOTE: client and api_key fixtures come from conftest.py
+# The conftest.py api_key fixture properly registers the key in the database
 
-
-@pytest.fixture
-def api_key():
-    """Use the dev API key for testing."""
-    # Use the development key that's bootstrapped on startup
-    return os.getenv("DEV_API_KEY", "amber-dev-key-2024")
 
 
 class TestSingleConversationExport:

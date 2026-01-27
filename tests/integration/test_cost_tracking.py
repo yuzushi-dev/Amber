@@ -91,26 +91,23 @@ async def test_ingestion_passes_metadata(db_session: AsyncSession):
     mock_extractor_result.metadata = {}
     mock_extractor.extract.return_value = mock_extractor_result
     
-    # Initialize Service
-    service = IngestionService(
-        document_repository=mock_repo,
-        tenant_repository=mock_tenant_repo,
-        unit_of_work=mock_uow,
-        storage_client=mock_storage,
-        neo4j_client=mock_neo4j,
-        vector_store=mock_vector,
-        content_extractor=mock_extractor,
-        settings=MagicMock() # Mock settings
-    )
-    
     # Patch factories at source since they are imported locally
     with patch("src.core.generation.domain.ports.provider_factory.build_provider_factory") as MockBuildFactory, \
          patch("src.core.generation.domain.ports.provider_factory.get_provider_factory") as MockGetFactory, \
          patch("src.core.generation.application.intelligence.classifier.DomainClassifier") as MockClassifier, \
-         patch("src.core.ingestion.application.chunking.semantic.SemanticChunker") as MockChunker, \
-         patch("src.core.retrieval.application.embeddings_service.EmbeddingService") as MockEmbeddingService, \
+         patch("src.core.ingestion.application.ingestion_service.SemanticChunker") as MockChunker, \
+         patch("src.core.ingestion.application.ingestion_service.EmbeddingService") as MockEmbeddingService, \
+         patch("src.core.retrieval.application.embeddings_service.EmbeddingService") as MockGlobalEmbeddingService, \
          patch("src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService"), \
          patch("src.core.graph.application.processor.GraphProcessor"):
+         
+        # Ensure global import is also mocked (for local imports in process_document)
+        MockGlobalEmbeddingService.return_value = MockEmbeddingService.return_value
+        
+        # Configure Mock Tenant Repo to avoid AsyncMock config issues
+        mock_tenant = MagicMock()
+        mock_tenant.config = {}
+        mock_tenant_repo.get.return_value = mock_tenant
             
         # Configure Factory Mocks
         mock_factory = MagicMock()
@@ -118,6 +115,25 @@ async def test_ingestion_passes_metadata(db_session: AsyncSession):
         mock_factory.get_embedding_provider.return_value = mock_provider
         MockBuildFactory.return_value = mock_factory
         MockGetFactory.return_value = mock_factory
+
+        # Configure settings mock
+        mock_settings = MagicMock()
+        mock_settings.default_embedding_model = "text-embedding-3-small"
+        mock_settings.default_embedding_provider = "openai"
+        mock_settings.embedding_dimensions = 1536
+        mock_settings.openai_api_key = "test-key"
+
+        # Initialize Service (INSIDE patch to ensure mocked dependencies)
+        service = IngestionService(
+            document_repository=mock_repo,
+            tenant_repository=mock_tenant_repo,
+            unit_of_work=mock_uow,
+            storage_client=mock_storage,
+            neo4j_client=mock_neo4j,
+            vector_store=mock_vector,
+            content_extractor=mock_extractor,
+            settings=mock_settings
+        )
 
         # Configure internal mocks
         mock_classifier_instance = MockClassifier.return_value
@@ -141,7 +157,6 @@ async def test_ingestion_passes_metadata(db_session: AsyncSession):
         try:
             await service.process_document("doc_123")
         except Exception:
-            # Re-raise to see what happened if it fails again
             pass
             
         # Verify

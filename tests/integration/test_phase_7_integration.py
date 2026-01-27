@@ -13,6 +13,7 @@ from src.core.generation.application.generation_service import GenerationService
 
 async def test_generation_service_orchestration():
     print("Running test_generation_service_orchestration...")
+    
     # Mock LLM provider
     mock_llm = MagicMock()
     mock_llm.model_name = "gpt-4o"
@@ -26,22 +27,29 @@ async def test_generation_service_orchestration():
         cost_estimate=0.001
     ))
 
-    service = GenerationService(llm_provider=mock_llm)
+    # Mock rules service to avoid injecting global rules
+    from unittest.mock import patch
+    with patch("src.core.admin_ops.application.rules_service.get_rules_service") as mock_get_rules:
+        mock_rules_svc = AsyncMock()
+        mock_rules_svc.get_active_rules.return_value = []
+        mock_get_rules.return_value = mock_rules_svc
 
-    candidates = [
-        {"content": "GraphRAG integrates vector search with knowledge graphs for deep reasoning.", "chunk_id": "chunk_1", "document_id": "doc_1"}
-    ]
+        service = GenerationService(llm_provider=mock_llm)
 
-    result = await service.generate(
-        query="What is a key feature of GraphRAG?",
-        candidates=candidates
-    )
+        candidates = [
+            {"content": "GraphRAG integrates vector search with knowledge graphs for deep reasoning.", "chunk_id": "chunk_1", "document_id": "doc_1"}
+        ]
 
-    assert "reason over long-range relationships" in result.answer
-    assert len(result.sources) == 1
-    assert result.sources[0].chunk_id == "chunk_1"
-    assert result.tokens_used == 150
-    print("test_generation_service_orchestration PASSED")
+        result = await service.generate(
+            query="What is a key feature of GraphRAG?",
+            candidates=candidates
+        )
+
+        assert "reason over long-range relationships" in result.answer
+        assert len(result.sources) == 1
+        assert result.sources[0].chunk_id == "chunk_1"
+        assert result.tokens_used == 150
+        print("test_generation_service_orchestration PASSED")
 
 async def test_generation_service_streaming():
     print("Running test_generation_service_streaming...")
@@ -55,26 +63,33 @@ async def test_generation_service_streaming():
 
     mock_llm.generate_stream = mock_stream
 
-    service = GenerationService(llm_provider=mock_llm)
-    candidates = [{"content": "GraphRAG is a hybrid system.", "chunk_id": "c1"}]
+    # Mock rules service to avoid injecting global rules
+    from unittest.mock import patch
+    with patch("src.core.admin_ops.application.rules_service.get_rules_service") as mock_get_rules:
+        mock_rules_svc = AsyncMock()
+        mock_rules_svc.get_active_rules.return_value = []
+        mock_get_rules.return_value = mock_rules_svc
 
-    events = []
-    async for event in service.generate_stream("Tell me about GraphRAG", candidates):
-        events.append(event)
+        service = GenerationService(llm_provider=mock_llm)
+        candidates = [{"content": "GraphRAG is a hybrid system.", "chunk_id": "c1"}]
 
-    # Check event sequence
-    assert events[0]["event"] == "sources"
-    assert len(events[0]["data"]) == 1
+        events = []
+        async for event in service.generate_stream("Tell me about GraphRAG", candidates):
+            events.append(event)
 
-    # Tokens
-    token_events = [e for e in events if e["event"] == "token"]
-    assert len(token_events) == 5
-    assert token_events[0]["data"] == "Graph"
+        # Check event sequence
+        assert events[0]["event"] == "sources"
+        assert len(events[0]["data"]) == 1
 
-    # Done
-    assert events[-1]["event"] == "done"
-    assert "follow_ups" in events[-1]["data"]
-    print("test_generation_service_streaming PASSED")
+        # Tokens
+        token_events = [e for e in events if e["event"] == "token"]
+        assert len(token_events) == 5
+        assert token_events[0]["data"] == "Graph"
+
+        # Done
+        assert events[-1]["event"] == "done"
+        assert "follow_ups" in events[-1]["data"]
+        print("test_generation_service_streaming PASSED")
 
 if __name__ == "__main__":
     async def run_all():

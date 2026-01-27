@@ -406,7 +406,8 @@ class IngestionService:
                     sparse_embeddings = sparse_service.embed_batch(chunk_contents)
                 except Exception as e:
                     logger.warning(f"Failed to generate sparse embeddings: {e}")
-                    sparse_embeddings = [None] * len(chunks_to_process)
+                    # Fallback to empty sparse vectors to satisfy schema
+                    sparse_embeddings = [{} for _ in chunks_to_process]
 
                 milvus_data = []
                 for chunk, emb, sparse_emb in zip(chunks_to_process, embeddings, sparse_embeddings, strict=False):
@@ -417,7 +418,7 @@ class IngestionService:
                         "content": chunk.content[:65530],
                         "embedding": emb,
                     }
-                    if sparse_emb:
+                    if sparse_emb is not None:
                         data["sparse_vector"] = sparse_emb
                     if chunk.metadata_:
                         data.update(chunk.metadata_)
