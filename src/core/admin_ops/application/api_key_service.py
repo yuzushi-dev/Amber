@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 from src.core.tenants.domain.tenant import Tenant
+from src.core.tenants.application.active_vector_collection import ensure_active_vector_collection_config
 from src.shared.security import generate_api_key, hash_api_key, mask_api_key
 
 
@@ -159,21 +160,23 @@ class ApiKeyService:
         tenant = result.scalar_one_or_none()
         
         if not tenant:
+            default_config = {
+                "embedding_model": "text-embedding-3-small",
+                "generation_model": "gpt-4o-mini",
+                "top_k": 10,
+                "expansion_depth": 2,
+                "similarity_threshold": 0.7,
+                "reranking_enabled": True,
+                "graph_expansion_enabled": True,
+                "hybrid_ocr_enabled": True,
+            }
+            default_config = ensure_active_vector_collection_config("default", default_config)
             tenant = Tenant(
                 id='default',
                 name='Global Admin',
                 api_key_prefix='amber_',
                 is_active=True,
-                config={
-                    "embedding_model": "text-embedding-3-small",
-                    "generation_model": "gpt-4o-mini",
-                    "top_k": 10,
-                    "expansion_depth": 2,
-                    "similarity_threshold": 0.7,
-                    "reranking_enabled": True,
-                    "graph_expansion_enabled": True,
-                    "hybrid_ocr_enabled": True
-                }
+                config=default_config,
             )
             self.session.add(tenant)
             await self.session.commit()
