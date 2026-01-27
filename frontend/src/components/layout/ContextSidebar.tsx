@@ -16,6 +16,7 @@ import {
     Gauge,
     Sliders,
     BookOpen,
+    Sparkles,
 
     ChevronLeft,
     ChevronRight,
@@ -98,6 +99,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             title: 'Model',
             items: [
                 { label: 'RAG Tuning', icon: Sliders, to: '/admin/settings/tuning' },
+                { label: 'LLMs', icon: Sparkles, to: '/admin/settings/llms' },
                 { label: 'Global Rules', icon: BookOpen, to: '/admin/settings/rules' },
             ]
         },
@@ -373,4 +375,3 @@ export default function ContextSidebar() {
         </>
     )
 }
-
