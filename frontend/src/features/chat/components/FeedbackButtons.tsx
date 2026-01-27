@@ -67,6 +67,20 @@ export const FeedbackButtons = ({
         }
     };
 
+    const getConfettiColors = () => {
+        if (typeof document === 'undefined') return undefined;
+        const style = getComputedStyle(document.documentElement);
+        const read = (name: string) => style.getPropertyValue(name).trim();
+        const colors = [
+            read('--success'),
+            read('--success-muted'),
+            read('--primary')
+        ]
+            .filter(Boolean)
+            .map(value => `hsl(${value})`);
+        return colors.length > 0 ? colors : undefined;
+    };
+
     // Thumbs Up: Immediate submit
     const handleThumbsUp = (event: React.MouseEvent<HTMLButtonElement>) => {
         // Trigger confetti from the button's position
@@ -74,12 +88,14 @@ export const FeedbackButtons = ({
         const x = (rect.left + rect.width / 2) / window.innerWidth;
         const y = (rect.top + rect.height / 2) / window.innerHeight;
 
-        confetti({
+        const colors = getConfettiColors();
+        const confettiOptions = {
             origin: { x, y },
             particleCount: 60,
             spread: 70,
-            colors: ['#22c55e', '#86efac', '#16a34a'] // Green theme
-        });
+            ...(colors ? { colors } : {}),
+        };
+        confetti(confettiOptions);
 
         handleFeedback(1);
     };

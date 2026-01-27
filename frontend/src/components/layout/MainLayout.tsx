@@ -21,13 +21,19 @@ interface MainLayoutProps {
 export default function MainLayout({ children }: MainLayoutProps) {
     return (
         <div className="flex flex-col h-screen bg-background overflow-hidden">
+            <a
+                href="#main-content"
+                className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground shadow-lg"
+            >
+                Skip to content
+            </a>
             {/* Main content area */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Contextual sidebar (only shows for Data/Operations sections) */}
                 <ContextSidebar />
 
                 {/* Page content */}
-                <main className="flex-1 overflow-y-auto relative flex">
+                <main id="main-content" className="flex-1 overflow-y-auto relative flex">
                     <div className="flex-1 h-full overflow-y-auto">
                         {children}
                     </div>

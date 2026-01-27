@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { GitBranch } from 'lucide-react';
 import type { RoutingInfo } from '../store';
+import { cn } from '@/lib/utils';
 
 interface RoutingBadgeProps {
     routingInfo: RoutingInfo;
@@ -14,12 +15,13 @@ const RoutingBadge: React.FC<RoutingBadgeProps> = ({ routingInfo }) => {
         return null;
     }
 
-    // Determine confidence level and color
-    const getConfidenceColor = (conf: number): string => {
-        if (conf >= 0.8) return 'rgb(34, 197, 94)'; // green-500
-        if (conf >= 0.6) return 'rgb(234, 179, 8)'; // yellow-500
-        return 'rgb(249, 115, 22)'; // orange-500
-    };
+    const confidenceTone = confidence >= 0.8 ? 'success' : confidence >= 0.6 ? 'warning' : 'destructive';
+    const badgeClassName = cn(
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium cursor-help',
+        confidenceTone === 'success' && 'bg-success/10 border-success/40 text-success',
+        confidenceTone === 'warning' && 'bg-warning/10 border-warning/40 text-warning',
+        confidenceTone === 'destructive' && 'bg-destructive/10 border-destructive/40 text-destructive'
+    );
 
     const getConfidenceLabel = (conf: number): string => {
         if (conf >= 0.8) return 'High confidence';
@@ -27,7 +29,6 @@ const RoutingBadge: React.FC<RoutingBadgeProps> = ({ routingInfo }) => {
         return 'Low confidence';
     };
 
-    const confidenceColor = getConfidenceColor(confidence);
     const confidenceLabel = getConfidenceLabel(confidence);
 
     // Format categories for display
@@ -44,19 +45,7 @@ const RoutingBadge: React.FC<RoutingBadgeProps> = ({ routingInfo }) => {
             <Tooltip>
                 <TooltipTrigger asChild>
                     <div
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
-                            backgroundColor: `${confidenceColor}15`,
-                            border: `1px solid ${confidenceColor}40`,
-                            fontSize: '0.75rem',
-                            fontWeight: 500,
-                            color: confidenceColor,
-                            cursor: 'help',
-                        }}
+                        className={badgeClassName}
                     >
                         <GitBranch size={14} />
                         <span>{categoryDisplay[0]}{categories.length > 1 ? ` +${categories.length - 1}` : ''}</span>

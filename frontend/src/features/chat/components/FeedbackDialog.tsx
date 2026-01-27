@@ -56,7 +56,7 @@ const SelectableBlock = ({
             layout
             onClick={() => onSelect(content)}
             className={cn(
-                "relative rounded-md transition-all duration-200 cursor-pointer p-1 -mx-1 mb-1 group overflow-hidden",
+                "relative rounded-md transition-[background-color,box-shadow,transform] duration-200 ease-out cursor-pointer p-1 -mx-1 mb-1 group overflow-hidden",
                 className
             )}
         >
@@ -145,7 +145,7 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
                     isSelected={selectedSnippets.has(codeContent)}
                     onSelect={() => toggleSnippet(codeContent)}
                 >
-                    <pre {...props} className="bg-black/40 border border-white/10 p-4 rounded-lg overflow-x-auto font-mono text-sm shadow-inner">{children}</pre>
+                    <pre {...props} className="bg-surface-950/40 border border-white/5 p-4 rounded-lg overflow-x-auto font-mono text-sm shadow-inner">{children}</pre>
                 </SelectableBlock>
             )
         }
@@ -154,7 +154,7 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
-                <DialogHeader className="p-6 border-b border-white/5 bg-white/5">
+                <DialogHeader className="p-6 border-b border-white/5 bg-foreground/5">
                     <div className="flex items-center gap-3">
                         <div className="p-2.5 bg-destructive/10 rounded-lg ring-1 ring-destructive/20">
                             <AlertCircle className="w-5 h-5 text-destructive" />
@@ -170,10 +170,10 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
 
                 <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-white/5">
                     {/* Left: Message Preview */}
-                    <div className="lg:col-span-3 overflow-y-auto p-6 bg-black/20">
+                    <div className="lg:col-span-3 overflow-y-auto p-6 bg-surface-950/20">
                         <div className="flex items-center justify-between mb-4 px-1">
                             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Select Incorrect Snippets</h4>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/5">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-foreground/5 text-muted-foreground border border-white/5">
                                 Click on text to select
                             </span>
                         </div>
@@ -197,10 +197,12 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
 
                             <Textarea
                                 id="comment"
-                                placeholder="Describe what was wrong with the response..."
-                                className="flex-1 min-h-[150px] resize-none bg-muted/30 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all p-4 text-sm leading-relaxed"
+                                placeholder="Describe what was wrong with the response\u2026"
+                                className="flex-1 min-h-[150px] resize-none bg-muted/30 border-border/60 focus:border-primary/50 focus:ring-primary/20 transition-[border-color,box-shadow] duration-200 ease-out p-4 text-sm leading-relaxed"
                                 value={comment}
                                 onChange={(e) => setComment(e.target.value)}
+                                name="comment"
+                                autoComplete="off"
                                 autoFocus
                             />
 

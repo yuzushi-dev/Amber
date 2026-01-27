@@ -325,9 +325,9 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
     }, [relationships, extraNodes, extraEdges]);
 
 
-    if (!documentId) return <div className="p-4 text-center text-yellow-500">No document ID provided</div>;
+    if (!documentId) return <div className="p-4 text-center text-warning">No document ID provided</div>;
     if (loading) return <div className="p-4 text-center">Loading relationships...</div>;
-    if (error) return <div className="p-4 text-center text-red-500">{error}</div>;
+    if (error) return <div className="p-4 text-center text-destructive">{error}</div>;
 
     return (
         <Card className="border-0 shadow-none h-full flex flex-col overflow-hidden relative group">
@@ -372,7 +372,7 @@ const RelationshipsTab: React.FC<RelationshipsTabProps> = ({ documentId }) => {
                         No relationships found for this document.
                     </div>
                 ) : (
-                    <Suspense fallback={<div className="h-[600px] w-full flex items-center justify-center bg-black/5 rounded-lg animate-pulse">Loading 3D Graph...</div>}>
+                    <Suspense fallback={<div className="h-[600px] w-full flex items-center justify-center bg-muted/20 rounded-lg animate-pulse">Loading 3D Graph\u2026</div>}>
                         <ThreeGraph
                             nodes={nodes}
                             edges={edges}

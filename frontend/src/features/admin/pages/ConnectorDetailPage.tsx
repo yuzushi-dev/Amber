@@ -49,7 +49,7 @@ export default function ConnectorDetailPage() {
                         variant={isAuthenticated ? 'default' : 'outline'}
                         className={cn(
                             'text-sm py-1 px-3',
-                            isAuthenticated && 'bg-green-600/90 hover:bg-green-600 text-white'
+                            isAuthenticated && 'bg-success text-success-foreground hover:bg-success/90'
                         )}
                     >
                         {isAuthenticated && <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}

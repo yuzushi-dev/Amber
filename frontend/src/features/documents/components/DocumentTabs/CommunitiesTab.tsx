@@ -60,9 +60,9 @@ const CommunitiesTab: React.FC<CommunitiesTabProps> = ({ documentId }) => {
         });
     };
 
-    if (!documentId) return <div className="p-4 text-center text-yellow-500">No document ID provided</div>;
+    if (!documentId) return <div className="p-4 text-center text-warning">No document ID provided</div>;
     if (loading) return <div className="p-4 text-center">Loading communities...</div>;
-    if (error) return <div className="p-4 text-center text-red-500">{error}</div>;
+    if (error) return <div className="p-4 text-center text-destructive">{error}</div>;
 
     return (
         <Card className="border-0 shadow-none">

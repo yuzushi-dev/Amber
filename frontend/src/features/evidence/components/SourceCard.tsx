@@ -12,7 +12,7 @@ export default function SourceCard({ source, isActive, onClick }: SourceCardProp
     return (
         <div
             className={cn(
-                "p-4 rounded-lg border transition-all cursor-pointer",
+                "p-4 rounded-lg border transition-[border-color,background-color,box-shadow] duration-200 ease-out cursor-pointer",
                 isActive ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:bg-accent/50"
             )}
             onClick={onClick}

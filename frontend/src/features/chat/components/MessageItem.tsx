@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { User, Loader2, FileText, Code } from 'lucide-react'
 import AmberAvatar from './AmberAvatar'
 import { useCitationStore, Citation } from '../store/citationStore'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { FeedbackButtons } from './FeedbackButtons'
 import QualityBadge from './QualityBadge'
 import RoutingBadge from './RoutingBadge'
@@ -12,6 +12,7 @@ import RoutingBadge from './RoutingBadge'
 interface MessageItemProps {
     message: Message
     queryContent?: string
+    isStreaming?: boolean
 }
 
 function parseCitations(content: string, messageId: string): { processedContent: string, citations: Citation[] } {
@@ -38,14 +39,18 @@ function parseCitations(content: string, messageId: string): { processedContent:
     return { processedContent, citations };
 }
 
-export default function MessageItem({ message, queryContent }: MessageItemProps) {
+export default function MessageItem({ message, queryContent, isStreaming }: MessageItemProps) {
     const isAssistant = message.role === 'assistant'
     const { registerCitations, setHoveredCitation, selectCitation, hoveredCitationId } = useCitationStore()
+    const contentRef = useRef<HTMLDivElement>(null)
 
-    // Parse citations once when message content changes
-    const { processedContent, citations } = useMemo(() =>
-        parseCitations(message.content, message.id),
-        [message.content, message.id]);
+    // Parse citations once when message content changes (skip during streaming for perf)
+    const { processedContent, citations } = useMemo(() => {
+        if (isStreaming && isAssistant) {
+            return { processedContent: message.content, citations: [] as Citation[] }
+        }
+        return parseCitations(message.content, message.id)
+    }, [message.content, message.id, isStreaming, isAssistant]);
 
     // Register text-based citations to the store
     useEffect(() => {
@@ -59,7 +64,7 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
             if (href?.startsWith('#citation-')) {
                 const id = href.replace('#citation-', '');
                 const citation = citations.find(c => c.id === id);
-                if (!citation) return <span className="text-red-500">?</span>;
+                if (!citation) return <span className="text-destructive">?</span>;
 
                 const isHovered = hoveredCitationId === id;
                 const Icon = citation.type === 'Document' ? FileText :
@@ -69,11 +74,11 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
                 return (
                     <span
                         className={cn(
-                            "inline-flex items-center gap-1 px-1.5 py-0.5 mx-1 rounded text-xs font-medium cursor-pointer transition-all border select-none align-middle transform active:scale-95",
+                            "inline-flex items-center gap-1 px-1.5 py-0.5 mx-1 rounded text-xs font-medium cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-200 ease-out border select-none align-middle transform active:scale-95",
                             // Dynamic coloring based on type
-                            citation.type === 'Document' && "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800 dark:text-blue-400 hover:bg-blue-500/20",
-                            citation.type === 'Code' && "bg-purple-500/10 text-purple-600 border-purple-200 dark:border-purple-800 dark:text-purple-400 hover:bg-purple-500/20",
-                            citation.type === 'Source' && "bg-amber-500/10 text-amber-600 border-amber-200 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-500/20",
+                            citation.type === 'Document' && "bg-info-muted text-info-foreground border-info/30 hover:bg-info-muted/80",
+                            citation.type === 'Code' && "bg-primary/10 text-primary border-primary/30 hover:bg-primary/20",
+                            citation.type === 'Source' && "bg-warning-muted text-warning-foreground border-warning/30 hover:bg-warning-muted/80",
                             // Bidirectional highlighting
                             isHovered && "ring-2 ring-offset-1 ring-primary z-10 scale-105 shadow-sm"
                         )}
@@ -103,10 +108,10 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
         )}>
             {isAssistant ? (
                 <div className="shrink-0">
-                    <AmberAvatar size="md" className="shadow-[0_0_15px_rgba(251,191,36,0.2)] ring-1 ring-amber-500/20" />
+                    <AmberAvatar size="md" className="shadow-glow-sm ring-1 ring-primary/20" />
                 </div>
             ) : (
-                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-secondary/50 text-secondary-foreground ring-1 ring-white/10 shadow-inner">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-secondary/50 text-secondary-foreground ring-1 ring-border/40 shadow-inner">
                     <User className="w-5 h-5 opacity-70" />
                 </div>
             )}
@@ -116,7 +121,7 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
                     <div className="flex items-center space-x-3">
                         <span className={cn(
                             "font-semibold text-sm tracking-wide",
-                            isAssistant ? "text-amber-500" : "text-muted-foreground"
+                            isAssistant ? "text-primary" : "text-muted-foreground"
                         )}>
                             {isAssistant ? "AMBER" : "YOU"}
                         </span>
@@ -128,23 +133,30 @@ export default function MessageItem({ message, queryContent }: MessageItemProps)
 
                 {message.thinking && (
                     <div className="flex items-center space-x-3 text-sm text-muted-foreground italic bg-muted/30 p-3 rounded-lg border border-white/5 animate-pulse">
-                        <Loader2 className="w-4 h-4 animate-spin text-amber-500/50" />
+                        <Loader2 className="w-4 h-4 animate-spin text-primary/50" />
                         <span className="text-muted-foreground/70">{message.thinking}</span>
                     </div>
                 )}
 
-                <div className={cn(
-                    "prose prose-sm dark:prose-invert max-w-none leading-relaxed",
-                    // Custom prose styles for better readability
-                    "prose-headings:font-display prose-headings:tracking-tight",
-                    "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
-                    "prose-pre:bg-black/50 prose-pre:backdrop-blur-xl prose-pre:border prose-pre:border-white/10"
-                )}>
-                    <ReactMarkdown
-                        components={components}
-                    >
-                        {processedContent}
-                    </ReactMarkdown>
+                <div
+                    ref={contentRef}
+                    className={cn(
+                        "prose prose-sm dark:prose-invert max-w-none leading-relaxed",
+                        // Custom prose styles for better readability
+                        "prose-headings:font-display prose-headings:tracking-tight",
+                        "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
+                        "prose-pre:bg-surface-950/50 prose-pre:backdrop-blur-xl prose-pre:border prose-pre:border-border/60"
+                    )}
+                >
+                    {(isStreaming && isAssistant) ? (
+                        <div className="whitespace-pre-wrap">
+                            {message.content}
+                        </div>
+                    ) : (
+                        <ReactMarkdown components={components}>
+                            {processedContent}
+                        </ReactMarkdown>
+                    )}
                 </div>
 
                 {/* Footer Area: Feedback, Routing, Quality */}

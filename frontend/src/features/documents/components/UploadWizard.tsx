@@ -332,7 +332,13 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
             <div className="bg-card border shadow-2xl rounded-xl w-full max-w-lg overflow-hidden">
                 <header className="p-4 border-b flex justify-between items-center bg-muted/30">
                     <h3 className="font-semibold text-lg">Knowledge Ingestion</h3>
-                    <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-muted">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onClose}
+                        className="rounded-full hover:bg-muted"
+                        aria-label="Close upload wizard"
+                    >
                         <X className="w-5 h-5" />
                     </Button>
                 </header>
@@ -450,4 +456,3 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         </div>
     )
 }
-

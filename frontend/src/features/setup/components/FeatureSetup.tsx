@@ -229,10 +229,10 @@ export const FeatureSetup: React.FC<FeatureSetupProps> = ({
         return (
             <div className="h-full flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95 duration-300">
                 <div className="w-full max-w-md">
-                    <header className="mb-6 bg-amber-50 dark:bg-amber-900/10 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
+                    <header className="mb-6 bg-warning-muted/40 p-4 rounded-lg border border-warning/30">
                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            <div className="w-8 h-8 rounded-full bg-warning-muted flex items-center justify-center">
+                                <AlertTriangle className="w-4 h-4 text-warning" />
                             </div>
                             <div>
                                 <h2 className="font-bold text-lg">Are you sure?</h2>
@@ -249,15 +249,15 @@ export const FeatureSetup: React.FC<FeatureSetupProps> = ({
                         </p>
                         <ul className="space-y-2 text-sm bg-muted/30 p-4 rounded-lg">
                             <li className="flex items-start gap-2">
-                                <span className="text-amber-500 mt-0.5">•</span>
+                                <span className="text-warning mt-0.5">•</span>
                                 <span><strong>Document Processing</strong> – Can't extract text from PDFs and Office files</span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <span className="text-amber-500 mt-0.5">•</span>
+                                <span className="text-warning mt-0.5">•</span>
                                 <span><strong>Local Embeddings</strong> – Slower search, requires API calls</span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <span className="text-amber-500 mt-0.5">•</span>
+                                <span className="text-warning mt-0.5">•</span>
                                 <span><strong>Reranking</strong> – Less accurate search results</span>
                             </li>
                         </ul>
@@ -330,15 +330,15 @@ export const FeatureSetup: React.FC<FeatureSetupProps> = ({
                                 key={feature.id}
                                 onClick={() => isClickable && handleFeatureToggle(feature.id)}
                                 className={`
-                                    flex items-center gap-4 p-4 border rounded-lg transition-all relative overflow-hidden group
+                                    flex items-center gap-4 p-4 border rounded-lg transition-[background-color,border-color,box-shadow] duration-200 ease-out relative overflow-hidden group
                                     ${isClickable ? 'cursor-pointer hover:border-primary/50 hover:bg-muted/30' : ''}
                                     ${isSelected ? 'border-primary bg-primary/5' : 'border-border bg-card'}
                                     ${feature.status === 'installed'
-                                        ? '!bg-green-500/10 !border-green-500/30'
+                                        ? '!bg-success-muted !border-success/30'
                                         : ''
                                     }
                                     ${feature.status === 'installing' || featureProgress
-                                        ? '!bg-amber-500/10 !border-amber-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/20'
+                                        ? '!bg-info-muted/60 !border-info/40 shadow-glow-info ring-1 ring-info/30'
                                         : ''
                                     }
                                 `}
@@ -356,13 +356,13 @@ export const FeatureSetup: React.FC<FeatureSetupProps> = ({
                                             {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
                                         </div>
                                     ) : feature.status === 'installed' ? (
-                                        <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                                            <Check className="w-3 h-3 text-white" />
+                                        <div className="w-5 h-5 rounded-full bg-success flex items-center justify-center">
+                                            <Check className="w-3 h-3 text-success-foreground" />
                                         </div>
                                     ) : featureProgress || feature.status === 'installing' ? (
                                         <Loader2 className="w-5 h-5 animate-spin text-primary" />
                                     ) : (
-                                        <AlertCircle className="w-5 h-5 text-red-500" />
+                                        <AlertCircle className="w-5 h-5 text-destructive" />
                                     )}
                                 </div>
 

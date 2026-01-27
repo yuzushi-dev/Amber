@@ -30,7 +30,13 @@ export const NodeSidebar: React.FC<NodeSidebarProps> = ({
                         {node.type || 'Entity'}
                     </Badge>
                 </div>
-                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 -mt-2" onClick={onClose}>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 -mr-2 -mt-2"
+                    onClick={onClose}
+                    aria-label="Close node details"
+                >
                     <X className="h-4 w-4" />
                 </Button>
             </div>

@@ -54,8 +54,8 @@ export default function QueuesPage() {
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6">
+                    <p className="text-destructive">{error}</p>
                 </div>
             )}
 
@@ -67,7 +67,7 @@ export default function QueuesPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
-                        <div className="text-3xl font-bold text-blue-600">
+                        <div className="text-3xl font-bold text-info">
                             {data?.total_active_tasks ?? 0}
                         </div>
                         <div className="text-sm text-muted-foreground">
@@ -75,7 +75,7 @@ export default function QueuesPage() {
                         </div>
                     </div>
                     <div>
-                        <div className="text-3xl font-bold text-green-600">
+                        <div className="text-3xl font-bold text-success">
                             {data?.workers.length ?? 0}
                         </div>
                         <div className="text-sm text-muted-foreground">
@@ -101,9 +101,9 @@ export default function QueuesPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {(!data?.workers || data.workers.length === 0) && !loading && (
-                        <div className="col-span-full bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 flex items-center gap-3">
-                            <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                            <span className="text-yellow-800 dark:text-yellow-400">
+                        <div className="col-span-full bg-warning-muted/40 border border-warning/30 rounded-lg p-4 flex items-center gap-3">
+                            <AlertTriangle className="w-5 h-5 text-warning" />
+                            <span className="text-warning">
                                 No workers online. Tasks will queue until a worker connects.
                             </span>
                         </div>
@@ -141,15 +141,15 @@ export default function QueuesPage() {
                                 <tr key={queue.queue_name} className="hover:bg-muted/30 transition-colors">
                                     <td className="px-4 py-3 font-mono">{queue.queue_name}</td>
                                     <td className="px-4 py-3 text-right">
-                                        <span className={queue.message_count > 100 ? 'text-yellow-600 font-semibold' : ''}>
+                                        <span className={queue.message_count > 100 ? 'text-warning font-semibold' : ''}>
                                             {queue.message_count}
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-right">
                                         {queue.consumer_count > 0 ? (
-                                            <span className="text-green-600">{queue.consumer_count}</span>
+                                            <span className="text-success">{queue.consumer_count}</span>
                                         ) : (
-                                            <span className="text-red-600">0</span>
+                                            <span className="text-destructive">0</span>
                                         )}
                                     </td>
                                 </tr>
@@ -170,8 +170,8 @@ function WorkerCard({ worker }: { worker: WorkerInfo }) {
                     {worker.hostname.split('@')[1] || worker.hostname}
                 </div>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${worker.status === 'online'
-                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    ? 'bg-success-muted text-success'
+                    : 'bg-destructive/10 text-destructive'
                     }`}>
                     {worker.status}
                 </span>

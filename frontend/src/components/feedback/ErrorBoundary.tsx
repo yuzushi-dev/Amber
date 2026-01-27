@@ -20,8 +20,8 @@ export class ErrorBoundary extends Component<Props, State> {
     render() {
         if (this.state.hasError) {
             return this.props.fallback || (
-                <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 text-center text-red-100">
-                    <h2 className="text-2xl font-bold text-red-600 mb-4">
+                <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 text-center text-destructive">
+                    <h2 className="text-2xl font-bold text-destructive mb-4">
                         Something went wrong
                     </h2>
                     <p className="text-muted-foreground mb-6 max-w-md">

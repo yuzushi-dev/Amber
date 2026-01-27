@@ -144,7 +144,7 @@ export default function RulesPage() {
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-[box-shadow] duration-300 ease-out">
                         <div className="p-3 bg-primary/10 rounded-xl">
                             <BookOpen className="h-5 w-5 text-primary" />
                         </div>
@@ -155,7 +155,7 @@ export default function RulesPage() {
                     </Card>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-[box-shadow] duration-300 ease-out">
                         <div className="p-3 bg-primary/10 rounded-xl">
                             <Check className="h-5 w-5 text-primary" />
                         </div>
@@ -166,9 +166,9 @@ export default function RulesPage() {
                     </Card>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-all duration-300">
-                        <div className="p-3 bg-amber-500/10 rounded-xl">
-                            <Info className="h-5 w-5 text-amber-500" />
+                    <Card className="p-4 flex items-center gap-4 hover:shadow-md transition-[box-shadow] duration-300 ease-out">
+                        <div className="p-3 bg-primary/10 rounded-xl">
+                            <Info className="h-5 w-5 text-primary" />
                         </div>
                         <div>
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Inactive</p>
@@ -239,7 +239,7 @@ export default function RulesPage() {
 
             <div className="grid grid-cols-1 gap-4">
                 {rules.length === 0 ? (
-                    <Card className="p-16 text-center border-dashed border-white/10 bg-transparent flex flex-col items-center gap-4">
+                    <Card className="p-16 text-center border-dashed border-border/60 bg-transparent flex flex-col items-center gap-4">
                         <div className="p-4 rounded-full bg-muted/20">
                             <BookOpen className="h-8 w-8 text-muted-foreground/40" />
                         </div>
@@ -273,7 +273,7 @@ export default function RulesPage() {
                                 {/* Status Indicator Bar */}
                                 <div className={cn(
                                     "absolute left-0 top-0 bottom-0 w-1 transition-colors",
-                                    rule.is_active ? "bg-amber-500/50 group-hover:bg-amber-500" : "bg-muted-foreground/20"
+                                    rule.is_active ? "bg-primary/50 group-hover:bg-primary" : "bg-muted-foreground/20"
                                 )} />
 
                                 <div className="p-5 pl-7 flex items-start gap-6">
@@ -288,12 +288,12 @@ export default function RulesPage() {
                                             <div className="flex items-center gap-1.5 font-mono">
                                                 <span className={cn(
                                                     "w-1.5 h-1.5 rounded-full transition-colors",
-                                                    rule.is_active ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-current opacity-50"
+                                                    rule.is_active ? "bg-primary shadow-glow-sm" : "bg-current opacity-50"
                                                 )} />
                                                 ID: {rule.id.slice(0, 8)}
                                             </div>
                                             {rule.source && (
-                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/5 border border-white/5">
+                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-foreground/5 border border-white/5">
                                                     Source: {rule.source}
                                                 </div>
                                             )}
@@ -308,7 +308,7 @@ export default function RulesPage() {
                                                 onCheckedChange={(checked) =>
                                                     toggleMutation.mutate({ id: rule.id, isActive: checked })
                                                 }
-                                                className="scale-75 data-[state=checked]:bg-amber-500"
+                                                className="scale-75 data-[state=checked]:bg-primary"
                                             />
                                         </div>
                                         <Button
@@ -316,6 +316,7 @@ export default function RulesPage() {
                                             size="icon"
                                             className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                                             onClick={() => startEditing(rule)}
+                                            aria-label={`Edit rule ${rule.id.slice(0, 8)}`}
                                         >
                                             <Edit className="h-4 w-4" />
                                         </Button>
@@ -324,6 +325,7 @@ export default function RulesPage() {
                                             size="icon"
                                             className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                                             onClick={() => deleteMutation.mutate(rule.id)}
+                                            aria-label={`Delete rule ${rule.id.slice(0, 8)}`}
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -339,7 +341,7 @@ export default function RulesPage() {
             {/* Edit Dialog - Dark Glass Theme */}
             <Dialog open={!!editingRule} onOpenChange={(open) => !open && setEditingRule(null)}>
                 <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg">Edit Rule Configuration</DialogTitle>
                     </DialogHeader>
                     <div className="p-6 space-y-4">
@@ -347,7 +349,7 @@ export default function RulesPage() {
                             value={editContent}
                             onChange={(e) => setEditContent(e.target.value)}
                             rows={6}
-                            className="bg-muted/10 border-white/10 resize-none font-mono text-sm leading-relaxed focus:bg-muted/20 transition-colors"
+                            className="bg-muted/10 border-border/60 resize-none font-mono text-sm leading-relaxed focus:bg-muted/20 transition-colors"
                         />
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Info className="w-3.5 h-3.5" />
@@ -355,7 +357,7 @@ export default function RulesPage() {
                         </div>
                     </div>
                     <DialogFooter className="p-4 bg-muted/5 border-t border-white/5 gap-3">
-                        <Button variant="ghost" onClick={() => setEditingRule(null)} className="hover:bg-white/5">
+                        <Button variant="ghost" onClick={() => setEditingRule(null)} className="hover:bg-foreground/5">
                             Cancel
                         </Button>
                         <Button
@@ -375,11 +377,11 @@ export default function RulesPage() {
             {/* Upload Dialog - Dark Glass Theme */}
             <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
                 <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg">Import Rules</DialogTitle>
                     </DialogHeader>
                     <div className="p-8 space-y-6">
-                        <div className="border-2 border-dashed border-white/10 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary/30 hover:bg-primary/5 transition-all cursor-pointer group relative">
+                    <div className="border-2 border-dashed border-border/60 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary/30 hover:bg-primary/5 transition-[background-color,border-color,box-shadow] duration-200 ease-out cursor-pointer group relative">
                             <Input
                                 type="file"
                                 accept=".txt,.md"
@@ -398,7 +400,7 @@ export default function RulesPage() {
                         </div>
                     </div>
                     <DialogFooter className="p-4 bg-muted/5 border-t border-white/5 gap-3">
-                        <Button variant="ghost" onClick={() => setShowUploadDialog(false)} className="hover:bg-white/5">
+                        <Button variant="ghost" onClick={() => setShowUploadDialog(false)} className="hover:bg-foreground/5">
                             Cancel
                         </Button>
                         <Button

@@ -56,9 +56,9 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden border-border shadow-2xl">
-                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                     <DialogTitle className="flex items-center gap-2">
-                        <GitMerge className="h-5 w-5 text-amber-500" />
+                        <GitMerge className="h-5 w-5 text-primary" />
                         Merge Nodes
                     </DialogTitle>
                     <DialogDescription>
@@ -76,10 +76,10 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                                 name="targetNode"
                                 checked={node.id === targetId}
                                 onChange={() => setTargetId(node.id)}
-                                className="accent-amber-500 h-4 w-4"
+                                className="accent-primary h-4 w-4"
                             />
                             <div className="flex-1 cursor-pointer">
-                                <div className="font-medium text-amber-100">{node.label}</div>
+                                <div className="font-medium text-foreground">{node.label}</div>
                                 <div className="text-xs text-muted-foreground flex items-center gap-2">
                                     <span>Type: {node.type || 'Unknown'}</span>
                                     <span>•</span>
@@ -87,7 +87,7 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                                 </div>
                             </div>
                             {node.id === targetId && (
-                                <span className="text-[10px] bg-amber-500 text-black px-1.5 py-0.5 rounded font-bold">Target</span>
+                                <span className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded font-bold">Target</span>
                             )}
                         </div>
                     ))}
@@ -98,7 +98,7 @@ export const MergeNodesModal: React.FC<MergeNodesModalProps> = ({
                     <div className="text-[10px] text-muted-foreground flex-1 flex items-center">
                         {nodes.length - 1} node(s) will be deleted.
                     </div>
-                    <Button variant="ghost" onClick={onClose} disabled={loading} className="hover:bg-white/5">Cancel</Button>
+                    <Button variant="ghost" onClick={onClose} disabled={loading} className="hover:bg-foreground/5">Cancel</Button>
                     <Button onClick={handleMerge} disabled={loading || !targetId}>
                         {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Merge

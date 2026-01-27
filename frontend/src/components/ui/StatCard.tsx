@@ -25,14 +25,14 @@ interface StatCardProps {
 
 const colorMap: Record<StatColor, { bg: string, text: string }> = {
     primary: { bg: 'bg-primary/10', text: 'text-primary' },
-    amber: { bg: 'bg-amber-500/10', text: 'text-amber-500' },
-    blue: { bg: 'bg-blue-500/10', text: 'text-blue-500' },
-    green: { bg: 'bg-green-500/10', text: 'text-green-500' },
-    red: { bg: 'bg-red-500/10', text: 'text-red-500' },
-    yellow: { bg: 'bg-yellow-500/10', text: 'text-yellow-500' },
-    purple: { bg: 'bg-purple-500/10', text: 'text-purple-500' },
-    indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-500' },
-    orange: { bg: 'bg-orange-500/10', text: 'text-orange-500' },
+    amber: { bg: 'bg-primary/10', text: 'text-primary' },
+    blue: { bg: 'bg-chart-1/10', text: 'text-chart-1' },
+    green: { bg: 'bg-success-muted', text: 'text-success' },
+    red: { bg: 'bg-destructive/10', text: 'text-destructive' },
+    yellow: { bg: 'bg-warning-muted', text: 'text-warning' },
+    purple: { bg: 'bg-chart-3/10', text: 'text-chart-3' },
+    indigo: { bg: 'bg-chart-4/10', text: 'text-chart-4' },
+    orange: { bg: 'bg-chart-5/10', text: 'text-chart-5' },
 };
 
 export function StatCard({
@@ -51,7 +51,7 @@ export function StatCard({
 
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }} className="h-full">
-            <Card className={cn("p-4 flex items-center gap-4 hover:shadow-md transition-all duration-300 h-full", className)}>
+            <Card className={cn("p-4 flex items-center gap-4 hover:shadow-md transition-[box-shadow] duration-300 ease-out h-full", className)}>
                 <div className={cn("p-3 rounded-xl flex-shrink-0", colors.bg)}>
                     <Icon className={cn("h-5 w-5", colors.text)} />
                 </div>

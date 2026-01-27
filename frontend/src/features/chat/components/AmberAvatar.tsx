@@ -19,11 +19,19 @@ const sizeClasses = {
     lg: 'w-12 h-12 text-base',
 }
 
+const sizePixels = {
+    sm: 24,
+    md: 32,
+    lg: 48,
+}
+
 export default function AmberAvatar({ size = 'md', className }: AmberAvatarProps) {
     return (
         <img
             src="/avatar.png"
             alt="Amber Assistant"
+            width={sizePixels[size]}
+            height={sizePixels[size]}
             className={cn(
                 "rounded-full object-cover shadow-sm bg-secondary",
                 sizeClasses[size],

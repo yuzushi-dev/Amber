@@ -235,12 +235,12 @@
   @apply border border-surface-700/50 rounded-2xl;
   @apply px-2 py-1.5;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 8px 32px hsl(var(--surface-950) / 0.4),
+    inset 0 1px 0 hsl(var(--foreground) / 0.05);
 }
 
 .dock-item {
-  @apply relative p-2.5 rounded-xl transition-all duration-200;
+  @apply relative p-2.5 rounded-xl transition-[color,background-color,transform] duration-200 ease-out;
   @apply text-muted-foreground hover:text-foreground;
   @apply hover:bg-surface-700/50;
 }

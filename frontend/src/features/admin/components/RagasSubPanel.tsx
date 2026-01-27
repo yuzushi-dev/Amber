@@ -329,7 +329,7 @@ export function RagasSubPanel() {
                         </div>
                         <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                             <div
-                                className="h-full bg-primary transition-all duration-500 ease-in-out"
+                                className="h-full bg-primary transition-[width] duration-500 ease-in-out"
                                 style={{ width: `${runs.find(r => r.status === 'running')?.metrics?.progress || 0}%` }}
                             />
                         </div>

@@ -140,8 +140,8 @@ export default function TokenMetricsPage() {
             />
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6">
+                    <p className="text-destructive">{error}</p>
                 </div>
             )}
 
@@ -211,7 +211,7 @@ export default function TokenMetricsPage() {
                                             </div>
                                             <div className="h-2 bg-muted rounded-full overflow-hidden">
                                                 <div
-                                                    className="h-full bg-primary rounded-full transition-all"
+                                                    className="h-full bg-primary rounded-full transition-[width] duration-300 ease-out"
                                                     style={{
                                                         width: `${(data.tokens / metrics.totalTokens) * 100}%`
                                                     }}
@@ -253,7 +253,7 @@ export default function TokenMetricsPage() {
                                             </div>
                                             <div className="h-2 bg-muted rounded-full overflow-hidden">
                                                 <div
-                                                    className="h-full bg-accent-500 rounded-full transition-all"
+                                                    className="h-full bg-accent-500 rounded-full transition-[width] duration-300 ease-out"
                                                     style={{
                                                         width: `${(data.tokens / metrics.totalTokens) * 100}%`
                                                     }}

@@ -222,7 +222,7 @@ export default function ChatContainer() {
             className="flex h-full w-full border-x bg-card/10 overflow-hidden"
             aria-label="Chat with Amber"
         >
-            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm min-w-0 transition-all duration-500 ease-in-out relative">
+            <div className="flex-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm min-w-0 transition-[background-color,opacity,transform] duration-500 ease-in-out relative">
                 {/* Glass Header */}
                 <header className="absolute top-0 left-0 right-0 z-10 p-4 border-b border-white/5 flex justify-between items-center bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
                     <div>
@@ -249,7 +249,7 @@ export default function ChatContainer() {
                                 onClick={handleDownloadConversation}
                                 disabled={isExporting}
                                 title="Download conversation"
-                                className="flex items-center gap-1 hover:bg-white/10"
+                                className="flex items-center gap-1 hover:bg-foreground/10"
                             >
                                 {isExporting ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -269,7 +269,7 @@ export default function ChatContainer() {
                         aria-atomic="false"
                         className="contents"
                     >
-                        <MessageList messages={messages} />
+                        <MessageList messages={messages} isStreaming={isStreaming} />
                     </div>
 
                     <QueryInput onSend={startStream} disabled={isStreaming} />

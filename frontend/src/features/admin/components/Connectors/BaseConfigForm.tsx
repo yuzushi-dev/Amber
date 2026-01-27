@@ -49,7 +49,7 @@ export function BaseConfigForm({
             <div
                 className={cn(
                     'absolute top-0 left-0 right-0 h-1 transition-colors',
-                    isAuthenticated ? 'bg-green-500' : 'bg-muted',
+                    isAuthenticated ? 'bg-success' : 'bg-muted',
                     errorMessage && 'bg-destructive'
                 )}
             />
@@ -63,7 +63,7 @@ export function BaseConfigForm({
                         </CardDescription>
                     </div>
                     {isAuthenticated && (
-                        <Badge className="bg-green-600/90 text-white">
+                        <Badge className="bg-success text-success-foreground">
                             <CheckCircle2 className="w-3 h-3 mr-1" />
                             Connected
                         </Badge>

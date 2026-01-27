@@ -10,6 +10,14 @@ export default function ConstellationLoader() {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
+        const rootStyles = getComputedStyle(document.documentElement);
+        const readVar = (name: string, fallback: string) => {
+            const value = rootStyles.getPropertyValue(name).trim();
+            return value || fallback;
+        };
+        const tokenColor = (name: string, alpha: number, fallback: string) =>
+            `hsl(${readVar(name, fallback)} / ${alpha})`;
+
         const size = 800;
         canvas.width = size;
         canvas.height = size;
@@ -151,14 +159,14 @@ export default function ConstellationLoader() {
                 ctx.closePath();
 
                 // Amber fill (darker, semi-transparent)
-                ctx.fillStyle = `rgba(60, 40, 0, ${b * 0.6})`;
+                ctx.fillStyle = tokenColor('--amber-900', b * 0.6, '30 80% 10%');
                 ctx.fill();
 
                 // Amber stroke (bright)
-                ctx.strokeStyle = `rgba(255, 162, 0, ${b})`;
+                ctx.strokeStyle = tokenColor('--amber-500', b, '38 100% 50%');
                 ctx.lineWidth = 3;
                 ctx.shadowBlur = 25 * state.glow;
-                ctx.shadowColor = `rgba(255, 162, 0, ${b * 0.9})`;
+                ctx.shadowColor = tokenColor('--amber-500', b * 0.9, '38 100% 50%');
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             });
@@ -168,15 +176,15 @@ export default function ConstellationLoader() {
                 const sz = (5 + b * 4) * Math.sqrt(state.glow);
                 const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 5);
                 // Amber gradient particles
-                g.addColorStop(0, `rgba(255, 220, 150, ${b})`);
-                g.addColorStop(0.3, `rgba(255, 162, 0, ${b * 0.7})`);
-                g.addColorStop(0.6, `rgba(255, 120, 0, ${b * 0.4})`);
-                g.addColorStop(1, 'rgba(255, 100, 0, 0)');
+                g.addColorStop(0, tokenColor('--amber-200', b, '38 100% 85%'));
+                g.addColorStop(0.3, tokenColor('--amber-500', b * 0.7, '38 100% 50%'));
+                g.addColorStop(0.6, tokenColor('--amber-600', b * 0.4, '32 100% 45%'));
+                g.addColorStop(1, tokenColor('--amber-700', 0, '30 100% 40%'));
 
                 ctx.fillStyle = g;
                 ctx.fillRect(p.x - sz * 5, p.y - sz * 5, sz * 10, sz * 10);
 
-                ctx.fillStyle = `rgba(255, 240, 200, ${b})`;
+                ctx.fillStyle = tokenColor('--amber-100', b, '38 100% 92%');
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
                 ctx.fill();

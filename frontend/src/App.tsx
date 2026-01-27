@@ -12,7 +12,7 @@ import { Toaster } from 'sonner'
 
 function LoadingScreen({ message = "Amber is waking up..." }: { message?: string }) {
   return (
-    <div className="fixed inset-0 bg-black z-50">
+    <div className="fixed inset-0 bg-background z-50">
       <div className="absolute inset-0">
         <ConstellationLoader />
       </div>
@@ -100,4 +100,3 @@ function App() {
 }
 
 export default App
-

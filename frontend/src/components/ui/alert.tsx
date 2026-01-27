@@ -119,7 +119,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
                 {dismissible && (
                     <button
                         onClick={handleDismiss}
-                        className="absolute top-4 right-4 p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                        className="absolute top-4 right-4 p-1 rounded-md hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
                         aria-label="Dismiss alert"
                     >
                         <X className="h-4 w-4" />

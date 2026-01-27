@@ -73,13 +73,13 @@ export function StepConfigDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px] border-white/10 bg-background/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden">
-                <DialogHeader className="p-6 pb-4 bg-white/5 border-b border-white/5">
+            <DialogContent className="sm:max-w-[500px] border-border bg-background/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden">
+                <DialogHeader className="p-6 pb-4 bg-foreground/5 border-b border-white/5">
                     <div className="flex items-center justify-between mb-1">
                         <DialogTitle className="font-display text-2xl font-bold tracking-tight">
                             Configure Step
                         </DialogTitle>
-                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest bg-white/5 text-muted-foreground border-white/10">
+                    <Badge variant="outline" className="text-[10px] uppercase tracking-widest bg-foreground/5 text-muted-foreground border-border/60">
                             {step.feature}
                         </Badge>
                     </div>
@@ -109,20 +109,20 @@ export function StepConfigDialog({
                             }}
                             disabled={!isSuperAdmin}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 h-11 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
+                            <SelectTrigger className="bg-foreground/5 border-border h-11 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
-                                <SelectItem value={INHERIT_VALUE} className="focus:bg-amber-500/20">
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
+                                <SelectItem value={INHERIT_VALUE} className="focus:bg-primary/20">
                                     <div className="flex items-center gap-2">
                                         <span className="font-medium text-muted-foreground">Inherit Default</span>
-                                        <Badge variant="outline" className="text-[8px] opacity-50 border-white/10">
+                                        <Badge variant="outline" className="text-[8px] opacity-50 border-border/60">
                                             {defaultProvider}
                                         </Badge>
                                     </div>
                                 </SelectItem>
                                 {availableProviders?.llm_providers.map(p => (
-                                    <SelectItem key={p.name} value={p.name} className="focus:bg-amber-500/20">
+                                    <SelectItem key={p.name} value={p.name} className="focus:bg-primary/20">
                                         {p.label || p.name}
                                     </SelectItem>
                                 ))}
@@ -140,22 +140,22 @@ export function StepConfigDialog({
                             onValueChange={(val) => handleChange('model', val === INHERIT_VALUE ? null : val)}
                             disabled={!isSuperAdmin}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 h-11 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
+                            <SelectTrigger className="bg-foreground/5 border-border h-11 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
-                                <SelectItem value={INHERIT_VALUE} className="focus:bg-amber-500/20">
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
+                                <SelectItem value={INHERIT_VALUE} className="focus:bg-primary/20">
                                     <div className="flex items-center gap-2">
                                         <span className="font-medium text-muted-foreground">Inherit Default</span>
                                         {!override.provider && (
-                                            <Badge variant="outline" className="text-[8px] opacity-50 border-white/10">
+                                            <Badge variant="outline" className="text-[8px] opacity-50 border-border/60">
                                                 {defaultModel}
                                             </Badge>
                                         )}
                                     </div>
                                 </SelectItem>
                                 {providerModels.map(m => (
-                                    <SelectItem key={m} value={m} className="focus:bg-amber-500/20">
+                                    <SelectItem key={m} value={m} className="focus:bg-primary/20">
                                         {m}
                                     </SelectItem>
                                 ))}
@@ -169,7 +169,7 @@ export function StepConfigDialog({
                                 <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 ml-1">
                                     TEMPERATURE
                                 </Label>
-                                <span className="text-xs font-mono font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
                                     {stepTemperature.toFixed(2)}
                                 </span>
                             </div>
@@ -189,7 +189,7 @@ export function StepConfigDialog({
                                 <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 ml-1">
                                     RANDOM SEED
                                 </Label>
-                                <span className="text-xs font-mono font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
                                     {stepSeed}
                                 </span>
                             </div>
@@ -206,20 +206,20 @@ export function StepConfigDialog({
                     </div>
                 </div>
 
-                <DialogFooter className="p-6 bg-white/5 border-t border-white/5 flex items-center !justify-between gap-4">
+                <DialogFooter className="p-6 bg-foreground/5 border-t border-white/5 flex items-center !justify-between gap-4">
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={handleReset}
                         disabled={!hasOverrides || !isSuperAdmin}
-                        className="text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 h-10 px-4 transition-all"
+                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-10 px-4 transition-[background-color,color] duration-200 ease-out"
                     >
                         <RotateCcw className="w-4 h-4 mr-2" />
                         Reset All
                     </Button>
                     <Button
                         onClick={() => onOpenChange(false)}
-                        className="bg-amber-500 hover:bg-amber-600 text-black font-bold h-10 px-8 shadow-lg shadow-amber-500/20 transition-all active:scale-95"
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-10 px-8 shadow-glow transition-[background-color,box-shadow,transform] duration-200 ease-out active:scale-95"
                     >
                         Save
                     </Button>

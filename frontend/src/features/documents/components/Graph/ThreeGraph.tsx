@@ -3,47 +3,6 @@ import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import { GraphEdge, GraphNode } from '@/types/graph';
 
-// Amber Theme Colors derived from globals.css
-const THEME = {
-    background: '#110c0a', // hsl(32, 10%, 7%) -> converted to hex for Three.js
-    primary: '#ff9d00',    // hsl(38, 100%, 50%)
-    nodes: {
-        entity: '#ffaa00',      // hsl(40, 100%, 50%)
-        document: '#5296fa',    // hsl(217, 91%, 60%)
-        chunk: '#22c55e',       // hsl(142, 71%, 45%)
-        community: '#a855f7',   // hsl(280, 70%, 55%)
-        relationship: '#ff7f50' // hsl(18, 100%, 64%)
-    },
-    edges: {
-        default: '#565666',   // hsl(240, 9%, 35%)
-        highlight: '#ffd580'  // hsl(40, 100%, 65%)
-    }
-};
-
-// Community colors mapped to Amber palette variants
-// We want specific types to predictable colors if possible
-const COMMUNITY_COLORS = [
-    '#ff9d00', // amber-500 (Default/Primary)
-    '#f97316', // orange-500
-    '#06b6d4', // cyan-500 (Tech/System)
-    '#8b5cf6', // violet-500 (Person/Role)
-    '#10b981', // emerald-500 (Location/Geo)
-    '#3b82f6', // blue-500 (Organization)
-    '#ec4899', // pink-500 (Event)
-    '#ef4444', // red-500 (Critical)
-];
-
-function getCommunityColor(communityId?: number | null): string {
-    if (communityId === undefined || communityId === null) return THEME.edges.default;
-    const idNum = Number(communityId);
-    if (!Number.isFinite(idNum)) return THEME.edges.default;
-
-    // For now we rely on the hash to distribute across these colors
-    // In the future we can add a explicit map like { "PERSON_HASH": VIOLET } if needed
-    const idx = Math.abs(Math.trunc(idNum)) % COMMUNITY_COLORS.length;
-    return COMMUNITY_COLORS[idx];
-}
-
 interface ThreeGraphProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
@@ -90,6 +49,75 @@ export default function ThreeGraph({
     const fgRef = useRef<any>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+    const buildTheme = () => {
+        const fallbackDark = 'hsl(0 0% 0%)';
+        const fallbackLight = 'hsl(0 0% 100%)';
+        if (typeof document === 'undefined') {
+            return {
+                background: fallbackDark,
+                foreground: fallbackLight,
+                nodes: {
+                    entity: fallbackLight,
+                    document: fallbackLight,
+                    chunk: fallbackLight,
+                    community: fallbackLight,
+                    relationship: fallbackLight,
+                },
+                edges: {
+                    default: fallbackLight,
+                    highlight: fallbackLight,
+                },
+                communityColors: [fallbackLight, fallbackLight, fallbackLight, fallbackLight, fallbackLight],
+            };
+        }
+
+        const style = getComputedStyle(document.documentElement);
+        const readVar = (name: string, fallback: string) => {
+            const value = style.getPropertyValue(name).trim();
+            return value ? `hsl(${value})` : fallback;
+        };
+
+        const background = readVar('--surface-950', fallbackDark);
+        const foreground = readVar('--foreground', fallbackLight);
+
+        return {
+            background,
+            foreground,
+            nodes: {
+                entity: readVar('--node-entity', foreground),
+                document: readVar('--node-document', foreground),
+                chunk: readVar('--node-chunk', foreground),
+                community: readVar('--node-community', foreground),
+                relationship: readVar('--node-relationship', foreground),
+            },
+            edges: {
+                default: readVar('--edge-default', foreground),
+                highlight: readVar('--edge-highlight', foreground),
+            },
+            communityColors: [
+                readVar('--chart-1', foreground),
+                readVar('--chart-2', foreground),
+                readVar('--chart-3', foreground),
+                readVar('--chart-4', foreground),
+                readVar('--chart-5', foreground),
+            ],
+        };
+    };
+
+    const [theme, setTheme] = useState(buildTheme);
+
+    useEffect(() => {
+        setTheme(buildTheme());
+    }, []);
+
+    const getCommunityColor = useCallback((communityId?: number | null): string => {
+        if (communityId === undefined || communityId === null) return theme.edges.default;
+        const idNum = Number(communityId);
+        if (!Number.isFinite(idNum)) return theme.edges.default;
+        const idx = Math.abs(Math.trunc(idNum)) % theme.communityColors.length;
+        return theme.communityColors[idx] || theme.edges.default;
+    }, [theme]);
+
 
     // Transform data for force-graph-3d
     const graphData = useMemo<GraphData>(() => {
@@ -98,9 +126,9 @@ export default function ThreeGraph({
 
         return {
             nodes: nodes.map(node => {
-                let color = THEME.nodes.entity;
-                if (node.type === 'Document') color = THEME.nodes.document;
-                else if (node.type === 'Chunk') color = THEME.nodes.chunk;
+                let color = theme.nodes.entity;
+                if (node.type === 'Document') color = theme.nodes.document;
+                else if (node.type === 'Chunk') color = theme.nodes.chunk;
                 else if (node.community_id !== undefined && node.community_id !== null) {
                     color = getCommunityColor(node.community_id);
                 }
@@ -125,7 +153,7 @@ export default function ThreeGraph({
                     type: edge.type,
                 })),
         };
-    }, [nodes, edges, highlightedNodeIds]);
+    }, [nodes, edges, highlightedNodeIds, theme, getCommunityColor]);
 
     // Zoom effect when zoomToNodeId changes
     React.useEffect(() => {
@@ -175,7 +203,7 @@ export default function ThreeGraph({
         updateDimensions(); // Initial size
 
         return () => resizeObserver.disconnect();
-    }, []);
+    }, [theme]);
 
     // Handle node click
     const handleNodeClick = useCallback((node: ForceGraphNode) => {
@@ -266,14 +294,14 @@ export default function ThreeGraph({
 
         // Text outline for better readability
         ctx.font = `600 ${fontSize}px ${fontFamily}`;
-        ctx.strokeStyle = '#000000';
+        ctx.strokeStyle = theme.background;
         ctx.lineWidth = 4;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.strokeText(label, canvas.width / 2, canvas.height / 2);
 
         // Main text
-        ctx.fillStyle = '#f8fafc'; // slate-50 (bright text)
+        ctx.fillStyle = theme.foreground;
         ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 
         const texture = new THREE.CanvasTexture(canvas);
@@ -300,7 +328,7 @@ export default function ThreeGraph({
         <div
             ref={containerRef}
             className="relative w-full h-full min-h-[500px] rounded-lg overflow-hidden"
-            style={{ backgroundColor: THEME.background }}
+            style={{ backgroundColor: theme.background }}
         >
             {/* 3D Graph - Only render if we have dimensions to avoid full-screen default */}
             {dimensions.width > 0 && dimensions.height > 0 && (
@@ -314,8 +342,8 @@ export default function ThreeGraph({
                     nodeThreeObjectExtend={false}
                     linkOpacity={0.3}
                     linkWidth={1}
-                    linkColor={() => THEME.edges.default}
-                    backgroundColor={THEME.background}
+                    linkColor={() => theme.edges.default}
+                    backgroundColor={theme.background}
                     showNavInfo={false}
                     onNodeClick={handleNodeClick}
                     onNodeHover={(node: ForceGraphNode | null) => setHoveredNode(node?.id || null)}
@@ -329,8 +357,8 @@ export default function ThreeGraph({
             {/* Hovered node tooltip */}
             {hoveredNode && (
                 <div className="absolute top-4 right-4 z-10 max-w-xs">
-                    <div className="px-3 py-2 rounded-lg bg-black/80 border border-[var(--primary)] backdrop-blur-sm shadow-glow-sm">
-                        <p className="text-sm font-medium text-white">{hoveredNode}</p>
+                    <div className="px-3 py-2 rounded-lg bg-surface-950/80 border border-[var(--primary)] backdrop-blur-sm shadow-glow-sm">
+                        <p className="text-sm font-medium text-foreground">{hoveredNode}</p>
                     </div>
                 </div>
             )}

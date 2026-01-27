@@ -146,7 +146,7 @@ export default function FeedbackPage() {
                 <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
                     <div className="relative">
                         <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full opacity-20" />
-                        <div className="relative p-6 bg-gradient-to-br from-background to-muted rounded-2xl border border-white/5 shadow-2xl ring-1 ring-white/10">
+                        <div className="relative p-6 bg-gradient-to-br from-background to-muted rounded-2xl border border-white/5 shadow-2xl ring-1 ring-border/40">
                             <Check className="h-10 w-10 text-primary/80" />
                         </div>
                     </div>
@@ -168,7 +168,7 @@ export default function FeedbackPage() {
                         transition={{ delay: index * 0.05 }}
                         onClick={() => setSelectedItem(item)}
                     >
-                        <Card className="group relative p-5 transition-all duration-300 hover:shadow-lg cursor-pointer flex flex-col gap-4">
+                        <Card className="group relative p-5 transition-[background-color,border-color,box-shadow] duration-300 ease-out hover:shadow-lg cursor-pointer flex flex-col gap-4">
                             <div className="flex items-start justify-between">
                                 <div className="space-y-1.5">
                                     <div className="flex items-center gap-2">
@@ -181,7 +181,7 @@ export default function FeedbackPage() {
                                         {item.query || "No query text"}
                                     </h4>
                                 </div>
-                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20">
+                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
                                     <ThumbsUp className="w-3 h-3" />
                                 </span>
                             </div>
@@ -207,6 +207,7 @@ export default function FeedbackPage() {
                                         variant="ghost"
                                         className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
                                         onClick={(e) => { e.stopPropagation(); rejectMutation.mutate(item.id); }}
+                                        aria-label="Reject feedback"
                                     >
                                         <X className="w-3.5 h-3.5" />
                                     </Button>
@@ -215,6 +216,7 @@ export default function FeedbackPage() {
                                         variant="ghost"
                                         className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10 rounded-lg"
                                         onClick={(e) => { e.stopPropagation(); verifyMutation.mutate(item.id); }}
+                                        aria-label="Verify feedback"
                                     >
                                         <Check className="w-3.5 h-3.5" />
                                     </Button>
@@ -253,7 +255,7 @@ export default function FeedbackPage() {
                     <TabsTrigger value="pending" className="gap-2">
                         Pending Reviews
                         {pendingFeedback.length > 0 && (
-                            <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-orange-500/10 text-orange-500 text-[10px] font-mono font-bold border border-orange-500/20">
+                            <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-warning-muted text-warning text-[10px] font-mono font-bold border border-warning/30">
                                 {pendingFeedback.length}
                             </span>
                         )}
@@ -261,7 +263,7 @@ export default function FeedbackPage() {
                     <TabsTrigger value="memory" className="gap-2">
                         <BookOpen className="w-4 h-4" />
                         Verified Memory
-                        <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-muted text-muted-foreground text-[10px] font-mono font-bold border border-white/10">
+                        <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-muted text-muted-foreground text-[10px] font-mono font-bold border border-border/60">
                             {approvedFeedback.length}
                         </span>
                     </TabsTrigger>
@@ -295,7 +297,7 @@ export default function FeedbackPage() {
                             </Button>
                         </div>
                     ) : approvedFeedback.length === 0 ? (
-                        <Card className="p-16 text-center border-dashed border-white/10 bg-transparent flex flex-col items-center gap-4">
+                        <Card className="p-16 text-center border-dashed border-border/60 bg-transparent flex flex-col items-center gap-4">
                             <div className="p-4 rounded-full bg-muted/20">
                                 <BookOpen className="h-8 w-8 text-muted-foreground/40" />
                             </div>
@@ -316,7 +318,7 @@ export default function FeedbackPage() {
                                         transition={{ delay: index * 0.05 }}
                                     >
                                         <Card className={cn(
-                                            "group border transition-all duration-300 overflow-hidden",
+                                            "group border transition-[border-color,box-shadow] duration-300 ease-out overflow-hidden",
                                             item.is_active ? "border-white/5 bg-card/50 hover:bg-card/80 hover:border-primary/20 hover:shadow-md" : "border-dashed border-white/5 bg-muted/10 opacity-60 hover:opacity-100"
                                         )}>
                                             <Collapsible>
@@ -326,16 +328,16 @@ export default function FeedbackPage() {
                                                             <div className="flex items-center gap-3">
                                                                 <span className={cn(
                                                                     "w-1.5 h-1.5 rounded-full transition-colors",
-                                                                    item.is_active ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-muted-foreground/30"
+                                                                    item.is_active ? "bg-primary shadow-glow-sm" : "bg-muted-foreground/30"
                                                                 )} />
-                                                                <h4 className="font-medium text-foreground text-base truncate pr-4 group-hover/trigger:text-amber-500 transition-colors">
+                                                                <h4 className="font-medium text-foreground text-base truncate pr-4 group-hover/trigger:text-primary transition-colors">
                                                                     {item.query || <span className="text-muted-foreground italic">No query available</span>}
                                                                 </h4>
                                                             </div>
 
                                                             <div className="flex items-center gap-4 text-xs text-muted-foreground/60 font-mono">
                                                                 <span>ID: {item.id.slice(0, 8)}</span>
-                                                                <span className="w-px h-3 bg-white/10" />
+                                                                <span className="w-px h-3 bg-border" />
                                                                 <FormatDate date={item.created_at} mode="short" />
                                                             </div>
                                                         </div>
@@ -343,22 +345,28 @@ export default function FeedbackPage() {
 
                                                     <div className="flex items-center gap-4 shrink-0">
                                                         <div className="flex items-center gap-2 bg-muted/20 p-1 rounded-lg border border-white/5">
-                                                            <Switch
-                                                                checked={item.is_active ?? true}
-                                                                onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: item.id, isActive: checked })}
-                                                                className="scale-75 data-[state=checked]:bg-amber-500"
-                                                            />
+                                                                <Switch
+                                                                    checked={item.is_active ?? true}
+                                                                    onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: item.id, isActive: checked })}
+                                                                className="scale-75 data-[state=checked]:bg-primary"
+                                                                />
                                                         </div>
                                                         <Button
                                                             size="icon"
                                                             variant="ghost"
                                                             className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                                                             onClick={() => deleteMutation.mutate(item.id)}
+                                                            aria-label="Delete feedback item"
                                                         >
                                                             <Trash2 className="h-4 w-4" />
                                                         </Button>
                                                         <CollapsibleTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-muted/50">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 rounded-lg hover:bg-muted/50"
+                                                                aria-label="Toggle feedback details"
+                                                            >
                                                                 <ChevronDown className="h-4 w-4 transition-transform duration-300 group-data-[state=open]:rotate-180" />
                                                             </Button>
                                                         </CollapsibleTrigger>
@@ -368,7 +376,7 @@ export default function FeedbackPage() {
                                                 <CollapsibleContent>
                                                     <div className="px-5 pb-5 pt-0 pl-9">
                                                         <div className="relative">
-                                                            <div className="absolute left-0 top-0 bottom-0 w-px bg-white/5" />
+                                                            <div className="absolute left-0 top-0 bottom-0 w-px bg-border" />
                                                             <div className="pl-6 pt-2">
                                                                 <div className="p-4 bg-muted/30 rounded-xl border border-white/5 text-sm leading-relaxed text-muted-foreground">
                                                                     {item.answer || <span className="text-muted-foreground italic">No answer available</span>}
@@ -390,10 +398,10 @@ export default function FeedbackPage() {
             {/* Detail Dialog */}
             <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
                 <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <div className="flex items-center justify-between pr-8">
                             <DialogTitle className="text-lg font-display tracking-tight">Review Candidate</DialogTitle>
-                            <span className="font-mono text-[10px] text-muted-foreground bg-white/5 px-2 py-1 rounded border border-white/5">
+                            <span className="font-mono text-[10px] text-muted-foreground bg-foreground/5 px-2 py-1 rounded border border-white/5">
                                 {selectedItem?.request_id}
                             </span>
                         </div>
@@ -422,7 +430,7 @@ export default function FeedbackPage() {
                         {/* User Feedback */}
                         {(selectedItem?.comment) && (
                             <div className="bg-muted/10 rounded-xl p-5 border border-white/5 space-y-3">
-                                <div className="flex items-center gap-2 text-amber-500/90">
+                                <div className="flex items-center gap-2 text-primary/90">
                                     <MessageSquare className="w-4 h-4" />
                                     <span className="text-xs font-bold uppercase tracking-wide">User Comment</span>
                                 </div>
@@ -433,7 +441,7 @@ export default function FeedbackPage() {
                         )}
                     </div>
 
-                    <DialogFooter className="p-6 border-t border-white/5 bg-white/[0.02] gap-3">
+                    <DialogFooter className="p-6 border-t border-white/5 bg-foreground/[0.02] gap-3">
                         <Button
                             variant="ghost"
                             onClick={() => rejectMutation.mutate(selectedItem!.id)}

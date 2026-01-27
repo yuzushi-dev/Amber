@@ -242,7 +242,7 @@ export default function ApiKeyManager() {
                                         <td className="px-6 py-4 text-sm">
                                             <div className="flex flex-wrap gap-1 items-center max-w-[250px]">
                                                 {key.scopes.includes('super_admin') && (
-                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-bold border border-amber-500/20 mr-1" title="System-wide access (Bypasses RLS)">
+                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold border border-primary/20 mr-1" title="System-wide access (Bypasses RLS)">
                                                         <Crown className="w-2.5 h-2.5" />
                                                         SUPER
                                                     </span>
