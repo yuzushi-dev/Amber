@@ -10,12 +10,17 @@ Stage 10.2 - RAG Tuning Panel Backend
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.database.session import async_session_maker
 from src.core.admin_ops.application.tuning_service import TuningService
 from src.api.config import settings
+from src.api.deps import verify_super_admin
+from src.core.tenants.application.active_vector_collection import (
+    backfill_active_vector_collections,
+    ensure_active_collection_update_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,14 @@ class RetrievalWeights(BaseModel):
     @classmethod
     def validate_weights(cls, v):
         return round(v, 3)
+
+
+class LLMStepOverride(BaseModel):
+    """Per-step LLM override settings."""
+    provider: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    seed: int | None = None
 
 
 class TenantConfigResponse(BaseModel):
@@ -61,10 +74,14 @@ class TenantConfigResponse(BaseModel):
     # Embedding Provider/Model settings
     embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
     embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
+
+    # Vector Store Settings
+    active_vector_collection: str | None = None
     
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
+    llm_steps: dict[str, "LLMStepOverride"] | None = None
 
     # Custom prompts (per-tenant overrides)
     rag_system_prompt: str | None = None
@@ -100,10 +117,14 @@ class TenantConfigUpdate(BaseModel):
     # Embedding Provider/Model settings
     embedding_provider: str | None = None
     embedding_model: str | None = None
+
+    # Vector Store Settings
+    active_vector_collection: str | None = None
     
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
+    llm_steps: dict[str, "LLMStepOverride"] | None = None
 
     # Custom prompts (per-tenant overrides)
     rag_system_prompt: str | None = None
@@ -141,6 +162,28 @@ class ConfigSchemaResponse(BaseModel):
 # =============================================================================
 # Endpoints
 # =============================================================================
+
+@router.get("/llm-steps")
+async def get_llm_steps():
+    """
+    Return LLM step metadata for UI configuration.
+    """
+    from src.core.generation.application.llm_steps import LLM_STEP_DEFS
+
+    steps = [
+        {
+            "id": step.id,
+            "label": step.label,
+            "feature": step.feature,
+            "description": step.description,
+            "default_temperature": step.default_temperature,
+            "default_seed": step.default_seed,
+        }
+        for step in LLM_STEP_DEFS.values()
+    ]
+
+    return {"steps": steps}
+
 
 @router.get("/schema", response_model=ConfigSchemaResponse)
 async def get_config_schema():
@@ -268,6 +311,14 @@ async def get_config_schema():
             max=100,
             step=1,
             group="retrieval"
+        ),
+        ConfigSchemaField(
+            name="active_vector_collection",
+            type="string",
+            label="Active Vector Collection",
+            description="Milvus collection used for retrieval and ingestion for this tenant",
+            default="amber_default",
+            group="retrieval",
         ),
         ConfigSchemaField(
             name="expansion_depth",
@@ -441,8 +492,10 @@ async def get_tenant_config(tenant_id: str):
             llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
             embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
             embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
+            active_vector_collection=config.get("active_vector_collection"),
             seed=config.get("seed"),
             temperature=config.get("temperature"),
+            llm_steps=config.get("llm_steps"),
             # Prompt overrides (per-tenant)
             rag_system_prompt=config.get("rag_system_prompt"),
             rag_user_prompt=config.get("rag_user_prompt"),
@@ -459,7 +512,7 @@ async def get_tenant_config(tenant_id: str):
 
 
 @router.put("/tenants/{tenant_id}", response_model=TenantConfigResponse)
-async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
+async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, request: Request):
     """
     Update configuration for a specific tenant.
 
@@ -467,6 +520,20 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
     Changes take effect immediately for subsequent requests.
     """
     try:
+        update_dict = update.model_dump(exclude_unset=True, exclude_none=True)
+        try:
+            ensure_active_collection_update_allowed(
+                getattr(request.state, "is_super_admin", False),
+                update_dict,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
+
+        llm_keys = {"llm_provider", "llm_model", "temperature", "seed", "llm_steps"}
+        if llm_keys.intersection(update_dict.keys()):
+            if not getattr(request.state, "is_super_admin", False):
+                raise HTTPException(status_code=403, detail="Super Admin privileges required")
+
         from sqlalchemy.future import select
 
         from src.core.tenants.domain.tenant import Tenant
@@ -486,9 +553,6 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate):
 
             # Create a copy to ensure SQLAlchemy detects changes (JSON is not mutable by default)
             new_config = dict(tenant.config)
-
-            # Update provided fields
-            update_dict = update.model_dump(exclude_unset=True, exclude_none=True)
 
             # Handle nested weights
             if "weights" in update_dict:
@@ -579,3 +643,25 @@ async def reset_tenant_config(tenant_id: str):
     except Exception as e:
         logger.error(f"Failed to reset tenant config: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to reset config: {str(e)}") from e
+
+
+@router.post("/tenants/backfill-active-collection", dependencies=[Depends(verify_super_admin)])
+async def backfill_active_vector_collection():
+    """
+    Backfill active_vector_collection for tenants missing the setting.
+    Super Admin only.
+    """
+    try:
+        from sqlalchemy.future import select
+        from src.core.tenants.domain.tenant import Tenant
+
+        async with async_session_maker() as session:
+            result = await session.execute(select(Tenant))
+            tenants = result.scalars().all()
+            updated = backfill_active_vector_collections(tenants)
+            await session.commit()
+
+        return {"updated": updated, "total": len(tenants)}
+    except Exception as e:
+        logger.error(f"Failed to backfill active collections: {e}")
+        raise HTTPException(status_code=500, detail=f"Backfill failed: {str(e)}") from e
