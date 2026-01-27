@@ -328,7 +328,7 @@ class MilvusVectorStore:
             }
 
             # Add sparse vector if present
-            if self.FIELD_SPARSE_VECTOR in c and c[self.FIELD_SPARSE_VECTOR]:
+            if self.FIELD_SPARSE_VECTOR in c and c[self.FIELD_SPARSE_VECTOR] is not None:
                 row[self.FIELD_SPARSE_VECTOR] = c[self.FIELD_SPARSE_VECTOR]
 
             # Merge extra metadata (everything in c that isn't a reserved field)
@@ -448,6 +448,7 @@ class MilvusVectorStore:
                 consistency_level="Strong",
             )
 
+        
         try:
             # Run blocking search in thread pool with timeout
             results = await asyncio.wait_for(
@@ -459,7 +460,7 @@ class MilvusVectorStore:
             search_results = []
             for hits in results:
                 for hit in hits:
-                    # Apply score threshold if specified
+                     # Apply score threshold if specified
                     if score_threshold and hit.score < score_threshold:
                         continue
 
