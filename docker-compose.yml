@@ -54,28 +54,28 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - NEO4J_URI=${NEO4J_URI:-bolt://neo4j:7687}
+      - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-changeme}
-      - MILVUS_HOST=${MILVUS_HOST:-milvus}
-      - MILVUS_PORT=${MILVUS_PORT:-19530}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
-      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-openai}
-      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-small}
-      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
-      - MINIO_HOST=${MINIO_HOST:-minio}
-      - MINIO_PORT=${MINIO_PORT:-9000}
+      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - AMBER_RUNTIME=docker
     volumes:
       - ./src:/app/src:ro
@@ -83,6 +83,7 @@ services:
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,8 +97,8 @@ services:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 10
+      start_period: 300s
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -113,33 +114,34 @@ services:
       dockerfile: docker/worker.Dockerfile
     container_name: graphrag-worker
     environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SECRET_KEY=${SECRET_KEY}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PYTHONPATH=/app:/app/src:/app/.packages
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - NEO4J_URI=${NEO4J_URI:-bolt://neo4j:7687}
+      - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-changeme}
-      - MILVUS_HOST=${MILVUS_HOST:-milvus}
-      - MILVUS_PORT=${MILVUS_PORT:-19530}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-openai}
       - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-small}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
-      - MINIO_HOST=${MINIO_HOST:-minio}
-      - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
       - AMBER_RUNTIME=docker
+      - HF_HOME=/home/appuser/.cache/huggingface
     command: celery -A src.workers.celery_app worker --loglevel=info -Q celery,ingestion,extraction,evaluation
     volumes:
       - ./src:/app/src:ro
@@ -147,6 +149,7 @@ services:
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy

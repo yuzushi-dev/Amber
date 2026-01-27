@@ -50,14 +50,14 @@ uploads:
 query:
   max_chunks: 10
   traversal_depth: 2
-  similarity_threshold: 0.7
+  similarity_threshold: 0.3
   include_trace: false
 
 # Embedding Configuration
 embeddings:
-  provider: "openai"
-  model: "text-embedding-3-small"
-  dimensions: 1536
+  provider: "ollama"
+  model: "nomic-embed-text"
+  dimensions: 768
   batch_size: 100
 
 # LLM Configuration

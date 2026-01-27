@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # PostgreSQL
     database_url: str = Field(
         default="postgresql+asyncpg://graphrag:graphrag@localhost:5432/graphrag",
@@ -47,6 +49,8 @@ class DatabaseSettings(BaseSettings):
 class CelerySettings(BaseSettings):
     """Celery worker settings."""
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     broker_url: str = Field(
         default="redis://localhost:6379/1",
         alias="CELERY_BROKER_URL",
@@ -62,6 +66,8 @@ class CelerySettings(BaseSettings):
 class RateLimitSettings(BaseSettings):
     """Rate limiting configuration."""
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     requests_per_minute: int = Field(default=60, description="Max requests per minute")
     requests_per_hour: int = Field(default=1000, description="Max requests per hour")
     queries_per_minute: int = Field(default=20, description="Max queries per minute")
@@ -71,6 +77,8 @@ class RateLimitSettings(BaseSettings):
 class UploadSettings(BaseSettings):
     """Upload configuration."""
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     max_size_mb: int = Field(default=100, description="Max upload size in MB")
     max_concurrent: int = Field(default=5, description="Max concurrent ingestions")
 
@@ -78,7 +86,7 @@ class UploadSettings(BaseSettings):
 class MinIOSettings(BaseSettings):
     """MinIO object storage settings."""
 
-    model_config = SettingsConfigDict(env_prefix="MINIO_", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_", extra="ignore")
 
     host: str = Field(default="localhost", description="MinIO host")
     port: int = Field(default=9000, description="MinIO API port")
