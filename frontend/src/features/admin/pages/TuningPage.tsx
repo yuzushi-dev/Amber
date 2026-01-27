@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Save, RotateCcw, CheckCircle, Info, AlertTriangle } from 'lucide-react'
 import { configApi, providersApi, ConfigSchema, TenantConfig, ConfigSchemaField, AvailableProviders, DefaultPrompts } from '@/lib/api-admin'
+import { useAuth } from '@/features/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -51,9 +52,11 @@ const DEFAULT_TENANT_ID = 'default'  // TODO: Get from context
 
 // Prompt field names for dynamic default lookup
 const PROMPT_FIELDS = ['rag_system_prompt', 'rag_user_prompt', 'agent_system_prompt', 'community_summary_prompt', 'fact_extraction_prompt']
+const LLM_FIELD_NAMES = new Set(['llm_provider', 'llm_model', 'temperature', 'seed', 'embedding_provider', 'embedding_model'])
 
 export default function TuningPage() {
     const navigate = useNavigate()
+    const { isSuperAdmin } = useAuth()
     const [schema, setSchema] = useState<ConfigSchema | null>(null)
     const [, setConfig] = useState<TenantConfig | null>(null)
     const [initialValues, setInitialValues] = useState<Record<string, unknown>>({})
@@ -104,20 +107,25 @@ export default function TuningPage() {
                 }
             })
 
-            // Populate provider options in schema
-            const updatedSchema = { ...schemaData }
+            const updatedFields = schemaData.fields.map(field => {
+                const nextField = { ...field }
 
-            // LLM Provider Options
-            const llmProviderField = updatedSchema.fields.find(f => f.name === 'llm_provider')
-            if (llmProviderField && providersData.llm_providers) {
-                llmProviderField.options = providersData.llm_providers.map(p => p.name)
-            }
+                if (field.name === 'llm_provider' && providersData.llm_providers) {
+                    nextField.options = providersData.llm_providers.map(p => p.name)
+                }
 
-            // Embedding Provider Options
-            const embedProviderField = updatedSchema.fields.find(f => f.name === 'embedding_provider')
-            if (embedProviderField && providersData.embedding_providers) {
-                embedProviderField.options = providersData.embedding_providers.map(p => p.name)
-            }
+                if (field.name === 'embedding_provider' && providersData.embedding_providers) {
+                    nextField.options = providersData.embedding_providers.map(p => p.name)
+                }
+
+                if (!isSuperAdmin && LLM_FIELD_NAMES.has(field.name)) {
+                    nextField.read_only = true
+                }
+
+                return nextField
+            })
+
+            const updatedSchema = { ...schemaData, fields: updatedFields }
 
             setSchema(updatedSchema)
             setFormValues(values)
@@ -166,6 +174,10 @@ export default function TuningPage() {
             const defaultModel = prov?.models[0] || ''
             setPendingEmbeddingChange(defaultModel)
             setShowMigrationDialog(true)
+            return
+        }
+
+        if (!isSuperAdmin && LLM_FIELD_NAMES.has(name)) {
             return
         }
 
@@ -245,6 +257,13 @@ export default function TuningPage() {
                 configValues.weights = weightValues
             }
 
+            if (!isSuperAdmin) {
+                LLM_FIELD_NAMES.forEach(key => {
+                    delete configValues[key]
+                })
+                delete configValues.llm_steps
+            }
+
             await configApi.updateTenant(DEFAULT_TENANT_ID, configValues as Partial<TenantConfig>)
             toast.success("Settings saved successfully")
 
@@ -319,6 +338,21 @@ export default function TuningPage() {
                 }
             />
 
+            {!isSuperAdmin && (
+                <Alert variant="info">
+                    <AlertDescription>
+                        LLM settings are managed by Super Admins in the LLMs page.
+                        <Button
+                            variant="link"
+                            className="px-1"
+                            onClick={() => navigate({ to: '/admin/settings/llms' })}
+                        >
+                            View LLM settings
+                        </Button>
+                    </AlertDescription>
+                </Alert>
+            )}
+
             {/* Weights Warning */}
             {!weightsValid && (
                 <Alert variant="warning" className="border-yellow-500/50 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
@@ -331,103 +365,106 @@ export default function TuningPage() {
 
             {/* Form Sections */}
             <div className="grid gap-6">
-                {schema.groups.map(group => (
-                    <Card key={group} className="overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/50 pb-4 border-b">
-                            <CardTitle className="text-lg font-semibold capitalize flex items-center gap-2">
-                                {group.replace('_', ' ')}
-                                <Badge variant="outline" className="text-xs font-normal text-muted-foreground ml-auto">
-                                    {schema.fields.filter(f => f.group === group).length} settings
-                                </Badge>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-6 grid gap-6">
-                            {(() => {
-                                const groupFields = schema.fields.filter(field => field.group === group)
-                                const renderedFields = new Set<string>()
+                {schema.groups
+                    .filter(group => {
+                        // Skip groups that only contain LLM fields (now managed in LLM Settings page)
+                        const groupFields = schema.fields.filter(f => f.group === group && !LLM_FIELD_NAMES.has(f.name))
+                        return groupFields.length > 0
+                    })
+                    .map(group => {
+                        // Filter out LLM fields from this group
+                        const visibleFields = schema.fields.filter(f => f.group === group && !LLM_FIELD_NAMES.has(f.name))
+                        return (
+                            <Card key={group} className="overflow-hidden shadow-sm">
+                                <CardHeader className="bg-muted/50 pb-4 border-b">
+                                    <CardTitle className="text-lg font-semibold capitalize flex items-center gap-2">
+                                        {group.replace('_', ' ')}
+                                        <Badge variant="outline" className="text-xs font-normal text-muted-foreground ml-auto">
+                                            {visibleFields.length} settings
+                                        </Badge>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-6 grid gap-6">
+                                    {(() => {
+                                        const groupFields = visibleFields
+                                        const renderedFields = new Set<string>()
 
-                                return groupFields.map(field => {
-                                    // Skip if already rendered (e.g., model field captured by provider)
-                                    if (renderedFields.has(field.name)) return null
+                                        return groupFields.map(field => {
+                                            // Skip if already rendered (e.g., model field captured by provider)
+                                            if (renderedFields.has(field.name)) return null
 
-                                    const renderFieldItem = (f: ConfigSchemaField) => {
-                                        // Inject dynamic options for dependent fields
-                                        let dynamicField = { ...f }
-                                        if (f.name === 'llm_model') {
-                                            const currentProvider = formValues['llm_provider'] as string
-                                            const provDetails = availableProviders?.llm_providers.find(p => p.name === currentProvider)
-                                            if (provDetails) dynamicField.options = provDetails.models
-                                        }
-                                        if (f.name === 'embedding_model') {
-                                            const currentProvider = formValues['embedding_provider'] as string
-                                            const provDetails = availableProviders?.embedding_providers.find(p => p.name === currentProvider)
-                                            if (provDetails) dynamicField.options = provDetails.models
-                                        }
+                                            const renderFieldItem = (f: ConfigSchemaField) => {
+                                                // Inject dynamic options for dependent fields
+                                                let dynamicField = { ...f }
+                                                if (f.name === 'embedding_model') {
+                                                    const currentProvider = formValues['embedding_provider'] as string
+                                                    const provDetails = availableProviders?.embedding_providers.find(p => p.name === currentProvider)
+                                                    if (provDetails) dynamicField.options = provDetails.models
+                                                }
 
-                                        return (
-                                            <div key={f.name} className="flex gap-2 items-end">
-                                                <div className="flex-1">
-                                                    <FieldInput
-                                                        field={dynamicField}
-                                                        value={formValues[f.name]}
-                                                        onChange={(value) => handleChange(f.name, value)}
-                                                        defaultPrompts={defaultPrompts}
-                                                    />
-                                                </div>
-                                                {/* Validation Button for Providers */}
-                                                {(f.name === 'llm_provider' || f.name === 'embedding_provider') && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="icon"
-                                                        className={cn(
-                                                            "transition-colors",
-                                                            validatingProvider === formValues[f.name] && "border-primary text-primary"
+                                                return (
+                                                    <div key={f.name} className="flex gap-2 items-end">
+                                                        <div className="flex-1">
+                                                            <FieldInput
+                                                                field={dynamicField}
+                                                                value={formValues[f.name]}
+                                                                onChange={(value) => handleChange(f.name, value)}
+                                                                defaultPrompts={defaultPrompts}
+                                                            />
+                                                        </div>
+                                                        {/* Validation Button for Providers */}
+                                                        {(f.name === 'llm_provider' || f.name === 'embedding_provider') && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="icon"
+                                                                className={cn(
+                                                                    "transition-colors",
+                                                                    validatingProvider === formValues[f.name] && "border-primary text-primary"
+                                                                )}
+                                                                onClick={() => validateProvider(
+                                                                    f.name === 'llm_provider' ? 'llm' : 'embedding',
+                                                                    formValues[f.name] as string
+                                                                )}
+                                                                disabled={validatingProvider === formValues[f.name]}
+                                                                title="Check connection"
+                                                            >
+                                                                {validatingProvider === formValues[f.name] ?
+                                                                    <RotateCcw className="h-4 w-4 animate-spin" /> :
+                                                                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                                                                }
+                                                            </Button>
                                                         )}
-                                                        onClick={() => validateProvider(
-                                                            f.name === 'llm_provider' ? 'llm' : 'embedding',
-                                                            formValues[f.name] as string
-                                                        )}
-                                                        disabled={validatingProvider === formValues[f.name]}
-                                                        title="Check connection"
-                                                    >
-                                                        {validatingProvider === formValues[f.name] ?
-                                                            <RotateCcw className="h-4 w-4 animate-spin" /> :
-                                                            <CheckCircle className="h-4 w-4 text-emerald-500" />
-                                                        }
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        )
-                                    }
+                                                    </div>
+                                                )
+                                            }
 
-                                    // Check for LLM / Embedding Pairs
-                                    if (field.name === 'llm_provider' || field.name === 'embedding_provider') {
-                                        const modelFieldName = field.name === 'llm_provider' ? 'llm_model' : 'embedding_model'
-                                        const modelField = groupFields.find(f => f.name === modelFieldName)
+                                            // Check for Embedding Provider/Model Pairs
+                                            if (field.name === 'embedding_provider') {
+                                                const modelFieldName = 'embedding_model'
+                                                const modelField = groupFields.find(f => f.name === modelFieldName)
 
-                                        if (modelField) {
+                                                if (modelField) {
+                                                    renderedFields.add(field.name)
+                                                    renderedFields.add(modelFieldName)
+
+                                                    return (
+                                                        <div key={`${field.name}-group`} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-muted/20 rounded-lg border border-border/50">
+                                                            {renderFieldItem(field)}
+                                                            {renderFieldItem(modelField)}
+                                                        </div>
+                                                    )
+                                                }
+                                            }
+
+                                            // Mark as rendered
                                             renderedFields.add(field.name)
-                                            renderedFields.add(modelFieldName)
-
-                                            // Extract common prefix label to show above the pair? 
-                                            // Or just let them have their own labels but side-by-side
-                                            return (
-                                                <div key={`${field.name}-group`} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-muted/20 rounded-lg border border-border/50">
-                                                    {renderFieldItem(field)}
-                                                    {renderFieldItem(modelField)}
-                                                </div>
-                                            )
-                                        }
-                                    }
-
-                                    // Mark as rendered
-                                    renderedFields.add(field.name)
-                                    return renderFieldItem(field)
-                                })
-                            })()}
-                        </CardContent>
-                    </Card>
-                ))}
+                                            return renderFieldItem(field)
+                                        })
+                                    })()}
+                                </CardContent>
+                            </Card>
+                        )
+                    })}
             </div>
 
             {/* Embedding Migration Confirmation Dialog */}
