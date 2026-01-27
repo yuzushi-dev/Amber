@@ -7,15 +7,22 @@ import { useAuth } from './features/auth'
 import ApiKeyModal from './features/auth/components/ApiKeyModal'
 import { SetupWizard } from './features/setup'
 import { useSetupStatus } from './features/setup/hooks/useSetupStatus'
-import { Loader2 } from 'lucide-react'
+import ConstellationLoader from './components/ui/constellation-loader'
 import { Toaster } from 'sonner'
 
-function LoadingScreen() {
+function LoadingScreen({ message = "Amber is waking up..." }: { message?: string }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background">
-      <div className="text-center space-y-4">
-        <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
-        <p className="text-muted-foreground">Amber is waking up...</p>
+    <div className="fixed inset-0 bg-black z-50">
+      <div className="absolute inset-0">
+        <ConstellationLoader />
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <p
+          className="text-primary text-lg font-light tracking-wider animate-pulse"
+          style={{ marginTop: 'calc(min(30vmin, 200px) + 3.75rem)' }}
+        >
+          {message}
+        </p>
       </div>
     </div>
   )
@@ -74,14 +81,7 @@ function AppContentWrapper() {
 
   if (isLoading || !isReady) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">
-            {isLoading ? "Connecting to server..." : "Waiting for services... This might take a few minutes."}
-          </p>
-        </div>
-      </div>
+      <LoadingScreen message={isLoading ? "Connecting to server..." : "Waiting for services... This might take a few minutes."} />
     )
   }
 
