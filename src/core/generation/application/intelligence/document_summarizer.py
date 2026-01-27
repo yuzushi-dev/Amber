@@ -70,18 +70,26 @@ class DocumentSummarizer:
         """Initialize the document summarizer with LLM provider."""
         self._llm = None  # Lazy init
 
-    def _get_llm(self):
+    def _get_llm(self, provider_name: str | None = None, model: str | None = None):
         """Lazy-load LLM provider."""
+        from src.shared.kernel.runtime import get_settings
+        settings = get_settings()
+        if settings.openai_api_key or settings.anthropic_api_key:
+            factory = build_provider_factory(
+                openai_api_key=settings.openai_api_key,
+                anthropic_api_key=settings.anthropic_api_key,
+            )
+        else:
+            factory = get_provider_factory()
+
+        if provider_name or model:
+            return factory.get_llm_provider(
+                provider_name=provider_name,
+                model=model,
+                tier=ProviderTier.ECONOMY,
+            )
+
         if self._llm is None:
-            from src.shared.kernel.runtime import get_settings
-            settings = get_settings()
-            if settings.openai_api_key or settings.anthropic_api_key:
-                factory = build_provider_factory(
-                    openai_api_key=settings.openai_api_key,
-                    anthropic_api_key=settings.anthropic_api_key,
-                )
-            else:
-                factory = get_provider_factory()
             self._llm = factory.get_llm_provider(tier=ProviderTier.ECONOMY)
         return self._llm
 
@@ -89,7 +97,8 @@ class DocumentSummarizer:
         self,
         chunks: list[str],
         document_title: str = "",
-        max_summary_length: int = 1000
+        max_summary_length: int = 1000,
+        tenant_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Extract summary, document type, and hashtags from document chunks.
@@ -132,7 +141,16 @@ class DocumentSummarizer:
             from src.core.admin_ops.application.metrics.collector import MetricsCollector
             from src.shared.identifiers import generate_query_id
             
-            llm = self._get_llm()
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="ingestion.document_summarization",
+                settings=settings,
+            )
+
+            llm = self._get_llm(provider_name=llm_cfg.provider, model=llm_cfg.model)
             query_id = generate_query_id()
             collector = MetricsCollector(redis_url=settings.db.redis_url)
             
@@ -141,8 +159,9 @@ class DocumentSummarizer:
                 result = await llm.generate(
                     prompt=user_prompt,
                     system_prompt=system_prompt,
-                    temperature=0.3,
-                    max_tokens=800
+                    temperature=llm_cfg.temperature,
+                    max_tokens=800,
+                    seed=llm_cfg.seed,
                 )
                 qm.tokens_used = result.usage.total_tokens if hasattr(result, 'usage') else 0
                 qm.input_tokens = result.usage.input_tokens if hasattr(result, 'usage') else 0

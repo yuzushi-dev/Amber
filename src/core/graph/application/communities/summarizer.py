@@ -22,10 +22,13 @@ class CommunitySummarizer:
     def __init__(self, graph_client: GraphClientPort, provider_factory: ProviderFactoryPort):
         self.graph = graph_client
         self.factory = provider_factory
-        # Use Economy tier for summarization as it's often a high-volume task
-        self.llm = self.factory.get_llm_provider(tier=ProviderTier.ECONOMY)
 
-    async def summarize_community(self, community_id: str, tenant_id: str) -> dict[str, Any]:
+    async def summarize_community(
+        self,
+        community_id: str,
+        tenant_id: str,
+        tenant_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Generates a summary for a single community.
 
@@ -62,10 +65,28 @@ class CommunitySummarizer:
 
         # 3. Call LLM
         try:
-            result = await self.llm.generate(
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+            settings = get_settings()
+            tenant_config = tenant_config or {}
+            llm_cfg = resolve_llm_step_config(
+                tenant_config=tenant_config,
+                step_id="graph.community_summary",
+                settings=settings,
+            )
+
+            llm = self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+
+            result = await llm.generate(
                 prompt=prompt,
                 system_prompt=COMMUNITY_SUMMARY_SYSTEM_PROMPT,
-                temperature=0.3
+                temperature=llm_cfg.temperature,
+                seed=llm_cfg.seed,
             )
 
             # 4. Parse JSON
@@ -85,7 +106,12 @@ class CommunitySummarizer:
             )
             return {}
 
-    async def summarize_all_stale(self, tenant_id: str, batch_size: int = 10):
+    async def summarize_all_stale(
+        self,
+        tenant_id: str,
+        batch_size: int = 10,
+        tenant_config: dict[str, Any] | None = None,
+    ):
         """
         Finds all communities marked as stale (or missing summary) and summarizes them.
         """
@@ -106,7 +132,7 @@ class CommunitySummarizer:
 
         for i in range(0, len(community_ids), batch_size):
             batch = community_ids[i:i+batch_size]
-            tasks = [self.summarize_community(cid, tenant_id) for cid in batch]
+            tasks = [self.summarize_community(cid, tenant_id, tenant_config) for cid in batch]
             await asyncio.gather(*tasks)
 
     async def _fetch_community_data(self, community_id: str, tenant_id: str) -> dict[str, Any]:

@@ -175,6 +175,8 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.graph.application.communities.summarizer import CommunitySummarizer
     from src.core.generation.infrastructure.providers.factory import ProviderFactory
     from src.core.retrieval.application.embeddings_service import EmbeddingService
+    from src.core.admin_ops.application.tuning_service import TuningService
+    from src.core.database.session import async_session_maker
 
     try:
         # 1. Detection
@@ -190,9 +192,11 @@ async def _process_communities_async(tenant_id: str) -> dict:
             anthropic_api_key=settings.anthropic_api_key
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
+        tuning_service = TuningService(async_session_maker)
+        tenant_config = await tuning_service.get_tenant_config(tenant_id)
 
         # We summarize all that are now stale or new
-        await summarizer.summarize_all_stale(tenant_id)
+        await summarizer.summarize_all_stale(tenant_id, tenant_config=tenant_config)
 
         # 3. Embeddings
         embedding_svc = EmbeddingService(
@@ -253,39 +257,17 @@ def deep_reset_singletons():
     factory._default_factory = None
     
     # 3. Platform Clients (Neo4j, Redis, etc)
-    # This closes drivers/connections but keeps the platform registry ready for lazy re-init
-    import asyncio
-    try:
-        if asyncio.get_event_loop().is_running():
-            # We can't await if we are inside a sync context or if loop is weird?
-            # deep_reset_singletons is called from async function _process_document_async.
-            # But the 'run_async' helper manages loops.
-            # safe_shutdown?
-            # Actually we can just let platform shutdown handle it if awaited.
-            # But deep_reset_singletons is DECLARED AS SYNC function!
-            # We cannot await platform.shutdown() here!
-            # We must use sync methods or create a loop.
-            pass
-    except:
-        pass
-        
-    # Neo4j Client reset (manual hack since we can't await platform.shutdown easily in sync func)
-    # But wait, platform.neo4j_client.close() is async.
-    # The original code accessed neo4j_client._driver.close() (sync?) No, driver.close() in neo4j is async usually.
-    # Original code:
-    # if neo4j_client._driver is not None:
-    #    try: neo4j_client._driver.close() ...
-    # Wait, neo4j python driver close() IS sync? Or Async? 
-    # The new Neo4jClient is async wrapper. close() is async.
-    # The old code was likely wrong/risky if it called async close in sync func?
-    # Or maybe it fired and forgot.
-    
-    # Let's just reset the platform instance internal state if possible?
-    # Or just don't close it explicitly here if we trust pooling?
-    # The goal of deep_reset_singletons is to avoid event loop binding issues.
-    
-    # If we use platform.neo4j_client everywhere, we should let platform manage it.
-    pass
+    # Force reset platform state to ensure fresh clients in this process/loop.
+    # This is critical because if the parent process initialized these, the forked
+    # worker process inherits them but cannot use the parent's asyncio loop/driver.
+    platform._neo4j_client = None
+    platform._minio_client = None
+    platform._redis_client = None
+    platform._graph_extractor = None 
+    platform._content_extractor = None
+    platform._initialized = False
+
+    logger.info("Platform registry singletons reset.")
 
 async def _process_document_async(document_id: str, tenant_id: str, task_id: str) -> dict:
     """
@@ -302,6 +284,9 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     from src.amber_platform.composition_root import configure_settings
     configure_settings(settings)
+
+    from src.core.database.session import configure_database
+    configure_database(settings.db.database_url)
 
     from src.shared.kernel.runtime import configure_settings as configure_runtime_settings
     configure_runtime_settings(settings)
