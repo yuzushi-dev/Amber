@@ -16,7 +16,8 @@ import {
     X,
     CheckCircle,
     AlertCircle,
-    AlertTriangle
+    AlertTriangle,
+    StopCircle
 } from 'lucide-react'
 import { jobsApi, JobInfo, QueuesResponse } from '@/lib/api-admin'
 import { PageHeader } from '../components/PageHeader'
@@ -36,6 +37,7 @@ export default function JobsAndQueuesPage() {
     // Shared State
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [stoppingAll, setStoppingAll] = useState(false)
 
     const fetchData = async (showLoading = false) => {
         try {
@@ -82,29 +84,44 @@ export default function JobsAndQueuesPage() {
         }
     }
 
+    const handleStopAll = async () => {
+        if (!confirm('Are you sure you want to stop all jobs? This will immediately terminate all running tasks and clear all queued tasks.')) {
+            return
+        }
+        try {
+            setStoppingAll(true)
+            await jobsApi.cancelAll()
+            await fetchData()
+        } catch (err) {
+            console.error('Failed to stop all jobs:', err)
+        } finally {
+            setStoppingAll(false)
+        }
+    }
+
     // --- Helpers ---
 
     const getStatusIcon = (status: string) => {
         switch (status) {
-            case 'SUCCESS': return <CheckCircle className="w-4 h-4 text-green-500" />
-            case 'FAILURE': return <AlertCircle className="w-4 h-4 text-red-500" />
+            case 'SUCCESS': return <CheckCircle className="w-4 h-4 text-success" />
+            case 'FAILURE': return <AlertCircle className="w-4 h-4 text-destructive" />
             case 'STARTED':
-            case 'PROGRESS': return <Play className="w-4 h-4 text-blue-500 animate-pulse" />
-            case 'PENDING': return <Clock className="w-4 h-4 text-yellow-500" />
-            case 'REVOKED': return <X className="w-4 h-4 text-gray-500" />
-            default: return <Clock className="w-4 h-4 text-gray-400" />
+            case 'PROGRESS': return <Play className="w-4 h-4 text-info animate-pulse" />
+            case 'PENDING': return <Clock className="w-4 h-4 text-warning" />
+            case 'REVOKED': return <X className="w-4 h-4 text-muted-foreground" />
+            default: return <Clock className="w-4 h-4 text-muted-foreground" />
         }
     }
 
     const getStatusClass = (status: string) => {
         switch (status) {
-            case 'SUCCESS': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-            case 'FAILURE': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+            case 'SUCCESS': return 'bg-success-muted text-success-foreground border border-success/30'
+            case 'FAILURE': return 'bg-destructive/10 text-destructive border border-destructive/20'
             case 'STARTED':
-            case 'PROGRESS': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-            case 'PENDING': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-            case 'REVOKED': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
-            default: return 'bg-gray-100 text-gray-800'
+            case 'PROGRESS': return 'bg-info-muted text-info-foreground border border-info/30'
+            case 'PENDING': return 'bg-warning-muted text-warning-foreground border border-warning/30'
+            case 'REVOKED': return 'bg-muted/50 text-muted-foreground border border-border'
+            default: return 'bg-muted/50 text-muted-foreground border border-border'
         }
     }
 
@@ -118,20 +135,30 @@ export default function JobsAndQueuesPage() {
                 title="System Status"
                 description="Monitor active jobs, workers, and queues."
                 actions={
-                    <button
-                        onClick={() => fetchData(true)}
-                        disabled={loading}
-                        className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50 text-sm font-medium h-9"
-                    >
-                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleStopAll}
+                            disabled={stoppingAll || (activeJobsCount === 0 && reservedJobsCount === 0)}
+                            className="flex items-center gap-2 px-4 py-2 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-md transition-colors disabled:opacity-50 text-sm font-medium h-9"
+                        >
+                            <StopCircle className={`w-3.5 h-3.5 ${stoppingAll ? 'animate-pulse' : ''}`} />
+                            Stop All Jobs
+                        </button>
+                        <button
+                            onClick={() => fetchData(true)}
+                            disabled={loading}
+                            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-md transition-colors disabled:opacity-50 text-sm font-medium h-9"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                            Refresh
+                        </button>
+                    </div>
                 }
             />
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <p className="text-red-800 dark:text-red-400">{error}</p>
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                    <p className="text-destructive">{error}</p>
                 </div>
             )}
 
@@ -175,9 +202,9 @@ export default function JobsAndQueuesPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {(!queueData?.workers || queueData.workers.length === 0) && !loading && (
-                        <div className="col-span-full bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 flex items-center gap-3">
-                            <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                            <span className="text-yellow-800 dark:text-yellow-400">
+                        <div className="col-span-full bg-warning-muted/40 border border-warning/30 rounded-lg p-4 flex items-center gap-3">
+                            <AlertTriangle className="w-5 h-5 text-warning" />
+                            <span className="text-warning">
                                 No workers online. Tasks will queue until a worker connects.
                             </span>
                         </div>
@@ -189,8 +216,8 @@ export default function JobsAndQueuesPage() {
                                     {worker.hostname.split('@')[1] || worker.hostname}
                                 </div>
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${worker.status === 'online'
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                    ? 'bg-success-muted text-success'
+                                    : 'bg-destructive/10 text-destructive'
                                     }`}>
                                     {worker.status}
                                 </span>
@@ -255,7 +282,7 @@ export default function JobsAndQueuesPage() {
                                         {job.progress !== null ? (
                                             <div className="w-32 space-y-1">
                                                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                                                    <div className="h-full bg-blue-500" style={{ width: `${job.progress}%` }} />
+                                                    <div className="h-full bg-info" style={{ width: `${job.progress}%` }} />
                                                 </div>
                                                 <div className="text-xs text-right text-muted-foreground">{job.progress}%</div>
                                             </div>
@@ -266,7 +293,7 @@ export default function JobsAndQueuesPage() {
                                             <button
                                                 onClick={() => handleCancelJob(job.task_id)}
                                                 disabled={cancellingId === job.task_id}
-                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded disabled:opacity-50"
                                             >
                                                 <X className="w-3 h-3" /> Cancel
                                             </button>

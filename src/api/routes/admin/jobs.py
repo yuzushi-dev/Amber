@@ -90,6 +90,12 @@ class CancelResponse(BaseModel):
     message: str
 
 
+class CancelAllResponse(BaseModel):
+    """Cancel all tasks response."""
+    cancelled_count: int
+    message: str
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -234,6 +240,88 @@ async def cancel_job(task_id: str, terminate: bool = Query(False, description="F
     except Exception as e:
         logger.error(f"Failed to cancel job {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}") from e
+
+
+@router.post("/cancel-all", response_model=CancelAllResponse)
+async def cancel_all_jobs():
+    """
+    Cancel all active and pending jobs.
+
+    - Revokes all active tasks (with SIGTERM)
+    - Revokes all pending/reserved tasks
+    - Clears the task queues
+    """
+    try:
+        inspect = celery_app.control.inspect()
+
+        active = inspect.active() or {}
+        reserved = inspect.reserved() or {}
+
+        cancelled_count = 0
+        task_ids = []
+
+        # Collect active task IDs
+        for _worker, tasks in active.items():
+            for task in tasks:
+                task_id = task.get("id")
+                if task_id:
+                    task_ids.append(task_id)
+
+        # Collect reserved task IDs
+        for _worker, tasks in reserved.items():
+            for task in tasks:
+                task_id = task.get("id")
+                if task_id:
+                    task_ids.append(task_id)
+
+        # Revoke all tasks with terminate=True
+        # Use SIGKILL to ensure immediate termination for "Stop All"
+        import signal
+        
+        for task_id in task_ids:
+            try:
+                # First try SIGTERM for a graceful shutdown
+                celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+                # Then follow up with SIGKILL to be sure
+                celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+                cancelled_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to revoke task {task_id}: {e}")
+
+        # Also purge any queued messages from all active queues
+        queues_to_purge = ["celery", "ingestion", "extraction", "evaluation"]
+        
+        # Add any queues found in inspector
+        try:
+            active_queues = inspect.active_queues()
+            if active_queues:
+                for worker_queues in active_queues.values():
+                    for q in worker_queues:
+                        if q["name"] not in queues_to_purge:
+                            queues_to_purge.append(q["name"])
+        except Exception:
+            pass # Fallback to known list if inspection fails
+
+        for queue_name in queues_to_purge:
+            try:
+                # Purge specific queue
+                with celery_app.connection_or_acquire() as conn:
+                    count = conn.default_channel.queue_purge(queue_name)
+                    if count:
+                         logger.info(f"Purged {count} messages from queue {queue_name}")
+            except Exception as e:
+                logger.warning(f"Failed to purge queue {queue_name}: {e}")
+
+        logger.info(f"Cancelled {cancelled_count} jobs")
+
+        return CancelAllResponse(
+            cancelled_count=cancelled_count,
+            message=f"Successfully cancelled {cancelled_count} jobs and purged all queues"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to cancel all jobs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel all jobs: {str(e)}") from e
 
 
 @router.get("/queues/status", response_model=QueuesResponse)
