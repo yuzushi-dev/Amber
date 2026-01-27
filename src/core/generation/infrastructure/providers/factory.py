@@ -149,6 +149,7 @@ class ProviderFactory:
         self,
         provider_name: str | None = None,
         tier: ProviderTier | None = None,
+        model: str | None = None,
         with_failover: bool = True,
         model_tier: ProviderTier | None = None, # Alias for backward compatibility
     ) -> BaseLLMProvider:
@@ -158,6 +159,7 @@ class ProviderFactory:
         Args:
             provider_name: Specific provider to use
             tier: Cost tier preference
+            model: Explicit model override for the provider
             with_failover: Enable automatic failover
             model_tier: Alias for tier (Phase 5 compatibility)
 
@@ -167,7 +169,13 @@ class ProviderFactory:
         tier = tier or model_tier or self.default_llm_tier
 
         if provider_name:
-            return self._create_llm_provider(provider_name, model=model_tier) # model_tier might be passed as model alias
+            return self._create_llm_provider(provider_name, model=model)
+
+        if model and self.default_llm_provider:
+            return self._create_llm_provider(
+                self.default_llm_provider,
+                model=model,
+            )
 
         # Check for explicit default provider
         if self.default_llm_provider:
