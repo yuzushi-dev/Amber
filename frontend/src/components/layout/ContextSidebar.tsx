@@ -7,7 +7,7 @@
  */
 
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
     Files,
@@ -123,7 +123,12 @@ export default function ContextSidebar() {
     const [collapsed, setCollapsed] = useState(false)
     const [recentConversations, setRecentConversations] = useState<ChatHistoryItem[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
+    const [loadingMore, setLoadingMore] = useState(false)
+    const [hasMore, setHasMore] = useState(true)
+
     const [isUploadOpen, setIsUploadOpen] = useState(false)
+    const scrollContainerRef = useRef<HTMLElement>(null)
+    const CONVERSATIONS_PER_PAGE = 20
 
     // Determine which section we're in
     const getActiveSection = (): string | null => {
@@ -144,8 +149,11 @@ export default function ContextSidebar() {
             const fetchHistory = async () => {
                 try {
                     setLoadingHistory(true)
-                    const data = await chatApi.list({ limit: 10 })
+
+                    setHasMore(true)
+                    const data = await chatApi.list({ limit: CONVERSATIONS_PER_PAGE })
                     setRecentConversations(data.conversations)
+                    setHasMore(data.conversations.length >= CONVERSATIONS_PER_PAGE)
                 } catch (err) {
                     console.error('Failed to load chat history:', err)
                 } finally {
@@ -155,6 +163,49 @@ export default function ContextSidebar() {
             fetchHistory()
         }
     }, [activeSection, lastHistoryUpdate])
+
+    // Load more conversations when scrolling to bottom
+    const loadMore = useCallback(async () => {
+        if (loadingMore || !hasMore || activeSection !== 'chat') return
+
+        try {
+            setLoadingMore(true)
+            const newOffset = recentConversations.length
+            const data = await chatApi.list({
+                limit: CONVERSATIONS_PER_PAGE,
+                offset: newOffset
+            })
+
+            if (data.conversations.length > 0) {
+                setRecentConversations(prev => [...prev, ...data.conversations])
+
+                setHasMore(data.conversations.length >= CONVERSATIONS_PER_PAGE)
+            } else {
+                setHasMore(false)
+            }
+        } catch (err) {
+            console.error('Failed to load more conversations:', err)
+        } finally {
+            setLoadingMore(false)
+        }
+    }, [loadingMore, hasMore, activeSection, recentConversations.length])
+
+    // Scroll handler for infinite scroll
+    useEffect(() => {
+        const container = scrollContainerRef.current
+        if (!container || activeSection !== 'chat') return
+
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = container
+            // Load more when within 100px of bottom
+            if (scrollHeight - scrollTop - clientHeight < 100) {
+                loadMore()
+            }
+        }
+
+        container.addEventListener('scroll', handleScroll)
+        return () => container.removeEventListener('scroll', handleScroll)
+    }, [activeSection, loadMore])
 
     const sections = activeSection ? sidebarConfig[activeSection] : null
 
@@ -188,7 +239,7 @@ export default function ContextSidebar() {
         <>
             <aside
                 className={cn(
-                    "context-sidebar flex flex-col border-r transition-[width,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+                    "context-sidebar h-full flex flex-col border-r transition-[width,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
                     // Glass material
                     "bg-background/80 backdrop-blur-xl border-white/5 shadow-xl supports-[backdrop-filter]:bg-background/60",
                     collapsed ? "w-16 items-center" : "w-64"
@@ -201,7 +252,7 @@ export default function ContextSidebar() {
                         onUploadClick={() => setIsUploadOpen(true)}
                     />
                 ) : (
-                    <nav className="flex-1 overflow-y-auto py-4" aria-label="Section navigation">
+                    <nav ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto py-4" aria-label="Section navigation">
                         {sections.map((section, sectionIndex) => (
                             <div key={section.title} className={cn(sectionIndex > 0 && "mt-4")}>
                                 {/* Section title */}
@@ -335,13 +386,23 @@ export default function ContextSidebar() {
                                         })
                                     )}
                                 </ul>
+
+                                {/* Loading indicator for infinite scroll */}
+                                {loadingMore && !collapsed && (
+                                    <div className="px-3 py-2">
+                                        <div className="space-y-2">
+                                            <Skeleton className="h-4 w-3/4" />
+                                            <Skeleton className="h-3 w-1/2" />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </nav>
                 )}
 
                 {/* Collapse toggle */}
-                <div className="p-2 border-t">
+                <div className="shrink-0 p-2 border-t">
                     <button
                         onClick={() => setCollapsed(!collapsed)}
                         className={cn(
