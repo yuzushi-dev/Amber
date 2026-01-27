@@ -162,6 +162,7 @@ graph LR
 - Multi-tenancy isolation
 - Access policies
 - RLS enforcement
+- Active vector collection selection (`active_vector_collection` in tenant config, used by retrieval/ingestion)
 
 **Owns Data**:
 - `tenants` table
