@@ -104,6 +104,8 @@ def init_worker_process(**kwargs):
         from src.core.generation.infrastructure.providers.factory import init_providers
 
         configure_settings(settings)
+        from src.core.database.session import configure_database
+        configure_database(settings.db.database_url)
         from src.amber_platform.composition_root import platform
         asyncio.run(platform.initialize())
 

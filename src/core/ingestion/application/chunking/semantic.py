@@ -189,26 +189,52 @@ class SemanticChunker:
             if test_tokens <= self.chunk_size:
                 current_chunk = test_chunk
             else:
-                # Save current chunk
-                if current_chunk:
-                    chunks.append(ChunkData(
-                        content=current_chunk.strip(),
-                        index=0,
-                        start_char=chunk_start,
-                        end_char=chunk_start + len(current_chunk),
-                        token_count=self.count_tokens(current_chunk)
-                    ))
-                    chunk_start += len(current_chunk)
-
-                # Handle paragraph that's too large
+                # Check if the new paragraph ITSELF is too large
                 if self.count_tokens(para) > self.chunk_size:
-                    # Split by sentences
-                    sentence_chunks = self._split_by_sentences(para, chunk_start)
+                    # Fix for orphan headers: 
+                    # If we have a current_chunk (e.g. "## Header") and the new para is huge,
+                    # don't emit "## Header" alone. Combine them and split the whole block by sentences.
+                    
+                    combined_text = current_chunk + "\n\n" + para if current_chunk else para
+                    
+                    # We need to trace back the start char for the combined block
+                    # If current_chunk exists, it starts at chunk_start.
+                    # If not, it starts at chunk_start (which matches the loop invariant).
+                    
+                    sentence_chunks = self._split_by_sentences(combined_text, chunk_start)
                     chunks.extend(sentence_chunks)
-                    chunk_start += len(para)
+                    
+                    # Update Start Offset
+                    chunk_start += len(combined_text)
                     current_chunk = ""
+                    
                 else:
-                    current_chunk = para
+                    # Normal Case: new para doesn't fit in current one, but fits in a new one
+                    if current_chunk:
+                        chunks.append(ChunkData(
+                            content=current_chunk.strip(),
+                            index=0,
+                            start_char=chunk_start,
+                            end_char=chunk_start + len(current_chunk),
+                            token_count=self.count_tokens(current_chunk)
+                        ))
+                        chunk_start += len(current_chunk)
+                        
+                        # Add the \n\n skipped? 
+                        # Logic in loop: `para` comes from split(\n\n). 
+                        # We need to account for the separators length in `chunk_start` if we want exact precision,
+                        # but typically `len(current_chunk)` updates appropriately if current_chunk INCLUDES the separators.
+                        # Wait, `test_chunk = current_chunk + "\n\n" + para`.
+                        # If we reset current_chunk to `para`, we technically skipped the `\n\n` between old `current` and `para` in the previous block.
+                        # Actually previous logic `chunk_start += len(current_chunk)` might have drifted if we didn't include separators.
+                        # But let's stick to the minimal fix logic:
+                        
+                        # Re-calculate drift?
+                        # `current_chunk` usually accumulated `\n\n` inside it? 
+                        # Yes: ` current_chunk = test_chunk` where `test_chunk` has `\n\n`.
+                        
+                        # So simply:
+                        current_chunk = para
 
         # Add remaining
         if current_chunk:

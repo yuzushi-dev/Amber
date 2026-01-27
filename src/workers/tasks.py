@@ -303,8 +303,10 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     )
 
     from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+    from src.core.graph.domain.ports.graph_client import set_graph_client
     from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
     set_graph_extractor(GraphExtractor(use_gleaning=True))
+    set_graph_client(platform.neo4j_client)
 
     # Create async session
     engine = create_async_engine(settings.db.database_url)
