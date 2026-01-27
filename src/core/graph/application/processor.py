@@ -20,7 +20,13 @@ class GraphProcessor:
         self.extractor = graph_extractor
         self.writer = graph_writer
 
-    async def process_chunks(self, chunks: list["Chunk"], tenant_id: str, filename: str = None):
+    async def process_chunks(
+        self,
+        chunks: list["Chunk"],
+        tenant_id: str,
+        filename: str = None,
+        tenant_config: dict | None = None,
+    ):
         """
         Process a list of chunks to extract and write graph data.
         """
@@ -51,7 +57,12 @@ class GraphProcessor:
                     
                     # We create a label but we DON'T track per-chunk in DB anymore
                     # The extractor will return usage stats instead
-                    result = await extractor.extract(chunk.content, chunk_id=chunk.id, track_usage=False)
+                    result = await extractor.extract(
+                        chunk.content,
+                        chunk_id=chunk.id,
+                        track_usage=False,
+                        tenant_config=tenant_config,
+                    )
                     
                     # Accumulate stats logic should be thread-safe if running concurrently?
                     # asyncio is single-threaded cooperatively, so simple += is fine unless we await during update.

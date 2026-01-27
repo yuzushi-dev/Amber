@@ -24,6 +24,7 @@ from src.core.graph.application.enrichment import GraphEnricher
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,15 @@ class IngestionService:
         # Refresh local object to match DB
         document = await self.document_repository.get(document_id)
 
+        tenant_config: dict[str, Any] = {}
+        if self.tenant_repository:
+            try:
+                tenant_obj = await self.tenant_repository.get(document.tenant_id)
+                if tenant_obj and tenant_obj.config:
+                    tenant_config = tenant_obj.config
+            except Exception as e:
+                logger.warning(f"Failed to load tenant config for ingestion: {e}")
+
         try:
             # 3. Get File from Storage
             # MinIO get_file returns bytes (handled inside wrapper)
@@ -357,9 +367,9 @@ class IngestionService:
                 )
                 sparse_service = SparseEmbeddingService()
 
+                active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
                 if self.vector_store_factory:
-                    collection_name = f"amber_{document.tenant_id}"
-                    vector_store = self.vector_store_factory(res_dims, collection_name=collection_name)
+                    vector_store = self.vector_store_factory(res_dims, collection_name=active_collection)
                 else:
                     vector_store = self.vector_store
 
@@ -478,7 +488,8 @@ class IngestionService:
                     await self.graph_processor.process_chunks(
                         chunks_to_process, 
                         document.tenant_id,
-                        filename=document.filename
+                        filename=document.filename,
+                        tenant_config=tenant_config,
                     )
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
@@ -490,7 +501,8 @@ class IngestionService:
                 chunk_contents = [c.content for c in chunks_to_process[:10]]
                 enrichment = await summarizer.extract_summary(
                     chunks=chunk_contents,
-                    document_title=document.filename
+                    document_title=document.filename,
+                    tenant_config=tenant_config,
                 )
                 document.summary = enrichment.get("summary", "")
                 document.document_type = enrichment.get("document_type", "other")

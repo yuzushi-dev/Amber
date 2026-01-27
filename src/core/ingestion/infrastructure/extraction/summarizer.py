@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from src.core.generation.infrastructure.providers.base import ProviderTier
 from src.core.generation.infrastructure.providers.factory import get_llm_provider
@@ -18,7 +19,12 @@ Descriptions:
 class EntitySummarizer:
     """Service to summarize multiple descriptions of the same entity."""
 
-    async def summarize(self, name: str, descriptions: list[str]) -> str:
+    async def summarize(
+        self,
+        name: str,
+        descriptions: list[str],
+        tenant_config: dict[str, Any] | None = None,
+    ) -> str:
         """
         Consolidate multiple descriptions into one.
 
@@ -43,7 +49,22 @@ class EntitySummarizer:
 
         # If we have meaningful variations, use LLM to summarize
         # Use Economy tier for summarization
-        provider = get_llm_provider(tier=ProviderTier.ECONOMY)
+        from src.shared.kernel.runtime import get_settings
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+        settings = get_settings()
+        tenant_config = tenant_config or {}
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="ingestion.entity_summarization",
+            settings=settings,
+        )
+
+        provider = get_llm_provider(
+            provider_name=llm_cfg.provider,
+            model=llm_cfg.model,
+            tier=ProviderTier.ECONOMY,
+        )
 
         text_blob = "\n- ".join(unique_descs)
 
@@ -51,7 +72,8 @@ class EntitySummarizer:
             res = await provider.generate(
                 prompt=SUMMARIZE_ENTITY_PROMPT.format(entity_name=name, descriptions=text_blob),
                 max_tokens=150,
-                temperature=0.3
+                temperature=llm_cfg.temperature,
+                seed=llm_cfg.seed,
             )
             return res.text.strip()
         except Exception as e:

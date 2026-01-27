@@ -4,7 +4,13 @@ from typing import Any, Protocol
 class GraphExtractorPort(Protocol):
     """Port for extracting graph entities/relationships from text."""
 
-    async def extract(self, text: str, chunk_id: str = "UNKNOWN") -> Any:
+    async def extract(
+        self,
+        text: str,
+        chunk_id: str = "UNKNOWN",
+        track_usage: bool = True,
+        tenant_config: dict | None = None,
+    ) -> Any:
         ...
 
 

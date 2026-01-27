@@ -46,12 +46,33 @@ class GraphExtractor:
             logger.error(f"Failed to load classification config: {e}")
             return (["CONCEPT"], ["RELATED_TO"])
 
-    async def extract(self, text: str, chunk_id: str = "UNKNOWN", track_usage: bool = True) -> ExtractionResult:
+    async def extract(
+        self,
+        text: str,
+        chunk_id: str = "UNKNOWN",
+        track_usage: bool = True,
+        tenant_config: dict[str, Any] | None = None,
+    ) -> ExtractionResult:
         """
         Extract entities/relationships using tuple format + quality scoring.
         """
-        # 1. Prepare Provider
-        provider = get_llm_provider(tier=ProviderTier.ECONOMY)
+        # 1. Prepare Provider + step config
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+
+        tenant_config = tenant_config or {}
+        from src.shared.kernel.runtime import get_settings
+        settings = get_settings()
+        llm_config = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="ingestion.graph_extraction",
+            settings=settings,
+        )
+
+        provider = get_llm_provider(
+            provider_name=llm_config.provider,
+            model=llm_config.model,
+            tier=ProviderTier.ECONOMY,
+        )
 
         # 2. Initial Pass (Pass 1)
         # We use a standard prompt instead of system_prompt for tuple format to avoid strict JSON mode constraints on some providers
@@ -72,12 +93,9 @@ class GraphExtractor:
 
         # Metrics tracking context
         # If track_usage is False, we use a dummy context manager or just run logic
-        from src.shared.kernel.runtime import get_settings
         from src.core.admin_ops.application.metrics.collector import MetricsCollector
         from src.shared.identifiers import generate_query_id
         from src.shared.context import get_current_tenant
-        
-        settings = get_settings()
         query_id = generate_query_id()
         collector = MetricsCollector(redis_url=settings.db.redis_url)
         tenant_id = get_current_tenant() or "system"
@@ -90,12 +108,14 @@ class GraphExtractor:
                 
                 import hashlib
                 prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
-                logger.debug(f"[DET] run_generation: seed={settings.seed}, temp={temp}, prompt_hash={prompt_hash}")
+                logger.debug(
+                    f"[DET] run_generation: seed={llm_config.seed}, temp={temp}, prompt_hash={prompt_hash}"
+                )
                 
                 response = await provider.generate(
                     prompt=prompt, 
                     temperature=temp,
-                    seed=settings.seed
+                    seed=llm_config.seed
                 )
                 
                 # Accumulate stats
@@ -115,7 +135,7 @@ class GraphExtractor:
             if track_usage:
                 async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
                     qm.operation = "extraction"
-                    response = await run_generation(full_text_prompt, 0.0)
+                    response = await run_generation(full_text_prompt, llm_config.temperature)
                     
                     # Update QM with stats
                     qm.tokens_used = usage_stats.total_tokens
@@ -136,7 +156,7 @@ class GraphExtractor:
                     qm.response = f"Extracted {ent_count} entities, {rel_count} relationships"
             else:
                 # No metrics tracking (aggregated by caller)
-                response = await run_generation(full_text_prompt, 0.0)
+                response = await run_generation(full_text_prompt, llm_config.temperature)
                 parse_result = self.parser.parse(response.text)
                 all_entities.extend(parse_result.entities)
                 all_relationships.extend(parse_result.relationships)
@@ -167,8 +187,8 @@ class GraphExtractor:
                     
                     glean_response = await provider.generate(
                         prompt=full_glean_prompt,
-                        temperature=0.0,
-                        seed=settings.seed
+                        temperature=llm_config.temperature,
+                        seed=llm_config.seed
                     )
                     
                     # Update stats
@@ -277,4 +297,3 @@ class GraphExtractor:
                 if r.strength > unique[key].strength:
                     unique[key] = r
         return list(unique.values())
-
