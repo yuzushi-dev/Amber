@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.tenants.domain.tenant import Tenant
+from src.core.tenants.application.active_vector_collection import ensure_active_vector_collection_config
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 from src.core.ingestion.domain.document import Document
 
@@ -34,6 +35,8 @@ class TenantService:
             config=config or {}
         )
         self.session.add(tenant)
+        await self.session.flush()
+        tenant.config = ensure_active_vector_collection_config(tenant.id, tenant.config)
         await self.session.commit()
         await self.session.refresh(tenant)
         return tenant

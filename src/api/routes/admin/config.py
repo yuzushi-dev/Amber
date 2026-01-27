@@ -530,59 +530,102 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
             raise HTTPException(status_code=403, detail=str(e)) from e
 
         llm_keys = {"llm_provider", "llm_model", "temperature", "seed", "llm_steps"}
-        if llm_keys.intersection(update_dict.keys()):
-            if not getattr(request.state, "is_super_admin", False):
-                raise HTTPException(status_code=403, detail="Super Admin privileges required")
+        llm_update = {key: value for key, value in update_dict.items() if key in llm_keys}
+        other_update = {key: value for key, value in update_dict.items() if key not in llm_keys}
+        is_super_admin = getattr(request.state, "is_super_admin", False)
+
+        if llm_update and not is_super_admin:
+            raise HTTPException(status_code=403, detail="Super Admin privileges required")
 
         from sqlalchemy.future import select
 
         from src.core.tenants.domain.tenant import Tenant
-
-        async with async_session_maker() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.id == tenant_id)
-            )
-            tenant = result.scalar_one_or_none()
-
-            if not tenant:
-                raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
-
-            # Initialize config if needed
+        def apply_config_updates(tenant: Tenant, updates: dict[str, Any]) -> None:
             if not tenant.config:
                 tenant.config = {}
 
-            # Create a copy to ensure SQLAlchemy detects changes (JSON is not mutable by default)
             new_config = dict(tenant.config)
-
-            # Handle nested weights
-            if "weights" in update_dict:
-                weights = update_dict.pop("weights")
+            weights = updates.get("weights")
+            if weights:
                 for k, v in weights.items():
                     new_config[k] = v
 
-            # Update remaining fields
-            for key, value in update_dict.items():
+            for key, value in updates.items():
+                if key == "weights":
+                    continue
                 new_config[key] = value
 
-            # Reassign to trigger dirty flag
             tenant.config = new_config
 
-            # Persist changes
-            session.add(tenant)
-            await session.commit()
+        async with async_session_maker() as session:
+            if is_super_admin and llm_update:
+                result = await session.execute(select(Tenant))
+                tenants = result.scalars().all()
+                target_tenant = next((tenant for tenant in tenants if tenant.id == tenant_id), None)
 
-            # Log the change
-            tuning_service = TuningService(async_session_maker)
-            await tuning_service.log_change(
-                tenant_id=tenant_id,
-                actor="admin",  # TODO: Get from auth context
-                action="update_config",
-                target_type="tenant",
-                target_id=tenant_id,
-                changes=update_dict
-            )
+                if not target_tenant:
+                    raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
 
-            logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
+                for tenant in tenants:
+                    apply_config_updates(tenant, llm_update)
+                    session.add(tenant)
+
+                if other_update:
+                    apply_config_updates(target_tenant, other_update)
+                    session.add(target_tenant)
+
+                await session.commit()
+
+                tuning_service = TuningService(async_session_maker)
+                for tenant in tenants:
+                    await tuning_service.log_change(
+                        tenant_id=tenant.id,
+                        actor="admin",  # TODO: Get from auth context
+                        action="update_config",
+                        target_type="tenant",
+                        target_id=tenant.id,
+                        changes=llm_update
+                    )
+
+                if other_update:
+                    await tuning_service.log_change(
+                        tenant_id=tenant_id,
+                        actor="admin",
+                        action="update_config",
+                        target_type="tenant",
+                        target_id=tenant_id,
+                        changes=other_update
+                    )
+
+                logger.info(
+                    "Updated LLM config for all tenants: %s",
+                    list(llm_update.keys())
+                )
+            else:
+                result = await session.execute(
+                    select(Tenant).where(Tenant.id == tenant_id)
+                )
+                tenant = result.scalar_one_or_none()
+
+                if not tenant:
+                    raise HTTPException(status_code=404, detail=f"Tenant {tenant_id} not found")
+
+                apply_config_updates(tenant, update_dict)
+
+                session.add(tenant)
+                await session.commit()
+
+                tuning_service = TuningService(async_session_maker)
+                await tuning_service.log_change(
+                    tenant_id=tenant_id,
+                    actor="admin",  # TODO: Get from auth context
+                    action="update_config",
+                    target_type="tenant",
+                    target_id=tenant_id,
+                    changes=update_dict
+                )
+
+                logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
 
         # Return updated config
         return await get_tenant_config(tenant_id)
