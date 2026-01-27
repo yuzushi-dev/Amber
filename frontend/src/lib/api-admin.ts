@@ -296,6 +296,13 @@ export const jobsApi = {
         return response.data
     },
 
+    cancelAll: async () => {
+        const response = await apiClient.post<{ cancelled_count: number; message: string }>(
+            '/admin/jobs/cancel-all'
+        )
+        return response.data
+    },
+
     getQueues: async () => {
         const response = await apiClient.get<QueuesResponse>('/admin/jobs/queues/status')
         return response.data
