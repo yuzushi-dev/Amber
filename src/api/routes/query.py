@@ -7,6 +7,7 @@ Phase 2: Baseline RAG implementation with vector retrieval and LLM generation.
 """
 
 import json
+import re
 import logging
 import time
 from datetime import datetime
@@ -483,9 +484,13 @@ async def _query_stream_impl(
                     except Exception as e:
                         logger.error(f"Failed to save AGENT conversation history: {e}")
 
-                    # Stream the result as if it were tokens
-                    # (AgentOrchestrator returns full answer currently)
-                    yield f"event: message\ndata: {json.dumps(agent_response.answer)}\n\n"
+                    # Stream the result as tokens (AgentOrchestrator returns full answer currently)
+                    # Preserve whitespace to keep formatting intact.
+                    answer_text = agent_response.answer or ""
+                    for chunk in re.findall(r"\S+|\s+", answer_text):
+                        yield f"event: token\ndata: {json.dumps(chunk)}\n\n"
+                    # Preserve compatibility for clients expecting a full message event.
+                    yield f"event: message\ndata: {json.dumps(answer_text)}\n\n"
 
                     yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
                     return
@@ -789,6 +794,8 @@ async def _query_stream_impl(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "Content-Encoding": "none",
+            "X-Accel-Buffering": "no",
         },
     )
 

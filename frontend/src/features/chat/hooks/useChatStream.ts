@@ -17,9 +17,41 @@ export function useChatStream() {
 
     const { addMessage, updateLastMessage } = useChatStore()
     const eventSourceRef = useRef<EventSource | null>(null)
+    const debugEnabledRef = useRef(
+        localStorage.getItem('chat_debug') === 'true'
+    )
+    const streamStatsRef = useRef({
+        tokenCount: 0,
+        messageCount: 0,
+        charCount: 0,
+        startedAt: 0,
+    })
+
+    // Token buffering for smoother streaming (prevents paint starvation)
+    const tokenBufferRef = useRef<string>('')
+    const lastFlushTimeRef = useRef<number>(0)
 
     // Use ref to always access current conversationId (avoids stale closure)
     const conversationIdRef = useRef<string | null>(null)
+    const debugLog = (...args: unknown[]) => {
+        if (debugEnabledRef.current) {
+            console.log('[ChatStream]', ...args)
+        }
+    }
+
+    // Flush accumulated tokens to state
+    const flushTokenBuffer = useCallback(() => {
+        if (tokenBufferRef.current.length > 0) {
+            const bufferedContent = tokenBufferRef.current
+            tokenBufferRef.current = ''
+            lastFlushTimeRef.current = performance.now()
+
+            updateLastMessage({
+                thinking: null,
+                content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + bufferedContent
+            })
+        }
+    }, [updateLastMessage])
 
     const stopStream = useCallback(() => {
         if (eventSourceRef.current) {
@@ -95,8 +127,28 @@ export function useChatStream() {
             url.searchParams.set('conversation_id', conversationIdRef.current)
         }
 
+        // Reset streaming stats for diagnostics
+        streamStatsRef.current = {
+            tokenCount: 0,
+            messageCount: 0,
+            charCount: 0,
+            startedAt: performance.now(),
+        }
+
+        debugLog('Starting SSE', {
+            path: url.pathname,
+            hasApiKey: url.searchParams.has('api_key'),
+            hasConversationId: url.searchParams.has('conversation_id'),
+            agentMode: url.searchParams.get('agent_mode') === 'true',
+            queryLength: finalQuery.length,
+        })
+
         const eventSource = new EventSource(url.toString())
         eventSourceRef.current = eventSource
+
+        eventSource.onopen = () => {
+            debugLog('SSE connection opened')
+        }
 
         eventSource.addEventListener('thinking', (e) => {
             try {
@@ -106,21 +158,71 @@ export function useChatStream() {
                 // Fallback for legacy/error messages
                 updateLastMessage({ thinking: e.data })
             }
+            debugLog('thinking event', e.data?.toString()?.slice(0, 60) || '')
+        })
+
+        eventSource.addEventListener('status', (e) => {
+            debugLog('status event', e.data?.toString()?.slice(0, 80) || '')
         })
 
         eventSource.addEventListener('token', (e) => {
             try {
                 const token = JSON.parse(e.data)
-                updateLastMessage({
-                    thinking: null,
-                    content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + token
-                })
+                const tokenText = typeof token === 'string' ? token : String(token)
+                streamStatsRef.current.tokenCount += 1
+                streamStatsRef.current.charCount += tokenText.length
+
+                // Buffer tokens instead of updating state on each one
+                tokenBufferRef.current += tokenText
+
+                // Flush buffer every 50ms to allow browser to paint
+                const now = performance.now()
+                const timeSinceLastFlush = now - lastFlushTimeRef.current
+                if (timeSinceLastFlush >= 50 || streamStatsRef.current.tokenCount === 1) {
+                    flushTokenBuffer()
+                }
+
+                if (streamStatsRef.current.tokenCount === 1 || streamStatsRef.current.tokenCount % 20 === 0) {
+                    const storeLen = useChatStore.getState().messages.slice(-1)[0]?.content?.length || 0
+                    debugLog('store content length', storeLen)
+                }
+                const { tokenCount, charCount, startedAt } = streamStatsRef.current
+                if (tokenCount === 1 || tokenCount % 20 === 0) {
+                    debugLog('token event', {
+                        tokenCount,
+                        charCount,
+                        msSinceStart: Math.round(performance.now() - startedAt),
+                        preview: tokenText.slice(0, 20),
+                    })
+                }
             } catch {
                 // Fallback
-                updateLastMessage({
-                    thinking: null,
-                    content: (useChatStore.getState().messages.slice(-1)[0]?.content || '') + e.data
-                })
+                streamStatsRef.current.tokenCount += 1
+                streamStatsRef.current.charCount += e.data.length
+
+                // Buffer tokens instead of updating state on each one
+                tokenBufferRef.current += e.data
+
+                // Flush buffer every 50ms to allow browser to paint
+                const now = performance.now()
+                const timeSinceLastFlush = now - lastFlushTimeRef.current
+                if (timeSinceLastFlush >= 50 || streamStatsRef.current.tokenCount === 1) {
+                    flushTokenBuffer()
+                }
+
+                if (streamStatsRef.current.tokenCount === 1 || streamStatsRef.current.tokenCount % 20 === 0) {
+                    const storeLen = useChatStore.getState().messages.slice(-1)[0]?.content?.length || 0
+                    debugLog('store content length', storeLen)
+                }
+                const { tokenCount, charCount, startedAt } = streamStatsRef.current
+                if (tokenCount === 1 || tokenCount % 20 === 0) {
+                    debugLog('token event (raw)', {
+                        tokenCount,
+                        charCount,
+                        msSinceStart: Math.round(performance.now() - startedAt),
+                        preview: e.data.toString().slice(0, 20),
+                    })
+                }
             }
         })
 
@@ -128,15 +230,25 @@ export function useChatStream() {
         eventSource.addEventListener('message', (e) => {
             try {
                 const fullMessage = JSON.parse(e.data)
+                streamStatsRef.current.messageCount += 1
                 updateLastMessage({
                     thinking: null,
                     content: fullMessage
                 })
+                debugLog('message event', {
+                    messageCount: streamStatsRef.current.messageCount,
+                    length: typeof fullMessage === 'string' ? fullMessage.length : 0,
+                })
             } catch {
                 // Fallback: use raw data
+                streamStatsRef.current.messageCount += 1
                 updateLastMessage({
                     thinking: null,
                     content: e.data
+                })
+                debugLog('message event (raw)', {
+                    messageCount: streamStatsRef.current.messageCount,
+                    length: e.data.length,
                 })
             }
         })
@@ -148,6 +260,7 @@ export function useChatStream() {
             } catch (err) {
                 console.error('Failed to parse sources', err)
             }
+            debugLog('sources event', e.data?.toString()?.slice(0, 80) || '')
         })
 
         eventSource.addEventListener('quality', (e) => {
@@ -157,6 +270,7 @@ export function useChatStream() {
             } catch (err) {
                 console.error('Failed to parse quality score', err)
             }
+            debugLog('quality event', e.data?.toString()?.slice(0, 80) || '')
         })
 
         eventSource.addEventListener('routing', (e) => {
@@ -166,6 +280,7 @@ export function useChatStream() {
             } catch (err) {
                 console.error('Failed to parse routing info', err)
             }
+            debugLog('routing event', e.data?.toString()?.slice(0, 80) || '')
         })
 
         // Listen for conversation_id from backend (for threading)
@@ -184,12 +299,23 @@ export function useChatStream() {
             } catch (err) {
                 console.error('Failed to parse conversation_id', err)
             }
+            debugLog('conversation_id event', e.data?.toString() || '')
         })
 
         eventSource.addEventListener('done', () => {
+            // Flush any remaining buffered tokens
+            flushTokenBuffer()
+
             setState((prev) => ({ ...prev, isStreaming: false }))
             stopStream()
             useChatStore.getState().triggerHistoryUpdate()
+            const { tokenCount, messageCount, charCount, startedAt } = streamStatsRef.current
+            debugLog('done event', {
+                tokenCount,
+                messageCount,
+                charCount,
+                totalMs: Math.round(performance.now() - startedAt),
+            })
         })
 
         eventSource.addEventListener('error', (e) => {
@@ -200,8 +326,9 @@ export function useChatStream() {
                 error: new Error('Stream connection failed'),
             }))
             stopStream()
+            debugLog('error event', e)
         })
-    }, [addMessage, updateLastMessage, stopStream])
+    }, [addMessage, updateLastMessage, stopStream, flushTokenBuffer])
 
     const setConversationId = useCallback((id: string | null) => {
         conversationIdRef.current = id  // Sync ref
