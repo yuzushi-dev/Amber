@@ -25,6 +25,7 @@ import DocumentLibrary from './features/documents/components/DocumentLibrary'
 // import QueuesPage from './features/admin/pages/QueuesPage' // Deprecated
 import JobsAndQueuesPage from './features/admin/pages/JobsAndQueuesPage'
 import TuningPage from './features/admin/pages/TuningPage'
+import LlmSettingsPage from './features/admin/pages/LlmSettingsPage'
 import CurationPage from './features/admin/pages/CurationPage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
@@ -182,6 +183,12 @@ const settingsTuningRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/tuning',
     component: () => <TuningPage />,
+})
+
+const settingsLlmsRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/llms',
+    component: () => <LlmSettingsPage />,
 })
 
 const settingsFeaturesRoute = createRoute({
@@ -375,6 +382,7 @@ const routeTree = rootRoute.addChildren([
         // Settings section
         settingsIndexRoute,
         settingsTuningRoute,
+        settingsLlmsRoute,
         settingsFeaturesRoute,
         settingsKeysRoute,
 
