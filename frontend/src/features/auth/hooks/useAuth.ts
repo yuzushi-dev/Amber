@@ -119,7 +119,9 @@ export const useAuth = create<AuthState>()(
             name: 'auth-storage',
             partialize: (state) => ({
                 apiKey: state.apiKey,
-                isAuthenticated: state.isAuthenticated
+                isAuthenticated: state.isAuthenticated,
+                isSuperAdmin: state.isSuperAdmin,
+                permissions: state.permissions
             }),
         }
     )

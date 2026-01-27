@@ -4,13 +4,15 @@ import { apiClient } from '@/lib/api-client'
 import { AnimatedProgress } from '@/components/ui/animated-progress'
 import { Button } from '@/components/ui/button'
 import { SSEManager } from '@/lib/sse'
+import { useNotification } from '@/hooks/useNotification'
+import { useTitleProgress } from '@/hooks/useTitleProgress'
 
 interface UploadWizardProps {
     onClose: () => void
     onComplete: () => void
 }
 
-type ProcessingStatus = 'idle' | 'uploading' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'completed' | 'failed'
+type ProcessingStatus = 'idle' | 'uploading' | 'ingested' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'completed' | 'failed'
 
 interface ProcessingStatusResponse {
     status: string
@@ -21,6 +23,7 @@ interface ProcessingStatusResponse {
 const STAGE_PROGRESS: Record<ProcessingStatus, number> = {
     idle: 0,
     uploading: 0,
+    ingested: 5,
     extracting: 10,
     classifying: 20,
     chunking: 35,
@@ -57,6 +60,41 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
     const timerRef = useRef<NodeJS.Timeout | null>(null)
 
+    // Browser notifications
+    const { requestPermission, showNotification } = useNotification()
+    const fileNameRef = useRef<string>('')
+    const startTimeRef = useRef<number>(0)
+
+    // Title progress
+    const { setProgress: setTitleProgress } = useTitleProgress()
+
+    // Sync title with status and progress
+    useEffect(() => {
+        if (status === 'idle' || status === 'ready' || status === 'completed' || status === 'failed') {
+            setTitleProgress(null)
+        } else if (status === 'uploading') {
+            setTitleProgress(progress, 'Uploading...')
+        } else {
+            // Processing stages
+            const label = status.charAt(0).toUpperCase() + status.slice(1)
+            setTitleProgress(progress, `${label}...`)
+        }
+    }, [status, progress])
+
+    // Sync progress with status
+    useEffect(() => {
+        if (status === 'idle' || status === 'failed') return
+
+        // For uploading, we let the upload handler manage progress naturally
+        // For other stages, use the defined stage progress
+        if (status !== 'uploading') {
+            const targetProgress = STAGE_PROGRESS[status]
+            if (targetProgress !== undefined) {
+                setProgress(targetProgress)
+            }
+        }
+    }, [status])
+
     // Timer for elapsed time
     useEffect(() => {
         if (startTime && status !== 'ready' && status !== 'completed' && status !== 'failed' && status !== 'idle') {
@@ -72,20 +110,23 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
         }
     }, [startTime, status])
 
-    // Cleanup on unmount
+    // Cleanup SSE on change or unmount
     useEffect(() => {
         return () => {
             if (sseManager) {
                 sseManager.disconnect()
             }
+        }
+    }, [sseManager])
+
+    // Cleanup polling on unmount
+    useEffect(() => {
+        return () => {
             if (pollingRef.current) {
                 clearInterval(pollingRef.current)
             }
-            if (timerRef.current) {
-                clearInterval(timerRef.current)
-            }
         }
-    }, [sseManager])
+    }, [])
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -97,9 +138,15 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
     const handleUpload = async () => {
         if (!file) return
 
+        // Store file name for notification and request permission
+        fileNameRef.current = file.name
+        requestPermission() // Fire and forget - don't block on permission
+
         setStatus('uploading')
         setErrorMessage(null)
-        setStartTime(Date.now())
+        const now = Date.now()
+        setStartTime(now)
+        startTimeRef.current = now
         setElapsedSeconds(0)
 
         const formData = new FormData()
@@ -134,9 +181,9 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
     const startMonitoring = async (documentId: string, eventsUrl?: string) => {
         // Initial state after upload
-        setStatus('extracting')
-        setStatusMessage('Extracting content...')
-        setProgress(STAGE_PROGRESS.extracting)
+        setStatus('ingested')
+        setStatusMessage('Ingested, waiting for processing...')
+        // setProgress(STAGE_PROGRESS.extracting) // Handled by useEffect now
 
         // Get API key for SSE auth
         // Fetch Ticket for Secure SSE
@@ -174,8 +221,6 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
 
                 // Always jump to failed or ready. For progress, only move forward.
                 if (s === 'failed' || s === 'ready' || s === 'completed' || newIndex > prevIndex) {
-                    // Update progress based on stage
-                    setProgress(STAGE_PROGRESS[s] ?? STAGE_PROGRESS.extracting)
                     return s
                 }
                 return prev
@@ -185,12 +230,28 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                 setStatusMessage('Knowledge successfully integrated!')
                 setProgress(100)
                 cleanup()
+
+                // Show browser notification if tab is hidden
+                const start = startTimeRef.current || startTime
+                const elapsed = start ? Math.floor((Date.now() - start) / 1000) : 0
+                const elapsedText = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
+                showNotification('Upload Complete', {
+                    body: `"${fileNameRef.current}" processed in ${elapsedText}`,
+                    tag: 'upload-complete',
+                })
+
                 setTimeout(() => {
                     onComplete()
                 }, 1500)
             } else if (s === 'failed') {
                 setErrorMessage(error || 'Processing failed.')
                 cleanup()
+
+                // Show browser notification for failure if tab is hidden
+                showNotification('Upload Failed', {
+                    body: `"${fileNameRef.current}" failed: ${error || 'Processing error'}`,
+                    tag: 'upload-failed',
+                })
             }
         }
 
@@ -209,7 +270,6 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                 (event) => {
                     try {
                         const data = JSON.parse(event.data)
-                        // console.log('SSE Event:', data)
                         if (data.status) {
                             updateStatus(data.status, data.error)
                         }
@@ -242,7 +302,6 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                 // apiClient base is /v1, so request /documents/{id}
                 const res = await apiClient.get<ProcessingStatusResponse>(`/documents/${documentId}`)
                 if (res.data && res.data.status) {
-                    // console.log('Poll Status:', res.data.status)
                     updateStatus(res.data.status, res.data.error_message)
                 }
             } catch (err) {
@@ -254,6 +313,7 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
     const getStatusLabel = (s: ProcessingStatus) => {
         switch (s) {
             case 'uploading': return 'Uploading to secure vault...'
+            case 'ingested': return 'Ingesting content...'
             case 'extracting': return 'Extracting text and metadata...'
             case 'classifying': return 'Classifying document domain...'
             case 'chunking': return 'Splitting into semantic chunks...'
@@ -356,11 +416,12 @@ export default function UploadWizard({ onClose, onComplete }: UploadWizardProps)
                                     <AnimatedProgress
                                         value={progress}
                                         stages={[
-                                            { label: 'Extracting...', threshold: 0 },
-                                            { label: 'Classifying...', threshold: 15 },
-                                            { label: 'Chunking...', threshold: 30 },
-                                            { label: 'Embedding...', threshold: 45 },
-                                            { label: 'Building graph...', threshold: 65 },
+                                            { label: 'Ingesting...', threshold: 0 },
+                                            { label: 'Extracting...', threshold: 10 },
+                                            { label: 'Classifying...', threshold: 20 },
+                                            { label: 'Chunking...', threshold: 35 },
+                                            { label: 'Embedding...', threshold: 50 },
+                                            { label: 'Building graph...', threshold: 70 },
                                             { label: 'Finalizing...', threshold: 90 },
                                         ]}
                                         size="md"
