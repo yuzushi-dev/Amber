@@ -229,6 +229,9 @@ class RagasService:
             from src.core.admin_ops.application.evaluation.judge import JudgeService
             from src.core.generation.application.registry import PromptRegistry
             from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+            from src.shared.context import get_current_tenant
+            from src.core.admin_ops.application.tuning_service import TuningService
+            from src.core.database.session import async_session_maker
 
             try:
                 factory = build_provider_factory(
@@ -241,7 +244,20 @@ class RagasService:
             registry = PromptRegistry()
 
             judge = JudgeService(llm=llm, prompt_registry=registry)
-            result = await judge.evaluate_faithfulness(query, context, response)
+            tenant_config = {}
+            tenant_id = get_current_tenant()
+            if tenant_id:
+                try:
+                    tenant_config = await TuningService(async_session_maker).get_tenant_config(str(tenant_id))
+                except Exception as e:
+                    logger.debug(f"Failed to load tenant config for RAGAS fallback: {e}")
+
+            result = await judge.evaluate_faithfulness(
+                query,
+                context,
+                response,
+                tenant_config=tenant_config,
+            )
             return result.score
         except Exception as e:
             logger.error(f"Fallback faithfulness evaluation failed: {e}")
@@ -259,6 +275,9 @@ class RagasService:
             from src.core.admin_ops.application.evaluation.judge import JudgeService
             from src.core.generation.application.registry import PromptRegistry
             from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+            from src.shared.context import get_current_tenant
+            from src.core.admin_ops.application.tuning_service import TuningService
+            from src.core.database.session import async_session_maker
 
             try:
                 factory = build_provider_factory(
@@ -271,7 +290,19 @@ class RagasService:
             registry = PromptRegistry()
 
             judge = JudgeService(llm=llm, prompt_registry=registry)
-            result = await judge.evaluate_relevance(query, response)
+            tenant_config = {}
+            tenant_id = get_current_tenant()
+            if tenant_id:
+                try:
+                    tenant_config = await TuningService(async_session_maker).get_tenant_config(str(tenant_id))
+                except Exception as e:
+                    logger.debug(f"Failed to load tenant config for RAGAS fallback: {e}")
+
+            result = await judge.evaluate_relevance(
+                query,
+                response,
+                tenant_config=tenant_config,
+            )
             return result.score
         except Exception as e:
             logger.error(f"Fallback relevance evaluation failed: {e}")

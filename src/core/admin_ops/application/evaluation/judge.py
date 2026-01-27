@@ -38,7 +38,13 @@ class JudgeService:
         self.prompts = prompt_registry
 
     @trace_span("JudgeService.evaluate_faithfulness")
-    async def evaluate_faithfulness(self, query: str, context: str, answer: str) -> EvaluationResult:
+    async def evaluate_faithfulness(
+        self,
+        query: str,
+        context: str,
+        answer: str,
+        tenant_config: dict[str, Any] | None = None,
+    ) -> EvaluationResult:
         """
         Check if the answer is supported by the context.
         """
@@ -46,18 +52,85 @@ class JudgeService:
         prompt = prompt_tmpl.format(query=query, context=context, answer=answer)
 
         # We use a lower temperature for evaluation
-        res = await self.llm.generate(prompt=prompt, temperature=0.0)
+        from src.shared.kernel.runtime import get_settings
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.core.generation.domain.ports.provider_factory import get_provider_factory
+        from src.core.generation.domain.provider_models import ProviderTier
+
+        settings = get_settings()
+        tenant_config = tenant_config or {}
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="admin.judge_faithfulness",
+            settings=settings,
+        )
+
+        provider = self.llm
+        try:
+            provider = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to resolve provider override for judge: {e}")
+
+        kwargs: dict[str, Any] = {}
+        if llm_cfg.temperature is not None:
+            kwargs["temperature"] = llm_cfg.temperature
+        if llm_cfg.seed is not None:
+            kwargs["seed"] = llm_cfg.seed
+        if llm_cfg.model is not None:
+            kwargs["model"] = llm_cfg.model
+
+        res = await provider.generate(prompt=prompt, **kwargs)
         return self._parse_evaluation(res.text)
 
     @trace_span("JudgeService.evaluate_relevance")
-    async def evaluate_relevance(self, query: str, answer: str) -> EvaluationResult:
+    async def evaluate_relevance(
+        self,
+        query: str,
+        answer: str,
+        tenant_config: dict[str, Any] | None = None,
+    ) -> EvaluationResult:
         """
         Check if the answer directly addresses the query.
         """
         prompt_tmpl = self.prompts.get_prompt("relevance_judge")
         prompt = prompt_tmpl.format(query=query, answer=answer)
 
-        res = await self.llm.generate(prompt=prompt, temperature=0.0)
+        from src.shared.kernel.runtime import get_settings
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.core.generation.domain.ports.provider_factory import get_provider_factory
+        from src.core.generation.domain.provider_models import ProviderTier
+
+        settings = get_settings()
+        tenant_config = tenant_config or {}
+        llm_cfg = resolve_llm_step_config(
+            tenant_config=tenant_config,
+            step_id="admin.judge_relevance",
+            settings=settings,
+        )
+
+        provider = self.llm
+        try:
+            provider = get_provider_factory().get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to resolve provider override for judge: {e}")
+
+        kwargs: dict[str, Any] = {}
+        if llm_cfg.temperature is not None:
+            kwargs["temperature"] = llm_cfg.temperature
+        if llm_cfg.seed is not None:
+            kwargs["seed"] = llm_cfg.seed
+        if llm_cfg.model is not None:
+            kwargs["model"] = llm_cfg.model
+
+        res = await provider.generate(prompt=prompt, **kwargs)
         return self._parse_evaluation(res.text)
 
     def _parse_evaluation(self, text: str) -> EvaluationResult:
