@@ -21,6 +21,8 @@ from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
+from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
+from src.core.tenants.domain.tenant import Tenant
 
 logger = logging.getLogger(__name__)
 
