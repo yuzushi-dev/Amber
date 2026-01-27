@@ -14,6 +14,7 @@ class ProviderFactoryPort(Protocol):
         self,
         provider_name: str | None = None,
         tier: ProviderTier | None = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> LLMProviderPort:
         ...
