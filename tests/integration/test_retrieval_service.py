@@ -114,3 +114,44 @@ def test_drift_search_orchestration(mock_rc, mock_sc, mock_builder):
     asyncio.run(service.retrieve("drift query", tenant_id="test", options=options))
 
     service.drift_search.search.assert_called_once()
+
+
+@patch("src.core.generation.domain.ports.provider_factory._provider_factory_builder")
+@patch("src.core.retrieval.application.retrieval_service.SemanticCache")
+@patch("src.core.retrieval.application.retrieval_service.ResultCache")
+def test_retrieval_uses_active_collection(mock_rc, mock_sc, mock_builder):
+    """Verify retrieval uses the tenant active collection name when configured."""
+    vector_store = MagicMock()
+    vector_store.search = AsyncMock(return_value=[])
+    graph_store = MagicMock()
+    document_repository = MagicMock()
+    document_repository.get_chunks = AsyncMock(return_value=[])
+
+    class StubTuning:
+        async def get_tenant_config(self, tenant_id: str):
+            return {"active_vector_collection": "amber_custom"}
+
+    service = RetrievalService(
+        document_repository=document_repository,
+        vector_store=vector_store,
+        neo4j_client=graph_store,
+        openai_api_key="sk-test",
+        tuning_service=StubTuning(),
+    )
+
+    service.vector_searcher.search = AsyncMock(return_value=[])
+    service.result_cache.get = AsyncMock(return_value=None)
+    service.result_cache.set = AsyncMock()
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 1536)
+    service.router.route = AsyncMock(return_value="basic")
+
+    options = MagicMock()
+    options.search_mode = "basic"
+    options.use_rewrite = False
+    options.use_decomposition = False
+    options.use_hyde = False
+
+    asyncio.run(service.retrieve("test query", tenant_id="tenant-1", options=options))
+
+    _, kwargs = service.vector_searcher.search.call_args
+    assert kwargs["collection_name"] == "amber_custom"

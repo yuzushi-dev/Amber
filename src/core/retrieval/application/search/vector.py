@@ -23,7 +23,8 @@ class VectorSearcher:
         document_ids: list[str] | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
-        filters: dict[str, Any] | None = None
+        filters: dict[str, Any] | None = None,
+        collection_name: str | None = None,
     ) -> list[Candidate]:
         """
         Execute semantic search and return results as Candidates.
@@ -36,6 +37,7 @@ class VectorSearcher:
                 limit=limit,
                 score_threshold=score_threshold,
                 filters=filters,
+                collection_name=collection_name,
             )
 
             return [

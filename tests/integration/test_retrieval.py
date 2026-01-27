@@ -165,6 +165,18 @@ class TestChatRetrievalDirectSeeding:
             set_provider_factory(None)
             set_provider_factory_builder(None)
             patch.stopall()
+            
+            # Reset global dependencies to prevent loop leakage across tests
+            import src.api.middleware.rate_limit as rate_limit_module
+            rate_limit_module._rate_limiter = None
+
+            import src.api.deps as deps_module
+            deps_module._async_session_maker = None
+            
+            # Close DB
+            from src.core.database.session import close_database
+            await close_database()
+
             # Allow background tasks (like log_turn) to finish/cancel to avoid "Task pending" errors
             await asyncio.sleep(0.1)
 
