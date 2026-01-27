@@ -190,43 +190,43 @@ export default function TenantManager() {
                             <motion.div
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className="group relative bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/20 rounded-xl p-6 shadow-sm hover:shadow-md transition-all duration-300 ring-1 ring-amber-500/10"
+                                className="group relative bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-xl p-6 shadow-sm hover:shadow-md transition-[background-color,border-color,box-shadow] duration-300 ease-out ring-1 ring-primary/10"
                             >
                                 <div className="space-y-4">
                                     <div className="flex items-start justify-between">
                                         <div className="space-y-1">
                                             <div className="flex items-center gap-2">
-                                                <h4 className="font-bold text-lg leading-none text-amber-500">Global Admin</h4>
+                                                <h4 className="font-bold text-lg leading-none text-primary">Global Admin</h4>
 
                                             </div>
-                                            <div className="text-xs font-mono text-amber-600/70">
+                                            <div className="text-xs font-mono text-primary/70">
                                                 System-wide Privilege
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-3">
-                                        <div className="text-[10px] font-bold uppercase tracking-tight text-amber-600/70">
+                                    <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 space-y-3">
+                                        <div className="text-[10px] font-bold uppercase tracking-tight text-primary/70">
                                             Authorized Keys ({superAdminKeys.length})
                                         </div>
                                         <div className="space-y-1.5">
                                             {superAdminKeys.length === 0 ? (
-                                                <div className="text-xs text-amber-600/50 italic">No global keys configured</div>
+                                                <div className="text-xs text-primary/50 italic">No global keys configured</div>
                                             ) : (
                                                 superAdminKeys.map(key => (
-                                                    <div key={key.id} className="flex items-center justify-between text-xs p-1.5 rounded bg-background/50 border border-amber-500/10">
+                                                    <div key={key.id} className="flex items-center justify-between text-xs p-1.5 rounded bg-background/50 border border-primary/10">
                                                         <div className="flex items-center gap-2">
-                                                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                                            <span className="font-medium text-amber-900 dark:text-amber-100">{key.name}</span>
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                                            <span className="font-medium text-primary">{key.name}</span>
                                                         </div>
-                                                        <code className="text-[10px] text-amber-600/70 font-mono">{key.prefix}...{key.last_chars}</code>
+                                                        <code className="text-[10px] text-primary/70 font-mono">{key.prefix}...{key.last_chars}</code>
                                                     </div>
                                                 ))
                                             )}
                                         </div>
                                     </div>
 
-                                    <div className="pt-2 text-[11px] text-amber-600/70 flex items-center gap-2">
+                                    <div className="pt-2 text-[11px] text-primary/70 flex items-center gap-2">
                                         <Shield className="w-3.5 h-3.5" />
                                         <span>Bypasses Row-Level Security</span>
                                     </div>
@@ -239,7 +239,7 @@ export default function TenantManager() {
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: index * 0.05 }}
-                                className="group relative bg-card hover:bg-card/80 border rounded-xl p-6 shadow-sm hover:shadow-md transition-all duration-300"
+                                className="group relative bg-card hover:bg-card/80 border rounded-xl p-6 shadow-sm hover:shadow-md transition-[background-color,box-shadow] duration-300 ease-out"
                             >
                                 <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                     <Button
@@ -250,6 +250,7 @@ export default function TenantManager() {
                                             handleDelete(tenant.id, tenant.name);
                                         }}
                                         className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                        aria-label={`Delete tenant ${tenant.name}`}
                                     >
                                         <Trash className="w-4 h-4" />
                                     </Button>
@@ -269,10 +270,10 @@ export default function TenantManager() {
                                         <div className={cn(
                                             "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border",
                                             tenant.is_active
-                                                ? "bg-green-500/10 text-green-500 border-green-500/20"
-                                                : "bg-red-500/10 text-red-500 border-red-500/20"
+                                                ? "bg-success-muted text-success border-success/20"
+                                                : "bg-destructive/10 text-destructive border-destructive/20"
                                         )}>
-                                            <div className={cn("w-1.5 h-1.5 rounded-full", tenant.is_active ? "bg-green-500" : "bg-red-500")} />
+                                            <div className={cn("w-1.5 h-1.5 rounded-full", tenant.is_active ? "bg-success" : "bg-destructive")} />
                                             {tenant.is_active ? 'Active' : 'Inactive'}
                                         </div>
 
@@ -297,10 +298,10 @@ export default function TenantManager() {
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {tenant.api_keys.slice(0, 3).map(key => (
                                                         <div key={key.id} className="text-xs border rounded px-1.5 py-0.5 bg-background flex items-center gap-1" title={`${key.prefix}...${key.last_chars}`}>
-                                                            <div className={cn("w-1 h-1 rounded-full", key.is_active ? "bg-green-500" : "bg-muted-foreground")} />
+                                                            <div className={cn("w-1 h-1 rounded-full", key.is_active ? "bg-success" : "bg-muted-foreground")} />
                                                             <span className="max-w-[80px] truncate">{key.name}</span>
                                                             {key.scopes?.includes('super_admin') && (
-                                                                <Crown className="w-2.5 h-2.5 text-amber-500" />
+                                                                <Crown className="w-2.5 h-2.5 text-primary" />
                                                             )}
                                                         </div>
                                                     ))}

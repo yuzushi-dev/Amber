@@ -43,7 +43,7 @@ export default function ApiKeyModal({
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
             <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden border-border shadow-2xl">
-                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <KeyRound className="w-5 h-5 text-primary" />
@@ -69,7 +69,7 @@ export default function ApiKeyModal({
                                 <span className="text-muted-foreground">Current key: </span>
                                 <code className="font-mono">{maskApiKey(apiKey)}</code>
                                 {isSuperAdmin && (
-                                    <Crown className="inline-block ml-2 w-3.5 h-3.5 text-amber-500" />
+                                    <Crown className="inline-block ml-2 w-3.5 h-3.5 text-primary" />
                                 )}
                             </div>
                         )}
@@ -84,8 +84,10 @@ export default function ApiKeyModal({
                                     type={showKey ? 'text' : 'password'}
                                     value={inputKey}
                                     onChange={(e) => setInputKey(e.target.value)}
-                                    placeholder="Enter your API key..."
+                                    placeholder="Enter your API key\u2026"
                                     className="px-4 py-3 pr-12 bg-background focus-visible:ring-offset-1"
+                                    name="api-key"
+                                    autoComplete="off"
                                     autoFocus
                                     disabled={isValidating}
                                 />
@@ -95,6 +97,7 @@ export default function ApiKeyModal({
                                     size="icon"
                                     onClick={() => setShowKey(!showKey)}
                                     className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-muted"
+                                    aria-label={showKey ? 'Hide API key' : 'Show API key'}
                                 >
                                     {showKey ? (
                                         <EyeOff className="w-4 h-4 text-muted-foreground" />

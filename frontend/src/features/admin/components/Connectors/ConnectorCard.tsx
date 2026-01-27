@@ -88,7 +88,7 @@ export default function ConnectorCard({ type, status, onSync }: ConnectorCardPro
             )
         }
         return (
-            <Badge className="bg-green-600/90 hover:bg-green-600 text-white border-green-500/30">
+            <Badge className="bg-success text-success-foreground hover:bg-success/90 border-success/30">
                 <CheckCircle2 className="w-3 h-3 mr-1" />
                 Active
             </Badge>
@@ -98,14 +98,14 @@ export default function ConnectorCard({ type, status, onSync }: ConnectorCardPro
     return (
         <Card
             className={cn(
-                'group relative overflow-hidden transition-all duration-300',
+                'group relative overflow-hidden transition-[border-color,box-shadow,transform] duration-300 ease-out',
                 'hover:border-primary/40 hover:shadow-glow-sm hover:-translate-y-0.5',
                 isAuthenticated && 'border-border/80',
                 hasError && 'border-destructive/30'
             )}
         >
             {/* Subtle gradient overlay on hover */}
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/0 to-primary/0 group-hover:from-primary/5 group-hover:to-transparent transition-all duration-500 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/0 to-primary/0 group-hover:from-primary/5 group-hover:to-transparent transition-[background-color,opacity] duration-500 ease-out pointer-events-none" />
 
             <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative">
                 <div className="flex flex-col gap-1">
@@ -170,7 +170,7 @@ export default function ConnectorCard({ type, status, onSync }: ConnectorCardPro
                         disabled={isSyncing}
                         title="Quick Sync"
                         className={cn(
-                            'transition-all',
+                            'transition-[background-color,color] duration-200 ease-out',
                             isSyncing && 'bg-primary/20'
                         )}
                     >

@@ -92,9 +92,9 @@ const ChunksTab: React.FC<ChunksTabProps> = ({ documentId }) => {
         }
     };
 
-    if (!documentId) return <div className="p-4 text-center text-yellow-500">No document ID provided</div>;
+    if (!documentId) return <div className="p-4 text-center text-warning">No document ID provided</div>;
     if (loading) return <div className="p-4 text-center">Loading chunks...</div>;
-    if (error) return <div className="p-4 text-center text-red-500">{error}</div>;
+    if (error) return <div className="p-4 text-center text-destructive">{error}</div>;
 
     return (
         <Card className="border-0 shadow-none h-full flex flex-col">
@@ -129,6 +129,7 @@ const ChunksTab: React.FC<ChunksTabProps> = ({ documentId }) => {
                                                     className="h-7 w-7"
                                                     onClick={() => handleEdit(chunk)}
                                                     disabled={isLoading || !!editingId}
+                                                    aria-label={`Edit chunk ${chunk.index}`}
                                                 >
                                                     <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                                                 </Button>
@@ -138,6 +139,7 @@ const ChunksTab: React.FC<ChunksTabProps> = ({ documentId }) => {
                                                     className="h-7 w-7 text-destructive hover:text-destructive"
                                                     onClick={() => handleDelete(chunk.id)}
                                                     disabled={isLoading || !!editingId}
+                                                    aria-label={`Delete chunk ${chunk.index}`}
                                                 >
                                                     {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                                                 </Button>

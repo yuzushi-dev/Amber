@@ -75,9 +75,9 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden border-border shadow-2xl">
-                <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                     <DialogTitle className="flex items-center gap-2">
-                        <Sparkles className="h-5 w-5 text-amber-500" />
+                        <Sparkles className="h-5 w-5 text-primary" />
                         Healing: {nodeName}
                     </DialogTitle>
                     <DialogDescription>
@@ -90,7 +90,7 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                         {loading ? (
                             <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground p-8">
                                 <Loader2 className="h-8 w-8 animate-spin" />
-                                <p>Analyzing semantic context...</p>
+                                <p>Analyzing semantic context\u2026</p>
                             </div>
                         ) : suggestions.length === 0 ? (
                             <div className="text-center text-muted-foreground p-8">
@@ -106,7 +106,7 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                                     >
                                         <div className="flex flex-col gap-1">
                                             <div className="flex items-center gap-2">
-                                                <span className="font-medium text-amber-100">{suggestion.name}</span>
+                                                <span className="font-medium text-foreground">{suggestion.name}</span>
                                                 <Badge variant="outline" className="text-[10px] h-4 px-1">{suggestion.type}</Badge>
                                             </div>
                                             {suggestion.description && (
@@ -117,7 +117,7 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                                             <div className="flex items-center gap-2 mt-1">
                                                 <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden" title="Confidence Score">
                                                     <div
-                                                        className="h-full bg-amber-500"
+                                                        className="h-full bg-primary"
                                                         style={{ width: `${Math.round(suggestion.confidence * 100)}%` }}
                                                     />
                                                 </div>
@@ -125,7 +125,7 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                                                     {Math.round(suggestion.confidence * 100)}% Match
                                                 </span>
                                             </div>
-                                            <p className="text-[10px] text-amber-500/80 italic">
+                                            <p className="text-[10px] text-primary/80 italic">
                                                 {suggestion.reason}
                                             </p>
                                         </div>
@@ -150,7 +150,7 @@ export const HealingSuggestionsModal: React.FC<HealingSuggestionsModalProps> = (
                 </div>
 
                 <DialogFooter className="p-4 bg-muted/5 border-t border-white/5">
-                    <Button variant="ghost" onClick={onClose} className="hover:bg-white/5">Done</Button>
+                    <Button variant="ghost" onClick={onClose} className="hover:bg-foreground/5">Done</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

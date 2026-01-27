@@ -42,8 +42,9 @@ export default function Rating({ messageId, initialRating = null }: RatingProps)
                 disabled={isSubmitting}
                 className={cn(
                     "h-8 w-8 transition-colors",
-                    rating === 'up' ? "text-green-600 bg-green-100 hover:bg-green-200 hover:text-green-700" : "text-muted-foreground hover:bg-muted"
+                    rating === 'up' ? "text-success bg-success-muted hover:bg-success-muted/80" : "text-muted-foreground hover:bg-muted"
                 )}
+                aria-label="Rate response positively"
             >
                 <ThumbsUp className="w-4 h-4" />
             </Button>
@@ -54,8 +55,9 @@ export default function Rating({ messageId, initialRating = null }: RatingProps)
                 disabled={isSubmitting}
                 className={cn(
                     "h-8 w-8 transition-colors",
-                    rating === 'down' ? "text-red-600 bg-red-100 hover:bg-red-200 hover:text-red-700" : "text-muted-foreground hover:bg-muted"
+                    rating === 'down' ? "text-destructive bg-destructive/10 hover:bg-destructive/20" : "text-muted-foreground hover:bg-muted"
                 )}
+                aria-label="Rate response negatively"
             >
                 <ThumbsDown className="w-4 h-4" />
             </Button>

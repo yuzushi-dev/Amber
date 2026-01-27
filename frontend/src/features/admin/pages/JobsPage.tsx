@@ -177,7 +177,7 @@ export default function JobsPage() {
                                             <div className="flex items-center gap-2">
                                                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                                                     <div
-                                                        className="h-full bg-blue-500 transition-all duration-300"
+                                                        className="h-full bg-info transition-[width] duration-300 ease-out"
                                                         style={{ width: `${job.progress}%` }}
                                                     />
                                                 </div>
@@ -197,7 +197,7 @@ export default function JobsPage() {
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                     {job.retries > 0 ? (
-                                        <span className="text-yellow-600">{job.retries}</span>
+                                        <span className="text-warning">{job.retries}</span>
                                     ) : (
                                         <span className="text-muted-foreground">0</span>
                                     )}

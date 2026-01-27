@@ -300,7 +300,7 @@ export default function LlmSettingsPage() {
                         <Button
                             onClick={handleSave}
                             disabled={!isSuperAdmin || !isDirty || saving}
-                            className={cn("transition-all duration-300", isDirty ? "shadow-md translate-y-0" : "translate-y-0 opacity-50")}
+                            className={cn("transition-[box-shadow,transform,opacity] duration-300 ease-out", isDirty ? "shadow-md translate-y-0" : "translate-y-0 opacity-50")}
                         >
                             <Save className="h-4 w-4 mr-2" />
                             {saving ? 'Saving…' : 'Save Changes'}
@@ -310,7 +310,7 @@ export default function LlmSettingsPage() {
             />
 
             {!isSuperAdmin && (
-                <Alert variant="warning" className="border-amber-500/50 bg-amber-500/10 text-amber-700">
+                <Alert variant="warning" className="border-warning/40 bg-warning-muted/40 text-warning">
                     <AlertDescription>
                         Super Admin privileges are required to edit LLM settings.
                     </AlertDescription>
@@ -432,10 +432,10 @@ export default function LlmSettingsPage() {
             {/* Embedding Migration Confirmation Dialog */}
             <Dialog open={showMigrationDialog} onOpenChange={setShowMigrationDialog}>
                 <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
-                            <div className="p-2 rounded-lg bg-amber-500/10">
-                                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                            <div className="p-2 rounded-lg bg-warning-muted">
+                                <AlertTriangle className="h-5 w-5 text-warning" />
                             </div>
                             Embedding Model Change
                         </DialogTitle>
@@ -477,11 +477,11 @@ export default function LlmSettingsPage() {
                         </div>
 
                         {/* Warning Box */}
-                        <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/5 border border-red-500/10">
-                            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                        <div className="flex items-start gap-3 p-4 rounded-lg bg-destructive/5 border border-destructive/10">
+                            <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
                             <div className="space-y-2">
-                                <p className="text-sm font-medium text-red-500">This action requires a full data migration</p>
-                                <ul className="text-xs text-red-500/80 space-y-1 list-disc list-inside">
+                                <p className="text-sm font-medium text-destructive">This action requires a full data migration</p>
+                                <ul className="text-xs text-destructive/80 space-y-1 list-disc list-inside">
                                     <li>All existing vector embeddings will be deleted</li>
                                     <li>Documents will be queued for re-processing</li>
                                     <li>Search may be limited until complete</li>
@@ -500,7 +500,7 @@ export default function LlmSettingsPage() {
                             variant="ghost"
                             onClick={handleCancelEmbeddingChange}
                             disabled={saving}
-                            className="hover:bg-white/5"
+                            className="hover:bg-foreground/5"
                         >
                             Cancel
                         </Button>

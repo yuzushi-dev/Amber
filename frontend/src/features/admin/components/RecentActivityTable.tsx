@@ -72,7 +72,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
     if (isLoading) {
         return (
             <Card className="p-6">
-                <div className="flex items-center justify-center py-8 text-neutral-400">
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
                     Loading activity...
                 </div>
             </Card>
@@ -82,7 +82,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
     if (!records || records.length === 0) {
         return (
             <Card className="p-6">
-                <div className="flex items-center justify-center py-8 text-neutral-400">
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
                     No recent activity found.
                 </div>
             </Card>
@@ -90,11 +90,11 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
     }
 
     return (
-        <Card className="overflow-hidden border-neutral-800 bg-neutral-900/50">
+        <Card className="overflow-hidden border-border bg-card/50">
             <div className="overflow-x-auto">
                 <Table>
-                    <TableHeader className="bg-neutral-900">
-                        <TableRow className="border-neutral-800 hover:bg-neutral-900">
+                    <TableHeader className="bg-muted/40">
+                        <TableRow className="border-border hover:bg-muted/30">
                             <TableHead className="w-[100px]">Time</TableHead>
                             <TableHead className="w-[100px]">Type</TableHead>
                             <TableHead className="min-w-[200px]">Input</TableHead>
@@ -110,25 +110,25 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                         {paginatedRecords.map((row) => {
                             const info = getOperationInfo(row.operation);
                             const time = new Date(row.timestamp);
-                            const costColor = row.cost_estimate < 0.001 ? 'text-emerald-400' : row.cost_estimate < 0.01 ? 'text-amber-400' : 'text-red-400';
+                            const costColor = row.cost_estimate < 0.001 ? 'text-success' : row.cost_estimate < 0.01 ? 'text-warning' : 'text-destructive';
 
                             // For ingestion, input/output are synthetic, customize them
                             const isIngestion = row.operation === 'ingestion';
                             const inputContent = isIngestion ? (
-                                <span className="font-mono text-xs text-neutral-400 flex items-center gap-1">
+                                <span className="font-mono text-xs text-muted-foreground flex items-center gap-1">
                                     <FileText className="w-3 h-3" />
                                     {row.conversation_id || 'Unknown Document'}
                                 </span>
                             ) : (row.query || '-');
 
                             const outputContent = isIngestion ? (
-                                <span className="text-neutral-500 italic">Embedded Content</span>
-                            ) : (row.response || <span className="text-neutral-500 italic">No output</span>);
+                                <span className="text-muted-foreground/70 italic">Embedded Content</span>
+                            ) : (row.response || <span className="text-muted-foreground/70 italic">No output</span>);
 
                             return (
-                                <TableRow key={row.query_id} className="border-neutral-800 hover:bg-neutral-800/50">
+                                <TableRow key={row.query_id} className="border-border hover:bg-muted/20">
                                     {/* Time */}
-                                    <TableCell className="whitespace-nowrap font-mono text-xs text-neutral-400">
+                                    <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                                         <div title={time.toLocaleString()}>
                                             {timeAgo(time)}
                                         </div>
@@ -151,7 +151,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
 
                                     {/* Output (Response) */}
                                     <TableCell>
-                                        <div className="max-w-[250px] truncate text-sm text-neutral-400" title={row.response || ''}>
+                                        <div className="max-w-[250px] truncate text-sm text-muted-foreground" title={row.response || ''}>
                                             {outputContent}
                                         </div>
                                     </TableCell>
@@ -161,7 +161,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                                         <div className="font-mono text-xs">
                                             {row.tokens_used?.toLocaleString() || 0}
                                         </div>
-                                        <div className="text-[10px] text-neutral-500">
+                                        <div className="text-[10px] text-muted-foreground/70">
                                             {row.input_tokens || 0} / {row.output_tokens || 0}
                                         </div>
                                     </TableCell>
@@ -183,18 +183,18 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                                     {/* Model */}
                                     <TableCell>
                                         <div className="text-xs font-medium">{row.model || '-'}</div>
-                                        <div className="text-[10px] text-neutral-500">{row.provider || ''}</div>
+                                        <div className="text-[10px] text-muted-foreground/70">{row.provider || ''}</div>
                                     </TableCell>
 
                                     {/* Status */}
                                     <TableCell>
                                         {row.success ? (
-                                            <Badge variant="outline" className="border-green-500/30 text-green-400 bg-green-500/10">
+                                            <Badge variant="outline" className="border-success/30 text-success bg-success/10">
                                                 <CheckCircle className="w-3 h-3 mr-1" />
                                                 OK
                                             </Badge>
                                         ) : (
-                                            <Badge variant="outline" className="border-red-500/30 text-red-400 bg-red-500/10">
+                                            <Badge variant="outline" className="border-destructive/30 text-destructive bg-destructive/10">
                                                 <XCircle className="w-3 h-3 mr-1" />
                                                 ERR
                                             </Badge>
@@ -209,8 +209,8 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
 
             {/* Pagination */}
             {totalPages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-neutral-800 bg-neutral-900/30">
-                    <div className="text-xs text-neutral-500">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
+                    <div className="text-xs text-muted-foreground/70">
                         Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, records.length)} of {records.length}
                     </div>
                     <div className="flex items-center gap-2">
@@ -220,10 +220,11 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                             onClick={() => setPage(p => Math.max(1, p - 1))}
                             disabled={page === 1}
                             className="h-8 w-8"
+                            aria-label="Previous page"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </Button>
-                        <span className="text-xs text-neutral-400">
+                        <span className="text-xs text-muted-foreground">
                             Page {page} of {totalPages}
                         </span>
                         <Button
@@ -232,6 +233,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                             disabled={page === totalPages}
                             className="h-8 w-8"
+                            aria-label="Next page"
                         >
                             <ChevronRight className="w-4 h-4" />
                         </Button>

@@ -41,7 +41,7 @@ const SimilaritiesTab: React.FC<SimilaritiesTabProps> = ({ documentId }) => {
     }, [documentId]);
 
     if (loading) return <div className="p-8 text-center text-muted-foreground">Loading similarities...</div>;
-    if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
+    if (error) return <div className="p-8 text-center text-destructive">{error}</div>;
 
     if (similarities.length === 0) {
         return (
@@ -66,7 +66,7 @@ const SimilaritiesTab: React.FC<SimilaritiesTabProps> = ({ documentId }) => {
                                 {/* Source Chunk */}
                                 <div className="p-4 bg-muted/20">
                                     <div className="text-xs font-mono text-muted-foreground mb-2 flex items-center gap-2">
-                                        <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                                        <div className="h-2 w-2 rounded-full bg-chart-1"></div>
                                         {sim.source_id.substring(0, 8)}...
                                     </div>
                                     <p className="text-sm line-clamp-4">{sim.source_text}</p>
@@ -74,7 +74,7 @@ const SimilaritiesTab: React.FC<SimilaritiesTabProps> = ({ documentId }) => {
 
                                 {/* Link / Score */}
                                 <div className="flex flex-col items-center justify-center p-2 border-y md:border-y-0 md:border-x bg-muted/50 w-full md:w-32">
-                                    <Badge variant="outline" className={`mb-2 ${sim.score > 0.8 ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-blue-500/10 text-blue-700 border-blue-200'}`}>
+                                    <Badge variant="outline" className={`mb-2 ${sim.score > 0.8 ? 'bg-success-muted text-success-foreground border-success/30' : 'bg-info-muted text-info-foreground border-info/30'}`}>
                                         {(sim.score * 100).toFixed(0)}% Match
                                     </Badge>
                                     <Link className="h-4 w-4 text-muted-foreground" />
@@ -83,7 +83,7 @@ const SimilaritiesTab: React.FC<SimilaritiesTabProps> = ({ documentId }) => {
                                 {/* Target Chunk */}
                                 <div className="p-4 bg-muted/20">
                                     <div className="text-xs font-mono text-muted-foreground mb-2 flex items-center gap-2">
-                                        <div className="h-2 w-2 rounded-full bg-orange-500"></div>
+                                        <div className="h-2 w-2 rounded-full bg-chart-5"></div>
                                         {sim.target_id.substring(0, 8)}...
                                     </div>
                                     <p className="text-sm line-clamp-4">{sim.target_text}</p>

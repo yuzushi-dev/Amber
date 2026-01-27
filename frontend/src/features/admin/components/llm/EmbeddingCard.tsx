@@ -38,12 +38,12 @@ export function EmbeddingCard({
     const modelsForSelect = embeddingProviderModels || []
 
     return (
-        <Card className="border-white/5 bg-background/40 backdrop-blur-md shadow-xl hover:bg-background/50 transition-all duration-500 overflow-hidden group">
-            <CardHeader className="relative p-6 border-b border-white/5 bg-white/5">
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-50" />
+        <Card className="border-white/5 bg-background/40 backdrop-blur-md shadow-xl hover:bg-background/50 transition-[background-color,border-color,box-shadow] duration-500 ease-out overflow-hidden group">
+            <CardHeader className="relative p-6 border-b border-white/5 bg-foreground/5">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-50" />
                 <div className="relative z-10 space-y-1.5">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20">
+                        <div className="p-2 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
                             <Layers className="w-5 h-5" />
                         </div>
                         <CardTitle className="font-display text-2xl font-bold tracking-tight">Embedding Settings</CardTitle>
@@ -65,12 +65,12 @@ export function EmbeddingCard({
                                 onValueChange={onProviderChange}
                                 disabled={!isSuperAdmin}
                             >
-                                <SelectTrigger className="bg-white/5 border-white/10 h-12 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
-                                    <SelectValue placeholder="Select Provider" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
+                            <SelectTrigger className="bg-foreground/5 border-border h-12 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
+                                <SelectValue placeholder="Select Provider" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
                                     {providersForSelect.map(p => (
-                                        <SelectItem key={p.name} value={p.name} className="focus:bg-amber-500/20">
+                                        <SelectItem key={p.name} value={p.name} className="focus:bg-primary/20">
                                             {p.label || p.name}
                                         </SelectItem>
                                     ))}
@@ -90,7 +90,7 @@ export function EmbeddingCard({
                                 {validating ? (
                                     <RotateCcw className="h-4 w-4 animate-spin" />
                                 ) : (
-                                    <CheckCircle className="h-4 w-4 text-amber-500" />
+                                    <CheckCircle className="h-4 w-4 text-primary" />
                                 )}
                             </Button>
                         </div>
@@ -105,12 +105,12 @@ export function EmbeddingCard({
                             onValueChange={onModelChange}
                             disabled={!isSuperAdmin || !embeddingProvider}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 h-12 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
+                            <SelectTrigger className="bg-foreground/5 border-border h-12 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
                                 <SelectValue placeholder="Select Model" />
                             </SelectTrigger>
-                            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
                                 {modelsForSelect.map(m => (
-                                    <SelectItem key={m} value={m} className="focus:bg-amber-500/20">{m}</SelectItem>
+                                    <SelectItem key={m} value={m} className="focus:bg-primary/20">{m}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>

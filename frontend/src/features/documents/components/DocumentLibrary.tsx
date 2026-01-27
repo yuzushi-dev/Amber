@@ -171,7 +171,7 @@ export default function DocumentLibrary() {
                 <div className="flex items-center gap-2">
                     <Button
                         onClick={() => setIsUploadOpen(true)}
-                        className="shadow-[0_0_15px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.5)] transition-all duration-300"
+                        className="shadow-glow hover:shadow-glow-lg transition-[box-shadow] duration-300 ease-out"
                         aria-label="Upload new document"
                     >
                         <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
@@ -198,29 +198,29 @@ export default function DocumentLibrary() {
                         label: 'Documents',
                         value: stats?.database.documents_total ?? 0,
                         icon: FileText,
-                        color: 'text-blue-400',
-                        gradient: 'from-blue-500/20 to-blue-600/5'
+                        color: 'text-chart-1',
+                        gradient: 'from-chart-1/20 to-chart-1/5'
                     },
                     {
                         label: 'Chunks',
                         value: stats?.database.chunks_total ?? 0,
                         icon: Box,
-                        color: 'text-purple-400',
-                        gradient: 'from-purple-500/20 to-purple-600/5'
+                        color: 'text-chart-2',
+                        gradient: 'from-chart-2/20 to-chart-2/5'
                     },
                     {
                         label: 'Entities',
                         value: stats?.database.entities_total ?? 0,
                         icon: Users,
-                        color: 'text-green-400',
-                        gradient: 'from-green-500/20 to-green-600/5'
+                        color: 'text-chart-3',
+                        gradient: 'from-chart-3/20 to-chart-3/5'
                     },
                     {
                         label: 'Relationships',
                         value: stats?.database.relationships_total ?? 0,
                         icon: Share2,
-                        color: 'text-orange-400',
-                        gradient: 'from-orange-500/20 to-orange-600/5'
+                        color: 'text-chart-4',
+                        gradient: 'from-chart-4/20 to-chart-4/5'
                     }
                 ].map((card, idx) => (
                     <motion.div
@@ -244,15 +244,17 @@ export default function DocumentLibrary() {
 
             <div className="space-y-4">
                 {/* Filter Bar */}
-                <div className="p-2 rounded-xl border border-white/5 bg-black/20 backdrop-blur-md flex justify-between items-center shadow-inner">
+                <div className="p-2 rounded-xl border border-white/5 bg-background/20 backdrop-blur-md flex justify-between items-center shadow-inner">
                     <div className="relative w-full max-w-md">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                         <Input
                             type="text"
-                            placeholder="Filter documents..."
+                            placeholder="Filter documents\u2026"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 bg-transparent border-transparent focus-visible:ring-0 focus-visible:bg-white/5 transition-all text-sm placeholder:text-muted-foreground/50 h-9"
+                            name="document-filter"
+                            autoComplete="off"
+                            className="w-full pl-10 pr-4 bg-transparent border-transparent focus-visible:ring-0 focus-visible:bg-foreground/5 transition-[background-color,box-shadow] duration-200 ease-out text-sm placeholder:text-muted-foreground/50 h-9"
                             aria-label="Filter documents"
                         />
                     </div>
@@ -296,7 +298,7 @@ export default function DocumentLibrary() {
                                         transition={{ duration: 0.2, delay: idx * 0.03 }}
                                         className="group"
                                     >
-                                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-white/10 hover:shadow-lg transition-all duration-300">
+                                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-border/60 hover:shadow-lg transition-[background-color,border-color,box-shadow] duration-300 ease-out">
                                             {/* Column 1: Title & Icon */}
                                             <div className="flex items-center gap-4 min-w-0">
                                                 <div className="p-2.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shrink-0">

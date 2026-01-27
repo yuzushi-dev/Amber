@@ -334,7 +334,7 @@ export default function DataRetentionPage() {
                                         >
                                             <Button
                                                 onClick={handleDownloadExport}
-                                                className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+                                                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
                                             >
                                                 <Download className="w-4 h-4" />
                                                 Download ZIP

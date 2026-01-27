@@ -65,7 +65,7 @@ export default function MetricsDashboard() {
                     value={isHealthy ? 'Healthy' : 'Degraded'}
                     isString
                     description={isHealthy ? 'All systems operational' : 'Some services are down'}
-                    className={isHealthy ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'}
+                    className={isHealthy ? 'border-l-4 border-l-success' : 'border-l-4 border-l-destructive'}
                 />
                 <StatCard
                     icon={Database}
@@ -100,7 +100,7 @@ export default function MetricsDashboard() {
                             <div key={name} className="flex items-center justify-between p-3 border rounded-lg bg-muted/20">
                                 <span className="capitalize font-medium text-sm">{name}</span>
                                 <div className="flex items-center gap-2">
-                                    <span className={`w-2 h-2 rounded-full ${status.status === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                    <span className={`w-2 h-2 rounded-full ${status.status === 'healthy' ? 'bg-success' : 'bg-destructive'}`} />
                                     <span className="text-xs text-muted-foreground">{status.latency_ms ? `${status.latency_ms.toFixed(0)}ms` : '-'}</span>
                                 </div>
                             </div>

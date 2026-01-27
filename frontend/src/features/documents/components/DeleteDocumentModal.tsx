@@ -57,11 +57,11 @@ export default function DeleteDocumentModal({
                             className={cn(
                                 "relative flex flex-col w-full overflow-hidden",
                                 "bg-background border border-border rounded-xl shadow-glow-destructive",
-                                "before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/[0.08] before:to-transparent before:pointer-events-none"
+                                "before:absolute before:inset-0 before:bg-gradient-to-b before:from-foreground/10 before:to-transparent before:pointer-events-none"
                             )}
                         >
                             {/* Decorative Top Glow */}
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-red-500/20 blur-[60px] pointer-events-none" />
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-destructive/20 blur-[60px] pointer-events-none" />
 
                             {/* Header / Icon */}
                             <div className="flex flex-col items-center pt-8 pb-4 px-6 relative z-10">
@@ -73,9 +73,9 @@ export default function DeleteDocumentModal({
                                         type: "spring",
                                         stiffness: 200
                                     }}
-                                    className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-4 border border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                                    className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border border-destructive/20 shadow-[0_0_15px_hsl(var(--destructive)/0.2)]"
                                 >
-                                    <Trash2 className="w-8 h-8 text-red-500" strokeWidth={1.5} />
+                                    <Trash2 className="w-8 h-8 text-destructive" strokeWidth={1.5} />
                                 </motion.div>
 
                                 <DialogTitle className="text-2xl font-semibold text-center text-foreground tracking-tight">
@@ -92,9 +92,9 @@ export default function DeleteDocumentModal({
                                     </span>
                                 </p>
 
-                                <div className="flex items-start gap-3 p-3 text-left rounded-lg bg-red-500/5 border border-red-500/10">
-                                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                                    <span className="text-xs text-red-500/90 font-medium leading-relaxed">
+                                <div className="flex items-start gap-3 p-3 text-left rounded-lg bg-destructive/5 border border-destructive/10">
+                                    <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                                    <span className="text-xs text-destructive/90 font-medium leading-relaxed">
                                         This action is irreversible. All chunks, extracted entities, and relationships associated with this document will be removed.
                                     </span>
                                 </div>
@@ -114,11 +114,11 @@ export default function DeleteDocumentModal({
                                     variant="destructive"
                                     onClick={handleConfirm}
                                     disabled={isLoading}
-                                    className="bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/20 relative overflow-hidden"
+                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-lg shadow-[0_10px_20px_hsl(var(--destructive)/0.2)] relative overflow-hidden"
                                 >
                                     {isLoading ? (
                                         <div className="flex items-center gap-2">
-                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            <div className="w-4 h-4 border-2 border-destructive-foreground/40 border-t-destructive-foreground rounded-full animate-spin" />
                                             <span>Deleting...</span>
                                         </div>
                                     ) : (

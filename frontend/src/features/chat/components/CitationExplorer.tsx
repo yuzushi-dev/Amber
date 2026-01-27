@@ -92,13 +92,13 @@ export default function CitationExplorer() {
                     animate="visible"
                     exit="exit"
                     variants={containerVariants}
-                    className="h-full flex flex-col bg-background/80 backdrop-blur-xl border-l border-white/10 shadow-2xl z-40 overflow-hidden whitespace-nowrap"
+                    className="h-full flex flex-col bg-background/80 backdrop-blur-xl border-l border-border shadow-2xl z-40 overflow-hidden whitespace-nowrap"
                     style={{ willChange: 'width, transform, opacity' }}
                 >
                     <div className="w-[450px] shrink-0 h-full flex flex-col">
-                        <header className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-white/[0.02] backdrop-blur-xl z-10">
+                        <header className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-foreground/[0.02] backdrop-blur-xl z-10">
                             <div className="flex items-center gap-3">
-                                <div className="p-2 bg-primary/10 rounded-lg ring-1 ring-primary/20 shadow-[0_0_15px_-3px_rgba(var(--primary),0.3)]">
+                                <div className="p-2 bg-primary/10 rounded-lg ring-1 ring-primary/20 shadow-[0_0_15px_-3px_hsl(var(--primary)/0.3)]">
                                     <Sparkles className="w-4 h-4 text-primary" />
                                 </div>
                                 <div className="space-y-0.5">
@@ -109,8 +109,9 @@ export default function CitationExplorer() {
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 hover:bg-white/5 rounded-full text-muted-foreground hover:text-foreground transition-all"
+                                className="h-8 w-8 hover:bg-foreground/5 rounded-full text-muted-foreground hover:text-foreground transition-[background-color,color] duration-200 ease-out"
                                 onClick={() => setActiveMessageId(null)}
+                                aria-label="Close references panel"
                             >
                                 <X className="w-4 h-4" />
                             </Button>
@@ -127,7 +128,7 @@ export default function CitationExplorer() {
                                         >
                                             <div className="relative">
                                                 <div className="absolute inset-0 bg-primary/20 blur-[40px] rounded-full opacity-20 animate-pulse" />
-                                                <div className="relative w-20 h-20 rounded-full border border-white/5 flex items-center justify-center bg-white/[0.01]">
+                                                <div className="relative w-20 h-20 rounded-full border border-white/5 flex items-center justify-center bg-foreground/[0.01]">
                                                     <div className="absolute inset-0 rounded-full border border-primary/10 border-t-primary/30 animate-[spin_3s_linear_infinite]" />
                                                     <BookOpen className="w-8 h-8 text-muted-foreground/30" />
                                                 </div>
@@ -194,7 +195,7 @@ function CitationCard({
             variants={variants}
             id={`citation-card-${citation.id}`}
             className={cn(
-                "group relative rounded-xl transition-all duration-300 overflow-hidden cursor-pointer",
+                "group relative rounded-xl transition-[background-color,border-color,box-shadow,transform] duration-300 ease-out overflow-hidden cursor-pointer",
                 // Base
                 "bg-card/40 backdrop-blur-md border border-white/5 shadow-sm",
                 // Hover
@@ -209,8 +210,8 @@ function CitationCard({
             layout
         >
             {/* Header Section */}
-            <div className="p-4 flex items-start gap-4 border-b border-white/5 bg-gradient-to-r from-white/[0.03] to-transparent">
-                <div className="mt-0.5 p-2 rounded-lg bg-black/40 ring-1 ring-white/10 shrink-0">
+            <div className="p-4 flex items-start gap-4 border-b border-white/5 bg-gradient-to-r from-foreground/[0.03] to-transparent">
+                <div className="mt-0.5 p-2 rounded-lg bg-surface-950/40 ring-1 ring-border/40 shrink-0">
                     <FileText className="w-4 h-4 text-primary/80" />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
@@ -221,20 +222,20 @@ function CitationCard({
 
                         {source?.score && (
                             <div className="flex items-center gap-1.5" title={`Match Score: ${Math.round(source.score * 100)}%`}>
-                                <div className="h-1.5 w-12 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                                <div className="h-1.5 w-12 bg-surface-950/40 rounded-full overflow-hidden border border-white/5">
                                     <div
                                         className={cn(
-                                            "h-full rounded-full transition-all duration-500",
-                                            source.score > 0.8 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
-                                                source.score > 0.5 ? "bg-amber-500" : "bg-muted-foreground"
+                                            "h-full rounded-full transition-[width,background-color,box-shadow] duration-500 ease-out",
+                                            source.score > 0.8 ? "bg-success shadow-[0_0_8px_hsl(var(--success)/0.5)]" :
+                                                source.score > 0.5 ? "bg-warning" : "bg-muted-foreground"
                                         )}
                                         style={{ width: `${source.score * 100}%` }}
                                     />
                                 </div>
                                 <span className={cn(
                                     "text-[9px] font-mono font-bold",
-                                    source.score > 0.8 ? "text-emerald-500" :
-                                        source.score > 0.5 ? "text-amber-500" : "text-muted-foreground"
+                                    source.score > 0.8 ? "text-success" :
+                                        source.score > 0.5 ? "text-warning" : "text-muted-foreground"
                                 )}>
                                     {Math.round(source.score * 100)}%
                                 </span>
@@ -249,7 +250,7 @@ function CitationCard({
             </div>
 
             {/* Content Body */}
-            <div className="p-3.5 bg-black/40 text-xs font-mono text-foreground/90 leading-relaxed relative">
+            <div className="p-3.5 bg-surface-950/40 text-xs font-mono text-foreground/90 leading-relaxed relative">
                 <motion.div
                     initial={false}
                     animate={{ height: isSelected ? "auto" : "6rem" }}
@@ -262,12 +263,12 @@ function CitationCard({
                 </motion.div>
 
                 {!isSelected && fullContent.length > 200 && (
-                    <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-surface-950/20 to-transparent pointer-events-none" />
                 )}
             </div>
 
             {/* Footer / Actions */}
-            <div className="px-3.5 py-2 bg-white/5 border-t border-white/5 flex items-center justify-between group/footer">
+            <div className="px-3.5 py-2 bg-foreground/5 border-t border-white/5 flex items-center justify-between group/footer">
                 <div className="flex items-center gap-2">
                     {source?.page && (
                         <span className="text-[10px] text-muted-foreground/60">Page {source.page}</span>
@@ -277,7 +278,7 @@ function CitationCard({
                 <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[10px] px-2 gap-1.5 text-primary hover:text-primary hover:bg-primary/10 transition-all font-medium uppercase tracking-wide"
+                    className="h-6 text-[10px] px-2 gap-1.5 text-primary hover:text-primary hover:bg-primary/10 transition-[background-color,color] duration-200 ease-out font-medium uppercase tracking-wide"
                     onClick={(e) => {
                         e.stopPropagation();
                         if (source?.document_id?.startsWith('rule_doc_')) {

@@ -188,7 +188,7 @@ export default function ContextSidebar() {
         <>
             <aside
                 className={cn(
-                    "context-sidebar flex flex-col border-r transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+                    "context-sidebar flex flex-col border-r transition-[width,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
                     // Glass material
                     "bg-background/80 backdrop-blur-xl border-white/5 shadow-xl supports-[backdrop-filter]:bg-background/60",
                     collapsed ? "w-16 items-center" : "w-64"
@@ -323,7 +323,7 @@ export default function ContextSidebar() {
                                                     {!collapsed && (
                                                         <button
                                                             onClick={(e) => handleDelete(e, conversation.request_id)}
-                                                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-all"
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-[opacity,background-color,color] duration-200 ease-out"
                                                             title="Delete conversation"
                                                             aria-label="Delete conversation"
                                                         >

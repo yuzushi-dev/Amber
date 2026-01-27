@@ -45,12 +45,12 @@ export function GlobalDefaultsCard({
     const seedValue = defaultSeed ?? 0; // Default seed if null
 
     return (
-        <Card className="border-white/5 bg-background/40 backdrop-blur-md shadow-xl hover:bg-background/50 transition-all duration-500 overflow-hidden group">
-            <CardHeader className="relative p-6 border-b border-white/5 bg-white/5">
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-50" />
+        <Card className="border-white/5 bg-background/40 backdrop-blur-md shadow-xl hover:bg-background/50 transition-[background-color,border-color,box-shadow] duration-500 ease-out overflow-hidden group">
+            <CardHeader className="relative p-6 border-b border-white/5 bg-foreground/5">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-50" />
                 <div className="relative z-10 space-y-1.5">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20">
+                        <div className="p-2 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
                             <Sparkles className="w-5 h-5" />
                         </div>
                         <CardTitle className="font-display text-2xl font-bold tracking-tight">Global Defaults</CardTitle>
@@ -71,12 +71,12 @@ export function GlobalDefaultsCard({
                             onValueChange={onProviderChange}
                             disabled={!isSuperAdmin}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 h-12 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
+                            <SelectTrigger className="bg-foreground/5 border-border h-12 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
                                 <SelectValue placeholder="Select Provider" />
                             </SelectTrigger>
-                            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
                                 {providersForSelect.map(p => (
-                                    <SelectItem key={p.name} value={p.name} className="focus:bg-amber-500/20">
+                                    <SelectItem key={p.name} value={p.name} className="focus:bg-primary/20">
                                         {p.label || p.name}
                                     </SelectItem>
                                 ))}
@@ -93,12 +93,12 @@ export function GlobalDefaultsCard({
                             onValueChange={onModelChange}
                             disabled={!isSuperAdmin || !defaultProvider}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 h-12 focus:ring-amber-500/50 hover:bg-white/10 transition-colors">
+                            <SelectTrigger className="bg-foreground/5 border-border h-12 focus:ring-primary/50 hover:bg-foreground/10 transition-colors">
                                 <SelectValue placeholder="Select Model" />
                             </SelectTrigger>
-                            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10">
+                            <SelectContent className="bg-background/95 backdrop-blur-xl border-border">
                                 {modelsForSelect.map(m => (
-                                    <SelectItem key={m} value={m} className="focus:bg-amber-500/20">{m}</SelectItem>
+                                    <SelectItem key={m} value={m} className="focus:bg-primary/20">{m}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
@@ -111,7 +111,7 @@ export function GlobalDefaultsCard({
                             <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 ml-1">
                                 TEMPERATURE
                             </Label>
-                            <span className="text-xs font-mono font-bold text-amber-500 bg-amber-500/10 px-2.5 py-1 rounded border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                            <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2.5 py-1 rounded border border-primary/20 shadow-glow-sm">
                                 {temperatureValue.toFixed(2)}
                             </span>
                         </div>
@@ -131,7 +131,7 @@ export function GlobalDefaultsCard({
                             <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 ml-1">
                                 RANDOM SEED
                             </Label>
-                            <span className="text-xs font-mono font-bold text-amber-500 bg-amber-500/10 px-2.5 py-1 rounded border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                            <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2.5 py-1 rounded border border-primary/20 shadow-glow-sm">
                                 {seedValue}
                             </span>
                         </div>

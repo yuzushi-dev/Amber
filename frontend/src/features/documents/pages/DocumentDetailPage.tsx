@@ -98,11 +98,11 @@ export default function DocumentDetailPage() {
     }
 
     const statsCards = [
-        { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-        { id: 'entities', label: 'Entities', icon: Layers, count: document.stats?.entities || 0, color: 'text-green-500', bg: 'bg-green-500/10' },
-        { id: 'relationships', label: 'Relationships', icon: Share2, count: document.stats?.relationships || 0, color: 'text-orange-500', bg: 'bg-orange-500/10' },
-        { id: 'communities', label: 'Communities', icon: Network, count: document.stats?.communities || 0, color: 'text-pink-500', bg: 'bg-pink-500/10' },
-        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: document.stats?.similarities || 0, color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
+        { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-chart-1', bg: 'bg-chart-1/10' },
+        { id: 'entities', label: 'Entities', icon: Layers, count: document.stats?.entities || 0, color: 'text-chart-2', bg: 'bg-chart-2/10' },
+        { id: 'relationships', label: 'Relationships', icon: Share2, count: document.stats?.relationships || 0, color: 'text-chart-3', bg: 'bg-chart-3/10' },
+        { id: 'communities', label: 'Communities', icon: Network, count: document.stats?.communities || 0, color: 'text-chart-4', bg: 'bg-chart-4/10' },
+        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: document.stats?.similarities || 0, color: 'text-chart-5', bg: 'bg-chart-5/10' },
     ];
 
     const renderModalContent = () => {
@@ -125,7 +125,12 @@ export default function DocumentDetailPage() {
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b bg-card/80 backdrop-blur-sm">
                 <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" onClick={() => navigate({ to: '/admin/data/documents' })}>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => navigate({ to: '/admin/data/documents' })}
+                        aria-label="Back to documents"
+                    >
                         <ChevronLeft className="h-5 w-5" />
                     </Button>
                     <div>
@@ -188,7 +193,7 @@ export default function DocumentDetailPage() {
                     {statsCards.map((card) => (
                         <Card
                             key={card.id}
-                            className="cursor-pointer hover:shadow-md transition-all hover:border-primary/50 group"
+                            className="cursor-pointer hover:shadow-md transition-[border-color,box-shadow] duration-200 ease-out hover:border-primary/50 group"
                             onClick={() => setActiveModal(card.id)}
                         >
                             <CardContent className="p-4 flex flex-col items-center justify-center text-center space-y-2">

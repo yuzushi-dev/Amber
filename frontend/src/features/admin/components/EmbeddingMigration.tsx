@@ -238,15 +238,15 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
             <div className="mb-8">
                 <Dialog open={showProgressDialog} onOpenChange={() => { }}>
                     <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg">
-                        <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                        <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                             <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${progressStatus.status === 'complete' ? 'bg-green-500/10' :
-                                    progressStatus.status === 'failed' || progressStatus.status === 'cancelled' ? 'bg-red-500/10' :
-                                        'bg-amber-500/10'
+                                <div className={`p-2 rounded-lg ${progressStatus.status === 'complete' ? 'bg-success-muted' :
+                                    progressStatus.status === 'failed' || progressStatus.status === 'cancelled' ? 'bg-destructive/10' :
+                                        'bg-primary/10'
                                     }`}>
-                                    {progressStatus.status === 'running' && <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />}
-                                    {progressStatus.status === 'complete' && <CheckCircle className="h-5 w-5 text-green-500" />}
-                                    {(progressStatus.status === 'failed' || progressStatus.status === 'cancelled') && <AlertTriangle className="h-5 w-5 text-red-500" />}
+                                    {progressStatus.status === 'running' && <Loader2 className="h-5 w-5 text-primary animate-spin" />}
+                                    {progressStatus.status === 'complete' && <CheckCircle className="h-5 w-5 text-success" />}
+                                    {(progressStatus.status === 'failed' || progressStatus.status === 'cancelled') && <AlertTriangle className="h-5 w-5 text-destructive" />}
                                 </div>
                                 {progressStatus.status === 'complete' ? 'Migration Complete' :
                                     progressStatus.status === 'failed' ? 'Migration Failed' :
@@ -264,8 +264,8 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                 </div>
                                 <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted/20">
                                     <div
-                                        className={`absolute inset-y-0 left-0 transition-all duration-300 ease-out rounded-full ${progressStatus.status === 'complete' ? 'bg-green-500' :
-                                            progressStatus.status === 'failed' ? 'bg-red-500' :
+                                        className={`absolute inset-y-0 left-0 transition-[width,background-color] duration-300 ease-out rounded-full ${progressStatus.status === 'complete' ? 'bg-success' :
+                                            progressStatus.status === 'failed' ? 'bg-destructive' :
                                                 'bg-primary'
                                             }`}
                                         style={{ width: `${progressStatus.progress}%` }}
@@ -274,8 +274,8 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                             </div>
 
                             {/* Status Message */}
-                            <div className={`p-4 rounded-lg border ${progressStatus.status === 'complete' ? 'bg-green-500/5 border-green-500/10 text-green-500' :
-                                progressStatus.status === 'failed' ? 'bg-red-500/5 border-red-500/10 text-red-500' :
+                            <div className={`p-4 rounded-lg border ${progressStatus.status === 'complete' ? 'bg-success-muted/50 border-success/20 text-success' :
+                                progressStatus.status === 'failed' ? 'bg-destructive/5 border-destructive/20 text-destructive' :
                                     progressStatus.status === 'cancelled' ? 'bg-muted/10 border-white/5 text-muted-foreground' :
                                         'bg-primary/5 border-primary/10 text-primary'
                                 }`}>
@@ -284,8 +284,8 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
 
                             {/* Current Document */}
                             {progressStatus.status === 'running' && progressStatus.current_document && (
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                                    <span className="text-sm text-blue-400 flex items-center gap-2">
+                                <div className="flex items-center justify-between p-3 rounded-lg bg-info-muted border border-info/30">
+                                    <span className="text-sm text-info flex items-center gap-2">
                                         <FileText className="h-3.5 w-3.5" />
                                         Processing
                                     </span>
@@ -318,18 +318,18 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
 
                             {/* Success Summary */}
                             {progressStatus.status === 'complete' && result && (
-                                <div className="p-4 rounded-lg bg-green-500/5 border border-green-500/10 space-y-3">
-                                    <p className="text-sm font-medium text-green-500">Migration Summary</p>
+                                <div className="p-4 rounded-lg bg-success-muted/50 border border-success/20 space-y-3">
+                                    <p className="text-sm font-medium text-success">Migration Summary</p>
                                     <div className="grid grid-cols-3 gap-3 text-center">
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">Chunks Deleted</div>
                                             <div className="text-lg font-bold text-foreground">{result.chunks_deleted}</div>
                                         </div>
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">Docs Queued</div>
                                             <div className="text-lg font-bold text-foreground">{result.docs_queued}</div>
                                         </div>
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">New Model</div>
                                             <div className="text-sm font-medium text-foreground truncate">{result.new_model}</div>
                                         </div>
@@ -343,7 +343,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                 <Button
                                     variant="ghost"
                                     onClick={() => setCancelConfirmOpen(true)}
-                                    className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                 >
                                     <StopCircle className="w-4 h-4 mr-2" />
                                     Cancel Migration
@@ -363,10 +363,10 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                 {/* Cancel Confirmation Dialog */}
                 <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
                     <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-sm">
-                        <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                        <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                             <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
-                                <div className="p-2 rounded-lg bg-red-500/10">
-                                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                                <div className="p-2 rounded-lg bg-destructive/10">
+                                    <AlertTriangle className="h-5 w-5 text-destructive" />
                                 </div>
                                 Cancel Migration?
                             </DialogTitle>
@@ -380,7 +380,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                             </div>
                         </div>
                         <DialogFooter className="p-4 bg-muted/5 border-t border-white/5 gap-3">
-                            <Button variant="ghost" onClick={() => setCancelConfirmOpen(false)} className="hover:bg-white/5">
+                            <Button variant="ghost" onClick={() => setCancelConfirmOpen(false)} className="hover:bg-foreground/5">
                                 Keep Running
                             </Button>
                             <Button variant="destructive" onClick={handleCancelMigration}>
@@ -403,7 +403,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                 <Alert
                     key={tenant.tenant_id}
                     variant="destructive"
-                    className="border-destructive/50 bg-destructive/10 text-destructive dark:text-red-400 dark:border-red-900/50 dark:bg-red-900/20 shadow-[0_0_15px_rgba(239,68,68,0.1)] mb-4"
+                    className="border-destructive/50 bg-destructive/10 text-destructive shadow-[0_0_15px_hsl(var(--destructive)/0.1)] mb-4"
                 >
                     <div className="flex items-start gap-4">
                         <AlertTriangle className="h-5 w-5 mt-1 shrink-0 animate-pulse" />
@@ -414,14 +414,14 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                             <AlertDescription className="text-sm/relaxed space-y-4">
                                 <p>
                                     The configured embedding model
-                                    <span className="font-mono bg-black/20 px-1.5 py-0.5 rounded mx-1.5 text-foreground font-semibold">
+                                    <span className="font-mono bg-surface-950/20 px-1.5 py-0.5 rounded mx-1.5 text-foreground font-semibold">
                                         {tenant.system_config.model}
                                     </span>
                                     does not match the existing vector data for tenant
                                     <strong> {tenant.tenant_name}</strong>.
                                 </p>
 
-                                <div className="grid grid-cols-2 gap-4 bg-black/5 p-3 rounded-md border border-black/5 text-xs font-mono">
+                                <div className="grid grid-cols-2 gap-4 bg-surface-950/5 p-3 rounded-md border border-white/5 text-xs font-mono">
                                     <div>
                                         <div className="text-muted-foreground mb-1 uppercase tracking-wider text-[10px]">Stored Configuration</div>
                                         <div className="flex flex-col gap-0.5">
@@ -446,7 +446,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                 <div className="pt-2">
                                     <Button
                                         variant="destructive"
-                                        className="gap-2 shadow-lg shadow-red-900/20 hover:shadow-red-900/40 transition-all active:scale-95"
+                                        className="gap-2 shadow-lg shadow-[0_0_20px_hsl(var(--destructive)/0.2)] hover:shadow-[0_0_24px_hsl(var(--destructive)/0.35)] transition-[box-shadow,transform] duration-200 ease-out active:scale-95"
                                         onClick={() => handleMigrateClick(tenant)}
                                     >
                                         <RefreshCw className="w-4 h-4" />
@@ -462,10 +462,10 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
             {/* Manual Migration Confirmation Dialog */}
             <Dialog open={migrationOpen} onOpenChange={() => !migrating && handleClose()}>
                 <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-md">
-                    <DialogHeader className="p-6 border-b border-white/5 bg-white/[0.02]">
+                    <DialogHeader className="p-6 border-b border-white/5 bg-foreground/[0.02]">
                         <DialogTitle className="font-display tracking-tight text-lg flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${result ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
-                                {result ? <CheckCircle className="h-5 w-5 text-green-500" /> : <AlertTriangle className="h-5 w-5 text-red-500" />}
+                            <div className={`p-2 rounded-lg ${result ? 'bg-success-muted' : 'bg-destructive/10'}`}>
+                                {result ? <CheckCircle className="h-5 w-5 text-success" /> : <AlertTriangle className="h-5 w-5 text-destructive" />}
                             </div>
                             {result ? 'Migration Initiated' : 'Confirm Migration'}
                         </DialogTitle>
@@ -474,18 +474,18 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                     <div className="p-6 space-y-4">
                         {result ? (
                             <div className="space-y-4">
-                                <div className="p-4 rounded-lg bg-green-500/5 border border-green-500/10 space-y-3">
-                                    <p className="text-sm font-medium text-green-500">Migration Started Successfully</p>
+                                <div className="p-4 rounded-lg bg-success-muted/50 border border-success/20 space-y-3">
+                                    <p className="text-sm font-medium text-success">Migration Started Successfully</p>
                                     <div className="grid grid-cols-3 gap-3 text-center">
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">Chunks Deleted</div>
                                             <div className="text-lg font-bold text-foreground">{result.chunks_deleted}</div>
                                         </div>
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">Docs Queued</div>
                                             <div className="text-lg font-bold text-foreground">{result.docs_queued}</div>
                                         </div>
-                                        <div className="p-2 rounded bg-green-500/5">
+                                        <div className="p-2 rounded bg-success-muted/50">
                                             <div className="text-xs text-muted-foreground mb-1">New Model</div>
                                             <div className="text-sm font-medium text-foreground truncate">{result.new_model}</div>
                                         </div>
@@ -496,18 +496,18 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                 </p>
                             </div>
                         ) : error ? (
-                            <div className="p-4 rounded-lg bg-red-500/5 border border-red-500/10 flex items-start gap-3">
-                                <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                            <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20 flex items-start gap-3">
+                                <XCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
                                 <div>
-                                    <p className="font-medium text-red-500">Migration Failed</p>
-                                    <p className="text-sm text-red-500/80 mt-1">{error}</p>
+                                    <p className="font-medium text-destructive">Migration Failed</p>
+                                    <p className="text-sm text-destructive/80 mt-1">{error}</p>
                                 </div>
                             </div>
                         ) : (
                             <>
-                                <div className="p-4 rounded-lg bg-red-500/5 border border-red-500/10">
-                                    <p className="text-sm font-medium text-red-500 mb-2">This action is irreversible</p>
-                                    <ul className="text-xs text-red-500/80 space-y-1 list-disc list-inside">
+                                <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20">
+                                    <p className="text-sm font-medium text-destructive mb-2">This action is irreversible</p>
+                                    <ul className="text-xs text-destructive/80 space-y-1 list-disc list-inside">
                                         <li>Vector collection <span className="font-mono">amber_{selectedTenant?.tenant_id}</span> will be dropped</li>
                                         <li>All existing chunks will be deleted</li>
                                         <li>Documents will be reset to INGESTED status</li>
@@ -522,7 +522,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                         value={confirmText}
                                         onChange={(e) => setConfirmText(e.target.value)}
                                         placeholder="MIGRATE"
-                                        className="font-mono tracking-wider bg-muted/10 border-white/10"
+                                        className="font-mono tracking-wider bg-muted/10 border-border/60"
                                         disabled={migrating}
                                     />
                                 </div>
@@ -544,7 +544,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                                     variant="ghost"
                                     onClick={handleClose}
                                     disabled={migrating}
-                                    className="hover:bg-white/5"
+                                    className="hover:bg-foreground/5"
                                 >
                                     Cancel
                                 </Button>
