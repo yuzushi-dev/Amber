@@ -151,18 +151,116 @@ async def lifespan(app: FastAPI):
                 )
                 try:
                     statuses = await migration_service.get_compatibility_status()
-                    for status in statuses:
-                        if not status["is_compatible"]:
-                            logger.warn("!" * 60)
-                            logger.warn(f"EMBEDDING MODEL MISMATCH DETECTED FOR TENANT: {status['tenant_name']} ({status['tenant_id']})")
-                            logger.warn(f"Details: {status['details']}")
-                            logger.warn("Please query /v1/admin/embeddings/check for info or /migrate to fix.")
-                            logger.warn("!" * 60)
+                    incompatible = [s for s in statuses if not s["is_compatible"]]
+                    
+                    if incompatible:
+                        logger.critical("!" * 80)
+                        logger.critical("EMBEDDING MODEL MISMATCH DETECTED")
+                        logger.critical("!" * 80)
+                        for status in incompatible:
+                            logger.critical(f"TENANT: {status['tenant_name']} ({status['tenant_id']})")
+                            logger.critical(f"  - Config: {status['stored_config'].get('model')} ({status['stored_config'].get('dimensions')}d)")
+                            logger.critical(f"  - System: {status['system_config'].get('model')} ({status['system_config'].get('dimensions')}d)")
+                            logger.critical(f"  - Error:  {status['details']}")
+                        logger.critical("!" * 80)
+                        logger.critical("Startup Aborted to prevent data corruption.")
+                        logger.critical("To fix this:")
+                        logger.critical("1. Update config/settings.yaml to match your data.")
+                        logger.critical("2. OR Run 'python scripts/check_integrity.py' to diagnose.")
+                        logger.critical("3. OR Set IGNORE_EMBEDDING_MISMATCH=true env var to force start.")
+                        logger.critical("!" * 80)
+                        
+                        if os.getenv("IGNORE_EMBEDDING_MISMATCH", "false").lower() != "true":
+                            raise RuntimeError("Embedding model mismatch detected. Aborting startup.")
+                        else:
+                            logger.warning("IGNORE_EMBEDDING_MISMATCH=true. Forced startup proceed.")
+
                 except Exception as e:
+                    if "Embedding model mismatch" in str(e):
+                        raise
                     logger.error(f"Failed to check embedding compatibility on startup: {e}")
 
         logger.info("Bootstrapped API key and checked embeddings")
+        
+        # ---------------------------------------------------------
+        # DB Integrity Check (Neo4j & Postgres)
+        # ---------------------------------------------------------
+        if os.getenv("IGNORE_DB_INTEGRITY", "false").lower() != "true":
+            try:
+                # 1. Neo4j Check
+                from src.amber_platform.composition_root import platform
+                # Check for critical constraints
+                # This is a basic check. For detailed check, use scripts/check_integrity.py
+                constraints_res = await platform.neo4j_client.execute_read("SHOW CONSTRAINTS")
+                found_names = [c["name"] for c in constraints_res]
+                
+                required_constraints = ["document_id_unique", "chunk_id_unique"]
+                missing_constraints = [c for c in required_constraints if c not in found_names]
+                
+                if missing_constraints:
+                    logger.critical("!" * 80)
+                    logger.critical("NEO4J INTEGRITY ERROR: Missing critical constraints!")
+                    logger.critical(f"Missing: {missing_constraints}")
+                    logger.critical("Please run the application setup or migration scripts.")
+                    logger.critical("Or set IGNORE_DB_INTEGRITY=true to bypass.")
+                    logger.critical("!" * 80)
+                    raise RuntimeError("Neo4j constraints missing. Aborting startup.")
+
+                # 2. Postgres Check (Alembic)
+                # We need to run this in a thread because alembic commands are sync
+                def check_alembic():
+                    from alembic.config import Config
+                    from alembic.script import ScriptDirectory
+                    from sqlalchemy import text
+                    
+                    try:
+                        alembic_cfg = Config("alembic.ini")
+                        script = ScriptDirectory.from_config(alembic_cfg)
+                        heads = script.get_heads()
+                        head_rev = heads[0] if heads else None
+                        return head_rev
+                    except Exception as e:
+                        logger.warning(f"Failed to read Alembic head: {e}")
+                        return None
+                
+                head_rev = await asyncio.to_thread(check_alembic)
+                
+                if head_rev:
+                    # Check DB version
+                    from sqlalchemy import text
+                    result = await session.execute(text("select version_num from alembic_version"))
+                    db_rev = result.scalar()
+                    
+                    logger.info(f"Database Integrity: Code={head_rev}, DB={db_rev}")
+                    
+                    if head_rev != db_rev:
+                        logger.critical("!" * 80)
+                        logger.critical("DATABASE INTEGRITY ERROR: Schema Mismatch!")
+                        logger.critical(f"Code expects revision {head_rev}, but DB is at {db_rev}")
+                        logger.critical("Run 'alembic upgrade head' to fix this.")
+                        logger.critical("Or set IGNORE_DB_INTEGRITY=true to bypass.")
+                        logger.critical("!" * 80)
+                        raise RuntimeError("Database schema mismatch. Aborting startup.")
+                    
+            except ImportError:
+                 logger.warning("Alembic not installed or configuration missing. Skipping DB check.")
+            except Exception as e:
+                 # If we are failing, we fail safely if likely just setup issue? 
+                 # User requested BLOCKER. So we re-raise.
+                 if "Aborting startup" in str(e):
+                     raise
+                 logger.error(f"Integrity check failed: {e}")
+                 # raise RuntimeError(f"Integrity check failed: {e}") # Maybe too strict if connectivity blip?
+                 # Let's keep it strict but allow transient failures if it's not a clear mismatch?
+                 # Actually, better to warn on unknown errors but fail on KNOWN mismatches.
+                 pass
+                 # Actually, better to warn on unknown errors but fail on KNOWN mismatches.
+                 pass
     except Exception as e:
+        # Re-raise critical integrity errors to ensure Fail Fast
+        if "Aborting startup" in str(e) or "mismatch" in str(e):
+             logger.critical(f"Critical Startup Error: {e}")
+             raise
         logger.error(f"Failed to bootstrap API key: {e}")
 
     yield

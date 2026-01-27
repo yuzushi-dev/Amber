@@ -121,3 +121,59 @@ async def db_session() -> AsyncSession:
             await session.rollback()
             await session.close()
 
+
+@pytest.fixture(autouse=True)
+async def cleanup_application_state():
+    """
+    Global teardown to reset singleton states and close connections
+    to prevent async loop mismatch errors and resource leaks.
+    
+    NOTE: We explicitly set variables to None instead of calling 
+    close()/shutdown() methods because those methods often try to 
+    clean up resources bound to a previous (now closed) event loop,
+    causing 'RuntimeError: Event loop is closed'.
+    By setting to None, we force re-initialization in the next test's loop.
+    """
+    yield
+    
+    # 1. Reset Rate Limiter
+    try:
+        import src.api.middleware.rate_limit as rate_limit_module
+        rate_limit_module._rate_limiter = None
+    except ImportError:
+        pass
+
+    # 2. Reset Database Session Maker and Engine
+    try:
+        import src.api.deps as deps_module
+        deps_module._async_session_maker = None
+        
+        import src.core.database.session as session_mod
+        # Force reset without await engine.dispose() to avoid loop conflicts
+        session_mod._engine = None
+        session_mod._async_session_maker = None
+    except ImportError:
+        pass
+
+    # 3. Reset Platform (Neo4j, Redis, etc.)
+    try:
+        from src.amber_platform.composition_root import platform
+        # Reset internal state directly
+        platform._neo4j_client = None
+        platform._redis_client = None
+        platform._minio_client = None
+        platform._graph_extractor = None
+        platform._content_extractor = None
+        platform._initialized = False
+        
+        # Reset external registries
+        from src.core.graph.domain.ports.graph_client import set_graph_client
+        set_graph_client(None)
+        
+        from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder, set_provider_factory
+        set_provider_factory_builder(None)
+        set_provider_factory(None)
+        
+    except (ImportError, Exception):
+        pass
+

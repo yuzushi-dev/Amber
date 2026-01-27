@@ -18,19 +18,28 @@ logger = logging.getLogger(__name__)
 
 async def init_milvus():
     """Initialize Milvus collection."""
+    from src.amber_platform.composition_root import get_settings_lazy
+    settings = get_settings_lazy()
     try:
-        logger.info("Initializing Milvus...")
-        store = MilvusVectorStore(MilvusConfig())
+        logger.info(f"Initializing Milvus at {settings.db.milvus_host}:{settings.db.milvus_port}...")
+        config = MilvusConfig(
+            host=settings.db.milvus_host,
+            port=settings.db.milvus_port,
+            dimensions=settings.embedding_dimensions or 1536
+        )
+        store = MilvusVectorStore(config)
         await store.connect()
         logger.info("Milvus initialized successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize Milvus: {e}")
-        # We don't exit here, might be temporary, but good to log
 
 async def init_neo4j():
     """Initialize Neo4j constraints."""
+    from src.amber_platform.composition_root import platform
     try:
-        logger.info("Initializing Neo4j...")
+        logger.info("Initializing Neo4j via Platform...")
+        # Ensure platform is initialized (configures graph_client)
+        await platform.initialize()
         await setup_constraints()
         logger.info("Neo4j initialized successfully.")
     except Exception as e:
@@ -38,8 +47,9 @@ async def init_neo4j():
 
 async def main():
     logger.info("Starting resource initialization...")
-    await init_milvus()
+    # Order matters: initialize platform first to setup clients
     await init_neo4j()
+    await init_milvus()
     logger.info("Resource initialization finished.")
 
 if __name__ == "__main__":

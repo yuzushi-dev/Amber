@@ -34,6 +34,10 @@ def configure_settings(settings: SettingsProtocol) -> None:
     global _settings
     print(f"DEBUG: configure_settings called with {settings}")
     _settings = settings
+    
+    # Also configure shared kernel runtime (used by infrastructure adapters)
+    from src.shared.kernel.runtime import configure_settings as runtime_configure
+    runtime_configure(settings)
 
 
 def get_settings() -> SettingsProtocol:
@@ -386,6 +390,7 @@ def build_retrieval_service(session=None):
     from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
     from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
     from src.core.graph.infrastructure.neo4j_client import Neo4jClient
+    from src.core.admin_ops.application.tuning_service import TuningService
     
     settings = get_settings_lazy()
     providers = getattr(settings, "providers", None)
@@ -414,6 +419,8 @@ def build_retrieval_service(session=None):
     # Use platform managed one
     neo4j_client = platform.neo4j_client
 
+    tuning_service = TuningService(build_session_factory())
+
     return RetrievalService(
         document_repository=document_repo,
         vector_store=vector_store,
@@ -425,6 +432,7 @@ def build_retrieval_service(session=None):
         default_embedding_model=settings.default_embedding_model,
         redis_url=settings.db.redis_url,
         config=retrieval_config,
+        tuning_service=tuning_service,
     )
 
 
