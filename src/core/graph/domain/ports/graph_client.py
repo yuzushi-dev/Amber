@@ -22,6 +22,14 @@ class GraphClientPort(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
+    async def import_graph(self, items: Any, mode: str) -> dict:
+        """Import graph data from an iterator."""
+        ...
+
+    def export_graph(self, tenant_id: str) -> Any:
+        """Export graph data as an async iterator."""
+        ...
+
 
 _graph_client: GraphClientPort | None = None
 

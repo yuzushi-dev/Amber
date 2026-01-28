@@ -27,6 +27,8 @@ from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.vector_store import VectorStoreFactory
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.admin_ops.domain.global_rule import GlobalRule
 from src.core.tenants.domain.tenant import Tenant
 
@@ -68,9 +70,11 @@ class RestoreService:
     Service for restoring from backup archives.
     """
 
-    def __init__(self, session: AsyncSession, storage: StoragePort):
+    def __init__(self, session: AsyncSession, storage: StoragePort, graph_client: GraphClientPort, vector_store_factory: VectorStoreFactory):
         self.session = session
         self.storage = storage
+        self.graph_client = graph_client
+        self.vector_store_factory = vector_store_factory
 
     async def validate_backup(self, backup_path: str) -> BackupManifest:
         """
@@ -563,7 +567,6 @@ class RestoreService:
 
     async def _restore_vectors(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
         """Restore vectors to Milvus."""
-        from src.amber_platform.composition_root import build_vector_store_factory
         from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
         from src.core.tenants.domain.tenant import Tenant
 
@@ -577,7 +580,7 @@ class RestoreService:
         collection_name = resolve_active_vector_collection(tenant_id, t_config)
         
         # Build ephemeral store
-        factory = build_vector_store_factory()
+        factory = self.vector_store_factory
         dims = int(t_config.get("embedding_dimensions") or 1536)
         
         vector_store = factory(dims, collection_name=collection_name)
@@ -597,8 +600,7 @@ class RestoreService:
 
     async def _restore_graph(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
         """Restore graph to Neo4j."""
-        from src.amber_platform.composition_root import platform
-
+        
         if "graph/graph.jsonl" not in zf.namelist():
             return
 
@@ -608,7 +610,7 @@ class RestoreService:
                     if line.strip():
                         yield json.loads(line)
             
-            stats = await platform.neo4j_client.import_graph(graph_gen(), mode=mode.value.lower())
+            stats = await self.graph_client.import_graph(graph_gen(), mode=mode.value.lower())
             logger.info(f"Restored graph: {stats}")
 
     async def _restore_postgres_dump(self, zf: zipfile.ZipFile) -> None:

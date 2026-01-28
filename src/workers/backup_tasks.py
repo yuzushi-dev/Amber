@@ -143,7 +143,8 @@ async def _create_backup_async(job_id: str, tenant_id: str, scope: str, task_id:
             
             # Generate backup
             storage = MinIOClient()
-            backup_service = BackupService(session, storage)
+            from src.amber_platform.composition_root import platform, build_vector_store_factory
+            backup_service = BackupService(session, storage, platform.neo4j_client, build_vector_store_factory())
             
             def progress_callback(progress: int):
                 # Scale progress: 5% start, 95% for generation
@@ -286,7 +287,8 @@ async def _restore_backup_async(job_id: str, tenant_id: str, backup_path: str, m
             
             # Perform restore
             storage = MinIOClient()
-            restore_service = RestoreService(session, storage)
+            from src.amber_platform.composition_root import platform, build_vector_store_factory
+            restore_service = RestoreService(session, storage, platform.neo4j_client, build_vector_store_factory())
             
             def progress_callback(progress: int):
                 scaled = 5 + int(progress * 0.9)
