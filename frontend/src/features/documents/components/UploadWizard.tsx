@@ -1,457 +1,235 @@
-import { useState, useEffect, useRef } from 'react'
-import { X, Upload, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
-import { apiClient } from '@/lib/api-client'
-import { AnimatedProgress } from '@/components/ui/animated-progress'
+
+import { useRef, useState } from 'react'
+import { X, Upload, CheckCircle2, AlertCircle, Clock, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { SSEManager } from '@/lib/sse'
-import { useNotification } from '@/hooks/useNotification'
-import { useTitleProgress } from '@/hooks/useTitleProgress'
+import { calculateGlobalProgress, useUploadStore, UploadItem } from '../stores/useUploadStore'
+import { cn } from '@/lib/utils'
 
-interface UploadWizardProps {
-    onClose: () => void
-    onComplete: () => void
-}
-
-type ProcessingStatus = 'idle' | 'uploading' | 'ingested' | 'extracting' | 'classifying' | 'chunking' | 'embedding' | 'graph_sync' | 'ready' | 'completed' | 'failed'
-
-interface ProcessingStatusResponse {
-    status: string
-    error_message?: string
-}
-
-// Stage weights for progress calculation (graph_sync is the slowest)
-const STAGE_PROGRESS: Record<ProcessingStatus, number> = {
-    idle: 0,
-    uploading: 0,
-    ingested: 5,
-    extracting: 10,
-    classifying: 20,
-    chunking: 35,
-    embedding: 50,
-    graph_sync: 70,  // Graph sync takes longest, so larger range
-    ready: 100,
-    completed: 100,
-    failed: 0,
-}
-
-
-
-function formatDuration(seconds: number): string {
-    if (seconds < 60) {
-        return `${Math.round(seconds)}s`
-    }
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.round(seconds % 60)
-    return `${mins}m ${secs}s`
-}
-
-export default function UploadWizard({ onClose, onComplete }: UploadWizardProps) {
-    const [file, setFile] = useState<File | null>(null)
-    const [status, setStatus] = useState<ProcessingStatus>('idle')
-    const [progress, setProgress] = useState(0)
-    const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0 })
-    const [, setStatusMessage] = useState('')
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const [sseManager, setSseManager] = useState<SSEManager | null>(null)
-    const pollingRef = useRef<NodeJS.Timeout | null>(null)
-
-    // Timing state
-    const [startTime, setStartTime] = useState<number | null>(null)
-    const [elapsedSeconds, setElapsedSeconds] = useState(0)
-    const timerRef = useRef<NodeJS.Timeout | null>(null)
-
-    // Browser notifications
-    const { requestPermission, showNotification } = useNotification()
-    const fileNameRef = useRef<string>('')
-    const startTimeRef = useRef<number>(0)
-
-    // Title progress
-    const { setProgress: setTitleProgress } = useTitleProgress()
-
-    // Sync title with status and progress
-    useEffect(() => {
-        if (status === 'idle' || status === 'ready' || status === 'completed' || status === 'failed') {
-            setTitleProgress(null)
-        } else if (status === 'uploading') {
-            setTitleProgress(progress, 'Uploading...')
-        } else {
-            // Processing stages
-            const label = status.charAt(0).toUpperCase() + status.slice(1)
-            setTitleProgress(progress, `${label}...`)
-        }
-    }, [status, progress])
-
-    // Sync progress with status
-    useEffect(() => {
-        if (status === 'idle' || status === 'failed') return
-
-        // For uploading, we let the upload handler manage progress naturally
-        // For other stages, use the defined stage progress
-        if (status !== 'uploading') {
-            const targetProgress = STAGE_PROGRESS[status]
-            if (targetProgress !== undefined) {
-                setProgress(targetProgress)
-            }
-        }
-    }, [status])
-
-    // Timer for elapsed time
-    useEffect(() => {
-        if (startTime && status !== 'ready' && status !== 'completed' && status !== 'failed' && status !== 'idle') {
-            timerRef.current = setInterval(() => {
-                setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000))
-            }, 1000)
-        }
-
-        return () => {
-            if (timerRef.current) {
-                clearInterval(timerRef.current)
-            }
-        }
-    }, [startTime, status])
-
-    // Cleanup SSE on change or unmount
-    useEffect(() => {
-        return () => {
-            if (sseManager) {
-                sseManager.disconnect()
-            }
-        }
-    }, [sseManager])
-
-    // Cleanup polling on unmount
-    useEffect(() => {
-        return () => {
-            if (pollingRef.current) {
-                clearInterval(pollingRef.current)
-            }
-        }
-    }, [])
+export default function UploadWizard() {
+    // We don't use props anymore, we use the store
+    const { items, setOpen, enqueueFiles, retry, remove, dismiss } = useUploadStore()
+    const [isDragging, setIsDragging] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setFile(e.target.files[0])
-            setErrorMessage(null)
+        if (e.target.files && e.target.files.length > 0) {
+            enqueueFiles(Array.from(e.target.files))
+            // Reset input
+            if (fileInputRef.current) fileInputRef.current.value = ''
         }
     }
 
-    const handleUpload = async () => {
-        if (!file) return
-
-        // Store file name for notification and request permission
-        fileNameRef.current = file.name
-        requestPermission() // Fire and forget - don't block on permission
-
-        setStatus('uploading')
-        setErrorMessage(null)
-        const now = Date.now()
-        setStartTime(now)
-        startTimeRef.current = now
-        setElapsedSeconds(0)
-
-        const formData = new FormData()
-        formData.append('file', file)
-
-        try {
-            const response = await apiClient.post<{ document_id: string, events_url: string }>('/documents', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (progressEvent) => {
-                    const { loaded, total } = progressEvent
-                    if (total) {
-                        const percent = Math.round((loaded * 100) / total)
-                        setProgress(percent)
-                        setUploadStats({ loaded, total })
-                    }
-                }
-            })
-
-            const { document_id, events_url } = response.data
-
-            // Start listening for processing events
-            startMonitoring(document_id, events_url)
-
-        } catch (err: unknown) {
-            const error = err as { message?: string; response?: { data?: { detail?: string } } }
-            const message = error.message || 'Upload failed'
-            setStatus('failed')
-            setStatusMessage(`Upload failed: ${message}`)
-            setErrorMessage(error.response?.data?.detail || 'Upload failed. Please try again.')
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(false)
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            enqueueFiles(Array.from(e.dataTransfer.files))
         }
     }
 
-    const startMonitoring = async (documentId: string, eventsUrl?: string) => {
-        // Initial state after upload
-        setStatus('ingested')
-        setStatusMessage('Ingested, waiting for processing...')
-        // setProgress(STAGE_PROGRESS.extracting) // Handled by useEffect now
-
-        // Get API key for SSE auth
-        // Fetch Ticket for Secure SSE
-        let ticket = ''
-        try {
-            const ticketRes = await apiClient.post<{ ticket: string }>('/auth/ticket')
-            ticket = ticketRes.data.ticket
-        } catch (e) {
-            console.error('Failed to fetch auth ticket for SSE:', e)
-            setStatus('failed')
-            setErrorMessage('Authentication failed.')
-            return
-        }
-
-        // Use relative path for SSE so it goes through the Vite proxy (or Nginx in prod)
-        // This ensures it works on remote servers (e.g., cph-01) where localhost is incorrect.
-        // We use /api/v1 prefix which the Vite proxy rewrites to the VITE_API_TARGET
-        const baseUrl = eventsUrl || `/api/v1/documents/${documentId}/events`
-
-        // Append ticket parameter
-        const monitorUrl = baseUrl.includes('?')
-            ? `${baseUrl}&ticket=${encodeURIComponent(ticket)}`
-            : `${baseUrl}?ticket=${encodeURIComponent(ticket)}`
-
-
-        // Status precedence for aggregation (SSE + Polling)
-        const STATUS_ORDER = ['idle', 'uploading', 'ingested', 'extracting', 'classifying', 'chunking', 'embedding', 'graph_sync', 'ready', 'completed', 'failed']
-
-        const updateStatus = (newStatus: string, error?: string) => {
-            const s = newStatus.toLowerCase() as ProcessingStatus
-
-            setStatus(prev => {
-                const prevIndex = STATUS_ORDER.indexOf(prev)
-                const newIndex = STATUS_ORDER.indexOf(s)
-
-                // Always jump to failed or ready. For progress, only move forward.
-                if (s === 'failed' || s === 'ready' || s === 'completed' || newIndex > prevIndex) {
-                    return s
-                }
-                return prev
-            })
-
-            if (s === 'ready' || s === 'completed') {
-                setStatusMessage('Knowledge successfully integrated!')
-                setProgress(100)
-                cleanup()
-
-                // Show browser notification if tab is hidden
-                const start = startTimeRef.current || startTime
-                const elapsed = start ? Math.floor((Date.now() - start) / 1000) : 0
-                const elapsedText = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
-                showNotification('Upload Complete', {
-                    body: `"${fileNameRef.current}" processed in ${elapsedText}`,
-                    tag: 'upload-complete',
-                })
-
-                setTimeout(() => {
-                    onComplete()
-                }, 1500)
-            } else if (s === 'failed') {
-                setErrorMessage(error || 'Processing failed.')
-                cleanup()
-
-                // Show browser notification for failure if tab is hidden
-                showNotification('Upload Failed', {
-                    body: `"${fileNameRef.current}" failed: ${error || 'Processing error'}`,
-                    tag: 'upload-failed',
-                })
-            }
-        }
-
-        const cleanup = () => {
-            if (pollingRef.current) clearInterval(pollingRef.current)
-            manager.disconnect()
-        }
-
-        // SSE Setup
-        let retryCount = 0
-        const maxRetries = 3
-
-        const createManager = () => {
-            const manager = new SSEManager(
-                monitorUrl,
-                (event) => {
-                    try {
-                        const data = JSON.parse(event.data)
-                        if (data.status) {
-                            updateStatus(data.status, data.error)
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse SSE event:', e)
-                    }
-                },
-                (error) => {
-                    console.warn('SSE warning:', error)
-                    retryCount++
-                    if (retryCount < maxRetries) {
-                        manager.disconnect()
-                        setTimeout(createManager, 1000 * retryCount)
-                    } else {
-                        // SSE failed, rely on polling
-                        console.warn('SSE connection lost, switching to polling only.')
-                    }
-                }
-            )
-            manager.connect()
-            setSseManager(manager)
-            return manager
-        }
-
-        const manager = createManager()
-
-        // Polling Fallback (every 3s)
-        pollingRef.current = setInterval(async () => {
-            try {
-                // apiClient base is /v1, so request /documents/{id}
-                const res = await apiClient.get<ProcessingStatusResponse>(`/documents/${documentId}`)
-                if (res.data && res.data.status) {
-                    updateStatus(res.data.status, res.data.error_message)
-                }
-            } catch (err) {
-                console.warn('Poll failed', err)
-            }
-        }, 3000)
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(true)
     }
 
-    const getStatusLabel = (s: ProcessingStatus) => {
-        switch (s) {
-            case 'uploading': return 'Uploading to secure vault...'
-            case 'ingested': return 'Ingesting content...'
-            case 'extracting': return 'Extracting text and metadata...'
-            case 'classifying': return 'Classifying document domain...'
-            case 'chunking': return 'Splitting into semantic chunks...'
-            case 'embedding': return 'Generating vector embeddings...'
-            case 'graph_sync': return 'Building knowledge graph...'
-            case 'ready': return 'Knowledge successfully integrated!'
-            case 'failed': return 'Processing failed.'
-            default: return 'Processing...'
-        }
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(false)
     }
 
-    const isProcessing = status !== 'idle' && status !== 'uploading' && status !== 'ready' && status !== 'completed' && status !== 'failed'
+    // Calculate Global Progress for Header
+    const globalProgress = calculateGlobalProgress(items)
+
+    // Status counts
+    const queuedCount = items.filter(i => i.status === 'queued').length
+    const activeCount = items.filter(i => i.status === 'uploading' || i.status === 'processing').length
+    const completedCount = items.filter(i => i.status === 'ready' || i.status === 'completed').length
+    const failedCount = items.filter(i => ['failed', 'interrupted', 'missingFile'].includes(i.status)).length
+
+    const hasItems = items.length > 0
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-            <div className="bg-card border shadow-2xl rounded-xl w-full max-w-lg overflow-hidden">
-                <header className="p-4 border-b flex justify-between items-center bg-muted/30">
-                    <h3 className="font-semibold text-lg">Knowledge Ingestion</h3>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        className="rounded-full hover:bg-muted"
-                        aria-label="Close upload wizard"
-                    >
-                        <X className="w-5 h-5" />
-                    </Button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div
+                className="bg-card border shadow-2xl rounded-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+            >
+                {/* Header */}
+                <header className="p-4 border-b flex justify-between items-center bg-muted/30 shrink-0">
+                    <div>
+                        <h3 className="font-semibold text-lg">Knowledge Ingestion</h3>
+                        <p className="text-xs text-muted-foreground">
+                            {activeCount > 0 ? `Processing ${activeCount} files...` :
+                                queuedCount > 0 ? `Queued ${queuedCount} files...` :
+                                    completedCount > 0 ? 'Uploads complete' : 'Upload documents'}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {completedCount > 0 && failedCount === 0 && activeCount === 0 && queuedCount === 0 && (
+                            <Button variant="outline" size="sm" onClick={() => items.forEach(i => dismiss(i.id))}>
+                                Clear All
+                            </Button>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setOpen(false)}
+                            className="rounded-full hover:bg-muted"
+                        >
+                            <X className="w-5 h-5" />
+                        </Button>
+                    </div>
                 </header>
 
-                <div className="p-12 text-center space-y-6">
-                    {status === 'idle' ? (
-                        <>
+                {/* Progress Bar (Global) */}
+                {hasItems && (
+                    <div className="h-1 bg-secondary w-full">
+                        <div
+                            className="h-full bg-primary transition-all duration-500 ease-out"
+                            style={{ width: `${globalProgress}%` }}
+                        />
+                    </div>
+                )}
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-0 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                    {!hasItems ? (
+                        <div className={cn(
+                            "flex flex-col items-center justify-center h-full p-12 text-center transition-colors min-h-[300px]",
+                            isDragging ? "bg-primary/5" : ""
+                        )}>
                             <div
-                                className="border-2 border-dashed rounded-xl p-12 transition-colors hover:bg-accent/10 cursor-pointer"
-                                onClick={() => document.getElementById('file-upload')?.click()}
+                                className="border-2 border-dashed rounded-xl p-12 transition-all hover:bg-accent/10 cursor-pointer w-full"
+                                onClick={() => fileInputRef.current?.click()}
                             >
                                 <Upload className="w-12 h-12 mx-auto text-primary opacity-50 mb-4" />
-                                <p className="text-sm font-medium">Click or drag to upload a file</p>
-                                <p className="text-xs text-muted-foreground mt-2">Supports PDF, MD, HTML (max 50MB)</p>
-                                <input
-                                    id="file-upload"
-                                    type="file"
-                                    className="hidden"
-                                    onChange={handleFileChange}
-                                />
+                                <p className="text-sm font-medium">Click or drag files to upload</p>
+                                <p className="text-xs text-muted-foreground mt-2">Supports multiple files (max 50MB each)</p>
                             </div>
-                            {errorMessage && (
-                                <div className="text-destructive text-sm flex items-center justify-center gap-2">
-                                    <AlertCircle className="w-4 h-4" />
-                                    {errorMessage}
-                                </div>
-                            )}
-                            {file && (
-                                <div className="bg-muted p-4 rounded-lg flex items-center justify-between">
-                                    <span className="text-sm font-medium truncate max-w-xs">{file.name}</span>
-                                    <Button
-                                        onClick={handleUpload}
-                                        className="bg-primary text-primary-foreground hover:opacity-90"
-                                    >
-                                        Start Ingestion
-                                    </Button>
-                                </div>
-                            )}
-                        </>
+                        </div>
                     ) : (
-                        <div className="space-y-4 py-4">
-                            {status === 'ready' || status === 'completed' ? (
-                                <CheckCircle2 className="w-16 h-16 mx-auto text-success animate-in zoom-in duration-300" />
-                            ) : status === 'failed' ? (
-                                <div className="text-destructive">
-                                    <AlertCircle className="w-16 h-16 mx-auto mb-4" />
-                                    <p className="font-medium">{errorMessage || 'Processing failed'}</p>
-                                </div>
-                            ) : null}
+                        <div className="divide-y">
+                            {items.map(item => (
+                                <UploadItemRow
+                                    key={item.id}
+                                    item={item}
+                                    onRetry={() => retry(item.id)}
+                                    onRemove={() => remove(item.id)}
+                                />
+                            ))}
 
-                            {status !== 'failed' && (
-                                <>
-                                    <h4 className="text-xl font-bold capitalize">{status === 'ready' || status === 'completed' ? 'Complete' : status}...</h4>
-                                    <p className="text-sm text-muted-foreground">
-                                        {getStatusLabel(status)}
-                                    </p>
-                                </>
-                            )}
-
-                            {/* Progress bar for upload */}
-                            {status === 'uploading' && (
-                                <div className="w-full max-w-xs mx-auto mt-4">
-                                    <AnimatedProgress
-                                        value={progress}
-                                        stages={[
-                                            { label: 'Starting upload...', threshold: 0 },
-                                            { label: 'Uploading...', threshold: 10 },
-                                            { label: 'Almost done...', threshold: 90 },
-                                        ]}
-                                        size="md"
-                                    />
-                                    <div className="text-center text-xs text-muted-foreground mt-2">
-                                        {(uploadStats.loaded / (1024 * 1024)).toFixed(2)} MB / {(uploadStats.total / (1024 * 1024)).toFixed(2)} MB
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Progress bar for processing stages */}
-                            {isProcessing && (
-                                <div className="w-full max-w-xs mx-auto mt-4 space-y-3">
-                                    <AnimatedProgress
-                                        value={progress}
-                                        stages={[
-                                            { label: 'Ingesting...', threshold: 0 },
-                                            { label: 'Extracting...', threshold: 10 },
-                                            { label: 'Classifying...', threshold: 20 },
-                                            { label: 'Chunking...', threshold: 35 },
-                                            { label: 'Embedding...', threshold: 50 },
-                                            { label: 'Building graph...', threshold: 70 },
-                                            { label: 'Finalizing...', threshold: 90 },
-                                        ]}
-                                        size="md"
-                                    />
-                                    <div className="flex items-center justify-center text-xs text-muted-foreground">
-                                        <span className="flex items-center gap-1.5">
-                                            <Clock className="w-3 h-3" />
-                                            <span>Elapsed:</span>
-                                            <span className="tabular-nums font-medium">{formatDuration(elapsedSeconds)}</span>
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Show completion time */}
-                            {(status === 'ready' || status === 'completed') && elapsedSeconds > 0 && (
-                                <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 mt-2">
-                                    <Clock className="w-3 h-3" />
-                                    Completed in {formatDuration(elapsedSeconds)}
-                                </div>
-                            )}
+                            {/* Mini Dropzone at bottom */}
+                            <div
+                                className={cn(
+                                    "p-8 text-center border-t border-dashed transition-colors hover:bg-accent/5 cursor-pointer",
+                                    isDragging ? "bg-primary/10" : ""
+                                )}
+                                onClick={() => fileInputRef.current?.click()}
+                            >
+                                <p className="text-xs text-muted-foreground font-medium">+ Add more files</p>
+                            </div>
                         </div>
                     )}
                 </div>
+
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={handleFileChange}
+                />
+            </div>
+        </div>
+    )
+}
+
+function UploadItemRow({ item, onRetry, onRemove }: { item: UploadItem, onRetry: () => void, onRemove: () => void }) {
+
+    const getStatusIcon = () => {
+        switch (item.status) {
+            case 'queued': return <Clock className="w-5 h-5 text-muted-foreground" />
+            case 'uploading': return <Upload className="w-5 h-5 text-blue-500 animate-bounce" />
+            case 'processing': return <RefreshCw className="w-5 h-5 text-amber-500 animate-spin" />
+            case 'ready':
+            case 'completed': return <CheckCircle2 className="w-5 h-5 text-green-500" />
+            case 'failed':
+            case 'interrupted':
+            case 'missingFile': return <AlertCircle className="w-5 h-5 text-destructive" />
+            default: return <Clock className="w-5 h-5 text-muted-foreground" />
+        }
+    }
+
+    const getStatusLabel = () => {
+        if (item.status === 'uploading') return `Uploading ${item.uploadProgress}%`
+        if (item.status === 'processing') {
+            if (item.currentStage) {
+                // Convert snake_case to Title Case (e.g. graph_sync -> Graph Sync)
+                const stageName = item.currentStage
+                    .split('_')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ')
+                return `${stageName} ${item.stageProgress}%`
+            }
+            return `Processing ${item.stageProgress}%`
+        }
+        if (item.status === 'interrupted') return 'Interrupted'
+        if (item.status === 'missingFile') return 'File Lost'
+        return item.status.charAt(0).toUpperCase() + item.status.slice(1)
+    }
+
+    const progressValue = item.status === 'uploading' ? item.uploadProgress
+        : item.status === 'processing' ? item.stageProgress
+            : (item.status === 'ready' || item.status === 'completed') ? 100 : 0
+
+    return (
+        <div className="p-4 flex items-center gap-4 hover:bg-muted/10 group transition-colors">
+            <div className="shrink-0">
+                {getStatusIcon()}
+            </div>
+
+            <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex justify-between items-start">
+                    <span className="text-sm font-medium truncate" title={item.fileMeta.name}>
+                        {item.fileMeta.name}
+                    </span>
+                    <span className={cn(
+                        "text-xs capitalize ml-2",
+                        item.status === 'failed' ? "text-destructive" : "text-muted-foreground"
+                    )}>
+                        {getStatusLabel()}
+                    </span>
+                </div>
+
+                {/* Progress Bar */}
+                {(item.status === 'uploading' || item.status === 'processing') && (
+                    <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                        <div
+                            className={cn(
+                                "h-full transition-all duration-300",
+                                item.status === 'uploading' ? "bg-blue-500" : "bg-amber-500"
+                            )}
+                            style={{ width: `${progressValue}%` }}
+                        />
+                    </div>
+                )}
+
+                {item.error && (
+                    <p className="text-xs text-destructive truncate">{item.error}</p>
+                )}
+            </div>
+
+            <div className="shrink-0 flex items-center gap-1 opacity-10 group-hover:opacity-100 transition-opacity">
+                {(item.status === 'failed' || item.status === 'interrupted') && (
+                    <Button variant="ghost" size="icon" onClick={onRetry} title="Retry">
+                        <RefreshCw className="w-4 h-4" />
+                    </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={onRemove} title="Dismiss">
+                    {item.status === 'ready' ? <X className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                </Button>
             </div>
         </div>
     )
