@@ -118,6 +118,8 @@ This release represents a complete clean architecture transformation of the Ambe
 - Context Propagation: Proper tenant context in IngestionService document processing
 - Graph Extractor: Correct metric labels in GraphExtractor
 - Frontend Stats: Real-time updates for document/folder action statistics
+- Backup Reliability: Fixed Neo4j client event loop mismatch in Celery workers preventing concurrent backups
+- Vector Backup Fix: Resolved empty vector backups by dynamically detecting active Milvus collection
 
 ---
 

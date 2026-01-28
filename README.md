@@ -4,7 +4,7 @@
 
 > **Preserving Context, Revealing Insight**
 
-Amber 2.0 is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
+Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -189,6 +189,13 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Job Controls**: Cancel, retry, or view logs for any job
 - **Queue Monitoring**: Real-time inspection of Celery queues
 - **Worker Health**: Track worker status and task concurrency
+- **Stop All Jobs**: Emergency termination of all running tasks
+
+#### Backup & Restore (`/admin/backup`)
+- **Full System Backup**: Complete archive of PostgreSQL (metadata), Neo4j (graph), Milvus (vectors), and MinIO (files)
+- **User Data Backup**: Lightweight portability scope (Vectors, Graph, Chunks) sans system configs
+- **Point-in-Time Recovery**: Restore capability with "Merge" or "Replace" strategies
+- **Scheduled Backups**: Automated daily/weekly snapshots with retention policies
 
 #### Maintenance & Operations
 - **Community Detection**: Trigger full or incremental updates
@@ -433,7 +440,7 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
 
 ### Prerequisites
 
-- **Docker & Docker Compose** (v2.0+) - Recommended for easiest setup
+- **Docker & Docker Compose** (v+) - Recommended for easiest setup
 - **LLM API Key** - Required from either:
   - [OpenAI](https://platform.openai.com/) - GPT models
   - [Anthropic](https://console.anthropic.com/) - Claude models
@@ -446,8 +453,8 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/yourusername/Amber_2.0.git
-   cd Amber_2.0
+   git clone https://github.com/yourusername/Amber_.git
+   cd Amber_
    ```
 
 2. **Configure Environment**
@@ -1907,17 +1914,17 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit m
 ## Roadmap
 
 - [ ] Multi-modal support (images, audio)
-- [ ] Real-time document updates
-- [ ] 3D graph visualization
-- [ ] Multi-tenant UI
-- [ ] Conversation memory
-- [ ] Export functionality
+- [x] Real-time document updates
+- [x] 3D graph visualization
+- [x] Multi-tenant UI
+- [x] Conversation memory
+- [x] Export functionality (Backup & Restore)
 - [ ] Plugin system
 
 ---
 
 ## License
 
-Amber 2.0 is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
