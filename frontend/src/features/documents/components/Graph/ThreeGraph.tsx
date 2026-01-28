@@ -76,7 +76,7 @@ export default function ThreeGraph({
             const value = style.getPropertyValue(name).trim();
             // Fix: THREE.Color doesn't parse space-separated HSL (CSS Color Level 4) well
             // Convert "38 100% 50%" -> "38, 100%, 50%"
-            return value ? `hsl(${value.replaceAll(' ', ', ')})` : fallback;
+            return value ? `hsl(${value.replace(/ /g, ', ')})` : fallback;
         };
 
         const background = readVar('--surface-950', fallbackDark);
