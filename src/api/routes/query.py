@@ -515,7 +515,7 @@ async def _query_stream_impl(
                         document_ids=document_ids,
                         top_k=max_chunks,
                     ),
-                    timeout=35.0
+                    timeout=60.0
                 )
             except TimeoutError:
                 logger.warning("Retrieval timed out after 35 seconds")
