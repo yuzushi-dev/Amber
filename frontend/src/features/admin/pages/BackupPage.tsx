@@ -20,13 +20,15 @@ import {
     AlertTriangle,
     Clock,
     FileArchive,
-    Circle
 } from 'lucide-react'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { backupApi, BackupJob, RestoreJob, BackupSchedule } from '@/lib/api-admin'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
+import EmptyState from '@/components/ui/EmptyState'
+import { RadioCardGroup, RadioCardItem } from '@/components/ui/radio-card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -34,7 +36,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { ConfirmDialog } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
 
 // Helpers
 const formatBytes = (bytes: number | null | undefined): string => {
@@ -51,44 +52,27 @@ const formatDate = (dateStr: string | null | undefined): string => {
 
 const getStatusIcon = (status: string) => {
     switch (status) {
-        case 'completed': return <CheckCircle2 className="h-4 w-4 text-green-500" />
-        case 'running': return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-        case 'failed': return <XCircle className="h-4 w-4 text-red-500" />
-        case 'pending': return <Clock className="h-4 w-4 text-yellow-500" />
-        default: return <Clock className="h-4 w-4 text-gray-500" />
+        case 'completed': return <CheckCircle2 className="h-4 w-4 text-success" />
+        case 'running': return <Loader2 className="h-4 w-4 text-info animate-spin" />
+        case 'failed': return <XCircle className="h-4 w-4 text-destructive" />
+        case 'pending': return <Clock className="h-4 w-4 text-warning" />
+        default: return <Clock className="h-4 w-4 text-muted-foreground" />
     }
 }
 
-// Simple Radio Option component (inline replacement for missing RadioGroup)
-interface RadioOptionProps {
-    selected: boolean
-    onSelect: () => void
-    children: React.ReactNode
-    className?: string
-}
-
-function RadioOption({ selected, onSelect, children, className }: RadioOptionProps) {
-    return (
-        <div
-            onClick={onSelect}
-            className={cn(
-                "flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors",
-                selected ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-                className
-            )}
-        >
-            <div className="mt-1">
-                {selected ? (
-                    <div className="h-4 w-4 rounded-full border-2 border-primary bg-primary flex items-center justify-center">
-                        <Circle className="h-2 w-2 text-primary-foreground fill-current" />
-                    </div>
-                ) : (
-                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/50" />
-                )}
-            </div>
-            {children}
-        </div>
-    )
+const getStatusBadgeVariant = (status: string): BadgeProps['variant'] => {
+    switch (status) {
+        case 'completed':
+            return 'success'
+        case 'running':
+            return 'info'
+        case 'failed':
+            return 'destructive'
+        case 'pending':
+            return 'warning'
+        default:
+            return 'secondary'
+    }
 }
 
 export default function BackupPage() {
@@ -108,6 +92,7 @@ export default function BackupPage() {
     const [restoreJobId, setRestoreJobId] = useState<string | null>(null)
     const [restoreJob, setRestoreJob] = useState<RestoreJob | null>(null)
     const [confirmRestore, setConfirmRestore] = useState<BackupJob | null>(null)
+    const [confirmDelete, setConfirmDelete] = useState<BackupJob | null>(null)
 
     // === Schedule State ===
     const [schedule, setSchedule] = useState<BackupSchedule | null>(null)
@@ -274,6 +259,9 @@ export default function BackupPage() {
     const restoreDialogDescription = confirmRestore
         ? `You are about to restore from backup created on ${formatDate(confirmRestore.created_at)}. Mode: ${restoreMode === 'merge' ? 'Merge (keep existing data)' : 'Replace (delete all existing data)'}. ${restoreMode === 'replace' ? 'Warning: Replace mode will delete all existing data. This cannot be undone!' : ''}`
         : ''
+    const deleteDialogDescription = confirmDelete
+        ? `Delete backup created on ${formatDate(confirmDelete.created_at)} (${formatBytes(confirmDelete.file_size)}). This action cannot be undone.`
+        : ''
 
     return (
         <div className="p-8 pb-32 max-w-6xl mx-auto space-y-8">
@@ -312,36 +300,32 @@ export default function BackupPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="space-y-4">
-                                <RadioOption
-                                    selected={scope === 'user_data'}
-                                    onSelect={() => setScope('user_data')}
-                                >
-                                    <div className="space-y-1">
-                                        <Label className="text-base font-medium cursor-pointer">
-                                            User Data Only
-                                        </Label>
-                                        <p className="text-sm text-muted-foreground">
+                            <RadioCardGroup
+                                value={scope}
+                                onValueChange={(value) => setScope(value as 'user_data' | 'full_system')}
+                                label="Backup Scope"
+                            >
+                                <RadioCardItem
+                                    value="user_data"
+                                    label="User Data Only"
+                                    description={
+                                        <>
                                             Documents, conversations, user facts, and memory summaries.
                                             Recommended for regular backups.
-                                        </p>
-                                    </div>
-                                </RadioOption>
-                                <RadioOption
-                                    selected={scope === 'full_system'}
-                                    onSelect={() => setScope('full_system')}
-                                >
-                                    <div className="space-y-1">
-                                        <Label className="text-base font-medium cursor-pointer">
-                                            Full System
-                                        </Label>
-                                        <p className="text-sm text-muted-foreground">
+                                        </>
+                                    }
+                                />
+                                <RadioCardItem
+                                    value="full_system"
+                                    label="Full System"
+                                    description={
+                                        <>
                                             Everything above plus global rules, tenant config, and metadata.
                                             Larger file size.
-                                        </p>
-                                    </div>
-                                </RadioOption>
-                            </div>
+                                        </>
+                                    }
+                                />
+                            </RadioCardGroup>
 
                             {/* Progress during backup */}
                             <AnimatePresence>
@@ -369,9 +353,9 @@ export default function BackupPage() {
                                 <motion.div
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg"
+                                    className="flex items-center gap-3 p-4 bg-success-muted border border-success/30 rounded-lg"
                                 >
-                                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                    <CheckCircle2 className="h-5 w-5 text-success" />
                                     <div className="flex-1">
                                         <p className="font-medium">Backup ready!</p>
                                         <p className="text-sm text-muted-foreground">
@@ -422,11 +406,11 @@ export default function BackupPage() {
                                     <Loader2 className="h-6 w-6 animate-spin" />
                                 </div>
                             ) : backups.length === 0 ? (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    <FileArchive className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                                    <p>No backups yet</p>
-                                    <p className="text-sm">Create your first backup to get started</p>
-                                </div>
+                                <EmptyState
+                                    icon={<FileArchive className="w-8 h-8 text-muted-foreground/50" />}
+                                    title="No backups yet"
+                                    description="Create your first backup to get started."
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     {backups.map((backup) => (
@@ -440,9 +424,9 @@ export default function BackupPage() {
                                                     <span className="font-medium">
                                                         {backup.scope === 'full_system' ? 'Full System' : 'User Data'}
                                                     </span>
-                                                    <span className="text-xs px-2 py-0.5 bg-muted rounded-full">
+                                                    <Badge variant={getStatusBadgeVariant(backup.status)}>
                                                         {backup.status}
-                                                    </span>
+                                                    </Badge>
                                                 </div>
                                                 <div className="text-sm text-muted-foreground">
                                                     {formatDate(backup.created_at)} • {formatBytes(backup.file_size)}
@@ -455,6 +439,7 @@ export default function BackupPage() {
                                                             variant="outline"
                                                             size="sm"
                                                             onClick={() => handleDownload(backup.id)}
+                                                            aria-label="Download backup"
                                                         >
                                                             <Download className="h-4 w-4" />
                                                         </Button>
@@ -462,6 +447,7 @@ export default function BackupPage() {
                                                             variant="outline"
                                                             size="sm"
                                                             onClick={() => setConfirmRestore(backup)}
+                                                            aria-label="Restore from backup"
                                                         >
                                                             <RotateCcw className="h-4 w-4" />
                                                         </Button>
@@ -470,7 +456,8 @@ export default function BackupPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
-                                                    onClick={() => handleDelete(backup.id)}
+                                                    onClick={() => setConfirmDelete(backup)}
+                                                    aria-label="Delete backup"
                                                 >
                                                     <Trash2 className="h-4 w-4 text-destructive" />
                                                 </Button>
@@ -493,39 +480,34 @@ export default function BackupPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="space-y-4">
-                                <Label className="text-base">Restore Mode</Label>
-                                <RadioOption
-                                    selected={restoreMode === 'merge'}
-                                    onSelect={() => setRestoreMode('merge')}
-                                >
-                                    <div className="space-y-1">
-                                        <Label className="font-medium cursor-pointer">
-                                            Merge
-                                        </Label>
-                                        <p className="text-sm text-muted-foreground">
+                            <RadioCardGroup
+                                value={restoreMode}
+                                onValueChange={(value) => setRestoreMode(value as 'merge' | 'replace')}
+                                label="Restore Mode"
+                            >
+                                <RadioCardItem
+                                    value="merge"
+                                    label="Merge"
+                                    description={
+                                        <>
                                             Keep existing data and add items from backup.
                                             Duplicate items will be skipped.
-                                        </p>
-                                    </div>
-                                </RadioOption>
-                                <RadioOption
-                                    selected={restoreMode === 'replace'}
-                                    onSelect={() => setRestoreMode('replace')}
-                                    className="border-destructive/50 bg-destructive/5"
-                                >
-                                    <div className="space-y-1">
-                                        <Label className="font-medium cursor-pointer flex items-center gap-2">
-                                            Replace
-                                            <AlertTriangle className="h-4 w-4 text-destructive" />
-                                        </Label>
-                                        <p className="text-sm text-muted-foreground">
+                                        </>
+                                    }
+                                />
+                                <RadioCardItem
+                                    value="replace"
+                                    label="Replace"
+                                    icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
+                                    description={
+                                        <>
                                             Delete all existing data and replace with backup contents.
                                             This action cannot be undone!
-                                        </p>
-                                    </div>
-                                </RadioOption>
-                            </div>
+                                        </>
+                                    }
+                                    className="border-destructive/50 bg-destructive/5"
+                                />
+                            </RadioCardGroup>
 
                             {/* Restore Progress */}
                             <AnimatePresence>
@@ -552,9 +534,9 @@ export default function BackupPage() {
                                 <motion.div
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg"
+                                    className="flex items-center gap-3 p-4 bg-success-muted border border-success/30 rounded-lg"
                                 >
-                                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                    <CheckCircle2 className="h-5 w-5 text-success" />
                                     <div>
                                         <p className="font-medium">Restore complete!</p>
                                         <p className="text-sm text-muted-foreground">
@@ -590,12 +572,15 @@ export default function BackupPage() {
                                 <>
                                     <div className="flex items-center justify-between">
                                         <div className="space-y-0.5">
-                                            <Label className="text-base">Enable Scheduled Backups</Label>
+                                            <Label className="text-base" htmlFor="backup-schedule-enabled">
+                                                Enable Scheduled Backups
+                                            </Label>
                                             <p className="text-sm text-muted-foreground">
                                                 Automatically create backups on a schedule
                                             </p>
                                         </div>
                                         <Switch
+                                            id="backup-schedule-enabled"
                                             checked={schedule.enabled}
                                             onCheckedChange={(checked) =>
                                                 setSchedule({ ...schedule, enabled: checked })
@@ -735,6 +720,16 @@ export default function BackupPage() {
                 cancelText="Cancel"
                 onConfirm={() => confirmRestore && handleStartRestore(confirmRestore)}
                 variant={restoreMode === 'replace' ? 'destructive' : 'default'}
+            />
+            <ConfirmDialog
+                open={!!confirmDelete}
+                onOpenChange={(open) => !open && setConfirmDelete(null)}
+                title="Delete Backup?"
+                description={deleteDialogDescription}
+                confirmText="Delete Backup"
+                cancelText="Cancel"
+                onConfirm={() => confirmDelete && handleDelete(confirmDelete.id)}
+                variant="destructive"
             />
         </div>
     )
