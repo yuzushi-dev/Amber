@@ -54,6 +54,7 @@ celery_app = Celery(
     include=[
         "src.workers.tasks",
         "src.workers.export_tasks",
+        "src.workers.backup_tasks",
     ],
 )
 

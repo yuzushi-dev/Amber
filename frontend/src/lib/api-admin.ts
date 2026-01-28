@@ -1136,3 +1136,110 @@ export const retentionApi = {
         await apiClient.delete<{ status: string; message: string }>(`/admin/retention/summaries/${summaryId}`)
     },
 }
+
+// =============================================================================
+// Backup & Restore API
+// =============================================================================
+
+export interface BackupJob {
+    id: string
+    scope: 'user_data' | 'full_system'
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+    progress: number
+    file_size?: number | null
+    created_at?: string | null
+    completed_at?: string | null
+    error_message?: string | null
+}
+
+export interface BackupListResponse {
+    backups: BackupJob[]
+    total: number
+}
+
+export interface RestoreJob {
+    id: string
+    mode: 'merge' | 'replace'
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    progress: number
+    items_restored: number
+    started_at?: string | null
+    completed_at?: string | null
+    error_message?: string | null
+}
+
+export interface BackupSchedule {
+    enabled: boolean
+    frequency: 'daily' | 'weekly'
+    time_utc: string
+    day_of_week?: number | null
+    scope: 'user_data' | 'full_system'
+    retention_count: number
+    last_run_at?: string | null
+    last_run_status?: string | null
+}
+
+export const backupApi = {
+    // Backup operations
+    createBackup: async (scope: 'user_data' | 'full_system' = 'user_data') => {
+        const response = await apiClient.post<{ job_id: string; status: string; message: string }>(
+            '/admin/backup/create',
+            { scope }
+        )
+        return response.data
+    },
+
+    getBackupJob: async (jobId: string) => {
+        const response = await apiClient.get<BackupJob>(`/admin/backup/job/${jobId}`)
+        return response.data
+    },
+
+    downloadBackup: async (jobId: string) => {
+        const response = await apiClient.get(`/admin/backup/job/${jobId}/download`, {
+            responseType: 'blob'
+        })
+        return response.data as Blob
+    },
+
+    deleteBackup: async (jobId: string) => {
+        const response = await apiClient.delete<{ status: string; job_id: string }>(
+            `/admin/backup/job/${jobId}`
+        )
+        return response.data
+    },
+
+    listBackups: async (params?: { page?: number; size?: number }) => {
+        const response = await apiClient.get<BackupListResponse>('/admin/backup/list', { params })
+        return response.data
+    },
+
+    // Restore operations
+    startRestore: async (backupId: string, mode: 'merge' | 'replace' = 'merge') => {
+        const response = await apiClient.post<{ job_id: string; status: string; message: string }>(
+            '/admin/backup/restore',
+            { backup_id: backupId, mode }
+        )
+        return response.data
+    },
+
+    getRestoreJob: async (jobId: string) => {
+        const response = await apiClient.get<RestoreJob>(`/admin/backup/restore/${jobId}`)
+        return response.data
+    },
+
+    // Schedule operations
+    getSchedule: async () => {
+        const response = await apiClient.get<BackupSchedule>('/admin/backup/schedule')
+        return response.data
+    },
+
+    setSchedule: async (schedule: Partial<BackupSchedule>) => {
+        const response = await apiClient.post<BackupSchedule>('/admin/backup/schedule', schedule)
+        return response.data
+    },
+
+    deleteSchedule: async () => {
+        const response = await apiClient.delete<{ status: string }>('/admin/backup/schedule')
+        return response.data
+    },
+}
