@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, AsyncIterator, Iterator
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, basic_auth
 
@@ -427,6 +427,105 @@ class Neo4jClient:
             "nodes": list(nodes.values()),
             "edges": edges
         }
+
+    async def export_graph(self, tenant_id: str) -> AsyncIterator[dict]:
+        """
+        Export graph nodes and relationships for a tenant.
+        
+        Yields:
+            Dict containing graph entity data.
+        """
+        driver = await self.get_driver()
+        
+        # 1. Nodes
+        query_nodes = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        RETURN {
+            type: 'node',
+            labels: labels(n),
+            properties: properties(n),
+            elementId: elementId(n)
+        } as item
+        """
+        async with driver.session() as session:
+            result = await session.run(query_nodes, {"tenant_id": tenant_id})
+            async for record in result:
+                yield record["item"]
+        
+        # 2. Relationships
+        query_rels = """
+        MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
+        RETURN {
+            type: 'relationship',
+            start: a.name,
+            end: b.name,
+            rel_type: type(r),
+            properties: properties(r),
+            tenant_id: $tenant_id
+        } as item
+        """
+        async with driver.session() as session:
+            result = await session.run(query_rels, {"tenant_id": tenant_id})
+            async for record in result:
+                yield record["item"]
+
+    async def import_graph(self, graph_data: Iterator[dict], mode: str = "merge") -> dict:
+        """
+        Import graph data.
+        """
+        stats = {"nodes_created": 0, "relationships_created": 0}
+        
+        node_batch = []
+        rel_batch = []
+        batch_size = 500
+        
+        for item in graph_data:
+            if item["type"] == "node":
+                node_batch.append(item)
+                if len(node_batch) >= batch_size:
+                    await self._import_nodes_batch(node_batch)
+                    stats["nodes_created"] += len(node_batch)
+                    node_batch = []
+            elif item["type"] == "relationship":
+                rel_batch.append(item)
+                if len(rel_batch) >= batch_size:
+                    await self._import_rels_batch(rel_batch)
+                    stats["relationships_created"] += len(rel_batch)
+                    rel_batch = []
+        
+        if node_batch:
+            await self._import_nodes_batch(node_batch)
+            stats["nodes_created"] += len(node_batch)
+        if rel_batch:
+            await self._import_rels_batch(rel_batch)
+            stats["relationships_created"] += len(rel_batch)
+            
+        logger.info(f"Graph import completed: {stats}")
+        return stats
+
+    async def _import_nodes_batch(self, batch: list[dict]):
+        # Use simple MERGE for compatibility
+        # Assumes Entity label for all restored nodes
+        query = """
+        UNWIND $batch as row
+        MERGE (n:Entity {name: row.properties.name, tenant_id: row.properties.tenant_id})
+        SET n += row.properties
+        """
+        await self.execute_write(query, {"batch": batch})
+
+    async def _import_rels_batch(self, batch: list[dict]):
+        # Requires APOC for dynamic relationship type
+        query = """
+        UNWIND $batch as row
+        MATCH (a:Entity {name: row.start, tenant_id: row.tenant_id})
+        MATCH (b:Entity {name: row.end, tenant_id: row.tenant_id})
+        CALL apoc.merge.relationship(a, row.rel_type, {}, row.properties, b) YIELD rel
+        RETURN count(rel)
+        """
+        try:
+            await self.execute_write(query, {"batch": batch})
+        except Exception as e:
+            logger.warning(f"Failed to import relationship batch (APOC required?): {e}")
 
 
 
