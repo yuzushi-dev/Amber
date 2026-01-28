@@ -8,7 +8,6 @@
 
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import {
     Files,
     Layers,
@@ -35,7 +34,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useChatStore } from '@/features/chat/store'
 import { chatApi, ChatHistoryItem } from '@/lib/api-client'
 import DatabaseSidebarContent from '@/features/documents/components/DatabaseSidebarContent'
-import UploadWizard from '@/features/documents/components/UploadWizard'
+import { useUploadStore } from '@/features/documents/stores/useUploadStore'
 
 interface SidebarSection {
     title: string
@@ -121,15 +120,16 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
 export default function ContextSidebar() {
     const routerState = useRouterState()
     const currentPath = routerState.location.pathname
-    const queryClient = useQueryClient()
     const [collapsed, setCollapsed] = useState(false)
     const [recentConversations, setRecentConversations] = useState<ChatHistoryItem[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
     const [loadingMore, setLoadingMore] = useState(false)
     const [hasMore, setHasMore] = useState(true)
 
-    const [isUploadOpen, setIsUploadOpen] = useState(false)
+    const setUploadOpen = useUploadStore(state => state.setOpen)
     const scrollContainerRef = useRef<HTMLElement>(null)
+    const loadingHistoryRef = useRef(false)
+    const loadingMoreRef = useRef(false)
     const CONVERSATIONS_PER_PAGE = 20
 
     // Determine which section we're in
@@ -149,7 +149,9 @@ export default function ContextSidebar() {
     useEffect(() => {
         if (activeSection === 'chat') {
             const fetchHistory = async () => {
+                if (loadingHistoryRef.current) return
                 try {
+                    loadingHistoryRef.current = true
                     setLoadingHistory(true)
 
                     setHasMore(true)
@@ -159,6 +161,7 @@ export default function ContextSidebar() {
                 } catch (err) {
                     console.error('Failed to load chat history:', err)
                 } finally {
+                    loadingHistoryRef.current = false
                     setLoadingHistory(false)
                 }
             }
@@ -168,9 +171,10 @@ export default function ContextSidebar() {
 
     // Load more conversations when scrolling to bottom
     const loadMore = useCallback(async () => {
-        if (loadingMore || !hasMore || activeSection !== 'chat') return
+        if (loadingMoreRef.current || !hasMore || activeSection !== 'chat') return
 
         try {
+            loadingMoreRef.current = true
             setLoadingMore(true)
             const newOffset = recentConversations.length
             const data = await chatApi.list({
@@ -179,7 +183,11 @@ export default function ContextSidebar() {
             })
 
             if (data.conversations.length > 0) {
-                setRecentConversations(prev => [...prev, ...data.conversations])
+                setRecentConversations(prev => {
+                    const existingIds = new Set(prev.map(c => c.request_id))
+                    const uniqueNewItems = data.conversations.filter(c => !existingIds.has(c.request_id))
+                    return [...prev, ...uniqueNewItems]
+                })
 
                 setHasMore(data.conversations.length >= CONVERSATIONS_PER_PAGE)
             } else {
@@ -188,9 +196,10 @@ export default function ContextSidebar() {
         } catch (err) {
             console.error('Failed to load more conversations:', err)
         } finally {
+            loadingMoreRef.current = false
             setLoadingMore(false)
         }
-    }, [loadingMore, hasMore, activeSection, recentConversations.length])
+    }, [hasMore, activeSection, recentConversations.length])
 
     // Scroll handler for infinite scroll
     useEffect(() => {
@@ -229,13 +238,7 @@ export default function ContextSidebar() {
         })
     }
 
-    // Handle upload complete - refresh document queries
-    const handleUploadComplete = () => {
-        setIsUploadOpen(false)
-        // Invalidate all document-related queries to refresh the list
-        queryClient.invalidateQueries({ queryKey: ['documents'] })
-        queryClient.invalidateQueries({ queryKey: ['stats'] })
-    }
+
 
     return (
         <>
@@ -251,7 +254,7 @@ export default function ContextSidebar() {
                 {activeSection === 'data' ? (
                     <DatabaseSidebarContent
                         collapsed={collapsed}
-                        onUploadClick={() => setIsUploadOpen(true)}
+                        onUploadClick={() => setUploadOpen(true)}
                     />
                 ) : (
                     <nav ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto py-4" aria-label="Section navigation">
@@ -426,15 +429,7 @@ export default function ContextSidebar() {
                 </div>
             </aside>
 
-            {/* Upload Wizard Modal - for data section */}
-            {
-                isUploadOpen && (
-                    <UploadWizard
-                        onClose={() => setIsUploadOpen(false)}
-                        onComplete={handleUploadComplete}
-                    />
-                )
-            }
+
         </>
     )
 }
