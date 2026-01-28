@@ -77,7 +77,8 @@ class TicketService:
         payload = await client.get(key)
         
         if payload:
-            await client.delete(key)
+            # Allow reuse within TTL window to handle connection drops/retries
+            # await client.delete(key)
             return payload
             
         return None
