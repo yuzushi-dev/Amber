@@ -12,6 +12,8 @@ import io
 import json
 import logging
 import zipfile
+import subprocess
+import os
 from datetime import datetime
 from typing import Optional, Callable
 from uuid import uuid4
@@ -19,11 +21,14 @@ from uuid import uuid4
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.admin_ops.domain.backup_job import RestoreMode, BackupScope
+from src.core.admin_ops.domain.backup_job import RestoreMode, BackupScope, BackupSchedule
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
+from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.admin_ops.domain.global_rule import GlobalRule
+from src.core.tenants.domain.tenant import Tenant
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +135,13 @@ class RestoreService:
             zip_buffer = io.BytesIO(file_bytes)
             
             with zipfile.ZipFile(zip_buffer, "r") as zf:
-                total_steps = 5
+                # Determine restore strategy
+                has_dump = "database/postgres_dump.sql" in zf.namelist() and mode == RestoreMode.REPLACE
+                
+                # Estimated total steps
+                # If Dump: Dump(1) + Files(1) + Vectors(1) + Graph(1) = 4
+                # If No Dump: Folders+Docs+Convs+Facts+Configs+Chunks = 6, + Files+Vectors+Graph = 9
+                total_steps = 4 if has_dump else 9
                 current_step = 0
                 
                 def update_progress():
@@ -139,33 +150,66 @@ class RestoreService:
                     if progress_callback:
                         progress_callback(int(current_step / total_steps * 100))
                 
-                # If REPLACE mode, clear existing data first
-                if mode == RestoreMode.REPLACE:
-                    await self._clear_tenant_data(target_tenant_id)
-                    logger.info(f"Cleared existing data for tenant {target_tenant_id}")
+                dump_restored = False
                 
-                # 1. Restore folders
-                folders_count = await self._restore_folders(zf, target_tenant_id, mode)
-                result.folders_restored = folders_count
-                update_progress()
+                # 1. Postgres Dump (Priority)
+                if has_dump:
+                    await self._restore_postgres_dump(zf)
+                    dump_restored = True
+                    update_progress()
+                else:
+                    # Standard Granular SQL Restore
+                    if mode == RestoreMode.REPLACE:
+                        await self._clear_tenant_data(target_tenant_id)
+                        logger.info(f"Cleared existing data for tenant {target_tenant_id}")
+                    
+                    # 1. Folders
+                    result.folders_restored = await self._restore_folders(zf, target_tenant_id, mode)
+                    update_progress()
+                    
+                    # 2. Documents
+                    result.documents_restored = await self._restore_documents(zf, target_tenant_id, mode)
+                    update_progress()
+                    
+                    # 3. Conversations
+                    result.conversations_restored = await self._restore_conversations(zf, target_tenant_id, mode)
+                    update_progress()
+                    
+                    # 4. User Facts
+                    result.facts_restored = await self._restore_user_facts(zf, target_tenant_id, mode)
+                    update_progress()
+                    
+                    # 5. Configs & Schedules
+                    if "config/global_rules.json" in zf.namelist():
+                        if mode == RestoreMode.REPLACE:
+                            await self.session.execute(delete(GlobalRule).where(GlobalRule.tenant_id == target_tenant_id))
+                        await self._restore_global_rules(zf, target_tenant_id, mode)
+                    
+                    if "config/backup_schedules.json" in zf.namelist():
+                        if mode == RestoreMode.REPLACE:
+                            await self.session.execute(delete(BackupSchedule).where(BackupSchedule.tenant_id == target_tenant_id))
+                        await self._restore_backup_schedules(zf, target_tenant_id, mode)
+
+                    if "config/tenant_config.json" in zf.namelist():
+                        await self._restore_tenant_config(zf, target_tenant_id)
+                    update_progress()
+                    
+                    # 6. Chunks
+                    await self._restore_chunks(zf, target_tenant_id, mode)
+                    update_progress()
+
+                # Shared Steps (External Systems & Files)
                 
-                # 2. Restore documents metadata
-                docs_count = await self._restore_documents(zf, target_tenant_id, mode)
-                result.documents_restored = docs_count
-                update_progress()
-                
-                # 3. Restore document files
+                # Restore Files (MinIO)
                 await self._restore_document_files(zf, target_tenant_id)
                 update_progress()
                 
-                # 4. Restore conversations
-                convs_count = await self._restore_conversations(zf, target_tenant_id, mode)
-                result.conversations_restored = convs_count
+                # Restore Vectors (Milvus)
+                await self._restore_vectors(zf, target_tenant_id, mode)
                 update_progress()
                 
-                # 5. Restore user facts
-                facts_count = await self._restore_user_facts(zf, target_tenant_id, mode)
-                result.facts_restored = facts_count
+                # Restore Graph (Neo4j)
+                await self._restore_graph(zf, target_tenant_id, mode)
                 update_progress()
                 
                 await self.session.commit()
@@ -204,35 +248,31 @@ class RestoreService:
         """Restore folders from backup."""
         count = 0
         
-        try:
-            if "folders/folders.json" not in zf.namelist():
-                return 0
+        if "folders/folders.json" not in zf.namelist():
+            return 0
+        
+        data = json.loads(zf.read("folders/folders.json"))
+        
+        for folder_data in data:
+            folder_id = folder_data.get("id")
             
-            data = json.loads(zf.read("folders/folders.json"))
-            
-            for folder_data in data:
-                folder_id = folder_data.get("id")
-                
-                # In MERGE mode, skip if exists
-                if mode == RestoreMode.MERGE:
-                    existing = await self.session.execute(
-                        select(Folder).where(Folder.id == folder_id)
-                    )
-                    if existing.scalar_one_or_none():
-                        continue
-                
-                folder = Folder(
-                    id=folder_id,
-                    tenant_id=tenant_id,
-                    name=folder_data.get("name"),
+            # In MERGE mode, skip if exists
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(Folder).where(Folder.id == folder_id)
                 )
-                self.session.add(folder)
-                count += 1
+                if existing.scalar_one_or_none():
+                    continue
             
-            await self.session.flush()
-            
-        except Exception as e:
-            logger.warning(f"Error restoring folders: {e}")
+            folder = Folder(
+                id=folder_id,
+                tenant_id=tenant_id,
+                name=folder_data.get("name"),
+            )
+            self.session.add(folder)
+            count += 1
+        
+        await self.session.flush()
         
         return count
 
@@ -245,44 +285,40 @@ class RestoreService:
         """Restore document metadata from backup."""
         count = 0
         
-        try:
-            if "documents/metadata.json" not in zf.namelist():
-                return 0
+        if "documents/metadata.json" not in zf.namelist():
+            return 0
+        
+        data = json.loads(zf.read("documents/metadata.json"))
+        
+        for doc_data in data:
+            doc_id = doc_data.get("id")
             
-            data = json.loads(zf.read("documents/metadata.json"))
-            
-            for doc_data in data:
-                doc_id = doc_data.get("id")
-                
-                # In MERGE mode, skip if exists
-                if mode == RestoreMode.MERGE:
-                    existing = await self.session.execute(
-                        select(Document).where(Document.id == doc_id)
-                    )
-                    if existing.scalar_one_or_none():
-                        continue
-                
-                # Prepare metadata with file info
-                metadata = doc_data.get("metadata", {})
-                metadata["mime_type"] = doc_data.get("mime_type")
-                metadata["file_size"] = doc_data.get("file_size")
-                
-                doc = Document(
-                    id=doc_id,
-                    tenant_id=tenant_id,
-                    filename=doc_data.get("filename"),
-                    folder_id=doc_data.get("folder_id"),
-                    storage_path=doc_data.get("storage_path"),
-                    status=doc_data.get("status", "pending"),
-                    metadata_=metadata,
+            # In MERGE mode, skip if exists
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(Document).where(Document.id == doc_id)
                 )
-                self.session.add(doc)
-                count += 1
+                if existing.scalar_one_or_none():
+                    continue
             
-            await self.session.flush()
+            # Prepare metadata with file info
+            metadata = doc_data.get("metadata", {})
+            metadata["mime_type"] = doc_data.get("mime_type")
+            metadata["file_size"] = doc_data.get("file_size")
             
-        except Exception as e:
-            logger.warning(f"Error restoring documents: {e}")
+            doc = Document(
+                id=doc_id,
+                tenant_id=tenant_id,
+                filename=doc_data.get("filename"),
+                folder_id=doc_data.get("folder_id"),
+                storage_path=doc_data.get("storage_path"),
+                status=doc_data.get("status", "pending"),
+                metadata_=metadata,
+            )
+            self.session.add(doc)
+            count += 1
+        
+        await self.session.flush()
         
         return count
 
@@ -344,38 +380,34 @@ class RestoreService:
         """Restore conversations from backup."""
         count = 0
         
-        try:
-            if "conversations/conversations.json" not in zf.namelist():
-                return 0
+        if "conversations/conversations.json" not in zf.namelist():
+            return 0
+        
+        data = json.loads(zf.read("conversations/conversations.json"))
+        
+        for conv_data in data:
+            conv_id = conv_data.get("id")
             
-            data = json.loads(zf.read("conversations/conversations.json"))
-            
-            for conv_data in data:
-                conv_id = conv_data.get("id")
-                
-                # In MERGE mode, skip if exists
-                if mode == RestoreMode.MERGE:
-                    existing = await self.session.execute(
-                        select(ConversationSummary).where(ConversationSummary.id == conv_id)
-                    )
-                    if existing.scalar_one_or_none():
-                        continue
-                
-                conv = ConversationSummary(
-                    id=conv_id,
-                    tenant_id=tenant_id,
-                    user_id=conv_data.get("user_id"),
-                    title=conv_data.get("title"),
-                    summary=conv_data.get("summary"),
-                    metadata_=conv_data.get("metadata", {}),
+            # In MERGE mode, skip if exists
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(ConversationSummary).where(ConversationSummary.id == conv_id)
                 )
-                self.session.add(conv)
-                count += 1
+                if existing.scalar_one_or_none():
+                    continue
             
-            await self.session.flush()
-            
-        except Exception as e:
-            logger.warning(f"Error restoring conversations: {e}")
+            conv = ConversationSummary(
+                id=conv_id,
+                tenant_id=tenant_id,
+                user_id=conv_data.get("user_id"),
+                title=conv_data.get("title"),
+                summary=conv_data.get("summary"),
+                metadata_=conv_data.get("metadata", {}),
+            )
+            self.session.add(conv)
+            count += 1
+        
+        await self.session.flush()
         
         return count
 
@@ -388,37 +420,237 @@ class RestoreService:
         """Restore user facts from backup."""
         count = 0
         
-        try:
-            if "memory/user_facts.json" not in zf.namelist():
-                return 0
+        if "memory/user_facts.json" not in zf.namelist():
+            return 0
+        
+        data = json.loads(zf.read("memory/user_facts.json"))
+        
+        for fact_data in data:
+            fact_id = fact_data.get("id")
             
-            data = json.loads(zf.read("memory/user_facts.json"))
-            
-            for fact_data in data:
-                fact_id = fact_data.get("id")
-                
-                # In MERGE mode, skip if exists
-                if mode == RestoreMode.MERGE:
-                    existing = await self.session.execute(
-                        select(UserFact).where(UserFact.id == fact_id)
-                    )
-                    if existing.scalar_one_or_none():
-                        continue
-                
-                fact = UserFact(
-                    id=fact_id,
-                    tenant_id=tenant_id,
-                    user_id=fact_data.get("user_id"),
-                    content=fact_data.get("content"),
-                    importance=fact_data.get("importance", 0.5),
-                    metadata_=fact_data.get("metadata", {}),
+            # In MERGE mode, skip if exists
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(UserFact).where(UserFact.id == fact_id)
                 )
-                self.session.add(fact)
-                count += 1
+                if existing.scalar_one_or_none():
+                    continue
             
-            await self.session.flush()
-            
-        except Exception as e:
-            logger.warning(f"Error restoring user facts: {e}")
+            fact = UserFact(
+                id=fact_id,
+                tenant_id=tenant_id,
+                user_id=fact_data.get("user_id"),
+                content=fact_data.get("content"),
+                importance=fact_data.get("importance", 0.5),
+                metadata_=fact_data.get("metadata", {}),
+            )
+            self.session.add(fact)
+            count += 1
+        
+        await self.session.flush()
         
         return count
+
+    async def _restore_global_rules(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> int:
+        """Restore global rules."""
+        count = 0
+        data = json.loads(zf.read("config/global_rules.json"))
+        for rule_data in data:
+            rule_id = rule_data.get("id")
+            
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(GlobalRule).where(GlobalRule.id == rule_id)
+                )
+                if existing.scalar_one_or_none():
+                    continue
+            
+            rule = GlobalRule(
+                id=rule_id,
+                tenant_id=tenant_id,
+                content=rule_data.get("content"),
+                category=rule_data.get("category"),
+                priority=rule_data.get("priority", 0),
+                is_active=rule_data.get("is_active", True),
+                source=rule_data.get("source"),
+            )
+            self.session.add(rule)
+            count += 1
+        await self.session.flush()
+        return count
+
+    async def _restore_backup_schedules(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> int:
+        """Restore backup schedules."""
+        count = 0
+        data = json.loads(zf.read("config/backup_schedules.json"))
+        for schedule_data in data:
+            schedule_id = schedule_data.get("id")
+            
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(BackupSchedule).where(BackupSchedule.id == schedule_id)
+                )
+                if existing.scalar_one_or_none():
+                    continue
+            
+            schedule = BackupSchedule(
+                id=schedule_id,
+                tenant_id=tenant_id,
+                frequency=schedule_data.get("frequency", "daily"),
+                time_utc=schedule_data.get("time_utc", "02:00"),
+                day_of_week=schedule_data.get("day_of_week"),
+                retention_count=schedule_data.get("retention_count", 7),
+                scope=BackupScope(schedule_data.get("scope")) if schedule_data.get("scope") else None,
+                enabled=schedule_data.get("enabled", "false"),
+            )
+            self.session.add(schedule)
+            count += 1
+        await self.session.flush()
+        return count
+
+    async def _restore_tenant_config(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Restore tenant configuration."""
+        data = json.loads(zf.read("config/tenant_config.json"))
+        config = data.get("config", {})
+        
+        # Update existing tenant
+        result = await self.session.execute(
+            select(Tenant).where(Tenant.id == tenant_id)
+        )
+        tenant = result.scalar_one_or_none()
+        
+        if tenant:
+            tenant.config = config
+            # We could also restore name/is_active if desired
+            if "name" in data:
+                tenant.name = data["name"]
+            if "is_active" in data:
+                tenant.is_active = data["is_active"]
+            
+            self.session.add(tenant)
+            await self.session.flush()
+            logger.info(f"Restored configuration for tenant {tenant_id}")
+
+    async def _restore_chunks(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
+        """Restore chunks table."""
+        if "ingestion/chunks.json" not in zf.namelist():
+            return
+
+        data = json.loads(zf.read("ingestion/chunks.json"))
+        
+        for chunk_data in data:
+            chunk_id = chunk_data.get("id")
+            
+            if mode == RestoreMode.MERGE:
+                result = await self.session.execute(select(Chunk).where(Chunk.id == chunk_id))
+                if result.scalar_one_or_none():
+                    continue
+            
+            chunk = Chunk(
+                id=chunk_id,
+                tenant_id=tenant_id,
+                document_id=chunk_data.get("document_id"),
+                index=chunk_data.get("index", 0),
+                tokens=chunk_data.get("tokens", 0),
+                content=chunk_data.get("content"),
+                metadata_=chunk_data.get("metadata", {}),
+                embedding_status=EmbeddingStatus(chunk_data.get("embedding_status", "pending"))
+            )
+            self.session.add(chunk)
+        
+        await self.session.flush()
+        logger.info(f"Restored {len(data)} chunks")
+
+    async def _restore_vectors(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
+        """Restore vectors to Milvus."""
+        from src.amber_platform.composition_root import build_vector_store_factory
+        from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+        from src.core.tenants.domain.tenant import Tenant
+
+        if "vectors/vectors.jsonl" not in zf.namelist():
+            return
+
+        # Resolve collection
+        res = await self.session.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant_obj = res.scalar_one_or_none()
+        t_config = tenant_obj.config if tenant_obj else {}
+        collection_name = resolve_active_vector_collection(tenant_id, t_config)
+        
+        # Build ephemeral store
+        factory = build_vector_store_factory()
+        dims = int(t_config.get("embedding_dimensions") or 1536)
+        
+        vector_store = factory(dims, collection_name=collection_name)
+        logger.info(f"Restoring vectors for tenant {tenant_id} to collection {collection_name}")
+        
+        try:
+            with zf.open("vectors/vectors.jsonl") as f:
+                def vector_gen():
+                    for line in f:
+                        if line.strip():
+                            yield json.loads(line)
+                            
+                count = await vector_store.import_vectors(vector_gen())
+                logger.info(f"Restored {count} vectors")
+        finally:
+            await vector_store.close()
+
+    async def _restore_graph(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
+        """Restore graph to Neo4j."""
+        from src.amber_platform.composition_root import platform
+
+        if "graph/graph.jsonl" not in zf.namelist():
+            return
+
+        with zf.open("graph/graph.jsonl") as f:
+            def graph_gen():
+                for line in f:
+                    if line.strip():
+                        yield json.loads(line)
+            
+            stats = await platform.neo4j_client.import_graph(graph_gen(), mode=mode.value.lower())
+            logger.info(f"Restored graph: {stats}")
+
+    async def _restore_postgres_dump(self, zf: zipfile.ZipFile) -> None:
+        """Restore full postgres dump using pg_restore/psql."""
+        from src.api.config import settings
+        from sqlalchemy.engine.url import make_url
+        
+        try:
+            tmp_path = f"/tmp/restore_dump_{datetime.now().timestamp()}.sql"
+            with open(tmp_path, "wb") as f:
+                 f.write(zf.read("database/postgres_dump.sql"))
+            
+            url = make_url(settings.db.database_url)
+            env = os.environ.copy()
+            if url.password:
+                env["PGPASSWORD"] = url.password
+
+            cmd = [
+                "psql",
+                "-h", url.host or "localhost",
+                "-p", str(url.port or 5432),
+                "-U", url.username or "postgres",
+                "-d", url.database,
+                "-f", tmp_path
+            ]
+            
+            logger.info(f"Running psql restore")
+            process = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True
+            )
+            
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            
+            if process.returncode != 0:
+                raise RuntimeError(f"psql restore failed: {process.stderr}")
+                
+            logger.info("Full Postgres dump restored successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to restore postgres dump: {e}")
+            raise

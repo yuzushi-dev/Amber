@@ -108,6 +108,9 @@ def create_backup(self, job_id: str, tenant_id: str, scope: str) -> dict:
 
 async def _create_backup_async(job_id: str, tenant_id: str, scope: str, task_id: str) -> dict:
     """Async implementation of backup task."""
+    from src.workers.tasks import deep_reset_singletons
+    deep_reset_singletons()
+
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
@@ -248,6 +251,9 @@ def restore_backup(self, job_id: str, tenant_id: str, backup_path: str, mode: st
 
 async def _restore_backup_async(job_id: str, tenant_id: str, backup_path: str, mode: str, task_id: str) -> dict:
     """Async implementation of restore task."""
+    from src.workers.tasks import deep_reset_singletons
+    deep_reset_singletons()
+    
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
@@ -297,21 +303,25 @@ async def _restore_backup_async(job_id: str, tenant_id: str, backup_path: str, m
             )
             
             # Update job with results
-            job.status = BackupStatus.COMPLETED
+            if restore_result.errors:
+                job.status = BackupStatus.FAILED
+                job.error_message = "; ".join(restore_result.errors)
+                status_str = "failed"
+            else:
+                job.status = BackupStatus.COMPLETED
+                status_str = "completed"
+
             job.completed_at = datetime.now(UTC)
             job.items_restored = restore_result.total_items
             job.progress = 100
             
-            if restore_result.errors:
-                job.error_message = "; ".join(restore_result.errors)
-            
             await session.commit()
             
-            _publish_restore_status(job_id, "completed", 100)
+            _publish_restore_status(job_id, status_str, 100)
             
             return {
                 "job_id": job_id,
-                "status": "completed",
+                "status": status_str,
                 "items_restored": restore_result.total_items,
                 "folders": restore_result.folders_restored,
                 "documents": restore_result.documents_restored,
