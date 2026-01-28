@@ -13,6 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libmagic1 \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
