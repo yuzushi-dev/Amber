@@ -40,6 +40,7 @@ import TenantsPage from './features/admin/pages/TenantsPage'
 import DataRetentionPage from './features/admin/pages/DataRetentionPage'
 import RulesPage from './features/admin/pages/RulesPage'
 import GlobalGraphPage from './features/graph/pages/GlobalGraphPage'
+import BackupPage from './features/admin/pages/BackupPage'
 
 // =============================================================================
 // Root Route
@@ -237,7 +238,15 @@ const settingsRulesRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/rules',
     component: RulesPage,
-})// =============================================================================
+})
+
+const settingsBackupRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/backup',
+    component: () => <BackupPage />,
+})
+
+// =============================================================================
 // Metrics Section (/admin/metrics/*)
 // =============================================================================
 
@@ -392,6 +401,7 @@ const routeTree = rootRoute.addChildren([
         settingsTenantsRoute,
         settingsDataRetentionRoute,
         settingsRulesRoute,
+        settingsBackupRoute,
         // Metrics section
 
         metricsIndexRoute,

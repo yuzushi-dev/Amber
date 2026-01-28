@@ -27,7 +27,8 @@ import {
     Package,
     Server,
     Users,
-    Archive
+    Archive,
+    DatabaseBackup
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -111,6 +112,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
                 { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
                 { label: 'Connectors', icon: MessageCircle, to: '/admin/settings/connectors' },
                 { label: 'Data Retention', icon: Archive, to: '/admin/settings/data-retention' },
+                { label: 'Backup & Restore', icon: DatabaseBackup, to: '/admin/settings/backup' },
             ]
         }
     ]
