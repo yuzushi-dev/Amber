@@ -49,6 +49,7 @@ minio>=7.2.0
 
 # Extraction
 pymupdf4llm>=0.0.1
+pymupdf-layout>=1.26.6  # For enhanced layout analysis
 mistralai>=0.1.0
 tiktoken>=0.5.0
 

@@ -68,7 +68,7 @@ celery_app.conf.update(
     enable_utc=True,
     # Worker settings
     worker_prefetch_multiplier=1,
-    worker_concurrency=4,
+    worker_concurrency=2,
     # Task execution settings
     task_acks_late=True,
     task_reject_on_worker_lost=True,

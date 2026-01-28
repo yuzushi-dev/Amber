@@ -430,7 +430,7 @@ class IngestionService:
                     chunk.embedding_status = EmbeddingStatus.COMPLETED
 
                 chunk_params = [
-                    {"id": c.id, "document_id": c.document_id, "tenant_id": document.tenant_id} 
+                    {"id": c.id, "document_id": c.document_id, "tenant_id": document.tenant_id, "content": c.content} 
                     for c in chunks_to_process
                 ]
                 if chunk_params:
@@ -441,6 +441,7 @@ class IngestionService:
                         ON CREATE SET 
                             c.document_id = row.document_id, 
                             c.tenant_id = row.tenant_id,
+                            c.content = row.content,
                             c.created_at = timestamp()
                         """,
                         {"batch": chunk_params}
