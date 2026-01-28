@@ -17,6 +17,14 @@ try:
 except ImportError:
     HAS_PYMUPDF = False
 
+# Try to import layout engine if available (activates automatically on import)
+if HAS_PYMUPDF:
+    try:
+        import pymupdf_layout
+        logger.info("pymupdf_layout is available and activated.")
+    except ImportError:
+        logger.debug("pymupdf_layout not found, using standard pymupdf4llm.")
+
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
 
 logger = logging.getLogger(__name__)
