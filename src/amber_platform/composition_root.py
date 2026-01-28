@@ -93,6 +93,7 @@ class PlatformRegistry:
         self._redis_client = None
         self._graph_extractor = None
         self._content_extractor = None
+        self._milvus_vector_store = None
         self._initialized = False
         
     async def initialize(self) -> None:
@@ -150,7 +151,19 @@ class PlatformRegistry:
         # Provider factory builder (LLM/embedding/reranker)
         from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder
         from src.core.generation.infrastructure.providers.factory import ProviderFactory
+        from src.core.generation.infrastructure.providers.factory import ProviderFactory
         set_provider_factory_builder(ProviderFactory)
+        
+        # Milvus (Managed Vector Store)
+        from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+        milvus_config = MilvusConfig(
+            host=settings.db.milvus_host,
+            port=settings.db.milvus_port,
+            dimensions=settings.embedding_dimensions or 1536,
+        )
+        self._milvus_vector_store = MilvusVectorStore(milvus_config)
+        # Note: We don't await connect() here as it lazily connects, 
+        # but we could force it if we wanted strict startup checks.
         
         # Redis (shared connection for events)
         import redis.asyncio as aioredis
@@ -196,6 +209,13 @@ class PlatformRegistry:
             self._redis_client = None
 
         # Milvus Global Disconnect
+        if self._milvus_vector_store:
+            try:
+                await self._milvus_vector_store.close()
+            except Exception as e:
+                logger.warning(f"Error closing Milvus store: {e}")
+            self._milvus_vector_store = None
+
         from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore
         await MilvusVectorStore.global_disconnect()
             
@@ -240,6 +260,20 @@ class PlatformRegistry:
             settings = get_settings_lazy()
             self._redis_client = aioredis.from_url(settings.db.redis_url)
         return self._redis_client
+
+    @property
+    def milvus_vector_store(self):
+        """Get the managed Milvus vector store client."""
+        if not self._milvus_vector_store:
+            from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+            settings = get_settings_lazy()
+            milvus_config = MilvusConfig(
+                host=settings.db.milvus_host,
+                port=settings.db.milvus_port,
+                dimensions=settings.embedding_dimensions or 1536,
+            )
+            self._milvus_vector_store = MilvusVectorStore(milvus_config)
+        return self._milvus_vector_store
 
 
 # Global platform registry instance
