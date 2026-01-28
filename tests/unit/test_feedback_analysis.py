@@ -35,9 +35,14 @@ async def test_analyze_feedback_retrieval_failure_suggestion():
     # Return JSON indicating retrieval failure
     mock_llm.generate = AsyncMock(return_value='{"reason": "RETRIEVAL_FAILURE", "confidence": 0.9, "explanation": "Context missing"}')
     
-    with patch("src.core.admin_ops.application.tuning_service.get_llm_provider", return_value=mock_llm):
-        with patch.object(service, "get_tenant_config", new_callable=AsyncMock) as mock_config:
-            with patch.object(service, "update_tenant_weights", new_callable=AsyncMock) as mock_update:
+    with patch("src.core.generation.domain.ports.provider_factory.get_provider_factory") as mock_get_factory:
+        mock_factory = mock_get_factory.return_value
+        mock_factory.get_llm_provider.return_value = mock_llm
+        
+        with patch("src.shared.kernel.runtime.get_settings"):
+            with patch.object(service, "get_tenant_config", new_callable=AsyncMock) as mock_config:
+                mock_config.return_value = {}
+                with patch.object(service, "update_tenant_weights", new_callable=AsyncMock) as mock_update:
                  
                  await service.analyze_feedback_for_tuning(
                      "tenant1", 

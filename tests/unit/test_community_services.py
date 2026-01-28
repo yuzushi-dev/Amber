@@ -50,7 +50,8 @@ class TestCommunitySummarizer:
         mock_factory.get_llm_provider.return_value.generate.return_value = llm_result
 
         # Execute
-        result = await summarizer.summarize_community("comm_0_123", "tenant_1")
+        with patch("src.shared.kernel.runtime.get_settings"):
+            result = await summarizer.summarize_community("comm_0_123", "tenant_1")
 
         # Verify
         assert result["title"] == "Test Community"
@@ -62,7 +63,8 @@ class TestCommunitySummarizer:
         summarizer = CommunitySummarizer(mock_neo4j, mock_factory)
         mock_neo4j.execute_read.return_value = []
 
-        result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
+        with patch("src.shared.kernel.runtime.get_settings"):
+            result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
         assert result == {}
 
 class TestCommunityEmbeddingService:

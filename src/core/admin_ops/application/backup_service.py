@@ -25,6 +25,8 @@ from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.vector_store import VectorStoreFactory
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.admin_ops.domain.global_rule import GlobalRule
 
 logger = logging.getLogger(__name__)
@@ -35,9 +37,11 @@ class BackupService:
     Service for generating system backups.
     """
 
-    def __init__(self, session: AsyncSession, storage: StoragePort):
+    def __init__(self, session: AsyncSession, storage: StoragePort, graph_client: GraphClientPort, vector_store_factory: VectorStoreFactory):
         self.session = session
         self.storage = storage
+        self.graph_client = graph_client
+        self.vector_store_factory = vector_store_factory
 
     async def create_backup(
         self, 
@@ -440,7 +444,6 @@ class BackupService:
 
     async def _add_vectors(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export Milvus vectors to JSONL."""
-        from src.amber_platform.composition_root import build_vector_store_factory
         from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
         from src.core.tenants.domain.tenant import Tenant
 
@@ -451,11 +454,11 @@ class BackupService:
         collection_name = resolve_active_vector_collection(tenant_id, t_config)
 
         # Build ephemeral store
-        factory = build_vector_store_factory()
+        # Build ephemeral store
         # Use default dimension (1536) if not specified in tenant config
         dims = int(t_config.get("embedding_dimensions") or 1536)
         
-        vector_store = factory(dims, collection_name=collection_name)
+        vector_store = self.vector_store_factory(dims, collection_name=collection_name)
         logger.info(f"Exporting vectors for tenant {tenant_id} from collection {collection_name}")
         
         tmp_path = f"/tmp/vectors_{tenant_id}_{datetime.now().timestamp()}.jsonl"
@@ -480,13 +483,12 @@ class BackupService:
 
     async def _add_graph(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export Neo4j graph data to JSONL."""
-        from src.amber_platform.composition_root import platform
         
         tmp_path = f"/tmp/graph_{tenant_id}_{datetime.now().timestamp()}.jsonl"
         try:
             count = 0
             with open(tmp_path, "w") as f:
-                async for item in platform.neo4j_client.export_graph(tenant_id):
+                async for item in self.graph_client.export_graph(tenant_id):
                     f.write(json.dumps(item) + "\n")
                     count += 1
             

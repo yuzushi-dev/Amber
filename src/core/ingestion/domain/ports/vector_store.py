@@ -25,3 +25,10 @@ class VectorStorePort(Protocol):
     async def disconnect(self) -> None:
         """Disconnect from the vector store."""
         ...
+
+
+class VectorStoreFactory(Protocol):
+    """Factory for creating vector store instances."""
+    
+    def __call__(self, dimensions: int, collection_name: str | None = None) -> VectorStorePort:
+        ...
