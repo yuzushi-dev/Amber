@@ -13,12 +13,18 @@ import CommandDock from './CommandDock'
 import ContextSidebar from './ContextSidebar'
 
 import EvidenceBoard from '../../features/evidence/components/EvidenceBoard'
+import { UploadGlobalEffects } from '@/features/documents/components/UploadGlobalEffects'
+import { UploadGlobalIndicator } from '@/features/documents/components/UploadGlobalIndicator'
+import UploadWizard from '@/features/documents/components/UploadWizard'
+import { useUploadStore } from '@/features/documents/stores/useUploadStore'
 
 interface MainLayoutProps {
     children: React.ReactNode
 }
 
 export default function MainLayout({ children }: MainLayoutProps) {
+    const isOpen = useUploadStore(state => state.isOpen)
+
     return (
         <div className="flex flex-col h-screen bg-background overflow-hidden">
             <a
@@ -43,6 +49,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
             {/* Bottom dock navigation */}
             <CommandDock />
+
+            {/* Global Upload Components */}
+            <UploadGlobalEffects />
+            <UploadGlobalIndicator />
+            {isOpen && <UploadWizard />}
         </div>
     )
 }

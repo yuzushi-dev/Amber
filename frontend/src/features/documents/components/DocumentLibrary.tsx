@@ -15,8 +15,8 @@ import {
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import UploadWizard from './UploadWizard'
 import EmptyState from '@/components/ui/EmptyState'
+import { useUploadStore } from '@/features/documents/stores/useUploadStore'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,7 +40,7 @@ type ConfirmAction =
     | null
 
 export default function DocumentLibrary() {
-    const [isUploadOpen, setIsUploadOpen] = useState(false)
+    const setUploadOpen = useUploadStore(state => state.setOpen)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -145,7 +145,7 @@ export default function DocumentLibrary() {
             actions={
                 <>
                     <Button
-                        onClick={() => setIsUploadOpen(true)}
+                        onClick={() => setUploadOpen(true)}
                         className="gap-2"
                         aria-label="Upload a document"
                     >
@@ -170,7 +170,7 @@ export default function DocumentLibrary() {
                 </div>
                 <div className="flex items-center gap-2">
                     <Button
-                        onClick={() => setIsUploadOpen(true)}
+                        onClick={() => setUploadOpen(true)}
                         className="shadow-glow hover:shadow-glow-lg transition-[box-shadow] duration-300 ease-out"
                         aria-label="Upload new document"
                     >
@@ -359,13 +359,7 @@ export default function DocumentLibrary() {
                 )}
             </div>
 
-            {isUploadOpen && (
-                <UploadWizard onClose={() => setIsUploadOpen(false)} onComplete={() => {
-                    setIsUploadOpen(false)
-                    refetch()
-                    queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] })
-                }} />
-            )}
+
 
             {/* Delete Confirmation Dialog */}
             <ConfirmDialog
