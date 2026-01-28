@@ -146,6 +146,13 @@ ensure_env
 mkdir -p .cache
 sudo chmod -R 777 .cache 2>/dev/null || chmod -R 777 .cache
 
+# Force API to start even if Embeddings are mismatched (allows recovering 'dirty' envs)
+if ! grep -q "IGNORE_EMBEDDING_MISMATCH" .env; then
+  echo "" >> .env
+  echo "# Added by start.sh to allow recovery of mismatched embedding states" >> .env
+  echo "IGNORE_EMBEDDING_MISMATCH=true" >> .env
+fi
+
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ "$USE_GPU" = true ]; then
   echo ""
