@@ -9,6 +9,10 @@ import logging
 import re
 import time
 
+logger = logging.getLogger(__name__)
+
+
+
 # Ideally we import these, but for safety in case not installed, we can handle import error?
 # For now assume implementation plan requirement is met (packages installed or will be).
 try:
@@ -26,8 +30,6 @@ if HAS_PYMUPDF:
         logger.debug("pymupdf_layout not found, using standard pymupdf4llm.")
 
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
-
-logger = logging.getLogger(__name__)
 
 
 def _extract_title_from_content(content: str) -> str | None:

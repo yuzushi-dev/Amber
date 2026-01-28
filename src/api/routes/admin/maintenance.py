@@ -149,16 +149,33 @@ async def get_query_metrics(
                 
             result = await session.execute(stmt)
             rows = result.all()
+
+            # Resolution of Document Names
+            # We fetch the filenames to show "Ingestion: filename.pdf" instead of "Ingestion: doc_123"
+            from src.core.ingestion.domain.document import Document
+            
+            doc_ids = [row.document_id for row in rows if row.document_id]
+            doc_map = {}
+            
+            if doc_ids:
+                try:
+                    stmt_docs = select(Document.id, Document.filename).where(Document.id.in_(doc_ids))
+                    res_docs = await session.execute(stmt_docs)
+                    doc_map = {d.id: d.filename for d in res_docs.all()}
+                except Exception as e:
+                    logger.warning(f"Failed to resolve document names: {e}")
             
             for row in rows:
                 if not row.document_id:
                     continue
+                
+                doc_name = doc_map.get(row.document_id, row.document_id)
                     
                 # Create a synthetic QueryMetrics object for the ingestion event
                 metric = QueryMetrics(
                     query_id=f"ingest_{row.document_id}",
                     tenant_id=tenant_id or "unknown", # Row doesn't have tenant_id in group by, but we filter by it or it's mixed
-                    query=f"Ingestion: {row.document_id}", # improved by frontend later
+                    query=f"Ingestion: {doc_name}", # improved by frontend later
                     timestamp=row.latest_at,
                     operation="ingestion",
                     response="Document Embedding",
@@ -168,7 +185,7 @@ async def get_query_metrics(
                     provider=row.provider,
                     success=True,
                     # Store minimal metadata to help frontend display
-                    conversation_id=row.document_id 
+                    conversation_id=doc_name 
                 )
                 ingestion_metrics.append(metric)
 
@@ -178,7 +195,7 @@ async def get_query_metrics(
         
         all_metrics = redis_metrics + ingestion_metrics
         # Sort by timestamp descending
-        all_metrics.sort(key=lambda x: x.timestamp, reverse=True)
+        all_metrics.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
         
         return all_metrics[:limit]
 

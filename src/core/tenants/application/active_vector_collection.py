@@ -32,7 +32,7 @@ def resolve_active_vector_collection(tenant_id: str, config: dict | None) -> str
         return active
     if tenant_id == DEFAULT_TENANT_ID:
         return DEFAULT_COLLECTION_NAME
-    return f"{DEFAULT_COLLECTION_PREFIX}{tenant_id}"
+    return f"{DEFAULT_COLLECTION_PREFIX}{tenant_id.replace('-', '_')}"
 
 
 def ensure_active_vector_collection_config(tenant_id: str, config: dict | None) -> dict:
