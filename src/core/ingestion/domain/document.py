@@ -62,10 +62,10 @@ class Document(Base, TimestampMixin):
 
     # Folder organization
     folder_id: Mapped[str | None] = mapped_column(ForeignKey("folders.id"), nullable=True, index=True)
-    folder: Mapped["Folder"] = relationship("Folder", back_populates="documents")
+    folder: Mapped["Folder"] = relationship("src.core.ingestion.domain.folder.Folder", back_populates="documents")
 
     # Relationship to chunks
-    chunks: Mapped[list["Chunk"]] = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
+    chunks: Mapped[list["Chunk"]] = relationship("src.core.ingestion.domain.chunk.Chunk", back_populates="document", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"

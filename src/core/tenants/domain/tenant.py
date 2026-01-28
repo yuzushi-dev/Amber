@@ -11,6 +11,7 @@ from sqlalchemy import JSON, Boolean, Column, String
 from sqlalchemy.orm import relationship
 
 from src.shared.kernel.models.base import Base, TimestampMixin
+from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 
 
 class Tenant(Base, TimestampMixin):
@@ -32,7 +33,7 @@ class Tenant(Base, TimestampMixin):
     metadata_json = Column(JSON, default=dict)
 
     # Many-to-Many relationship with ApiKey
-    api_keys = relationship("ApiKey", secondary="api_key_tenants", back_populates="tenants", lazy="selectin")
+    api_keys = relationship("ApiKey", secondary=ApiKeyTenant.__table__, back_populates="tenants", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Tenant(id={self.id}, name={self.name})>"

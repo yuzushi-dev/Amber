@@ -7,7 +7,7 @@ Vector storage and retrieval using Milvus.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncIterator, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -814,3 +814,98 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Failed to clean up vectors for tenant {tenant_id}: {e}")
             return False
+
+    async def export_vectors(self, tenant_id: str, batch_size: int = 1000) -> AsyncIterator[dict]:
+        """
+        Export all vectors for a tenant.
+        
+        Yields:
+            Dict containing vector data and metadata.
+        """
+        await self.connect()
+        import asyncio
+        
+        expr = f'{self.FIELD_TENANT_ID} == "{tenant_id}"'
+        # Use wildcard to get all fields including dynamic metadata
+        request_fields = ["*"]
+
+        def _get_iterator():
+            if hasattr(self._collection, "query_iterator"):
+                return self._collection.query_iterator(
+                    expr=expr, 
+                    output_fields=request_fields, 
+                    batch_size=batch_size
+                )
+            return None
+
+        # 1. Try Iterator (Efficient)
+        iterator = await asyncio.to_thread(_get_iterator)
+        
+        if iterator:
+            while True:
+                # Run next() in thread to avoid blocking, handle iteration logic
+                # Note: query_iterator.next() returns a list of results
+                try:
+                    batch = await asyncio.to_thread(lambda: iterator.next())
+                    if not batch:
+                        break
+                    for hit in batch:
+                        yield hit
+                except StopIteration:
+                    break
+                except Exception as e:
+                    logger.warning(f"Error during vector iteration: {e}")
+                    break
+        else:
+            # 2. Fallback: Standard Query (Limited to 16k usually)
+            logger.warning("Milvus query_iterator not available. Exporting with limit 16384.")
+            
+            def _query():
+                return self._collection.query(
+                    expr=expr, 
+                    output_fields=request_fields, 
+                    limit=16384 # Hard limit
+                )
+                
+            results = await asyncio.to_thread(_query)
+            for hit in results:
+                yield hit
+
+    async def import_vectors(self, vectors: Iterator[dict], batch_size: int = 500) -> int:
+        """
+        Import vectors in batches.
+        
+        Args:
+            vectors: Iterator of dicts (from export_vectors)
+            batch_size: Batch size for upsert
+            
+        Returns:
+            Total vectors imported
+        """
+        await self.connect()
+        
+        count = 0
+        batch = []
+        
+        for vec in vectors:
+            # Adapt format for upsert_chunks
+            # Input has 'vector' (field name), upsert expects 'embedding'
+            if self.FIELD_VECTOR in vec and "embedding" not in vec:
+                vec["embedding"] = vec[self.FIELD_VECTOR]
+            
+            # Handle sparse vector mapping if present
+            # upsert_chunks checks for FIELD_SPARSE_VECTOR directly in input dict
+            # so no mapping needed if names match, but export returns FIELD output names.
+            # Milvus output usually matches field names.
+            
+            batch.append(vec)
+            if len(batch) >= batch_size:
+                await self.upsert_chunks(batch)
+                count += len(batch)
+                batch = []
+        
+        if batch:
+            await self.upsert_chunks(batch)
+            count += len(batch)
+            
+        return count

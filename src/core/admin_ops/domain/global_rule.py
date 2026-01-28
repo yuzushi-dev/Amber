@@ -26,6 +26,7 @@ class GlobalRule(Base, TimestampMixin):
     __tablename__ = "global_rules"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    tenant_id = Column(String, nullable=False, index=True) # Tenant-scoped
     
     # Rule content
     content = Column(Text, nullable=False)
