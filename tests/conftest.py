@@ -123,7 +123,7 @@ async def db_session() -> AsyncSession:
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_application_state():
+def cleanup_application_state():
     """
     Global teardown to reset singleton states and close connections
     to prevent async loop mismatch errors and resource leaks.

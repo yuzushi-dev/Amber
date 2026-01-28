@@ -79,6 +79,7 @@ services:
       - AMBER_RUNTIME=docker
     volumes:
       - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
       - ./config:/app/config:ro
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
