@@ -11,7 +11,7 @@ from src.core.tenants.application.active_vector_collection import (
 
 def test_resolve_active_vector_collection_defaults():
     assert resolve_active_vector_collection("default", {}) == "amber_default"
-    assert resolve_active_vector_collection("tenant-1", {}) == "amber_tenant-1"
+    assert resolve_active_vector_collection("tenant-1", {}) == "amber_tenant_1"
 
 
 def test_resolve_active_vector_collection_prefers_config():
@@ -25,7 +25,7 @@ def test_resolve_active_vector_collection_prefers_config():
 
 def test_ensure_active_vector_collection_config_sets_missing():
     config = ensure_active_vector_collection_config("tenant-1", {})
-    assert config["active_vector_collection"] == "amber_tenant-1"
+    assert config["active_vector_collection"] == "amber_tenant_1"
 
 
 class StubTenant:
@@ -45,7 +45,7 @@ def test_backfill_active_vector_collections_updates_missing_only():
 
     assert updated == 2
     assert tenants[0].config["active_vector_collection"] == "amber_default"
-    assert tenants[1].config["active_vector_collection"] == "amber_t-1"
+    assert tenants[1].config["active_vector_collection"] == "amber_t_1"
     assert tenants[2].config["active_vector_collection"] == "amber_custom"
 
 

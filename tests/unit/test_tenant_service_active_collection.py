@@ -38,4 +38,4 @@ async def test_create_tenant_sets_active_collection():
 
     tenant = await service.create_tenant("Test Tenant", None, {})
 
-    assert tenant.config["active_vector_collection"] == "amber_tenant-1"
+    assert tenant.config["active_vector_collection"] == "amber_tenant_1"

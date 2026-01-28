@@ -398,6 +398,7 @@ class IngestionService:
                         qm.cost_estimate = stats.total_cost
                         qm.response = f"Generated {len(chunks_to_process)} embeddings. Tokens: {stats.total_tokens}, Cost: ${stats.total_cost:.4f}"
                         qm.success = True
+                        qm.conversation_id = document.filename
                 except Exception as e:
                     logger.error(f"Failed to log aggregated ingestion metrics: {e}")
 

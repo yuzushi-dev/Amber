@@ -90,63 +90,66 @@ def client(monkeypatch):
 
 
 @pytest.fixture
-async def api_key():
+def api_key():
     """Generate and register a test API key using async DB connection."""
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select
     from src.api.config import settings
-    
-    # 1. Generate Key
-    raw_key = generate_api_key(prefix="test")
-    hashed = hash_api_key(raw_key)
-    
-    # 2. Setup Async Engine
-    engine = create_async_engine(settings.db.database_url)
-    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
-    async with AsyncSessionLocal() as session:
-        try:
-            # Create Key Record
-            key_record = ApiKey(
-                name="Test Key",
-                prefix="test",
-                hashed_key=hashed,
-                last_chars=raw_key[-4:],
-                is_active=True,
-                scopes=["admin", "read", "write"]
-            )
-            session.add(key_record)
-            await session.flush() 
-            
-            # Create Tenant Association (default tenant)
-            from src.core.tenants.domain.tenant import Tenant
-        
-            tenant = await session.get(Tenant, "default")
-            if not tenant:
-                tenant = Tenant(id="default", name="Default")
-                session.add(tenant)
-                await session.flush()
-                
-            # Check if link exists
-            result = await session.execute(
-                 select(ApiKeyTenant).where(
-                     ApiKeyTenant.api_key_id == key_record.id,
-                     ApiKeyTenant.tenant_id == "default"
-                 )
-            )
-            if not result.scalars().first():
-                link = ApiKeyTenant(
-                    api_key_id=key_record.id,
-                    tenant_id="default",
-                    role="admin"
+
+    async def _create_key():
+        # 1. Generate Key
+        raw_key = generate_api_key(prefix="test")
+        hashed = hash_api_key(raw_key)
+
+        # 2. Setup Async Engine
+        engine = create_async_engine(settings.db.database_url)
+        AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with AsyncSessionLocal() as session:
+            try:
+                # Create Key Record
+                key_record = ApiKey(
+                    name="Test Key",
+                    prefix="test",
+                    hashed_key=hashed,
+                    last_chars=raw_key[-4:],
+                    is_active=True,
+                    scopes=["admin", "read", "write"]
                 )
-                session.add(link)
-            
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-    
-    await engine.dispose()
-    return raw_key
+                session.add(key_record)
+                await session.flush()
+
+                # Create Tenant Association (default tenant)
+                from src.core.tenants.domain.tenant import Tenant
+
+                tenant = await session.get(Tenant, "default")
+                if not tenant:
+                    tenant = Tenant(id="default", name="Default")
+                    session.add(tenant)
+                    await session.flush()
+
+                # Check if link exists
+                result = await session.execute(
+                     select(ApiKeyTenant).where(
+                         ApiKeyTenant.api_key_id == key_record.id,
+                         ApiKeyTenant.tenant_id == "default"
+                     )
+                )
+                if not result.scalars().first():
+                    link = ApiKeyTenant(
+                        api_key_id=key_record.id,
+                        tenant_id="default",
+                        role="admin"
+                    )
+                    session.add(link)
+
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+        
+        await engine.dispose()
+        return raw_key
+
+    return asyncio.run(_create_key())
