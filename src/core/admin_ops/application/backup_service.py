@@ -12,13 +12,15 @@ import io
 import json
 import logging
 import zipfile
+import subprocess
+import os
 from datetime import datetime
 from typing import Optional, Callable
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.admin_ops.domain.backup_job import BackupScope
+from src.core.admin_ops.domain.backup_job import BackupScope, BackupSchedule
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
@@ -61,7 +63,7 @@ class BackupService:
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            total_steps = 6 if scope == BackupScope.USER_DATA else 10
+            total_steps = 9 if scope == BackupScope.USER_DATA else 13
             current_step = 0
             
             def update_progress():
@@ -97,21 +99,34 @@ class BackupService:
             update_progress()
             
             # ===== FULL_SYSTEM scope (additional) =====
+            # 7. Chunks Table (Critical for re-indexing)
+            await self._add_chunks_table(zf, tenant_id)
+            update_progress()
+            
+            # 8. Vectors (Milvus)
+            await self._add_vectors(zf, tenant_id)
+            update_progress()
+            
+            # 9. Graph (Neo4j)
+            await self._add_graph(zf, tenant_id)
+            update_progress()
+            
+            # ===== FULL_SYSTEM scope (additional) =====
             if scope == BackupScope.FULL_SYSTEM:
-                # 7. Global rules
+                # 10. Global rules
                 await self._add_global_rules(zf, tenant_id)
                 update_progress()
                 
-                # 8. Tenant configuration
+                # 11. Tenant configuration
                 await self._add_tenant_config(zf, tenant_id)
                 update_progress()
                 
-                # 9. Vector store metadata (just counts, not actual vectors)
-                await self._add_vector_metadata(zf, tenant_id)
+                # 12. Backup Schedules
+                await self._add_backup_schedules(zf, tenant_id)
                 update_progress()
                 
-                # 10. Graph metadata (entity/relationship counts)
-                await self._add_graph_metadata(zf, tenant_id)
+                # 13. Full Postgres Dump
+                await self._add_postgres_dump(zf)
                 update_progress()
             
             # Create manifest
@@ -255,52 +270,44 @@ class BackupService:
 
     async def _add_global_rules(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export global rules as JSON."""
-        try:
-            result = await self.session.execute(
-                select(GlobalRule).where(GlobalRule.tenant_id == tenant_id)
-            )
-            rules = result.scalars().all()
-            
-            data = []
-            for rule in rules:
-                data.append({
-                    "id": rule.id,
-                    "content": rule.content,
-                    "category": rule.category,
-                    "priority": rule.priority,
-                    "is_active": rule.is_active,
-                    "source": rule.source,
-                    "created_at": rule.created_at.isoformat() if rule.created_at else None,
-                })
-            
-            zf.writestr("config/global_rules.json", json.dumps(data, indent=2))
-            logger.info(f"Added {len(data)} global rules")
-        except Exception as e:
-            logger.warning(f"Could not export global rules: {e}")
-            zf.writestr("config/global_rules.json", json.dumps([], indent=2))
+        result = await self.session.execute(
+            select(GlobalRule).where(GlobalRule.tenant_id == tenant_id)
+        )
+        rules = result.scalars().all()
+        
+        data = []
+        for rule in rules:
+            data.append({
+                "id": rule.id,
+                "content": rule.content,
+                "category": rule.category,
+                "priority": rule.priority,
+                "is_active": rule.is_active,
+                "source": rule.source,
+                "created_at": rule.created_at.isoformat() if rule.created_at else None,
+            })
+        
+        zf.writestr("config/global_rules.json", json.dumps(data, indent=2))
+        logger.info(f"Added {len(data)} global rules")
 
     async def _add_tenant_config(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export tenant configuration as JSON."""
         from src.core.tenants.domain.tenant import Tenant
         
-        try:
-            result = await self.session.execute(
-                select(Tenant).where(Tenant.id == tenant_id)
-            )
-            tenant = result.scalar_one_or_none()
-            
-            if tenant:
-                data = {
-                    "id": tenant.id,
-                    "name": tenant.name,
-                    "config": tenant.config or {},
-                    "is_active": tenant.is_active,
-                }
-                zf.writestr("config/tenant_config.json", json.dumps(data, indent=2))
-                logger.info("Added tenant configuration")
-        except Exception as e:
-            logger.warning(f"Could not export tenant config: {e}")
-            zf.writestr("config/tenant_config.json", json.dumps({}, indent=2))
+        result = await self.session.execute(
+            select(Tenant).where(Tenant.id == tenant_id)
+        )
+        tenant = result.scalar_one_or_none()
+        
+        if tenant:
+            data = {
+                "id": tenant.id,
+                "name": tenant.name,
+                "config": tenant.config or {},
+                "is_active": tenant.is_active,
+            }
+            zf.writestr("config/tenant_config.json", json.dumps(data, indent=2))
+            logger.info("Added tenant configuration")
 
     async def _add_vector_metadata(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export vector store metadata (counts, not actual vectors)."""
@@ -333,6 +340,29 @@ class BackupService:
         }
         zf.writestr("graph/metadata.json", json.dumps(data, indent=2))
         logger.info("Added graph metadata note")
+
+    async def _add_backup_schedules(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Export backup schedules as JSON."""
+        result = await self.session.execute(
+            select(BackupSchedule).where(BackupSchedule.tenant_id == tenant_id)
+        )
+        schedules = result.scalars().all()
+        
+        data = []
+        for schedule in schedules:
+            data.append({
+                "id": schedule.id,
+                "frequency": schedule.frequency,  # Model: frequency
+                "time_utc": schedule.time_utc,    # Model: time_utc
+                "day_of_week": schedule.day_of_week,
+                "retention_count": schedule.retention_count, # Model: retention_count
+                "scope": schedule.scope,
+                "enabled": schedule.enabled,      # Model: enabled (string)
+                "created_at": schedule.created_at.isoformat() if schedule.created_at else None,
+            })
+        
+        zf.writestr("config/backup_schedules.json", json.dumps(data, indent=2))
+        logger.info(f"Added {len(data)} backup schedules")
 
     async def list_backups(self, tenant_id: str) -> list[dict]:
         """List available backup files for a tenant."""
@@ -383,3 +413,135 @@ class BackupService:
         await self.session.commit()
         
         return True
+
+    async def _add_chunks_table(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Export chunks table as JSON."""
+        from src.core.ingestion.domain.chunk import Chunk
+        
+        result = await self.session.execute(
+            select(Chunk).where(Chunk.tenant_id == tenant_id)
+        )
+        chunks = result.scalars().all()
+        
+        data = []
+        for chunk in chunks:
+            data.append({
+                "id": chunk.id,
+                "document_id": chunk.document_id,
+                "index": chunk.index,
+                "tokens": chunk.tokens,
+                "content": chunk.content,
+                "metadata": chunk.metadata_ or {},
+                "embedding_status": chunk.embedding_status.value if hasattr(chunk.embedding_status, "value") else str(chunk.embedding_status),
+            })
+        
+        zf.writestr("ingestion/chunks.json", json.dumps(data, indent=2))
+        logger.info(f"Added {len(data)} chunks to backup")
+
+    async def _add_vectors(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Export Milvus vectors to JSONL."""
+        from src.amber_platform.composition_root import build_vector_store_factory
+        from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+        from src.core.tenants.domain.tenant import Tenant
+
+        # Resolve collection name
+        res = await self.session.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant_obj = res.scalar_one_or_none()
+        t_config = tenant_obj.config if tenant_obj else {}
+        collection_name = resolve_active_vector_collection(tenant_id, t_config)
+
+        # Build ephemeral store
+        factory = build_vector_store_factory()
+        # Use default dimension (1536) if not specified in tenant config
+        dims = int(t_config.get("embedding_dimensions") or 1536)
+        
+        vector_store = factory(dims, collection_name=collection_name)
+        logger.info(f"Exporting vectors for tenant {tenant_id} from collection {collection_name}")
+        
+        tmp_path = f"/tmp/vectors_{tenant_id}_{datetime.now().timestamp()}.jsonl"
+        try: 
+            count = 0
+            with open(tmp_path, "w") as f:
+                async for vec in vector_store.export_vectors(tenant_id):
+                    f.write(json.dumps(vec) + "\n")
+                    count += 1
+            
+            if count > 0:
+                zf.write(tmp_path, arcname="vectors/vectors.jsonl")
+            else:
+                 zf.writestr("vectors/vectors.jsonl", "")
+            
+            logger.info(f"Added {count} vectors to backup")
+            
+        finally:
+            await vector_store.close()
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    async def _add_graph(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Export Neo4j graph data to JSONL."""
+        from src.amber_platform.composition_root import platform
+        
+        tmp_path = f"/tmp/graph_{tenant_id}_{datetime.now().timestamp()}.jsonl"
+        try:
+            count = 0
+            with open(tmp_path, "w") as f:
+                async for item in platform.neo4j_client.export_graph(tenant_id):
+                    f.write(json.dumps(item) + "\n")
+                    count += 1
+            
+            if count > 0:
+                zf.write(tmp_path, arcname="graph/graph.jsonl")
+            else:
+                zf.writestr("graph/graph.jsonl", "")
+            
+            logger.info(f"Added {count} graph entities to backup")
+            
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    async def _add_postgres_dump(self, zf: zipfile.ZipFile) -> None:
+        """
+        Run pg_dump for the full database.
+        Includes all tables and schemas.
+        """
+        from src.api.config import settings
+        from sqlalchemy.engine.url import make_url
+        
+        url = make_url(settings.db.database_url)
+        
+        env = os.environ.copy()
+        if url.password:
+            env["PGPASSWORD"] = url.password
+        
+        tmp_path = f"/tmp/pg_dump_{datetime.now().timestamp()}.sql"
+        try: 
+            cmd = [
+                "pg_dump",
+                "-h", url.host or "localhost",
+                "-p", str(url.port or 5432),
+                "-U", url.username or "postgres",
+                "-d", url.database,
+                "-f", tmp_path,
+                "--clean",
+                "--if-exists"
+            ]
+            
+            logger.info(f"Running pg_dump: pg_dump -h {url.host} ...")
+            process = subprocess.run(
+                cmd, 
+                env=env, 
+                capture_output=True, 
+                text=True
+            )
+            
+            if process.returncode != 0:
+                raise RuntimeError(f"pg_dump failed: {process.stderr}")
+            
+            zf.write(tmp_path, arcname="database/postgres_dump.sql")
+            logger.info("Added full PostgreSQL dump to backup")
+            
+        finally: 
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
