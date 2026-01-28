@@ -85,7 +85,8 @@ wait_for_api() {
   local attempt=1
 
   echo ""
-  echo "Step 3/4: Waiting for API health..."
+  echo ""
+  echo "Step 4/4: Waiting for API health..."
   while [ "$attempt" -le "$retries" ]; do
     if docker compose exec -T api curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
       echo "OK: API is healthy"
@@ -104,9 +105,10 @@ run_migrations() {
   local attempt=1
 
   echo ""
-  echo "Step 4/4: Running migrations..."
+  echo "Step 3/4: Running migrations..."
   while [ "$attempt" -le "$retries" ]; do
-    if docker compose exec -T api alembic upgrade head; then
+    # Use 'run --rm' to execute migrations in a fresh container, ensuring success even if the main service is crash-looping
+    if docker compose run --rm api alembic upgrade head; then
       echo "OK: Migrations complete"
       return 0
     fi
@@ -139,6 +141,11 @@ print_wizard
 check_prereqs
 ensure_env
 
+# Fix permissions for .cache (Splade models) to prevent PermissionError
+# This is needed because the container runs as a non-root user
+mkdir -p .cache
+sudo chmod -R 777 .cache 2>/dev/null || chmod -R 777 .cache
+
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ "$USE_GPU" = true ]; then
   echo ""
@@ -154,8 +161,9 @@ echo "Starting services..."
 echo "Command: docker compose ${COMPOSE_FILES[*]} up -d"
 docker compose "${COMPOSE_FILES[@]}" up -d
 
-wait_for_api 60 5
+# Run migrations BEFORE waiting for API, so DB is ready
 run_migrations 5 5
+wait_for_api 60 5
 
 echo ""
 echo "Services are up:"
