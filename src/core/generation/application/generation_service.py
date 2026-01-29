@@ -263,6 +263,11 @@ class GenerationService:
             settings=settings,
         )
 
+        logger.info(f"RESOLVED LLM STEP CONFIG [generate] | Step: chat.generation")
+        logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
+        logger.info(f"  - Settings Default: {settings.default_llm_provider}")
+        logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
+
         # Priority: explicit config > step config
         temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
@@ -489,6 +494,11 @@ class GenerationService:
             step_id="chat.generation",
             settings=settings,
         )
+
+        logger.info(f"RESOLVED LLM STEP CONFIG [stream] | Step: chat.generation")
+        logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
+        logger.info(f"  - Settings Default: {settings.default_llm_provider}")
+        logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
 
         temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed

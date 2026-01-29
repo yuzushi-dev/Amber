@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse
 from src.api.schemas.errors import ErrorDetail, ErrorResponse
 from src.shared.context import get_request_id
 from src.shared.exceptions import AppException, ErrorCode
+from src.core.generation.domain.provider_models import RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,37 @@ async def unhandled_exception_handler(
     )
 
 
+async def rate_limit_exception_handler(
+    request: Request,
+    exc: RateLimitError,
+) -> JSONResponse:
+    """
+    Handle provider rate limit errors.
+    
+    Converts provider RateLimitError to HTTP 429.
+    """
+    logger.warning(
+        f"Rate limit exceeded: {exc}",
+        extra={
+            "request_id": get_request_id(),
+            "path": request.url.path,
+            "provider": exc.provider,
+            "retry_after": exc.retry_after,
+        },
+    )
+
+    details = {"provider": exc.provider}
+    if exc.retry_after:
+        details["retry_after"] = exc.retry_after
+
+    return _create_error_response(
+        code="rate_limit_exceeded",
+        message=str(exc),
+        status_code=429,
+        details=details,
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """
     Register all exception handlers with the FastAPI app.
@@ -142,4 +174,5 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(RateLimitError, rate_limit_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

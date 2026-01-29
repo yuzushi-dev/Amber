@@ -17,8 +17,11 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
     doc_id = f"doc_test_cost_{uuid.uuid4().hex}"
     
     # 1. Create Usage Logs
+    # Note: We rely on the 'cleanup_test_tenant' global fixture to wipe this tenant.
+    test_tenant = "integration_test_tenant"
+    
     log1 = UsageLog(
-        tenant_id="default",
+        tenant_id=test_tenant,
         provider="openai",
         model="text-embedding-3-small",
         operation="embedding",
@@ -26,7 +29,7 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
         metadata_json={"document_id": doc_id, "chunk_index": 0}
     )
     log2 = UsageLog(
-        tenant_id="default",
+        tenant_id=test_tenant,
         provider="openai",
         model="text-embedding-3-small",
         operation="embedding",
@@ -34,7 +37,7 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
         metadata_json={"document_id": doc_id, "chunk_index": 1}
     )
     log3 = UsageLog(
-        tenant_id="default",
+        tenant_id=test_tenant,
         provider="openai",
         model="gpt-4",
         operation="generation",

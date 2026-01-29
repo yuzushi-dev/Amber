@@ -188,16 +188,28 @@ class ProviderFactory:
         providers = []
 
         # Primary based on tier
-        if tier == ProviderTier.ECONOMY:
+        if tier == ProviderTier.LOCAL:
+             # Prioritize local providers
+             if self.ollama_base_url:
+                 providers.append(self._create_llm_provider("ollama"))
+
+        elif tier == ProviderTier.ECONOMY:
+            if self.ollama_base_url: # Ollama is good for economy too
+                 providers.append(self._create_llm_provider("ollama"))
             if self.openai_api_key:
                 providers.append(self._create_llm_provider("openai", model="gpt-4o-mini"))
             if self.anthropic_api_key:
                 providers.append(self._create_llm_provider("anthropic", model="claude-3-5-haiku-20241022"))
+
         elif tier == ProviderTier.STANDARD:
+            if self.ollama_base_url: # Fallback to local if standard fails? Or maybe not default.
+                 # Let's include it as a backup for standard too
+                 providers.append(self._create_llm_provider("ollama"))
             if self.openai_api_key:
                 providers.append(self._create_llm_provider("openai", model="gpt-4o"))
             if self.anthropic_api_key:
                 providers.append(self._create_llm_provider("anthropic", model="claude-sonnet-4-20250514"))
+
         elif tier == ProviderTier.PREMIUM:
             if self.anthropic_api_key:
                 providers.append(self._create_llm_provider("anthropic", model="claude-3-opus-20240229"))
@@ -206,7 +218,7 @@ class ProviderFactory:
 
         if not providers:
             raise ProviderUnavailableError(
-                "No LLM providers available. Please configure API keys.",
+                "No LLM providers available. Please configure API keys or Ollama.",
                 provider="factory",
             )
 
@@ -235,9 +247,14 @@ class ProviderFactory:
 
         providers = []
 
-        # Prefer OpenAI for cost-effectiveness
         if self.openai_api_key:
             providers.append(self._create_embedding_provider("openai"))
+
+        # Prefer Ollama if configured (even if OpenAI key is present, though usually we want specific order)
+        # Actually, if no default is set, we might want to try Ollama if OpenAI fails? 
+        # But Failover is for availability.
+        if self.ollama_base_url:
+             providers.append(self._create_embedding_provider("ollama"))
 
         # Local fallback
         if self.enable_local_fallback:

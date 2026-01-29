@@ -14,10 +14,17 @@ import sys
 sys.path.append(os.getcwd())
 
 # DATABASE_URL is now handled by the runner or inherits from env
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://graphrag:graphrag@127.0.0.1:5433/graphrag_test"
-os.environ["REDIS_URL"] = "redis://127.0.0.1:6379/0"
-os.environ["MILVUS_HOST"] = "127.0.0.1"
-os.environ["MILVUS_PORT"] = "19530"
+# We only set defaults if NOT present (e.g. running locally without .env)
+if not os.getenv("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://graphrag:graphrag@localhost:5433/graphrag" 
+
+if not os.getenv("REDIS_URL"):
+    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+
+if not os.getenv("MILVUS_HOST"):
+    os.environ["MILVUS_HOST"] = "localhost"
+    os.environ["MILVUS_PORT"] = "19530"
+
 os.environ["OPENAI_API_KEY"] = "sk-test-key-mock"
 
 from httpx import AsyncClient, ASGITransport
@@ -233,14 +240,17 @@ class TestChatPipelineComprehensive:
 
     @pytest_asyncio.fixture
     async def client(self):
+        from asgi_lifespan import LifespanManager
         headers = {
             "X-API-Key": "test-key", 
             "X-Tenant-ID": self.tenant_id,
             "X-User-ID": self.user_id
         }
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            yield ac, headers
+        # Use LifespanManager to ensure app startup happens in this loop
+        async with LifespanManager(app) as manager:
+            transport = ASGITransport(app=manager.app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                yield ac, headers
 
     # ------------------------------------------------------------------
     # Helper
