@@ -56,7 +56,9 @@ def initialize_application():
     from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder
     from src.core.generation.infrastructure.providers.factory import ProviderFactory, init_providers
     
+    
     set_provider_factory_builder(ProviderFactory)
+    
     init_providers(
         openai_api_key=settings.openai_api_key,
         anthropic_api_key=settings.anthropic_api_key,
@@ -65,8 +67,6 @@ def initialize_application():
         default_embedding_provider=settings.default_embedding_provider,
         default_embedding_model=settings.default_embedding_model
     )
-    
-    print("\n[Conftest] Application initialized (Providers, Settings, Graph Client).")
 
 from src.api.main import app
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
@@ -92,13 +92,23 @@ async def cleanup_test_tenant():
         # 1. Wipe Postgres
         from src.api.deps import _get_async_session_maker
         async with _get_async_session_maker()() as session:
+            # Delete dependent tables manually since Cascade might not be set
+            await session.execute(text(f"DELETE FROM chunks WHERE document_id IN (SELECT id FROM documents WHERE tenant_id = '{TEST_TENANT_ID}')"))
+            
             # Delete documents (cascades to chunks, etc via FKs usually, but strictly by tenant_id)
             await session.execute(text(f"DELETE FROM documents WHERE tenant_id = '{TEST_TENANT_ID}'"))
             await session.execute(text(f"DELETE FROM usage_logs WHERE tenant_id = '{TEST_TENANT_ID}'"))
             await session.execute(text(f"DELETE FROM feedbacks WHERE tenant_id = '{TEST_TENANT_ID}'"))
             # Conversation History
             await session.execute(text(f"DELETE FROM conversation_summaries WHERE tenant_id = '{TEST_TENANT_ID}'"))
+            
+            # API Keys Cleanup (Link first, then tenant)
+            await session.execute(text(f"DELETE FROM api_key_tenants WHERE tenant_id = '{TEST_TENANT_ID}'"))
+            
             # Note: We do NOT delete the Tenant record itself to avoid FK constraints on ApiKeyTenant
+            # Actually we DO delete the tenant at the end of this block?
+            # The original code continued...
+            await session.execute(text(f"DELETE FROM tenants WHERE id = '{TEST_TENANT_ID}'"))
             await session.commit()
 
         # 2. Wipe Neo4j
