@@ -507,20 +507,65 @@ async def _query_stream_impl(
 
             # Add timeout to prevent hangs
             import asyncio
+            import asyncio
+            # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
-                retrieval_result = await asyncio.wait_for(
-                    retrieval_service.retrieve(
-                        query=request.query,
-                        tenant_id=tenant_id,
-                        document_ids=document_ids,
-                        top_k=max_chunks,
-                    ),
-                    timeout=60.0
-                )
-            except TimeoutError:
-                logger.warning("Retrieval timed out after 35 seconds")
-                yield f"event: error\ndata: {json.dumps('Document retrieval timed out. Please try again.')}\n\n"
-                return
+                    retrieval_result = await asyncio.wait_for(
+                        retrieval_service.retrieve(
+                            query=request.query,
+                            tenant_id=tenant_id,
+                            document_ids=document_ids,
+                            top_k=max_chunks,
+                        ),
+                        timeout=60.0
+                    )
+                except Exception as e:
+                     # Re-raise to let the outer exception handler (the one we added for generation) catch it
+                     # But wait, the outer handler is inside the stream generator loop? 
+                     # No, we are currently in _query_stream_impl, which calls generation_service.generate_stream
+                     # The error handling we added previously is INSIDE generation_service.generate_stream (or around it in the loop)
+                     # We need to make sure THIS error is also caught and emitted as a proper SSE event
+                     
+                     # Actually, looking at the code structure:
+                     # _query_stream_impl is an async generator.
+                     # It has a big try...except block (lines 200..something)? No, let me check view_file 280 output.
+                     # The view output shows lines 500-600.
+                     # The retrieval is separate.
+                     
+                     # We should re-raise this in a way that our main exception handler catches it?
+                     # OR we just handle it here similar to the generic handler we built.
+                     
+                     logger.error(f"Retrieval failed: {e}")
+                     
+                     # Check for Rate Limit explicitly in retrieval failures (often Tenacity RetryError wrapping RateLimitError)
+                     error_code = "error"
+                     provider = "System"
+                     message = str(e)
+                     
+                     # Try to unwrap Tenacity RetryError
+                     import tenacity
+                     if isinstance(e, tenacity.RetryError):
+                         if e.last_attempt and e.last_attempt.failed:
+                             inner_exc = e.last_attempt.exception()
+                             if inner_exc:
+                                 e = inner_exc
+                     
+                     # Now check for our known errors
+                     from src.core.generation.domain.provider_models import RateLimitError
+                     if isinstance(e, RateLimitError) or "RateLimitError" in type(e).__name__ or "429" in str(e):
+                         error_code = "rate_limit"
+                         message = "Rate limit exceeded during retrieval"
+                         provider = "Embedding Provider" # We can't easily get provider name from here easily without inspecting 'e' deeply
+                         if hasattr(e, "provider"):
+                             provider = e.provider.title()
+                     
+                     error_data = {
+                         "code": error_code,
+                         "message": message,
+                         "provider": provider
+                     }
+                     yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                     return
 
             if not retrieval_result.chunks:
                 yield f"data: {json.dumps('No relevant documents found.')}\n\n"
