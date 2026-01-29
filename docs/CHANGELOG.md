@@ -1,4 +1,4 @@
-# Amber — ArchitectureEvo Release Changelog
+# Amber — Release 1.0.0a Changelog
 
 **Branch:** `ArchitectureEvo` vs `main`  
 **Period:** January 22 – January 29, 2026  
