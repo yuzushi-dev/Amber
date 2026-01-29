@@ -62,7 +62,11 @@ class SemanticChunker:
         self.quality_scorer = ChunkQualityScorer()
 
         if HAS_TIKTOKEN:
-            self.encoder = tiktoken.get_encoding(encoding_name)
+            try:
+                self.encoder = tiktoken.get_encoding(encoding_name)
+            except Exception as e:
+                logger.warning(f"Failed to initialize tiktoken ({e}). Using word-based estimation.")
+                self.encoder = None
         else:
             self.encoder = None
             logger.warning("tiktoken not available, using word-based estimation")

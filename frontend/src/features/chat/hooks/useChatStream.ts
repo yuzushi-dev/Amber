@@ -309,7 +309,7 @@ export function useChatStream() {
             setState((prev) => ({ ...prev, isStreaming: false }))
             stopStream()
             useChatStore.getState().triggerHistoryUpdate()
-            const { tokenCount, messageCount, charCount, startedAt } = streamStatsRef.current
+            const { tokenCount, messageCount } = streamStatsRef.current
             debugLog('done event', {
                 tokenCount,
                 messageCount,
