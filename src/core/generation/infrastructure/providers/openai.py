@@ -19,6 +19,7 @@ from src.core.generation.infrastructure.providers.base import (
     ProviderConfig,
     ProviderTier,
     ProviderUnavailableError,
+    QuotaExceededError,
     RateLimitError,
     TokenUsage,
 )
