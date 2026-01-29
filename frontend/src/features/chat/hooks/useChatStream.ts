@@ -363,9 +363,11 @@ export function useChatStream() {
 
             // This is now purely for connection errors (network down, server crash, etc)
             // The structured application errors are handled by 'processing_error' event
+            // If connection closes while we are still streaming/thinking, it's an error.
+            // (Normal closure handles 'done' event which sets isStreaming=false)
             if (eventSource.readyState === EventSource.CLOSED) {
-                // Connection closed normally or abnormally
-                return;
+                // If stream was stopped intentionally, ref is null.
+                if (!eventSourceRef.current) return;
             }
 
             updateLastMessage({
