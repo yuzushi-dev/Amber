@@ -32,6 +32,7 @@ interface Document {
     status: string
     created_at: string
     source_type?: string
+    error_message?: string
 }
 
 type ConfirmAction =
@@ -323,6 +324,7 @@ export default function DocumentLibrary() {
                                                 <LiveStatusBadge
                                                     documentId={doc.id}
                                                     initialStatus={doc.status}
+                                                    errorMessage={doc.error_message}
                                                     onComplete={() => {
                                                         refetch()
                                                         queryClient.invalidateQueries({ queryKey: ['documents'] });
