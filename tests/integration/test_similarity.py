@@ -12,35 +12,16 @@ neo4j_client = platform.neo4j_client
 def api_key() -> str:
     return "amber-dev-key-2024"
 
-@pytest.fixture
-async def test_client() -> AsyncClient:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Patch provider factory
-        from unittest.mock import MagicMock, patch, AsyncMock
-        mock_factory = MagicMock()
-        mock_factory.get_llm_provider.return_value = AsyncMock()
-        mock_factory.get_embedding_provider.return_value = AsyncMock()
-        
-        # Configure global provider factory
-        from src.core.generation.domain.ports.provider_factory import set_provider_factory, get_provider_factory
-        set_provider_factory(mock_factory)
-        try:
-             print(f"DEBUG: Factory set to {get_provider_factory()}")
-        except Exception as e:
-             print(f"DEBUG: Factory check failed: {e}")
-        
-        try:
-            yield client
-        finally:
-            set_provider_factory(None)
+# Removed local test_client fixture to use global 'client' from conftest which has tenant headers
+# If explicit mocks were needed, they should be applied to the global or via autouse patches
+
 
 class TestSimilarity:
     
     @pytest.mark.asyncio
     async def test_similarity_creation(
         self,
-        test_client: AsyncClient,
+        client: AsyncClient, # Use global client fixture from conftest which has X-Tenant-ID
         api_key: str
     ):
         # Patch ApiKeyService to allow auth
@@ -51,7 +32,9 @@ class TestSimilarity:
         mock_key.id = "test-key-id"
         mock_key.name = "Test Key"
         mock_key.scopes = ["admin"]
-        mock_key.tenants = [MagicMock(id="default")] # match default behavior or specific tenant
+        # Use the same constant as conftest, or just the string literal
+        test_tenant = "integration_test_tenant" 
+        mock_key.tenants = [MagicMock(id=test_tenant)]
         
         mock_auth_service.validate_key = AsyncMock(return_value=mock_key)
 
@@ -101,11 +84,10 @@ class TestSimilarity:
             text_2 = f"A fast brown fox leaps over a lazy dog. {run_id} " * 20
             
             async def create_pdf(text, filename):
-                # pdf_content = f"""%PDF-1.4...""".encode() # abbreviated for brevity, but we just need a dummy bytes
                 files = {"file": (filename, b"%PDF-1.4 dummy content", "application/pdf")}
                 
                 print(f"Uploading {filename}...")
-                response = await test_client.post(
+                response = await client.post(
                     "/v1/documents",
                     headers={"X-API-Key": api_key},
                     files=files
@@ -116,53 +98,20 @@ class TestSimilarity:
             # Upload Doc 1
             doc_id_1 = await create_pdf(text_1, "doc1.pdf")
             
-            # Wait for Doc 1 (With mocked worker, it will stay Ingested)
-            # We verify that the API accepted it and dispatched the task
+            # Wait for Doc 1
             for _ in range(5):
                  await asyncio.sleep(0.1)
             
-            resp = await test_client.get(f"/v1/documents/{doc_id_1}", headers={"X-API-Key": api_key})
-            # assert resp.json()["status"] == "ready" 
+            resp = await client.get(f"/v1/documents/{doc_id_1}", headers={"X-API-Key": api_key})
             assert resp.json()["status"] == "ingested"
-            
-            # Wait for Doc 1 (With mocked worker, it will stay Ingested)
-            # We verify that the API accepted it and dispatched the task
-            for _ in range(5):
-                 await asyncio.sleep(0.1)
-            
-            resp = await test_client.get(f"/v1/documents/{doc_id_1}", headers={"X-API-Key": api_key})
-            assert resp.json()["status"] == "ingested"
-            
-            # Verify dispatch happened
-            # We need to access the mock from the context manager in the outer scope?
-            # The 'mock_dispatch' variable is local to the 'async def create_pdf' function?
-            # NO, create_pdf is defined inside test_similarity_creation.
-            # But 'mock_dispatch' was defined in the 'with patch' block inside create_pdf.
-            # But we are calling assertions AFTER create_pdf returns? 
-            # Wait, the assertions are currently IN the main test method, OUTSIDE create_pdf?
-            
-            # Let's check where create_pdf is called.
-            # It's called at line 147: doc_id_1 = await create_pdf(...)
-            
-            # The mock_dispatch was defined INSIDE create_pdf. It is NOT available here.
-            # Fix: We can't assert on mock_dispatch here unless we return it or check inside.
-            # Logic update: Use side effect or log checks? Or simply trust the 202 response + status check.
-            # Or assertion inside create_pdf? 
-            # But create_pdf returns doc_id.
-            
-            pass # Skip dispatch check
+
 
             # Upload Doc 2
             doc_id_2 = await create_pdf(text_2, "doc2.pdf")
             
-            resp = await test_client.get(f"/v1/documents/{doc_id_2}", headers={"X-API-Key": api_key})
+            resp = await client.get(f"/v1/documents/{doc_id_2}", headers={"X-API-Key": api_key})
+            assert resp.status_code == 200
             assert resp.json()["status"] == "ingested"
-            
-            # Verify Neo4j Mock Interaction (The background task would normally call this)
-            # Since we mocked the worker away, we can't test the SIDE EFFECTS of the worker (graph edges).
-            # We only verify the integration of the API -> Dispatcher -> Storage.
-            # So we skip the graph check in this mocked env.
-            print("Skipping graph edge check as worker is mocked.")
 
         finally:
             # Restore original platform clients

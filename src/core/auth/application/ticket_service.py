@@ -79,8 +79,10 @@ class TicketService:
         if payload:
             # Allow reuse within TTL window to handle connection drops/retries
             # await client.delete(key)
+            # await client.delete(key)
             return payload
-            
+        
+        logger.warning(f"Ticket redemption failed: Ticket {ticket} not found or expired.")
         return None
         
     async def close(self):

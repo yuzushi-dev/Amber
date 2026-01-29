@@ -259,13 +259,24 @@ class EmbeddingMigrationService:
         
         # 3. Clear Neo4j Graph
         # We must clear the graph as it depends on chunks/embeddings we are about to delete.
-        delete_query = """
-        MATCH (n {tenant_id: $tenant_id})
-        DETACH DELETE n
-        RETURN count(n) as deleted
-        """
-        delete_result = await self.graph_client.execute_write(delete_query, {"tenant_id": tenant_id})
-        deleted_nodes = delete_result[0]["deleted"] if delete_result else 0
+        # Use Python-side batching to avoid Neo4j MemoryPoolOutOfMemoryError
+        total_deleted = 0
+        while True:
+            delete_query = """
+            MATCH (n {tenant_id: $tenant_id})
+            WITH n LIMIT 1000
+            DETACH DELETE n
+            RETURN count(n) as count
+            """
+            result = await self.graph_client.execute_write(delete_query, {"tenant_id": tenant_id})
+            count = result[0]["count"] if result else 0
+            total_deleted += count
+            logger.debug(f"Deleted batch of {count} nodes...")
+            
+            if count == 0:
+                break
+        
+        deleted_nodes = total_deleted
         logger.info(f"Deleted {deleted_nodes} nodes from Neo4j for tenant {tenant_id}")
 
         # 4. Delete Chunks from DB

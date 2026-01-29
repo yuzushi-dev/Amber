@@ -257,6 +257,9 @@ def resolve_llm_step_config(
 ) -> LLMStepConfig:
     step = LLM_STEP_DEFS[step_id]
     step_overrides = (tenant_config.get("llm_steps") or {}).get(step_id, {})
+    
+    # DEBUG
+    print(f"DEBUG: resolve_llm_step_config | step={step_id} | tenant_provider={tenant_config.get('llm_provider')}")
 
     provider = (
         step_overrides.get("provider")

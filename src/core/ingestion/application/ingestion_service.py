@@ -372,6 +372,13 @@ class IngestionService:
                     vector_store = self.vector_store_factory(res_dims, collection_name=active_collection)
                 else:
                     vector_store = self.vector_store
+                
+                logger.info(f"RESOLVED EMBEDDING CONFIG | Document: {document.id} | Tenant: {document.tenant_id}")
+                logger.info(f"  - Tenant Config Provider: {t_config.get('embedding_provider')} (sys default: {sys_prov})")
+                logger.info(f"  - Tenant Config Model: {t_config.get('embedding_model')} (sys default: {sys_model})")
+                logger.info(f"  - Resolved Provider: {res_prov}")
+                logger.info(f"  - Resolved Model: {res_model}")
+                logger.info(f"  - Factory: {factory.__class__.__name__}")
 
                 if vector_store is None:
                     raise RuntimeError("Vector store not configured")

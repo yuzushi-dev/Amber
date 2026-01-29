@@ -157,22 +157,8 @@ class TestFeedbackWorkflow:
         assert not any(f["id"] == feedback_id_rej for f in approved.json()["data"])
         
         # --- CLEANUP ---
-        # Clean up created data to prevent polluting the dev DB
-        from src.api.deps import _get_async_session_maker
-        from src.core.admin_ops.domain.feedback import Feedback
-        from src.core.generation.domain.memory_models import ConversationSummary
-        from sqlalchemy import delete
-        
-        async with _get_async_session_maker()() as session:
-            # Delete Feedbacks
-            await session.execute(
-                delete(Feedback).where(Feedback.id.in_([feedback_id_pos, feedback_id_neg, feedback_id_rej]))
-            )
-            # Delete Conversation Summaries (if created, see below)
-            await session.execute(
-                delete(ConversationSummary).where(ConversationSummary.id.in_(["test_session_1", "test_session_2", "test_session_3"]))
-            )
-            await session.commit()
+        # Remvoed manual DB cleanup. 
+        # The 'cleanup_test_tenant' global fixture automatically handles this for 'integration_test_tenant'.
 
     @pytest.fixture(autouse=True)
     async def setup_conversation_data(self):
@@ -180,12 +166,15 @@ class TestFeedbackWorkflow:
         from src.api.deps import _get_async_session_maker
         from src.core.generation.domain.memory_models import ConversationSummary
         
+        # Matches conftest.TEST_TENANT_ID
+        test_tenant = "integration_test_tenant"
+        
         async with _get_async_session_maker()() as session:
             # Create summaries used by the test
             summaries = [
                 ConversationSummary(
                     id="test_session_1",
-                    tenant_id="default",
+                    tenant_id=test_tenant,
                     user_id="test_user",
                     title="Test Session 1",
                     summary="Summary 1",
@@ -193,7 +182,7 @@ class TestFeedbackWorkflow:
                 ),
                 ConversationSummary(
                     id="test_session_2",
-                    tenant_id="default",
+                    tenant_id=test_tenant,
                     user_id="test_user",
                     title="Test Session 2",
                     summary="Summary 2",
@@ -201,7 +190,7 @@ class TestFeedbackWorkflow:
                 ),
                 ConversationSummary(
                     id="test_session_3",
-                    tenant_id="default",
+                    tenant_id=test_tenant,
                     user_id="test_user",
                     title="Test Session 3",
                     summary="Summary 3",
@@ -210,7 +199,6 @@ class TestFeedbackWorkflow:
             ]
             
             for s in summaries:
-                # Upsert or ignore if exists? Better to merge.
                 await session.merge(s)
             
             await session.commit()
