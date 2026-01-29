@@ -545,7 +545,7 @@ async def _query_stream_impl(
                  # Try to unwrap Tenacity RetryError
                  import tenacity
                  if isinstance(e, tenacity.RetryError):
-                     if e.last_attempt and e.last_attempt.failed:
+                     if e.last_attempt:
                          inner_exc = e.last_attempt.exception()
                          if inner_exc:
                              e = inner_exc
