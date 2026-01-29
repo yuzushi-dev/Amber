@@ -337,6 +337,9 @@ export function useChatStream() {
                             case 'rate_limit':
                                 errorMsg = `[429 - ${provider}] The cognitive circuits are momentarily overwhelmed. Contact an administrator and stand by please.`
                                 break
+                            case 'quota_exceeded':
+                                errorMsg = `[429 - ${provider}] Quota exceeded. Please check your billing details.`
+                                break
                             case 'auth_error':
                                 errorMsg = `[401 - ${provider}] I can’t verify you. Access stays locked.`
                                 break
