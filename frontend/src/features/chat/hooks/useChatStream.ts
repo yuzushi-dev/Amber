@@ -326,32 +326,11 @@ export function useChatStream() {
                         const provider = errorData.provider || 'System'
                         let errorMsg = ''
 
-                        switch (errorData.code) {
-                            case 'rate_limit':
-                                errorMsg = `[429 - ${provider}] The cognitive circuits are momentarily overwhelmed. Contact an administrator and stand by please.`
-                                break
-                            case 'quota_exceeded':
-                                errorMsg = `[429 - ${provider}] Quota exceeded. Please check your billing details.`
-                                break
-                            case 'auth_error':
-                                errorMsg = `[401 - ${provider}] I can’t verify you. Access stays locked.`
-                                break
-                            case 'context_length':
-                                errorMsg = `[400 - ${provider}] That’s beyond my current buffer. Trim it down.`
-                                break
-                            case 'provider_error':
-                                errorMsg = `[503 - ${provider}] Connection lost. I’ll be back when the line clears.`
-                                break
-                            case 'invalid_request':
-                                errorMsg = `[400 - ${provider}] This request doesn’t compile. Fix the inputs.`
-                                break
-                            default:
-                                if (provider !== 'System') {
-                                    errorMsg = `[Error - ${provider}] An unexpected provider error occurred.`
-                                } else {
-                                    errorMsg = errorData.message || "Unknown processing error"
-                                }
-                        }
+                        // Use message from backend, fallback to generic if missing
+                        const message = errorData.message || "An unexpected error occurred."
+
+                        // Format: [Code - Provider] Message
+                        errorMsg = `[${errorData.code.toUpperCase()} - ${provider}] ${message}`
 
                         if (errorMsg) {
                             updateLastMessage({
