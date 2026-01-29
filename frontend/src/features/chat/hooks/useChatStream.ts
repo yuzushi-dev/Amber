@@ -316,9 +316,9 @@ export function useChatStream() {
             })
         })
 
-        eventSource.addEventListener('processing_error', (e) => {
+        eventSource.addEventListener('processing_error', (e: any) => {
             console.error('SSE Processing Error', e)
-            if (e instanceof MessageEvent && e.data) {
+            if (e.data) {
                 try {
                     const errorData = JSON.parse(e.data)
                     // Check for structured error
@@ -350,10 +350,18 @@ export function useChatStream() {
                             thinking: null,
                             content: `[Error] ${errorData}`
                         })
+                        setState((prev) => ({ ...prev, isStreaming: false }))
                         stopStream()
                     }
                 } catch (err) {
                     console.error("Failed to parse processing_error", err)
+                    // Fallback for parsing errors to ensure we don't hang
+                    updateLastMessage({
+                        thinking: null,
+                        content: `[System Error] Failed to process server error: ${e.data?.slice(0, 50)}`
+                    })
+                    setState((prev) => ({ ...prev, isStreaming: false }))
+                    stopStream()
                 }
             }
         })
