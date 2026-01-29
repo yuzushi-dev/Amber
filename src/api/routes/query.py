@@ -572,7 +572,7 @@ async def _query_stream_impl(
                      "message": message,
                      "provider": provider
                  }
-                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                 yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
                  return
 
             if not retrieval_result.chunks:
@@ -912,11 +912,11 @@ async def _query_stream_impl(
                      "message": message,
                      "provider": provider
                  }
-                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                 yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
                  return
 
             logger.exception(f"Stream generation failed: {e}")
-            yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
+            yield f"event: processing_error\ndata: {json.dumps(str(e))}\n\n"
 
     return StreamingResponse(
         generate_stream(),
