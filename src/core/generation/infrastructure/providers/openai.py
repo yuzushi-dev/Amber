@@ -429,7 +429,17 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
 
+
         if "RateLimitError" in error_type:
+            # Check for hard quota limits vs transient rate limits
+            error_str = str(e).lower()
+            if "insufficient_quota" in error_str or "billing" in error_str:
+                raise QuotaExceededError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                )
+            
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,

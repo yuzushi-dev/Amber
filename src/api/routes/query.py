@@ -551,8 +551,16 @@ async def _query_stream_impl(
                              e = inner_exc
                  
                  # Now check for our known errors
-                 from src.core.generation.domain.provider_models import RateLimitError
-                 if isinstance(e, RateLimitError) or "RateLimitError" in type(e).__name__ or "429" in str(e):
+                 from src.core.generation.domain.provider_models import RateLimitError, QuotaExceededError
+                 
+                 if isinstance(e, QuotaExceededError) or "QuotaExceededError" in type(e).__name__ or "insufficient_quota" in str(e):
+                     error_code = "quota_exceeded"
+                     message = "Quota exceeded. Please check your billing/credits."
+                     provider = "Embedding Provider"
+                     if hasattr(e, "provider"):
+                         provider = e.provider.title()
+
+                 elif isinstance(e, RateLimitError) or "RateLimitError" in type(e).__name__ or "429" in str(e):
                      error_code = "rate_limit"
                      message = "Rate limit exceeded during retrieval"
                      provider = "Embedding Provider" # We can't easily get provider name from here easily without inspecting 'e' deeply
