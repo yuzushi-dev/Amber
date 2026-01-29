@@ -130,10 +130,18 @@ class CommunitySummarizer:
         # Group by level to ensure child communities are summarized before parents
         # Actually our query already orders by level ASC
 
-        for i in range(0, len(community_ids), batch_size):
-            batch = community_ids[i:i+batch_size]
-            tasks = [self.summarize_community(cid, tenant_id, tenant_config) for cid in batch]
-            await asyncio.gather(*tasks)
+        # Limit concurrency to avoid 429s or OOM with local LLMs
+        sem = asyncio.Semaphore(3)
+
+        async def _bounded_summarize(cid):
+            async with sem:
+                return await self.summarize_community(cid, tenant_id, tenant_config)
+
+        # Create tasks for all IDs (semaphore controls active execution)
+        tasks = [_bounded_summarize(cid) for cid in community_ids]
+        
+        # Run safely
+        await asyncio.gather(*tasks)
 
     async def _fetch_community_data(self, community_id: str, tenant_id: str) -> dict[str, Any]:
         """
