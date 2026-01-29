@@ -344,7 +344,7 @@ async def list_documents(
             folder_id=doc.folder_id,
             source_type=doc.source_type,
             content_type=_get_content_type(doc),
-            content_type=_get_content_type(doc),
+
             created_at=doc.created_at,
             error_message=doc.error_message,
             ingestion_cost=0.0,
