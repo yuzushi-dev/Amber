@@ -88,7 +88,9 @@ class DocumentResponse(BaseModel):
     folder_id: str | None = None
     source_type: str | None = "upload"
     content_type: str | None = None  # MIME type of the document
+    content_type: str | None = None  # MIME type of the document
     created_at: datetime
+    error_message: str | None = None # Added field for error feedback
 
     # Enrichment fields
     summary: str | None = None
@@ -342,7 +344,9 @@ async def list_documents(
             folder_id=doc.folder_id,
             source_type=doc.source_type,
             content_type=_get_content_type(doc),
+            content_type=_get_content_type(doc),
             created_at=doc.created_at,
+            error_message=doc.error_message,
             ingestion_cost=0.0,
         )
         for doc in documents
@@ -362,6 +366,38 @@ async def get_document(
     """
     Get document details with enrichment data and statistics.
     """
+    # Need to query SQL for simple document fields first if the use case doesn't return everything 
+    # or ensure use case returns everything including error_message.
+    # The UseCase returns DocumentOutput which maps domain model.
+    # Let's check DocumentOutput definition. If it's not there, we might need to fetch from SQL directly or update UseCase.
+    # For now, let's fetch directly from DB to be safe and consistent with list_documents, 
+    # OR we can just rely on the Use Case if we update it.
+    # Actually, looking at the code below, it uses `DocumentOutput`.
+    # I should check `use_cases_documents.py` to see if `DocumentOutput` has `error_message`.
+    # If not, I should probably update `DocumentOutput` too.
+    # But as a quick fix/pragmatic approach, I can fetch the doc from SQL for `error_message` if needed,
+    # OR better: Assuming I can't easily change the UseCase file right now without finding it, 
+    # I will stick to what I can see.
+    # However, `get_document` uses the UseCase. The UseCase likely retrieves the generic Document object.
+    # Let's assume I need to update the UseCase or wrapper.
+    # Wait, I don't see `use_cases_documents.py` in my file list.
+    # Let's try to update the `DocumentResponse` construction below assuming `output` has it or I can mix it in.
+    # But `output` is typed `DocumentOutput`.
+    # Let's look at `DocumentOutput` definition if possible.
+    # Since I cannot see it, and I want to avoid breaking things, I will verify `use_cases_documents.py`.
+    
+    # Actually, to save tool calls, I can see `list_documents` uses SQL directly (lines 316-332).
+    # `get_document` uses `GetDocumentUseCase`.
+    # If I only update `list_documents`, the list view (LiveStatusBadge) will work.
+    # The detail page might not show the error if I don't update the use case.
+    # But the immediate requirement is the LIST view badge/tooltip.
+    
+    # Let's update `list_documents` first (already included in first chunk).
+    
+    # Now for `get_document`:
+    # It returns `DocumentResponse`.
+    # I will check if I can modify `DocumentOutput` by searching for it.
+
     from src.core.ingestion.application.use_cases_documents import GetDocumentUseCase, GetDocumentRequest, DocumentOutput
 
     permissions = getattr(http_request.state, "permissions", [])

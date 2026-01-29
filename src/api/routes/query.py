@@ -542,42 +542,11 @@ async def _query_stream_impl(
                  
                  logger.error(f"Retrieval failed: {e}")
                  
-                 # Check for Rate Limit explicitly in retrieval failures (often Tenacity RetryError wrapping RateLimitError)
-                 error_code = "error"
-                 provider = "System"
-                 message = str(e)
+                 logger.error(f"Retrieval failed: {e}")
                  
-                 # Try to unwrap Tenacity RetryError
-                 import tenacity
-                 if isinstance(e, tenacity.RetryError):
-                     if e.last_attempt:
-                         inner_exc = e.last_attempt.exception()
-                         if inner_exc:
-                             e = inner_exc
-                 
-                 # Now check for our known errors
-                 from src.core.generation.domain.provider_models import RateLimitError, QuotaExceededError
-                 from src.shared.messages import ERROR_MESSAGES
-                 
-                 if isinstance(e, QuotaExceededError) or "QuotaExceededError" in type(e).__name__ or "insufficient_quota" in str(e):
-                     error_code = "quota_exceeded"
-                     message = ERROR_MESSAGES["quota_exceeded"]
-                     provider = "Embedding Provider"
-                     if hasattr(e, "provider"):
-                         provider = e.provider.title()
+                 from src.shared.error_handling import map_exception_to_error_data
+                 error_data = map_exception_to_error_data(e)
 
-                 elif isinstance(e, RateLimitError) or "RateLimitError" in type(e).__name__ or "429" in str(e):
-                     error_code = "rate_limit"
-                     message = ERROR_MESSAGES["rate_limit"]
-                     provider = "Embedding Provider" # We can't easily get provider name from here easily without inspecting 'e' deeply
-                     if hasattr(e, "provider"):
-                         provider = e.provider.title()
-                 
-                 error_data = {
-                     "code": error_code,
-                     "message": message,
-                     "provider": provider
-                 }
                  yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
                  return
 

@@ -543,7 +543,16 @@ class IngestionService:
                 document = await self.document_repository.get(document_id)
                 if document:
                     document.status = DocumentStatus.FAILED
-                    document.error_message = f"{type(e).__name__}: {str(e)}"
+                    # Use shared error mapping for structured persistence
+                    try:
+                        import json
+                        from src.shared.error_handling import map_exception_to_error_data
+                        error_data = map_exception_to_error_data(e)
+                        document.error_message = json.dumps(error_data)
+                    except Exception as map_err:
+                        logger.error(f"Failed to map error for {document_id}: {map_err}")
+                        document.error_message = f"{type(e).__name__}: {str(e)}"
+                    
                     await self.document_repository.save(document)
                     await self.unit_of_work.commit()
             except Exception as inner_err:
