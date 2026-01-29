@@ -33,8 +33,8 @@ def get_token_counter(model: str = "gpt-4") -> Callable[[str], int]:
 
         return lambda text: len(encoding.encode(text))
 
-    except ImportError:
-        logger.warning("tiktoken not available, using word-based approximation")
+    except (ImportError, Exception) as e:
+        logger.warning(f"tiktoken not available or failed to initialize ({e}). Using word-based approximation.")
         # Rough approximation: ~4 chars per token on average
         return lambda text: len(text) // 4
 
