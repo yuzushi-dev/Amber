@@ -121,7 +121,7 @@ class TestChatRetrievalDirectSeeding:
         factory.get_reranker_provider.return_value = self.mock_reranker
         
         # Auth Mocking (Tenant)
-        self.tenant_id = f"tenant_{uuid.uuid4().hex[:8]}"
+        self.tenant_id = "integration_test_tenant"
         self.user_id = f"user_{uuid.uuid4().hex[:8]}"
         
         # Reset global services in query route to force re-initialization with mocks
@@ -153,10 +153,10 @@ class TestChatRetrievalDirectSeeding:
                 # Cleanup DB
                 async_session = get_session_maker()
                 async with async_session() as session:
-                    await session.execute(text("DELETE FROM chunks WHERE 1=1"))
-                    await session.execute(text("DELETE FROM documents WHERE 1=1"))
-                    await session.execute(text("DELETE FROM user_facts WHERE 1=1"))
-                    await session.execute(text("DELETE FROM conversation_summaries WHERE 1=1"))
+                    await session.execute(text(f"DELETE FROM chunks WHERE tenant_id = '{self.tenant_id}'"))
+                    await session.execute(text(f"DELETE FROM documents WHERE tenant_id = '{self.tenant_id}'"))
+                    await session.execute(text(f"DELETE FROM user_facts WHERE tenant_id = '{self.tenant_id}'"))
+                    await session.execute(text(f"DELETE FROM conversation_summaries WHERE tenant_id = '{self.tenant_id}'"))
                     await session.commit()
                 
                 yield

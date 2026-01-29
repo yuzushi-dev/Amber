@@ -158,7 +158,8 @@ async def test_ingestion_integration_classification(db_session):
         )
 
         # Run process
-        await service.process_document(doc_id)
+        with patch("src.core.generation.domain.ports.provider_factory.build_provider_factory", return_value=mock_factory):
+            await service.process_document(doc_id)
             
     finally:
         set_provider_factory(None)

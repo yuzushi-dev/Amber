@@ -183,7 +183,7 @@ class TestChatPipelineComprehensive:
         self.patch_metrics_builder = p.start()
         patches.append(p)
 
-        self.tenant_id = f"tenant_{uuid.uuid4().hex[:8]}"
+        self.tenant_id = "integration_test_tenant"
         self.user_id = f"user_{uuid.uuid4().hex[:8]}"
         
         # 8. Reset Singleton Services in Query Route
@@ -216,10 +216,12 @@ class TestChatPipelineComprehensive:
         try:
             async_session = get_session_maker()
             async with async_session() as session:
-                await session.execute(text("DELETE FROM chunks WHERE 1=1"))
-                await session.execute(text("DELETE FROM documents WHERE 1=1"))
-                await session.execute(text("DELETE FROM user_facts WHERE 1=1"))
-                await session.execute(text("DELETE FROM conversation_summaries WHERE 1=1"))
+                # Ensure tenant exists to prevent FK errors
+                await session.execute(text(f"INSERT INTO tenants (id, name, is_active, created_at, updated_at) VALUES ('{self.tenant_id}', 'Integration Test Tenant', true, NOW(), NOW()) ON CONFLICT (id) DO NOTHING"))
+                await session.execute(text(f"DELETE FROM chunks WHERE tenant_id = '{self.tenant_id}'"))
+                await session.execute(text(f"DELETE FROM documents WHERE tenant_id = '{self.tenant_id}'"))
+                await session.execute(text(f"DELETE FROM user_facts WHERE tenant_id = '{self.tenant_id}'"))
+                await session.execute(text(f"DELETE FROM conversation_summaries WHERE tenant_id = '{self.tenant_id}'"))
                 await session.commit()
         except Exception:
             pass # Ignore cleanup errors if DB not ready
@@ -240,17 +242,16 @@ class TestChatPipelineComprehensive:
 
     @pytest_asyncio.fixture
     async def client(self):
-        from asgi_lifespan import LifespanManager
+        # from asgi_lifespan import LifespanManager  <-- Removed to fix ModuleNotFoundError
         headers = {
             "X-API-Key": "test-key", 
             "X-Tenant-ID": self.tenant_id,
             "X-User-ID": self.user_id
         }
-        # Use LifespanManager to ensure app startup happens in this loop
-        async with LifespanManager(app) as manager:
-            transport = ASGITransport(app=manager.app)
-            async with AsyncClient(transport=transport, base_url="http://test") as ac:
-                yield ac, headers
+        # Use ASGITransport directly matching test_retrieval.py
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac, headers
 
     # ------------------------------------------------------------------
     # Helper

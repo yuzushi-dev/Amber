@@ -11,6 +11,8 @@ Tests for folder CRUD operations and document-folder associations:
 """
 
 import uuid
+from src.core.ingestion.domain.document import Document
+from src.core.state.machine import DocumentStatus
 
 
 @pytest.mark.asyncio
@@ -115,8 +117,20 @@ class TestFolderCRUD:
 class TestDocumentFolderAssignment:
     """Tests for moving documents between folders."""
 
-    async def test_move_document_to_folder(self, client, api_key):
+    async def test_move_document_to_folder(self, client, api_key, db_session, test_tenant_id):
         """Should move a document to a folder."""
+        # Seed a document
+        doc_id = f"doc_{uuid.uuid4().hex[:16]}"
+        doc = Document(
+            id=doc_id,
+            tenant_id=test_tenant_id,
+            filename="test_move.txt",
+            status=DocumentStatus.READY,
+            content_hash=uuid.uuid4().hex,
+            storage_path="test/path/move.txt"
+        )
+        db_session.add(doc)
+        await db_session.commit()
         # Create a folder
         folder_name = f"doc-move-test-{uuid.uuid4().hex[:8]}"
         folder_response = await client.post(
@@ -136,10 +150,8 @@ class TestDocumentFolderAssignment:
         documents = docs_response.json()
 
         if not documents:
-            # No documents available - skip this test
-            import pytest
-            pytest.skip("No documents available to test folder assignment")
-
+            pytest.fail("Document seeding failed - list is empty")
+        
         doc_id = documents[0]["id"]
 
         # Move document to folder
@@ -159,8 +171,20 @@ class TestDocumentFolderAssignment:
         doc_data = doc_response.json()
         assert doc_data.get("folder_id") == folder_id
 
-    async def test_unfile_document(self, client, api_key):
+    async def test_unfile_document(self, client, api_key, db_session, test_tenant_id):
         """Should remove document from folder when folder_id is empty string."""
+        # Seed a document
+        doc_id = f"doc_{uuid.uuid4().hex[:16]}"
+        doc = Document(
+            id=doc_id,
+            tenant_id=test_tenant_id,
+            filename="test_unfile.txt",
+            status=DocumentStatus.READY,
+            content_hash=uuid.uuid4().hex,
+            storage_path="test/path/unfile.txt"
+        )
+        db_session.add(doc)
+        await db_session.commit()
         # First create folder and assign a document
         folder_name = f"unfile-test-{uuid.uuid4().hex[:8]}"
         folder_response = await client.post(
@@ -180,8 +204,7 @@ class TestDocumentFolderAssignment:
         documents = docs_response.json()
 
         if not documents:
-            import pytest
-            pytest.skip("No documents available to test unfiling")
+            pytest.fail("Document seeding failed")
 
         doc_id = documents[0]["id"]
 
@@ -209,8 +232,20 @@ class TestDocumentFolderAssignment:
         doc_data = doc_response.json()
         assert doc_data.get("folder_id") is None
 
-    async def test_delete_folder_unfiles_documents(self, client, api_key):
+    async def test_delete_folder_unfiles_documents(self, client, api_key, db_session, test_tenant_id):
         """Deleting a folder should unfile its documents."""
+        # Seed a document
+        doc_id = f"doc_{uuid.uuid4().hex[:16]}"
+        doc = Document(
+            id=doc_id,
+            tenant_id=test_tenant_id,
+            filename="test_cascade.txt",
+            status=DocumentStatus.READY,
+            content_hash=uuid.uuid4().hex,
+            storage_path="test/path/cascade.txt"
+        )
+        db_session.add(doc)
+        await db_session.commit()
         # Create folder
         folder_name = f"cascade-test-{uuid.uuid4().hex[:8]}"
         folder_response = await client.post(
@@ -230,8 +265,7 @@ class TestDocumentFolderAssignment:
         documents = docs_response.json()
 
         if not documents:
-            import pytest
-            pytest.skip("No documents available")
+            pytest.fail("Document seeding failed")
 
         doc_id = documents[0]["id"]
 
@@ -258,8 +292,20 @@ class TestDocumentFolderAssignment:
         doc_data = doc_response.json()
         assert doc_data.get("folder_id") is None
 
-    async def test_move_document_to_nonexistent_folder(self, client, api_key):
+    async def test_move_document_to_nonexistent_folder(self, client, api_key, db_session, test_tenant_id):
         """Should return 404 when moving to non-existent folder."""
+        # Seed a document
+        doc_id = f"doc_{uuid.uuid4().hex[:16]}"
+        doc = Document(
+            id=doc_id,
+            tenant_id=test_tenant_id,
+            filename="test_404.txt",
+            status=DocumentStatus.READY,
+            content_hash=uuid.uuid4().hex,
+            storage_path="test/path/404.txt"
+        )
+        db_session.add(doc)
+        await db_session.commit()
         # Get a document
         docs_response = await client.get(
             "/v1/documents",
@@ -269,8 +315,7 @@ class TestDocumentFolderAssignment:
         documents = docs_response.json()
 
         if not documents:
-            import pytest
-            pytest.skip("No documents available")
+            pytest.fail("Document seeding failed")
 
         doc_id = documents[0]["id"]
         fake_folder_id = str(uuid.uuid4())
@@ -283,8 +328,20 @@ class TestDocumentFolderAssignment:
         )
         assert update_response.status_code == 404
 
-    async def test_delete_folder_with_contents(self, client, api_key):
+    async def test_delete_folder_with_contents(self, client, api_key, db_session, test_tenant_id):
         """Deleting a folder with delete_contents=True should delete documents."""
+        # Seed a document
+        doc_id = f"doc_{uuid.uuid4().hex[:16]}"
+        doc = Document(
+            id=doc_id,
+            tenant_id=test_tenant_id,
+            filename="test_recursive.txt",
+            status=DocumentStatus.READY,
+            content_hash=uuid.uuid4().hex,
+            storage_path="test/path/recursive.txt"
+        )
+        db_session.add(doc)
+        await db_session.commit()
         # Create folder
         folder_name = f"recursive-delete-{uuid.uuid4().hex[:8]}"
         folder_response = await client.post(
@@ -302,8 +359,7 @@ class TestDocumentFolderAssignment:
         )
         documents = docs_response.json()
         if not documents:
-            import pytest
-            pytest.skip("No documents available")
+            pytest.fail("Document seeding failed")
 
         # Use the first document
         doc_id = documents[0]["id"]
