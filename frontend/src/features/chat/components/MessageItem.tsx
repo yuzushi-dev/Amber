@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { FeedbackButtons } from './FeedbackButtons'
 import QualityBadge from './QualityBadge'
 import RoutingBadge from './RoutingBadge'
+import { parseCitations } from '../utils/citationParser'
 
 interface MessageItemProps {
     message: Message
@@ -15,29 +16,7 @@ interface MessageItemProps {
     isStreaming?: boolean
 }
 
-function parseCitations(content: string, messageId: string): { processedContent: string, citations: Citation[] } {
-    const citations: Citation[] = [];
-    // Match [[Source:10]], [[Source ID:10]], [[Source:ID:10]], [[Source 10]], or [[10]]
-    const regex = /\[\[\s*(?:Source(?:\s*:\s*ID|\s*ID|ID)?\s*[: ]\s*)?(\d+)\s*\]\]/gi;
 
-    const processedContent = content.replace(regex, (match, value) => {
-        const id = `${messageId}-${citations.length}`;
-        const label = value; // Group 1 is the ID, which serves as the label here
-
-        citations.push({
-            id,
-            type: 'Source', // Type is always 'Source' with this regex
-            label,
-            value,
-            content: match
-        });
-
-        // Return a special link format we can intercept safely
-        return `[Source: ${label}](#citation-${id})`;
-    });
-
-    return { processedContent, citations };
-}
 
 export default function MessageItem({ message, queryContent, isStreaming }: MessageItemProps) {
     const isAssistant = message.role === 'assistant'
