@@ -313,17 +313,11 @@ export function useChatStream() {
             debugLog('done event', {
                 tokenCount,
                 messageCount,
-                charCount,
-                totalMs: Math.round(performance.now() - startedAt),
             })
         })
 
-        eventSource.addEventListener('error', (e) => {
-            console.error('SSE Error Event', e)
-
-            let handled = false
-
-            // Try to parse the error data if it's a MessageEvent
+        eventSource.addEventListener('processing_error', (e) => {
+            console.error('SSE Processing Error', e)
             if (e instanceof MessageEvent && e.data) {
                 try {
                     const errorData = JSON.parse(e.data)
@@ -331,7 +325,6 @@ export function useChatStream() {
                     if (errorData && typeof errorData === 'object') {
                         const provider = errorData.provider || 'System'
                         let errorMsg = ''
-                        let handledCode = true
 
                         switch (errorData.code) {
                             case 'rate_limit':
@@ -353,16 +346,14 @@ export function useChatStream() {
                                 errorMsg = `[400 - ${provider}] This request doesn’t compile. Fix the inputs.`
                                 break
                             default:
-                                // Fallback for handled but unknown codes? 
-                                // Or treating generic errors with provider info
                                 if (provider !== 'System') {
                                     errorMsg = `[Error - ${provider}] An unexpected provider error occurred.`
                                 } else {
-                                    handledCode = false
+                                    errorMsg = errorData.message || "Unknown processing error"
                                 }
                         }
 
-                        if (handledCode && errorMsg) {
+                        if (errorMsg) {
                             updateLastMessage({
                                 thinking: null,
                                 content: errorMsg
@@ -373,31 +364,40 @@ export function useChatStream() {
                                 isStreaming: false,
                             }))
                             stopStream()
-                            handled = true
                         }
                     } else {
-                        // It might be a simple string error from old backend
-                        debugLog('error event data string', errorData)
+                        // Simple string fallback
+                        updateLastMessage({
+                            thinking: null,
+                            content: `[Error] ${errorData}`
+                        })
+                        stopStream()
                     }
-                } catch (parseErr) {
-                    // ignore parse error, treat as generic
+                } catch (err) {
+                    console.error("Failed to parse processing_error", err)
                 }
             }
+        })
 
-            if (!handled) {
-                // Default handling for connection errors or generic backend errors
-                updateLastMessage({
-                    thinking: null,
-                    content: "[Connection Error] Stream connection failed. Please try again."
-                })
-                setState((prev) => ({
-                    ...prev,
-                    isStreaming: false,
-                    // error: new Error('Stream connection failed'), // We handled it in UI
-                }))
-                stopStream()
-                debugLog('error event (unhandled)', e)
+        eventSource.addEventListener('error', (e) => {
+            console.error('SSE Connection Error', e)
+
+            // This is now purely for connection errors (network down, server crash, etc)
+            // The structured application errors are handled by 'processing_error' event
+            if (eventSource.readyState === EventSource.CLOSED) {
+                // Connection closed normally or abnormally
+                return;
             }
+
+            updateLastMessage({
+                thinking: null,
+                content: "[Connection Error] Stream connection failed. Please try again."
+            })
+            setState((prev) => ({
+                ...prev,
+                isStreaming: false,
+            }))
+            stopStream()
         })
     }, [addMessage, updateLastMessage, stopStream, flushTokenBuffer])
 
