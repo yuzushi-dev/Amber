@@ -26,6 +26,11 @@ from src.api.schemas.query import (
     TimingInfo,
     TraceStep,
 )
+from src.core.generation.domain.provider_models import (
+    ProviderError,
+    QuotaExceededError,
+    RateLimitError
+)
 
 logger = logging.getLogger(__name__)
 
