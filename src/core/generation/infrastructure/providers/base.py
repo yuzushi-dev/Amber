@@ -20,6 +20,7 @@ from src.core.generation.domain.provider_models import (
     ProviderTier,
     ProviderType,
     ProviderUnavailableError,
+    QuotaExceededError,
     RateLimitError,
     RerankResult,
     TokenUsage,
