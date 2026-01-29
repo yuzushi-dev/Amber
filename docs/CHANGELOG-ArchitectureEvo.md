@@ -1,9 +1,9 @@
 # Amber — ArchitectureEvo Release Changelog
 
 **Branch:** `ArchitectureEvo` vs `main`  
-**Period:** January 22 – January 28, 2026  
-**Commits:** 61  
-**Impact:** 478 files changed, 23,057 insertions, 16,793 deletions  
+**Period:** January 22 – January 29, 2026  
+**Commits:** 73  
+**Impact:** 498 files changed, 26,274 insertions, 17,371 deletions  
 
 ---
 
@@ -79,6 +79,7 @@ This release represents a complete clean architecture transformation of the Ambe
 ### Chat and Streaming
 
 - SSE Token Buffering: Improved Server-Sent Events streaming with token buffering for smoother word-by-word delivery
+- Ollama Support: Fixed pipeline integration and added `429 Too Many Requests` handling with UI warnings
 
 ### Graph and Knowledge Management
 
@@ -98,6 +99,7 @@ This release represents a complete clean architecture transformation of the Ambe
 ### Developer Experience
 
 - Utility Scripts: System integrity checks, debugging helpers, and verification tools
+- Verify Settings: Added `scripts/verify_llm_settings.py` for ensuring runtime configuration persistence
 - Debug Scripts: Orphan chunk detection, relationship verification, community analysis
 - Import Linter Integration: Enforce architectural boundaries with `import-linter`
 - Architecture Documentation: Onboarding guides, ADR templates, and service boundary docs
@@ -148,6 +150,7 @@ This release represents a complete clean architecture transformation of the Ambe
 ## Documentation Updates
 
 - Determinism Report: Added reproducibility analysis
+- CI Design: Added documentation for Continuous Integration strategy
 - API Endpoints: Updated endpoint documentation
 - Service Boundaries: Clear domain separation documented
 - Pipeline Documentation: Ingestion and processing flows explained
@@ -157,6 +160,7 @@ This release represents a complete clean architecture transformation of the Ambe
 ## Testing
 
 - Integration Tests: Cost tracking, ingestion pipeline, search integration
+- Suite Overhaul: Fixed async/await usage, auth mocking, data seeding, and tenant isolation in integration tests
 - Unit Tests: Generation service, LLM steps, session factory, runtime settings
 - Security Tests: Tenant isolation verification, chat permissions
 - Graph Tests: Security traversal, processor, and extractor coverage
@@ -175,9 +179,9 @@ This release represents a complete clean architecture transformation of the Ambe
 
 | Metric        | Count               |
 | ------------- | ------------------- |
-| Total Commits | 61                  |
-| Files Changed | 478                 |
-| Insertions    | 23,057              |
-| Deletions     | 16,793              |
+| Total Commits | 73                  |
+| Files Changed | 498                 |
+| Insertions    | 26,274              |
+| Deletions     | 17,371              |
 | New Tests     | 15+ test files      |
 | Scripts Added | 10+ utility scripts |
