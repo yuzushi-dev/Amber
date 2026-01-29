@@ -7,6 +7,7 @@
 Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/badge/release-v1.0.0a-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.0.0a)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-blue.svg)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com)
