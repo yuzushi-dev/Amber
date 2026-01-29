@@ -319,14 +319,78 @@ export function useChatStream() {
         })
 
         eventSource.addEventListener('error', (e) => {
-            console.error('SSE Error', e)
-            setState((prev) => ({
-                ...prev,
-                isStreaming: false,
-                error: new Error('Stream connection failed'),
-            }))
-            stopStream()
-            debugLog('error event', e)
+            console.error('SSE Error Event', e)
+
+            let handled = false
+
+            // Try to parse the error data if it's a MessageEvent
+            if (e instanceof MessageEvent && e.data) {
+                try {
+                    const errorData = JSON.parse(e.data)
+                    // Check for structured error
+                    if (errorData && typeof errorData === 'object') {
+                        const provider = errorData.provider || 'System'
+                        let errorMsg = ''
+                        let handledCode = true
+
+                        switch (errorData.code) {
+                            case 'rate_limit':
+                                errorMsg = `[429 - ${provider}] The cognitive circuits are momentarily overwhelmed. Contact an administrator and stand by please.`
+                                break
+                            case 'auth_error':
+                                errorMsg = `[401 - ${provider}] I can’t verify you. Access stays locked.`
+                                break
+                            case 'context_length':
+                                errorMsg = `[400 - ${provider}] That’s beyond my current buffer. Trim it down.`
+                                break
+                            case 'provider_error':
+                                errorMsg = `[503 - ${provider}] Connection lost. I’ll be back when the line clears.`
+                                break
+                            case 'invalid_request':
+                                errorMsg = `[400 - ${provider}] This request doesn’t compile. Fix the inputs.`
+                                break
+                            default:
+                                // Fallback for handled but unknown codes? 
+                                // Or treating generic errors with provider info
+                                if (provider !== 'System') {
+                                    errorMsg = `[Error - ${provider}] An unexpected provider error occurred.`
+                                } else {
+                                    handledCode = false
+                                }
+                        }
+
+                        if (handledCode && errorMsg) {
+                            updateLastMessage({
+                                thinking: null,
+                                content: errorMsg
+                            })
+
+                            setState((prev) => ({
+                                ...prev,
+                                isStreaming: false,
+                            }))
+                            stopStream()
+                            handled = true
+                        }
+                    } else {
+                        // It might be a simple string error from old backend
+                        debugLog('error event data string', errorData)
+                    }
+                } catch (parseErr) {
+                    // ignore parse error, treat as generic
+                }
+            }
+
+            if (!handled) {
+                // Default handling for connection errors or generic backend errors
+                setState((prev) => ({
+                    ...prev,
+                    isStreaming: false,
+                    error: new Error('Stream connection failed'),
+                }))
+                stopStream()
+                debugLog('error event (unhandled)', e)
+            }
         })
     }, [addMessage, updateLastMessage, stopStream, flushTokenBuffer])
 

@@ -785,6 +785,83 @@ async def _query_stream_impl(
             yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
 
         except Exception as e:
+            # Generic Provider Error Handling
+            # We assume core provider exceptions are available or recognizable by name
+            
+            error_code = "error"
+            provider = "System"
+            message = str(e)
+            is_handled_error = False
+            
+            # Helper to safely get provider from exception or text
+            def get_provider(exc):
+                if hasattr(exc, "provider") and exc.provider:
+                    return exc.provider.title()
+                return "Provider"
+
+            # 1. Try to match specific known provider errors classes
+            try:
+                from src.core.generation.domain.provider_models import (
+                    RateLimitError, 
+                    AuthenticationError, 
+                    InvalidRequestError,
+                    ProviderUnavailableError
+                )
+                
+                if isinstance(e, RateLimitError):
+                    error_code = "rate_limit"
+                    provider = get_provider(e)
+                    message = "Rate limit exceeded"
+                    is_handled_error = True
+                
+                elif isinstance(e, AuthenticationError):
+                    error_code = "auth_error"
+                    provider = get_provider(e)
+                    message = "Authentication failed"
+                    is_handled_error = True
+
+                elif isinstance(e, InvalidRequestError):
+                    # Could be context length or other invalid params
+                    error_code = "context_length" if "context" in str(e).lower() else "invalid_request"
+                    provider = get_provider(e)
+                    message = "Invalid request"
+                    is_handled_error = True
+
+                elif isinstance(e, ProviderUnavailableError):
+                    error_code = "provider_error"
+                    provider = get_provider(e)
+                    message = "Service unavailable"
+                    is_handled_error = True
+                    
+            except ImportError:
+                # Fallback to string matching if imports fail/circular dep
+                name = type(e).__name__
+                if "RateLimitError" in name:
+                    error_code = "rate_limit"
+                    is_handled_error = True
+                elif "AuthenticationError" in name:
+                    error_code = "auth_error"
+                    is_handled_error = True
+                elif "InvalidRequestError" in name:
+                    error_code = "context_length" if "context" in str(e).lower() else "invalid_request"
+                    is_handled_error = True
+                elif "ProviderUnavailableError" in name:
+                    error_code = "provider_error"
+                    is_handled_error = True
+                
+                if is_handled_error and hasattr(e, "provider"):
+                     provider = e.provider.title()
+            
+            if is_handled_error:
+                 logger.warning(f"Handled Provider Error: {error_code} from {provider} - {e}")
+                 error_data = {
+                     "code": error_code, 
+                     "message": message,
+                     "provider": provider
+                 }
+                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                 return
+
             logger.exception(f"Stream generation failed: {e}")
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
