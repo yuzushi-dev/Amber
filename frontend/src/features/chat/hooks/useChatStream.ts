@@ -383,10 +383,14 @@ export function useChatStream() {
 
             if (!handled) {
                 // Default handling for connection errors or generic backend errors
+                updateLastMessage({
+                    thinking: null,
+                    content: "[Connection Error] Stream connection failed. Please try again."
+                })
                 setState((prev) => ({
                     ...prev,
                     isStreaming: false,
-                    error: new Error('Stream connection failed'),
+                    // error: new Error('Stream connection failed'), // We handled it in UI
                 }))
                 stopStream()
                 debugLog('error event (unhandled)', e)
