@@ -89,6 +89,13 @@ class OpenAILLMProvider(BaseLLMProvider):
             "context_window": 128000,
             "description": "Fast and cost-effective",
         },
+        "gpt-4.1-mini": {
+            "tier": ProviderTier.ECONOMY,
+            "input_cost_per_1k": 0.00015,
+            "output_cost_per_1k": 0.0006,
+            "context_window": 128000,
+            "description": "Updated fast mini model",
+        },
         "gpt-5-mini": {
             "tier": ProviderTier.ECONOMY,
             "input_cost_per_1k": 0.00015,  # Placeholder
