@@ -170,6 +170,7 @@ export function useChatStream() {
                 }
 
                 const chunk = decoder.decode(value, { stream: true })
+                debugLog(`Received chunk: len=${chunk.length}, preview=${chunk.substring(0, 50).replace(/\n/g, '\\n')}`)
                 buffer += chunk
 
                 // Process buffer line by line, looking for SSE double-newline
@@ -177,7 +178,10 @@ export function useChatStream() {
                 buffer = parts.pop() || '' // Keep incomplete part
 
                 for (const part of parts) {
-                    if (!part.trim()) continue
+                    if (!part.trim()) {
+                        debugLog('Skipping empty part')
+                        continue
+                    }
 
                     // Parse event: ... data: ...
                     // There might be multiple lines like "event: token\ndata: hello"
@@ -189,12 +193,15 @@ export function useChatStream() {
                         if (line.startsWith('event: ')) {
                             eventType = line.slice(7).trim()
                         } else if (line.startsWith('data: ')) {
-                            data = line.slice(6)
+                            data += line.slice(6)
                         }
                     }
 
                     if (eventType && data) {
+                        debugLog(`Processing Event: type=${eventType}, len=${data.length}`)
                         handleEvent(eventType, data)
+                    } else {
+                        debugLog(`Skipped part (no event/data): ${part.substring(0, 30)}`)
                     }
                 }
             }
