@@ -304,17 +304,32 @@ class OpenAILLMProvider(BaseLLMProvider):
 
             stream = await self.client.chat.completions.create(**params)
             
+            chunk_count = 0
+            content_count = 0
             async for chunk in stream:
+                chunk_count += 1
                 if chunk.choices:
                     delta = chunk.choices[0].delta
                     
+                    # DIAGNOSTIC: Log first few chunks to understand structure
+                    if chunk_count <= 3:
+                        logger.warning(f"[DIAG] Chunk {chunk_count}: delta={delta}, delta.content={getattr(delta, 'content', None)}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}")
+                    
                     if delta.content:
+                        content_count += 1
                         yield delta.content
+                    elif getattr(delta, "reasoning_content", None):
+                        # Some reasoning models use reasoning_content
+                        content_count += 1
+                        yield delta.reasoning_content
                     elif getattr(delta, "refusal", None):
                         yield f"[REFUSAL] {delta.refusal}"
                 else:
                     # Keepalive or empty chunk
-                    pass
+                    if chunk_count <= 3:
+                        logger.warning(f"[DIAG] Empty chunk {chunk_count}: {chunk}")
+            
+            logger.warning(f"[DIAG] Stream finished: total_chunks={chunk_count}, content_chunks={content_count}")
 
         except Exception as e:
             self._handle_error(e, model)
