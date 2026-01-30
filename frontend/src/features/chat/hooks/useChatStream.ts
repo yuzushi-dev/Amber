@@ -16,7 +16,7 @@ export function useChatStream() {
     })
 
     const { addMessage, updateLastMessage } = useChatStore()
-    const eventSourceRef = useRef<EventSource | null>(null)
+    const abortControllerRef = useRef<AbortController | null>(null)
     const debugEnabledRef = useRef(
         localStorage.getItem('chat_debug') === 'true'
     )
@@ -54,9 +54,9 @@ export function useChatStream() {
     }, [updateLastMessage])
 
     const stopStream = useCallback(() => {
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close()
-            eventSourceRef.current = null
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+            abortControllerRef.current = null
         }
         setState((prev) => ({ ...prev, isStreaming: false }))
     }, [])
@@ -70,6 +70,10 @@ export function useChatStream() {
     const startStream = useCallback(async (query: string) => {
         // Cleanup previous stream
         stopStream()
+
+        // Create new AbortController
+        const abortController = new AbortController()
+        abortControllerRef.current = abortController
 
         // Add user message
         addMessage({
@@ -94,16 +98,6 @@ export function useChatStream() {
             error: null,
         }))
 
-        const apiKey = localStorage.getItem('api_key')
-        // Use relative path for SSE to leverage Vite proxy / Nginx
-        // This ensures it works on remote deployments (e.g. cph-01)
-        const baseUrl = `/api/v1/query/stream`
-        // We use window.location.origin to form a valid URL object if needed, 
-        // but EventSource can take a relative path string directly usually. 
-        // However, constructing URL object requires a base if path is relative. 
-        // We can just use string concatenation for params to keep it simple and relative.
-        const url = new URL(baseUrl, window.location.origin)
-
         // Trigger Logic: Check for @agent or /agent
         let finalQuery = query
         let isAgentMode = false
@@ -114,18 +108,11 @@ export function useChatStream() {
             finalQuery = query.replace(/^(@agent|\/agent|\/carbonio)\s*/, '')
         }
 
-        url.searchParams.set('query', finalQuery)
+        const apiKey = localStorage.getItem('api_key')
+
+        // Use relative path for SSE to leverage Vite proxy / Nginx
+        const url = new URL('/api/v1/query/stream', window.location.origin)
         url.searchParams.set('api_key', apiKey || '')
-
-        if (isAgentMode) {
-            url.searchParams.set('agent_mode', 'true')
-        }
-
-        // Pass conversation_id for threading (if we have one from previous messages)
-        // Use ref to avoid stale closure issue
-        if (conversationIdRef.current) {
-            url.searchParams.set('conversation_id', conversationIdRef.current)
-        }
 
         // Reset streaming stats for diagnostics
         streamStatsRef.current = {
@@ -135,260 +122,187 @@ export function useChatStream() {
             startedAt: performance.now(),
         }
 
-        debugLog('Starting SSE', {
-            path: url.pathname,
-            hasApiKey: url.searchParams.has('api_key'),
-            hasConversationId: url.searchParams.has('conversation_id'),
-            agentMode: url.searchParams.get('agent_mode') === 'true',
+        debugLog('Starting POST Stream', {
+            url: url.toString(),
+            agentMode: isAgentMode,
             queryLength: finalQuery.length,
+            conversationId: conversationIdRef.current
         })
 
-        const eventSource = new EventSource(url.toString())
-        eventSourceRef.current = eventSource
-
-        eventSource.onopen = () => {
-            debugLog('SSE connection opened')
-        }
-
-        eventSource.addEventListener('thinking', (e) => {
-            try {
-                const text = JSON.parse(e.data)
-                updateLastMessage({ thinking: text })
-            } catch {
-                // Fallback for legacy/error messages
-                updateLastMessage({ thinking: e.data })
-            }
-            debugLog('thinking event', e.data?.toString()?.slice(0, 60) || '')
-        })
-
-        eventSource.addEventListener('status', (e) => {
-            debugLog('status event', e.data?.toString()?.slice(0, 80) || '')
-        })
-
-        eventSource.addEventListener('token', (e) => {
-            try {
-                const token = JSON.parse(e.data)
-                const tokenText = typeof token === 'string' ? token : String(token)
-                streamStatsRef.current.tokenCount += 1
-                streamStatsRef.current.charCount += tokenText.length
-
-                // Buffer tokens instead of updating state on each one
-                tokenBufferRef.current += tokenText
-
-                // Flush buffer every 50ms to allow browser to paint
-                const now = performance.now()
-                const timeSinceLastFlush = now - lastFlushTimeRef.current
-                if (timeSinceLastFlush >= 50 || streamStatsRef.current.tokenCount === 1) {
-                    flushTokenBuffer()
-                }
-
-                if (streamStatsRef.current.tokenCount === 1 || streamStatsRef.current.tokenCount % 20 === 0) {
-                    const storeLen = useChatStore.getState().messages.slice(-1)[0]?.content?.length || 0
-                    debugLog('store content length', storeLen)
-                }
-                const { tokenCount, charCount, startedAt } = streamStatsRef.current
-                if (tokenCount === 1 || tokenCount % 20 === 0) {
-                    debugLog('token event', {
-                        tokenCount,
-                        charCount,
-                        msSinceStart: Math.round(performance.now() - startedAt),
-                        preview: tokenText.slice(0, 20),
-                    })
-                }
-            } catch {
-                // Fallback
-                streamStatsRef.current.tokenCount += 1
-                streamStatsRef.current.charCount += e.data.length
-
-                // Buffer tokens instead of updating state on each one
-                tokenBufferRef.current += e.data
-
-                // Flush buffer every 50ms to allow browser to paint
-                const now = performance.now()
-                const timeSinceLastFlush = now - lastFlushTimeRef.current
-                if (timeSinceLastFlush >= 50 || streamStatsRef.current.tokenCount === 1) {
-                    flushTokenBuffer()
-                }
-
-                if (streamStatsRef.current.tokenCount === 1 || streamStatsRef.current.tokenCount % 20 === 0) {
-                    const storeLen = useChatStore.getState().messages.slice(-1)[0]?.content?.length || 0
-                    debugLog('store content length', storeLen)
-                }
-                const { tokenCount, charCount, startedAt } = streamStatsRef.current
-                if (tokenCount === 1 || tokenCount % 20 === 0) {
-                    debugLog('token event (raw)', {
-                        tokenCount,
-                        charCount,
-                        msSinceStart: Math.round(performance.now() - startedAt),
-                        preview: e.data.toString().slice(0, 20),
-                    })
-                }
-            }
-        })
-
-        // Handle 'message' event from Agent mode (complete answer at once)
-        eventSource.addEventListener('message', (e) => {
-            try {
-                const fullMessage = JSON.parse(e.data)
-                streamStatsRef.current.messageCount += 1
-                updateLastMessage({
-                    thinking: null,
-                    content: fullMessage
-                })
-                debugLog('message event', {
-                    messageCount: streamStatsRef.current.messageCount,
-                    length: typeof fullMessage === 'string' ? fullMessage.length : 0,
-                })
-            } catch {
-                // Fallback: use raw data
-                streamStatsRef.current.messageCount += 1
-                updateLastMessage({
-                    thinking: null,
-                    content: e.data
-                })
-                debugLog('message event (raw)', {
-                    messageCount: streamStatsRef.current.messageCount,
-                    length: e.data.length,
-                })
-            }
-        })
-
-        eventSource.addEventListener('sources', (e) => {
-            try {
-                const sources: Source[] = JSON.parse(e.data)
-                updateLastMessage({ sources })
-            } catch (err) {
-                console.error('Failed to parse sources', err)
-            }
-            debugLog('sources event', e.data?.toString()?.slice(0, 80) || '')
-        })
-
-        eventSource.addEventListener('quality', (e) => {
-            try {
-                const quality = JSON.parse(e.data)
-                updateLastMessage({ quality_score: quality })
-            } catch (err) {
-                console.error('Failed to parse quality score', err)
-            }
-            debugLog('quality event', e.data?.toString()?.slice(0, 80) || '')
-        })
-
-        eventSource.addEventListener('routing', (e) => {
-            try {
-                const routing = JSON.parse(e.data)
-                updateLastMessage({ routing_info: routing })
-            } catch (err) {
-                console.error('Failed to parse routing info', err)
-            }
-            debugLog('routing event', e.data?.toString()?.slice(0, 80) || '')
-        })
-
-        // Listen for conversation_id from backend (for threading)
-        eventSource.addEventListener('conversation_id', (e) => {
-            try {
-                const convId = JSON.parse(e.data)
-                conversationIdRef.current = convId  // Update ref immediately
-                setState((prev) => ({ ...prev, conversationId: convId }))
-
-                // Update the current assistant message with the session_id
-                updateLastMessage({ session_id: convId })
-
-                // Also retroactively update the user message if possible? 
-                // Difficult because we only have updateLastMessage. 
-                // But usually feedback is on the Assistant message, so this is enough.
-            } catch (err) {
-                console.error('Failed to parse conversation_id', err)
-            }
-            debugLog('conversation_id event', e.data?.toString() || '')
-        })
-
-        eventSource.addEventListener('done', () => {
-            // Flush any remaining buffered tokens
-            flushTokenBuffer()
-
-            setState((prev) => ({ ...prev, isStreaming: false }))
-            stopStream()
-            useChatStore.getState().triggerHistoryUpdate()
-            const { tokenCount, messageCount } = streamStatsRef.current
-            debugLog('done event', {
-                tokenCount,
-                messageCount,
-            })
-        })
-
-        eventSource.addEventListener('processing_error', (e: any) => {
-            console.error('SSE Processing Error', e)
-            if (e.data) {
-                try {
-                    const errorData = JSON.parse(e.data)
-                    // Check for structured error
-                    if (errorData && typeof errorData === 'object') {
-                        const provider = errorData.provider || 'System'
-                        let errorMsg = ''
-
-                        // Use message from backend, fallback to generic if missing
-                        const message = errorData.message || "An unexpected error occurred."
-
-                        // Format: [Code - Provider] Message
-                        errorMsg = `[${errorData.code.toUpperCase()} - ${provider}] ${message}`
-
-                        if (errorMsg) {
-                            updateLastMessage({
-                                thinking: null,
-                                content: errorMsg
-                            })
-
-                            setState((prev) => ({
-                                ...prev,
-                                isStreaming: false,
-                            }))
-                            stopStream()
-                        }
-                    } else {
-                        // Simple string fallback
-                        updateLastMessage({
-                            thinking: null,
-                            content: `[Error] ${errorData}`
-                        })
-                        setState((prev) => ({ ...prev, isStreaming: false }))
-                        stopStream()
+        try {
+            const response = await fetch(url.toString(), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: finalQuery,
+                    conversation_id: conversationIdRef.current,
+                    options: {
+                        agent_mode: isAgentMode,
+                        model: localStorage.getItem('selected_model'),
+                        stream: true
                     }
-                } catch (err) {
-                    console.error("Failed to parse processing_error", err)
-                    // Fallback for parsing errors to ensure we don't hang
-                    updateLastMessage({
-                        thinking: null,
-                        content: `[System Error] Failed to process server error: ${e.data?.slice(0, 50)}`
-                    })
-                    setState((prev) => ({ ...prev, isStreaming: false }))
-                    stopStream()
+                }),
+                signal: abortController.signal
+            })
+
+            if (!response.ok) {
+                // Try to read error body
+                const errorText = await response.text().catch(() => response.statusText)
+                throw new Error(`Server returned ${response.status}: ${errorText}`)
+            }
+
+            if (!response.body) {
+                throw new Error('ReadableStream not supported in this browser.')
+            }
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            debugLog('Connection established, reading stream...')
+
+            while (true) {
+                const { done, value } = await reader.read()
+
+                if (done) {
+                    debugLog('Stream complete')
+                    break
+                }
+
+                const chunk = decoder.decode(value, { stream: true })
+                buffer += chunk
+
+                // Process buffer line by line, looking for SSE double-newline
+                const parts = buffer.split('\n\n')
+                buffer = parts.pop() || '' // Keep incomplete part
+
+                for (const part of parts) {
+                    if (!part.trim()) continue
+
+                    // Parse event: ... data: ...
+                    // There might be multiple lines like "event: token\ndata: hello"
+                    const lines = part.split('\n')
+                    let eventType = 'message'
+                    let data = ''
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            eventType = line.slice(7).trim()
+                        } else if (line.startsWith('data: ')) {
+                            data = line.slice(6)
+                        }
+                    }
+
+                    if (eventType && data) {
+                        handleEvent(eventType, data)
+                    }
                 }
             }
-        })
 
-        eventSource.addEventListener('error', (e) => {
-            console.error('SSE Connection Error', e)
-
-            // This is now purely for connection errors (network down, server crash, etc)
-            // The structured application errors are handled by 'processing_error' event
-            // If connection closes while we are still streaming/thinking, it's an error.
-            // (Normal closure handles 'done' event which sets isStreaming=false)
-            if (eventSource.readyState === EventSource.CLOSED) {
-                // If stream was stopped intentionally, ref is null.
-                if (!eventSourceRef.current) return;
+            // Flush any remaining
+            if (buffer.trim()) {
+                // Handle remaining buffer similar to loop
+                // (Usually valid SSE ends with \n\n so buffer should be empty)
             }
 
+            // End of stream
+            handleEvent('done', '')
+
+        } catch (err: any) {
+            if (err.name === 'AbortError') {
+                debugLog('Stream aborted by user')
+                return
+            }
+            console.error('Stream Fetch Error', err)
             updateLastMessage({
                 thinking: null,
-                content: "[Connection Error] Stream connection failed. Please try again."
+                content: `[Connection Error] Stream failed: ${err.message}`
             })
             setState((prev) => ({
                 ...prev,
                 isStreaming: false,
+                error: err
             }))
-            stopStream()
-        })
-    }, [addMessage, updateLastMessage, stopStream, flushTokenBuffer])
+        }
+    }, [])
+
+    const handleEvent = useCallback((type: string, data: string) => {
+        // Helper to parse JSON safely
+        const parseJSON = (str: string) => {
+            try { return JSON.parse(str) } catch { return str }
+        }
+
+        switch (type) {
+            case 'token':
+                const token = parseJSON(data)
+                const tokenText = typeof token === 'string' ? token : String(token)
+
+                // Stats
+                streamStatsRef.current.tokenCount += 1
+                streamStatsRef.current.charCount += tokenText.length
+
+                // Buffer
+                tokenBufferRef.current += tokenText
+
+                // Flush logic
+                const now = performance.now()
+                if ((now - lastFlushTimeRef.current >= 50) || streamStatsRef.current.tokenCount === 1) {
+                    flushTokenBuffer()
+                }
+                break
+
+            case 'thinking':
+                updateLastMessage({ thinking: parseJSON(data) })
+                break
+
+            case 'status':
+                // Optional log
+                break
+
+            case 'sources':
+                updateLastMessage({ sources: parseJSON(data) })
+                break
+
+            case 'conversation_id':
+                const cid = parseJSON(data)
+                conversationIdRef.current = cid
+                setState(p => ({ ...p, conversationId: cid }))
+                updateLastMessage({ session_id: cid })
+                break
+
+            case 'done':
+                flushTokenBuffer()
+                setState(p => ({ ...p, isStreaming: false }))
+                useChatStore.getState().triggerHistoryUpdate()
+
+                // Clear abort controller since we are done
+                if (abortControllerRef.current) {
+                    abortControllerRef.current = null
+                }
+                break
+
+            case 'processing_error':
+                const errData = parseJSON(data)
+                updateLastMessage({
+                    thinking: null,
+                    content: typeof errData === 'object' ? `[Error] ${errData.message || 'Unknown'}` : `[Error] ${errData}`
+                })
+                setState(p => ({ ...p, isStreaming: false }))
+                if (abortControllerRef.current) abortControllerRef.current.abort()
+                break
+
+            case 'error':
+                // Generic error
+                updateLastMessage({
+                    thinking: null,
+                    content: "[Error] Stream error occurred."
+                })
+                setState(p => ({ ...p, isStreaming: false }))
+                break
+        }
+    }, [updateLastMessage, flushTokenBuffer])
 
     const setConversationId = useCallback((id: string | null) => {
         conversationIdRef.current = id  // Sync ref
