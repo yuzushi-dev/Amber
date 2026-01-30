@@ -33,7 +33,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-        restart: true # Restart frontend when api restarts
     restart: unless-stopped
     networks:
       - graphrag-network
