@@ -302,6 +302,11 @@ class OpenAILLMProvider(BaseLLMProvider):
             if stop:
                 params["stop"] = stop
 
+            # DIAGNOSTIC: Log the exact request being sent
+            logger.warning(f"[DIAG] Calling OpenAI with: model={model}, msg_count={len(messages)}, temp={params.get('temperature')}, max_tokens={params.get('max_completion_tokens') or params.get('max_tokens')}")
+            if messages:
+                logger.warning(f"[DIAG] Last message role={messages[-1].get('role')}, content_len={len(str(messages[-1].get('content', '')))}")
+
             stream = await self.client.chat.completions.create(**params)
             
             chunk_count = 0
