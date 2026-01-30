@@ -211,8 +211,7 @@ class OpenAILLMProvider(BaseLLMProvider):
             # Convert usage to domain object
             usage_obj = TokenUsage(
                 input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=usage.total_tokens
+                output_tokens=output_tokens
             )
 
             return GenerationResult(
@@ -438,7 +437,6 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             usage = TokenUsage(
                 input_tokens=response.usage.total_tokens if response.usage else 0,
                 output_tokens=0,
-                total_tokens=response.usage.total_tokens if response.usage else 0,
             )
 
             result = EmbeddingResult(
