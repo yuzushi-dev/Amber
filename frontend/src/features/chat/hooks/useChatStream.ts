@@ -17,9 +17,7 @@ export function useChatStream() {
 
     const { addMessage, updateLastMessage } = useChatStore()
     const abortControllerRef = useRef<AbortController | null>(null)
-    const debugEnabledRef = useRef(
-        localStorage.getItem('chat_debug') === 'true'
-    )
+    const debugEnabledRef = useRef(true) // Force debug for troubleshooting
     const streamStatsRef = useRef({
         tokenCount: 0,
         messageCount: 0,
