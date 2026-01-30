@@ -317,8 +317,9 @@ class OpenAILLMProvider(BaseLLMProvider):
                     delta = chunk.choices[0].delta
                     
                     # DIAGNOSTIC: Log first few chunks to understand structure
-                    if chunk_count <= 3:
-                        logger.warning(f"[DIAG] Chunk {chunk_count}: delta={delta}, delta.content={getattr(delta, 'content', None)}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}")
+                    finish_reason = chunk.choices[0].finish_reason
+                    if chunk_count <= 3 or finish_reason:
+                        logger.warning(f"[DIAG] Chunk {chunk_count}: delta={delta}, finish_reason={finish_reason}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}")
                     
                     if delta.content:
                         content_count += 1
