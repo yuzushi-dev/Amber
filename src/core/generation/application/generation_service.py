@@ -70,7 +70,7 @@ class GenerationConfig:
     tier: ProviderTier = ProviderTier.ECONOMY  # Use cost-effective model for generation
     temperature: float | None = None  # Use step defaults unless overridden
     seed: int | None = None
-    max_tokens: int = 2048
+    max_tokens: int = 12000
     max_context_tokens: int = 8000  # Default to 8k context budget
     enable_follow_up: bool = True
     prompt_version: str = "latest"
