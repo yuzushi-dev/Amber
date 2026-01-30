@@ -241,6 +241,8 @@ async def _query_stream_impl(
         """Generate SSE stream."""
         logger.info("SSE: Generator started")
         # Yield immediately so client knows connection is alive
+        # Add 2KB padding to force Nginx/Proxy buffer flush
+        yield f": {' ' * 2048}\n\n"
         yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
 
         # =========================================================================
