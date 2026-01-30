@@ -251,6 +251,16 @@ export function useChatStream() {
                 }
                 break
 
+            case 'message':
+                // Handle plain text events (like "No relevant documents found")
+                // Parsing is safe because parseJSON handles raw strings too
+                const msgText = parseJSON(data)
+                updateLastMessage({
+                    thinking: null,
+                    content: typeof msgText === 'string' ? msgText : JSON.stringify(msgText)
+                })
+                break
+
             case 'thinking':
                 updateLastMessage({ thinking: parseJSON(data) })
                 break
