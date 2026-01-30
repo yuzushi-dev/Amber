@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 from src.api.deps import _get_async_session_maker
 from src.core.admin_ops.domain.api_key import ApiKey
 from src.core.tenants.domain.tenant import Tenant
-from src.shared.security import hash_api_key
+from src.shared.security import hash_api_key, configure_security
 from src.api.config import settings
 from src.core.database.session import configure_database
 
@@ -22,6 +22,10 @@ async def main():
             pool_size=settings.db.pool_size,
             max_overflow=settings.db.max_overflow,
         )
+
+        # 0.5 Configure Security (Crucial for correct hashing)
+        print(f"DEBUG: Configuring Security with Secret Key: {settings.secret_key[:5]}...")
+        configure_security(settings.secret_key)
 
         # 1. Print current settings
         print(f"DEBUG: SECRET_KEY loaded = {settings.secret_key[:5]}...{settings.secret_key[-5:]}")
