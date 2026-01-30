@@ -98,6 +98,10 @@ class QueryOptions(BaseModel):
         description="Agent role: 'knowledge' (default, RAG tools only) or 'maintainer' (filesystem access)",
         pattern="^(knowledge|maintainer)$"
     )
+    model: str | None = Field(
+        None,
+        description="Override LLM model for generation (e.g. gpt-5-nano)",
+    )
 
 
 class QueryRequest(BaseModel):

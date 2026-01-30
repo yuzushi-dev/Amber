@@ -95,6 +95,10 @@ class MilvusVectorStore:
 
     def __init__(self, config: MilvusConfig | None = None):
         self.config = config or MilvusConfig()
+        # Sanitize collection name (Milvus does not allow hyphens)
+        if self.config.collection_name:
+            self.config.collection_name = self.config.collection_name.replace("-", "_")
+            
         self._client = None
         self._collection = None
         self._connected = False
@@ -384,6 +388,8 @@ class MilvusVectorStore:
 
         collection = self._collection
         if collection_name and collection_name != self.config.collection_name:
+            # Sanitize collection name override
+            collection_name = collection_name.replace("-", "_")
             try:
                 milvus = _get_milvus()
                 collection = milvus["Collection"](collection_name)
