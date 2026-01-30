@@ -233,3 +233,4 @@ frontend/test-results/
 docs/plans/
 /.drift
 .driftignore
+docs/HYBRID_QUERY_PROPOSAL.md
