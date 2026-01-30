@@ -9,7 +9,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
@@ -217,7 +217,7 @@ class GenerationService:
         # Apply Tenant Overrides
         tenant_config: dict[str, Any] = {}
         
-        if tenant_id and tenant_id != "default" and self.tenant_repository:
+        if tenant_id and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
                 if tenant_obj and tenant_obj.config:
@@ -262,6 +262,12 @@ class GenerationService:
             step_id="chat.generation",
             settings=settings,
         )
+
+        # Override model if provided in request options
+        req_model = options.get("model") if options else None
+        if req_model:
+            llm_cfg = replace(llm_cfg, model=req_model)
+            logger.info(f"Model override from request: {req_model}")
 
         logger.info(f"RESOLVED LLM STEP CONFIG [generate] | Step: chat.generation")
         logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
@@ -459,7 +465,7 @@ class GenerationService:
         # Apply Tenant Overrides (Stream)
         tenant_config: dict[str, Any] = {}
 
-        if tenant_id and tenant_id != "default" and self.tenant_repository:
+        if tenant_id and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
                 if tenant_obj and tenant_obj.config:
@@ -494,6 +500,12 @@ class GenerationService:
             step_id="chat.generation",
             settings=settings,
         )
+
+        # Override model if provided in request options
+        req_model = options.get("model") if options else None
+        if req_model:
+            llm_cfg = replace(llm_cfg, model=req_model)
+            logger.info(f"Model override from request (stream): {req_model}")
 
         logger.info(f"RESOLVED LLM STEP CONFIG [stream] | Step: chat.generation")
         logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
@@ -551,7 +563,7 @@ class GenerationService:
             "event": "done",
             "data": {
                 "follow_ups": self._generate_follow_ups(query, full_answer),
-                "model": self.llm.model_name
+                "model": provider.model_name
             }
         }
     

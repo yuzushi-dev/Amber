@@ -29,24 +29,24 @@ from src.shared.context import get_current_tenant, get_request_id
 try:
     from opentelemetry import trace
 except ImportError:
-    # Mock trace for when opentelemetry is missing
-    class MockContext:
-        trace_id = 0
-        is_valid = False
-
-    class MockSpan:
-        def get_span_context(self):
-            return MockContext()
-
     class MockTrace:
-        def get_current_span(self):
+        def get_tracer(self, name):
+            return MockTracer()
+    
+    class MockTracer:
+        def start_as_current_span(self, name):
             return MockSpan()
-
+            
+    class MockSpan:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        
     trace = MockTrace()
 
+tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
-# Lazy import to avoid import errors if openai not installed
+# Global client to allow connection pooling reuse
 _openai_client = None
 
 
@@ -55,17 +55,25 @@ def _get_openai_client(api_key: str, base_url: str | None = None):
     global _openai_client
     try:
         from openai import AsyncOpenAI
-
-        return AsyncOpenAI(api_key=api_key, base_url=base_url)
+        
+        # Check if we need to recreate (e.g. key change or not initialized)
+        if _openai_client is None or _openai_client.api_key != api_key:
+            _openai_client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+            
+        return _openai_client
     except ImportError as e:
         raise ImportError("openai package is required. Install with: pip install openai>=1.10.0") from e
 
 
 class OpenAILLMProvider(BaseLLMProvider):
     """OpenAI LLM provider for GPT models."""
-
+    
     provider_name = "openai"
-
+    
+    # Models supported by this provider for validation
     models = {
         "gpt-4o": {
             "tier": ProviderTier.STANDARD,
@@ -80,6 +88,20 @@ class OpenAILLMProvider(BaseLLMProvider):
             "output_cost_per_1k": 0.0006,  # $0.60/1M tokens
             "context_window": 128000,
             "description": "Fast and cost-effective",
+        },
+        "gpt-5-mini": {
+            "tier": ProviderTier.ECONOMY,
+            "input_cost_per_1k": 0.00015,  # Placeholder
+            "output_cost_per_1k": 0.0006,  # Placeholder
+            "context_window": 128000,
+            "description": "Next-gen compact model",
+        },
+        "gpt-5-nano": {
+            "tier": ProviderTier.ECONOMY,
+            "input_cost_per_1k": 0.00010,  # Placeholder
+            "output_cost_per_1k": 0.0004,  # Placeholder
+            "context_window": 128000,
+            "description": "Ultra-efficient compact model",
         },
         "gpt-4-turbo": {
             "tier": ProviderTier.STANDARD,
@@ -96,9 +118,9 @@ class OpenAILLMProvider(BaseLLMProvider):
             "description": "Reasoning model",
         },
     }
-
+    
     default_model = "gpt-4o-mini"
-
+    
     @property
     def model_name(self) -> str:
         """Return the current/default model name."""
@@ -139,74 +161,74 @@ class OpenAILLMProvider(BaseLLMProvider):
         model = model or self.default_model
         start_time = time.perf_counter()
 
-        # Build messages
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        
         messages.append({"role": "user", "content": prompt})
 
-        logger.debug(f"[PROVIDER] openai.generate: model={model}, temp={temperature}, seed={seed}, prompt_len={len(prompt)}")
+        # Cost estimation logic (simplified)
+        cost_per_1k_input = 0.00015 # gpt-4o-mini approx
+        cost_per_1k_output = 0.0006
+        
+        if "gpt-4o" in model and "mini" not in model:
+            cost_per_1k_input = 0.005
+            cost_per_1k_output = 0.015
 
         try:
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                stop=stop,
-                **kwargs,
-            )
+            params = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
 
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            if model in ["o1", "o3-mini", "gpt-5-nano", "gpt-5-mini"]:
+                if max_tokens:
+                     params["max_completion_tokens"] = max_tokens
+                params["temperature"] = 1.0
+            elif max_tokens:
+                params["max_tokens"] = max_tokens
 
-            # Extract usage
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens if response.usage else 0,
-                output_tokens=response.usage.completion_tokens if response.usage else 0,
-            )
-
-            # Get response text
-            text = response.choices[0].message.content or ""
-            finish_reason = response.choices[0].finish_reason
+            if seed is not None:
+                params["seed"] = seed
+            if stop:
+                params["stop"] = stop
+                
+            response = await self.client.chat.completions.create(**params)
             
-            system_fingerprint = response.system_fingerprint
-            logger.debug(f"[PROVIDER] openai.response: fingerprint={system_fingerprint}, finish={finish_reason}")
+            content = response.choices[0].message.content or ""
+            usage = response.usage
+            
+            latency = (time.perf_counter() - start_time) * 1000
+            
+            input_tokens = usage.prompt_tokens
+            output_tokens = usage.completion_tokens
+            cost = (input_tokens / 1000 * cost_per_1k_input) + (output_tokens / 1000 * cost_per_1k_output)
 
-            result = GenerationResult(
-                text=text,
+            # Extract finish reason
+            finish_reason = response.choices[0].finish_reason if response.choices else None
+
+            # Convert usage to domain object
+            usage_obj = TokenUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=usage.total_tokens
+            )
+
+            return GenerationResult(
+                text=content,
                 model=model,
                 provider=self.provider_name,
-                usage=usage,
+                usage=usage_obj,
+                cost_estimate=cost,
+                latency_ms=latency,
                 finish_reason=finish_reason,
-                latency_ms=elapsed_ms,
-                cost_estimate=self.estimate_cost(usage, model),
-                metadata={"response_id": response.id},
+                metadata={"response_id": response.id}
             )
-
-            # Record usage if tracker is available
-            if self.config.usage_tracker:
-                span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-
-                await self.config.usage_tracker.record_usage(
-                    tenant_id=get_current_tenant() or "default",
-                    operation="generation",
-                    provider=self.provider_name,
-                    model=model,
-                    usage=usage,
-                    cost=result.cost_estimate,
-                    request_id=get_request_id(),
-                    trace_id=trace_id,
-                    metadata=result.metadata
-                )
-
-            return result
 
         except Exception as e:
             self._handle_error(e, model)
-
-    @trace_span("LLM.chat")
+            
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -240,6 +262,8 @@ class OpenAILLMProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         seed: int | None = None,
+        stop: list[str] | None = None,
+        history: list[dict[str, str]] | None = None,
         **kwargs: Any,
     ):
         """Stream text generation."""
@@ -248,22 +272,50 @@ class OpenAILLMProvider(BaseLLMProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        
+        if history:
+            messages.extend(history)
+            
         messages.append({"role": "user", "content": prompt})
-
+        
         try:
-            stream = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                stream=True,
-                **{k: v for k, v in kwargs.items() if k != 'history'},
-            )
+            params = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True,
+            }
+            
+            # Handle model-specific parameter differences
+            if model in ["o1", "o3-mini", "gpt-5-nano", "gpt-5-mini"]:
+                # These models require max_completion_tokens and fixed temperature
+                if max_tokens:
+                     params["max_completion_tokens"] = max_tokens
+                if "max_tokens" in params:
+                     del params["max_tokens"]
+                
+                params["temperature"] = 1.0
+            elif max_tokens:
+                params["max_tokens"] = max_tokens
+                    
+            if seed is not None:
+                params["seed"] = seed
+            if stop:
+                params["stop"] = stop
 
+            stream = await self.client.chat.completions.create(**params)
+            
             async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    
+                    if delta.content:
+                        yield delta.content
+                    elif getattr(delta, "refusal", None):
+                        yield f"[REFUSAL] {delta.refusal}"
+                else:
+                    # Keepalive or empty chunk
+                    pass
 
         except Exception as e:
             self._handle_error(e, model)
@@ -273,11 +325,20 @@ class OpenAILLMProvider(BaseLLMProvider):
         error_type = type(e).__name__
 
         if "RateLimitError" in error_type:
+            # Check for hard quota limits vs transient rate limits
+            error_str = str(e).lower()
+            if "insufficient_quota" in error_str or "billing" in error_str:
+                raise QuotaExceededError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                )
+            
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,
                 model=model,
-                retry_after=60.0,  # Default retry
+                retry_after=60.0,
             )
         elif "AuthenticationError" in error_type:
             raise AuthenticationError(
@@ -285,22 +346,10 @@ class OpenAILLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
-        elif "BadRequestError" in error_type or "InvalidRequestError" in error_type:
-            raise InvalidRequestError(
-                str(e),
-                provider=self.provider_name,
-                model=model,
-            )
-        elif "APIConnectionError" in error_type or "Timeout" in error_type:
-            raise ProviderUnavailableError(
-                str(e),
-                provider=self.provider_name,
-                model=model,
-            )
         else:
-            # Re-raise as generic provider error
-            raise ProviderUnavailableError(
-                f"Unexpected error: {e}",
+             # Map other errors
+             raise ProviderUnavailableError(
+                f"OpenAI error: {e}",
                 provider=self.provider_name,
                 model=model,
             )
@@ -389,6 +438,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             usage = TokenUsage(
                 input_tokens=response.usage.total_tokens if response.usage else 0,
                 output_tokens=0,
+                total_tokens=response.usage.total_tokens if response.usage else 0,
             )
 
             result = EmbeddingResult(
@@ -400,26 +450,6 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 latency_ms=elapsed_ms,
                 cost_estimate=usage.input_tokens * self.models.get(model, {}).get("cost_per_1k", 0) / 1000,
             )
-
-                # Record usage if tracker is available
-            if self.config.usage_tracker:
-                span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-                
-                # Merge metadata from kwargs (e.g. document_id) with result metadata
-                usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
-
-                await self.config.usage_tracker.record_usage(
-                    tenant_id=get_current_tenant() or "default",
-                    operation="embedding",
-                    provider=self.provider_name,
-                    model=model,
-                    usage=usage,
-                    cost=result.cost_estimate,
-                    request_id=get_request_id(),
-                    trace_id=trace_id,
-                    metadata=usage_metadata,
-                )
 
             return result
 

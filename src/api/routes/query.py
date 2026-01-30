@@ -186,6 +186,7 @@ async def _query_stream_impl(
     request: QueryRequest = None,
     query: str = None,
     agent_mode: bool = False,
+    model: str = None,  # Added model parameter
     conversation_id: str = None,  # Added for threading support
     session: AsyncSession = None,
 ):
@@ -206,7 +207,7 @@ async def _query_stream_impl(
         from src.api.schemas.query import QueryOptions
         request = QueryRequest(
             query=query,
-            options=QueryOptions(agent_mode=agent_mode),
+            options=QueryOptions(agent_mode=agent_mode, model=model),
             conversation_id=conversation_id  # Pass through for threading
         )
 
@@ -596,7 +597,8 @@ async def _query_stream_impl(
                 conversation_history=None,
                 options={
                     "user_id": user_id,
-                    "tenant_id": tenant_id
+                    "tenant_id": tenant_id,
+                    "model": request.options.model if request.options else None
                 },
             ):
                 event = event_dict.get("event", "message")
@@ -915,6 +917,7 @@ async def query_stream_get(
     http_request: Request,
     query: str,
     agent_mode: bool = False,
+    model: str = None,  # Added model param
     conversation_id: str = None,
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -923,6 +926,7 @@ async def query_stream_get(
         request=None,
         query=query,
         agent_mode=agent_mode,
+        model=model,        # Pass model param
         conversation_id=conversation_id,
         session=session,
     )

@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.api.config import settings
+from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider, OpenAIEmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -144,13 +145,13 @@ async def get_available_providers():
             name="openai",
             label="OpenAI",
             available=True,
-            models=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
+            models=list(OpenAILLMProvider.models.keys())
         ))
         embedding_providers.append(ProviderInfo(
             name="openai",
             label="OpenAI",
             available=True,
-            models=["text-embedding-3-small", "text-embedding-3-large"]
+            models=list(OpenAIEmbeddingProvider.models.keys())
         ))
     else:
         llm_providers.append(ProviderInfo(
@@ -231,9 +232,9 @@ async def validate_provider(request: ValidateProviderRequest):
         models = []
         if available:
             if provider_type == "llm":
-                models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
+                models = list(OpenAILLMProvider.models.keys())
             else:
-                models = ["text-embedding-3-small", "text-embedding-3-large"]
+                models = list(OpenAIEmbeddingProvider.models.keys())
         return ValidateProviderResponse(available=available, error=error, models=models)
     
     elif provider_name == "anthropic":

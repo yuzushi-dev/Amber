@@ -169,7 +169,8 @@ class QueryUseCase:
                         include_trace=include_trace,
                         options={
                             "user_id": user_id,
-                            "tenant_id": tenant_id
+                            "tenant_id": tenant_id,
+                            "model": request.options.model if request.options else None
                         }
                     )
 
