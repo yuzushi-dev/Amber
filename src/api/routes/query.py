@@ -553,6 +553,7 @@ async def _query_stream_impl(
 
             if not retrieval_result.chunks:
                 yield f"data: {json.dumps('No relevant documents found.')}\n\n"
+                yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
                 return
 
             # Emit Routing Info
