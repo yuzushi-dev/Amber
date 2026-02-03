@@ -30,3 +30,15 @@ def test_resolve_llm_step_config_fallbacks():
     assert cfg.seed == 123
     assert cfg.provider == "anthropic"
     assert cfg.model == "claude-3-5-haiku-20241022"
+
+
+def test_resolve_llm_step_config_generation_model_fallback():
+    tenant_config = {"generation_model": "gpt-4.1-mini"}
+
+    cfg = resolve_llm_step_config(
+        tenant_config=tenant_config,
+        step_id="ingestion.graph_extraction",
+        settings=DummySettings(),
+    )
+
+    assert cfg.model == "gpt-4.1-mini"
