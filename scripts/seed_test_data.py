@@ -36,7 +36,7 @@ async def main():
                 is_active=True,
                 config={
                     "embedding_model": "text-embedding-3-small",
-                    "generation_model": "gpt-4o-mini"
+                    "generation_model": "gpt-4.1-mini"
                 }
             )
             session.add(tenant)

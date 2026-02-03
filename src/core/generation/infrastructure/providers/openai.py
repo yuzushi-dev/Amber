@@ -108,6 +108,7 @@ class OpenAILLMProvider(BaseLLMProvider):
             "input_cost_per_1k": 0.00015,  # Placeholder
             "output_cost_per_1k": 0.0006,  # Placeholder
             "context_window": 128000,
+            "max_top_k": 3,
             "description": "Next-gen compact model",
         },
         "gpt-5-nano": {
@@ -115,6 +116,7 @@ class OpenAILLMProvider(BaseLLMProvider):
             "input_cost_per_1k": 0.00010,  # Placeholder
             "output_cost_per_1k": 0.0004,  # Placeholder
             "context_window": 128000,
+            "max_top_k": 3,
             "description": "Ultra-efficient compact model",
         },
         "gpt-4-turbo": {
@@ -133,7 +135,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         },
     }
     
-    default_model = "gpt-4o-mini"
+    default_model = "gpt-4.1-mini"
     
     @property
     def model_name(self) -> str:
@@ -181,13 +183,6 @@ class OpenAILLMProvider(BaseLLMProvider):
         
         messages.append({"role": "user", "content": prompt})
 
-        # Cost estimation logic (simplified)
-        cost_per_1k_input = 0.00015 # gpt-4o-mini approx
-        cost_per_1k_output = 0.0006
-        
-        if "gpt-4o" in model and "mini" not in model:
-            cost_per_1k_input = 0.005
-            cost_per_1k_output = 0.015
 
         try:
             params = {
@@ -217,7 +212,6 @@ class OpenAILLMProvider(BaseLLMProvider):
             
             input_tokens = usage.prompt_tokens
             output_tokens = usage.completion_tokens
-            cost = (input_tokens / 1000 * cost_per_1k_input) + (output_tokens / 1000 * cost_per_1k_output)
 
             # Extract finish reason
             finish_reason = response.choices[0].finish_reason if response.choices else None
@@ -227,6 +221,8 @@ class OpenAILLMProvider(BaseLLMProvider):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens
             )
+            
+            cost = self.estimate_cost(usage_obj, model)
 
             return GenerationResult(
                 text=content,
@@ -352,6 +348,7 @@ class OpenAILLMProvider(BaseLLMProvider):
             logger.warning(f"[DIAG] Stream finished: total_chunks={chunk_count}, content_chunks={content_count}")
 
         except Exception as e:
+            logger.error(f"[DIAG] Stream error for model {model}: {e}", exc_info=True)
             self._handle_error(e, model)
 
     def _handle_error(self, e: Exception, model: str) -> None:

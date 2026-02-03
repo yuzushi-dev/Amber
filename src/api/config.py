@@ -249,6 +249,24 @@ def get_settings() -> Settings:
         if "cors_origins" in api_config:
             settings.cors_origins = Settings.normalize_cors_origins(api_config["cors_origins"])
 
+        # Apply LLM settings from YAML
+        llm_config = yaml_config.get("llm", {})
+        if "provider" in llm_config:
+            settings.default_llm_provider = llm_config["provider"]
+        if "model" in llm_config:
+            settings.default_llm_model = llm_config["model"]
+        if "temperature" in llm_config:
+            settings.default_llm_temperature = llm_config["temperature"]
+
+        # Apply Embedding settings from YAML
+        emb_config = yaml_config.get("embeddings", {})
+        if "provider" in emb_config:
+            settings.default_embedding_provider = emb_config["provider"]
+        if "model" in emb_config:
+            settings.default_embedding_model = emb_config["model"]
+        if "dimensions" in emb_config:
+            settings.embedding_dimensions = emb_config["dimensions"]
+
     except Exception:
         # Fallback to defaults/env if YAML fails
         pass

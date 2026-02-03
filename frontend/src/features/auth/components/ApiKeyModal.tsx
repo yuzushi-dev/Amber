@@ -84,7 +84,7 @@ export default function ApiKeyModal({
                                     type={showKey ? 'text' : 'password'}
                                     value={inputKey}
                                     onChange={(e) => setInputKey(e.target.value)}
-                                    placeholder="Enter your API key\u2026"
+                                    placeholder="Enter your API key"
                                     className="px-4 py-3 pr-12 bg-background focus-visible:ring-offset-1"
                                     name="api-key"
                                     autoComplete="off"

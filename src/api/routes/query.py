@@ -292,206 +292,76 @@ async def _query_stream_impl(
                     from src.core.tools.retrieval import create_retrieval_tool
                     from src.core.tools.filesystem import create_filesystem_tools
                     from src.core.tools.graph import GRAPH_TOOLS, query_graph
-
-                    # Initialize Tools
-                    retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
-                    tool_map = {
-                        retrieval_tool_def["name"]: retrieval_tool_def["func"]
-                    }
-                    tool_schemas = [retrieval_tool_def["schema"]]
-
-                    # Add Graph Tool
-                    tool_map["query_graph"] = query_graph
-                    tool_schemas.extend(GRAPH_TOOLS)
+                    full_answer = agent_response.answer
+                    summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                    title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
                     
-                    # Add Filesystem Tools (Maintainer only)
-                    if request.options.agent_role == "maintainer":
-                        fs_tools = create_filesystem_tools(base_path=".") 
-                        for t in fs_tools:
-                            tool_map[t["name"]] = t["func"]
-                            tool_schemas.append(t["schema"])
-                    
-                    
-                    # Add Connector Tools - DYNAMICALLY LOAD
-                    logger.info("Starting Agent Mode Setup...")
-                    # Fetch active credentials for ALL active connectors
-                    from src.api.routes.connectors import CONNECTOR_REGISTRY
-                    from src.core.ingestion.domain.connector_state import ConnectorState
+                    from datetime import datetime
+                    from src.core.generation.domain.memory_models import ConversationSummary
                     from src.api.deps import _get_async_session_maker
-                    from sqlalchemy import select
-
-                    c_tools_count = 0
+                    
                     async with _get_async_session_maker()() as session:
-                        logger.info("DB Session created for Agent Setup")
-                        # Select all active connectors for this tenant
-                        result = await session.execute(
-                            select(ConnectorState).where(
-                                ConnectorState.tenant_id == tenant_id
-                            )
-                        )
-                        c_states = result.scalars().all()
-                        
-                        for c_state in c_states:
-                            if not c_state.sync_cursor:
-                                continue
-                                
-                            c_type = c_state.connector_type
-                            if c_type in CONNECTOR_REGISTRY:
-                                try:
-                                    logger.info(f"Initializing connector: {c_type}")
-                                    ConnectorClass = CONNECTOR_REGISTRY[c_type]
-                                    creds = c_state.sync_cursor
-                                    
-                                    # Initialize with specific params based on type if needed, 
-                                    # but BaseConnector usually takes kwargs or we rely on authenticated() 
-                                    # to set state. 
-                                    # Actually, Zendesk needs subdomain in init, Carbonio needs host.
-                                    # We can try to pass relevant args from creds to init.
-                                    
-                                    init_kwargs = {}
-                                    if c_type == "zendesk":
-                                        init_kwargs["subdomain"] = creds.get("subdomain", "")
-                                    elif c_type == "confluence":
-                                        init_kwargs["base_url"] = creds.get("base_url", "")
-                                    elif c_type == "carbonio":
-                                        init_kwargs["host"] = creds.get("host", "")
-                                    
-                                    connector_instance = ConnectorClass(**init_kwargs)
-                                    
-                                    # Authenticate
-                                    auth_success = await connector_instance.authenticate(creds)
-                                    if auth_success:
-                                        c_tools = connector_instance.get_agent_tools()
-                                        for t in c_tools:
-                                            tool_map[t["name"]] = t["func"]
-                                            tool_schemas.append(t["schema"])
-                                            c_tools_count += 1
-                                        logger.info(f"Loaded {len(c_tools)} tools from {c_type}")
-                                    else:
-                                        logger.warning(f"Failed to authenticate {c_type} during agent setup")
-                                except Exception as e:
-                                    logger.error(f"Error loading connector {c_type}: {e}")
+                        # Try to find existing conversation
+                        existing_summary = None
+                        if request.conversation_id:
+                            existing_summary = await session.get(ConversationSummary, agent_conversation_id)
 
-                    
-                    logger.info(f"Agent tools loaded. Total extra tools: {c_tools_count}")
-                    
-                    # Initialize Agent
-                    agent = AgentOrchestrator(
-                        generation_service=generation_service,
-                        tools=tool_map,
-                        tool_schemas=tool_schemas,
-                        system_prompt=AGENT_SYSTEM_PROMPT
-                    )
-
-                    logger.info("AgentOrchestrator initialized. Starting Run...")
-
-                    # Load previous conversation history if continuing a thread
-                    conversation_history = []
-                    if request.conversation_id:
-                        try:
-                            from src.core.generation.domain.memory_models import ConversationSummary  # Import here for history loading
-                            async with _get_async_session_maker()() as history_session:
-                                existing_conv = await history_session.get(ConversationSummary, request.conversation_id)
-                                if existing_conv and existing_conv.metadata_:
-                                    saved_history = existing_conv.metadata_.get("history", [])
-                                    for entry in saved_history:
-                                        # Convert saved history to message format
-                                        conversation_history.append({
-                                            "role": "user",
-                                            "content": entry.get("query", "")
-                                        })
-                                        conversation_history.append({
-                                            "role": "assistant", 
-                                            "content": entry.get("answer", "")
-                                        })
-                                    logger.info(f"Loaded {len(saved_history)} previous exchanges for threading")
-                        except Exception as e:
-                            logger.warning(f"Failed to load conversation history: {e}")
-
-                    # Run Agent with context
-                    agent_response = await agent.run(
-                        query=request.query,
-                        conversation_id=agent_conversation_id, # Use pre-calculated ID
-                        conversation_history=conversation_history if conversation_history else None
-                    )
-                    
-                    logger.info("Agent Run Complete.")
-
-                    # SAVE AGENT INTERACTION TO HISTORY
-                    # We do this BEFORE yielding to client to ensure persistence even if client disconnects
-                    try:
-                        full_answer = agent_response.answer
-                        summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
-                        title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
-                        
-                        from datetime import datetime
-                        from src.core.generation.domain.memory_models import ConversationSummary
-                        from src.api.deps import _get_async_session_maker
-                        
-                        async with _get_async_session_maker()() as session:
-                            # Try to find existing conversation
-                            existing_summary = None
-                            if request.conversation_id:
-                                existing_summary = await session.get(ConversationSummary, agent_conversation_id)
-
-                            if existing_summary:
-                                # UPDATE existing conversation
-                                # 1. Append to history in metadata
-                                history = existing_summary.metadata_.get("history", [])
-                                history.append({
-                                    "query": request.query, 
-                                    "answer": full_answer,
-                                    "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
-                                    "timestamp": datetime.utcnow().isoformat()
-                                })
-                                existing_summary.metadata_["history"] = history
-                                
-                                # 2. Update top-level metadata to reflect LATEST turn
-                                existing_summary.metadata_["query"] = request.query
-                                existing_summary.metadata_["answer"] = full_answer
-                                existing_summary.metadata_["sources"] = agent_response.sources if hasattr(agent_response, "sources") else []
-                                existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
-                                
-                                # 3. Flag as modified for SQLAlchemy
-                                from sqlalchemy.orm.attributes import flag_modified
-                                flag_modified(existing_summary, "metadata_")
-                                
-                                session.add(existing_summary)
-                                await session.commit()
-                                logger.info(f"Updated AGENT conversation history: {existing_summary.id}")
-                            else:
-                                # INSERT new conversation
-                                new_summary = ConversationSummary(
-                                    id=agent_conversation_id,
-                                    tenant_id=tenant_id,
-                                    user_id="user", # Default user
-                                    title=title_text,
-                                    summary=summary_text,
-                                    metadata_={
-                                        "query": request.query,
-                                        "answer": full_answer,
-                                        "model": "agent-default",
-                                        "mode": "agent",
-                                        # Extract tool names safely (handle OpenAI format {"function": {"name": ...}})
-                                        "tools_used": [
-                                            t.get("function", {}).get("name", t.get("name", "unknown")) 
-                                            for t in tool_schemas
-                                        ],
-                                        "history": [{
-                                            "query": request.query, 
-                                            "answer": full_answer,
-                                            "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
-                                            "routing_info": {"categories": ["Agent Tools"], "confidence": 1.0},
-                                            "timestamp": datetime.utcnow().isoformat()
-                                        }]
-                                    }
-                                )
-                                session.add(new_summary)
-                                await session.commit()
-                                logger.info(f"Saved AGENT conversation history: {new_summary.id}")
+                        if existing_summary:
+                            # UPDATE existing conversation
+                            # 1. Append to history in metadata
+                            history = existing_summary.metadata_.get("history", [])
+                            history.append({
+                                "query": request.query, 
+                                "answer": full_answer,
+                                "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
+                                "timestamp": datetime.utcnow().isoformat()
+                            })
+                            existing_summary.metadata_["history"] = history
                             
-                    except Exception as e:
-                        logger.error(f"Failed to save AGENT conversation history: {e}")
+                            # 2. Update top-level metadata to reflect LATEST turn
+                            existing_summary.metadata_["query"] = request.query
+                            existing_summary.metadata_["answer"] = full_answer
+                            existing_summary.metadata_["sources"] = agent_response.sources if hasattr(agent_response, "sources") else []
+                            existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
+                            
+                            # 3. Flag as modified for SQLAlchemy
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(existing_summary, "metadata_")
+                            
+                            session.add(existing_summary)
+                            await session.commit()
+                            logger.info(f"Updated AGENT conversation history: {existing_summary.id}")
+                        else:
+                            # INSERT new conversation
+                            new_summary = ConversationSummary(
+                                id=agent_conversation_id,
+                                tenant_id=tenant_id,
+                                user_id="user", # Default user
+                                title=title_text,
+                                summary=summary_text,
+                                metadata_={
+                                    "query": request.query,
+                                    "answer": full_answer,
+                                    "model": "agent-default",
+                                    "mode": "agent",
+                                    "tools_used": [
+                                        t.get("function", {}).get("name", t.get("name", "unknown")) 
+                                        for t in tool_schemas
+                                    ],
+                                    "history": [{
+                                        "query": request.query, 
+                                        "answer": full_answer,
+                                        "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
+                                        "routing_info": {"categories": ["Agent Tools"], "confidence": 1.0},
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    }]
+                                }
+                            )
+                            session.add(new_summary)
+                            await session.commit()
+                            logger.info(f"Saved AGENT conversation history: {new_summary.id}")
+                            
+
 
                     # Stream the result as tokens (AgentOrchestrator returns full answer currently)
                     # Preserve whitespace to keep formatting intact.
@@ -511,8 +381,43 @@ async def _query_stream_impl(
 
             # STANDARD RAG PIPELINE
             # First, retrieve relevant chunks
+            # Standard RAG Pipeline
+            # First, retrieve relevant chunks
             document_ids = request.filters.document_ids if request.filters else None
             max_chunks = request.options.max_chunks if request.options else 10
+            
+            # Rate Limit Protection
+            from src.core.admin_ops.application.tuning_service import TuningService
+            from src.api.deps import _get_async_session_maker
+            from src.shared.kernel.runtime import get_settings
+            from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
+            
+            try:
+                # 1. Check explicit override
+                effective_model = request.options.model if request.options else None
+                
+                # 2. If no override, fetch Tenant Config
+                if not effective_model:
+                    tuning_service = TuningService(_get_async_session_maker())
+                    tenant_config = await tuning_service.get_tenant_config(tenant_id)
+                    effective_model = tenant_config.get("llm_model")
+                
+                # 3. Fallback to System Default
+                if not effective_model:
+                    settings = get_settings()
+                    effective_model = settings.default_llm_model
+                    
+                # Apply Clamp
+                if effective_model:
+                    model_cfg = OpenAILLMProvider.models.get(effective_model)
+                    if model_cfg:
+                        model_limit = model_cfg.get("max_top_k")
+                        if model_limit and max_chunks > model_limit:
+                            logger.warning(f"Clamping max_chunks from {max_chunks} to {model_limit} for model {effective_model}")
+                            max_chunks = model_limit
+
+            except Exception as e:
+                logger.error(f"Failed to resolve effective model for rate limiting: {e}")
 
             # Add timeout to prevent hangs
             import asyncio
@@ -755,6 +660,7 @@ async def _query_stream_impl(
                 MODEL_PRICING = {
                     "gpt-4o": {"input": 0.005, "output": 0.015},
                     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+                    "o1": {"input": 0.015, "output": 0.06},
                     "claude-3-sonnet": {"input": 0.003, "output": 0.015},
                     "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
                     "default": {"input": 0.00015, "output": 0.0006}  # Fallback to mini rates
