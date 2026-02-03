@@ -197,7 +197,7 @@ class ProviderFactory:
             if self.ollama_base_url: # Ollama is good for economy too
                  providers.append(self._create_llm_provider("ollama"))
             if self.openai_api_key:
-                providers.append(self._create_llm_provider("openai", model="gpt-4o-mini"))
+                providers.append(self._create_llm_provider("openai", model="gpt-4.1-mini"))
             if self.anthropic_api_key:
                 providers.append(self._create_llm_provider("anthropic", model="claude-3-5-haiku-20241022"))
 
