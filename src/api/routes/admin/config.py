@@ -478,6 +478,15 @@ async def get_tenant_config(tenant_id: str):
                 rerank_weight=config.get("rerank_weight", 0.30),
             )
 
+        from src.core.generation.application.llm_model_resolver import resolve_tenant_llm_model
+
+        resolved_model, _ = resolve_tenant_llm_model(
+            config,
+            settings,
+            context="admin.config_response",
+            tenant_id=tenant_id,
+        )
+
         return TenantConfigResponse(
             tenant_id=tenant_id,
             config=config,
@@ -489,7 +498,7 @@ async def get_tenant_config(tenant_id: str):
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
             llm_provider=config.get("llm_provider", settings.default_llm_provider or "openai"),
-            llm_model=config.get("llm_model") or config.get("generation_model", settings.default_llm_model or "gpt-4o-mini"),
+            llm_model=resolved_model or settings.default_llm_model or "gpt-4o-mini",
             embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
             embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
             active_vector_collection=config.get("active_vector_collection"),
@@ -554,6 +563,8 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 if key == "weights":
                     continue
                 new_config[key] = value
+                if key == "llm_model":
+                    new_config["generation_model"] = value
 
             tenant.config = new_config
 
