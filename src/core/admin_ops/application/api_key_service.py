@@ -17,6 +17,20 @@ from src.core.tenants.application.active_vector_collection import ensure_active_
 from src.shared.security import generate_api_key, hash_api_key, mask_api_key
 
 
+def _default_tenant_config() -> Dict[str, Any]:
+    return {
+        "embedding_model": "text-embedding-3-small",
+        "llm_model": "gpt-4o-mini",
+        "generation_model": "gpt-4o-mini",
+        "top_k": 10,
+        "expansion_depth": 2,
+        "similarity_threshold": 0.7,
+        "reranking_enabled": True,
+        "graph_expansion_enabled": True,
+        "hybrid_ocr_enabled": True,
+    }
+
+
 class ApiKeyService:
     """
     Service for managing API access keys.
@@ -160,16 +174,7 @@ class ApiKeyService:
         tenant = result.scalar_one_or_none()
         
         if not tenant:
-            default_config = {
-                "embedding_model": "text-embedding-3-small",
-                "generation_model": "gpt-4o-mini",
-                "top_k": 10,
-                "expansion_depth": 2,
-                "similarity_threshold": 0.7,
-                "reranking_enabled": True,
-                "graph_expansion_enabled": True,
-                "hybrid_ocr_enabled": True,
-            }
+            default_config = _default_tenant_config()
             default_config = ensure_active_vector_collection_config("default", default_config)
             tenant = Tenant(
                 id='default',
