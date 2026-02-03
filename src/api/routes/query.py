@@ -390,6 +390,7 @@ async def _query_stream_impl(
             from src.core.admin_ops.application.tuning_service import TuningService
             from src.api.deps import _get_async_session_maker
             from src.shared.kernel.runtime import get_settings
+            from src.core.generation.application.llm_model_resolver import resolve_tenant_llm_model
             from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
             
             try:
@@ -398,14 +399,15 @@ async def _query_stream_impl(
                 
                 # 2. If no override, fetch Tenant Config
                 if not effective_model:
+                    settings = get_settings()
                     tuning_service = TuningService(_get_async_session_maker())
                     tenant_config = await tuning_service.get_tenant_config(tenant_id)
-                    effective_model = tenant_config.get("llm_model")
-                
-                # 3. Fallback to System Default
-                if not effective_model:
-                    settings = get_settings()
-                    effective_model = settings.default_llm_model
+                    effective_model, _ = resolve_tenant_llm_model(
+                        tenant_config,
+                        settings,
+                        context="query.rate_limit_clamp",
+                        tenant_id=tenant_id,
+                    )
                     
                 # Apply Clamp
                 if effective_model:
