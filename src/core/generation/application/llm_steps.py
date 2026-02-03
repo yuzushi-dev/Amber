@@ -266,11 +266,16 @@ def resolve_llm_step_config(
         or tenant_config.get("llm_provider")
         or settings.default_llm_provider
     )
-    model = (
-        step_overrides.get("model")
-        or tenant_config.get("llm_model")
-        or settings.default_llm_model
-    )
+    model = step_overrides.get("model")
+    if model is None:
+        from src.core.generation.application.llm_model_resolver import resolve_tenant_llm_model
+
+        model, _ = resolve_tenant_llm_model(
+            tenant_config,
+            settings,
+            context="llm_steps",
+            step_id=step_id,
+        )
 
     temperature = step_overrides.get("temperature")
     if temperature is None:
