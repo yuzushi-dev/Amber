@@ -32,7 +32,7 @@ def test_resolve_provider_for_model_ambiguous():
 
 
 def test_parse_fallback_chain():
-    default = [("openai", OPENAI_DEFAULT)]
+    default = [(OPENAI_DEFAULT, OPENAI_DEFAULT)]
     assert mr.parse_fallback_chain(
         f"openai:{OPENAI_ALT},anthropic:{DEFAULT_LLM_MODEL['anthropic']},ollama:{OLLAMA_MODEL}",
         default=default,
