@@ -70,6 +70,11 @@ async def lifespan(app: FastAPI):
             default_llm_model=settings.default_llm_model,
             default_embedding_provider=settings.default_embedding_provider,
             default_embedding_model=settings.default_embedding_model,
+            llm_fallback_local=settings.llm_fallback_local,
+            llm_fallback_economy=settings.llm_fallback_economy,
+            llm_fallback_standard=settings.llm_fallback_standard,
+            llm_fallback_premium=settings.llm_fallback_premium,
+            embedding_fallback_order=settings.embedding_fallback_order,
         )
         logger.info("LLM Providers initialized")
     except Exception as e:

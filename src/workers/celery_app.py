@@ -118,8 +118,16 @@ def init_worker_process(**kwargs):
         init_providers(
             openai_api_key=openai_key,
             anthropic_api_key=anthropic_key,
+            ollama_base_url=settings.ollama_base_url,
+            default_llm_provider=settings.default_llm_provider,
+            default_llm_model=settings.default_llm_model,
             default_embedding_provider=settings.default_embedding_provider,
             default_embedding_model=settings.default_embedding_model,
+            llm_fallback_local=settings.llm_fallback_local,
+            llm_fallback_economy=settings.llm_fallback_economy,
+            llm_fallback_standard=settings.llm_fallback_standard,
+            llm_fallback_premium=settings.llm_fallback_premium,
+            embedding_fallback_order=settings.embedding_fallback_order,
         )
         logger.info("Worker process providers initialized successfully")
     except Exception as e:

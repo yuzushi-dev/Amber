@@ -9,6 +9,7 @@ from src.core.database.session import async_session_maker, configure_database
 from src.core.admin_ops.application.api_key_service import ApiKeyService
 from src.core.tenants.domain.tenant import Tenant
 from sqlalchemy import select
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
 
 async def main():
     print("Seeding test database...")
@@ -35,8 +36,8 @@ async def main():
                 api_key_prefix='amber_',
                 is_active=True,
                 config={
-                    "embedding_model": "text-embedding-3-small",
-                    "generation_model": "gpt-4.1-mini"
+                    "embedding_model": DEFAULT_EMBEDDING_MODEL["openai"],
+                    "generation_model": DEFAULT_LLM_MODEL["openai"]
                 }
             )
             session.add(tenant)

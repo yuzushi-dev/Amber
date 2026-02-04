@@ -23,6 +23,14 @@ from src.core.generation.infrastructure.providers.base import (
     RateLimitError,
     TokenUsage,
 )
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LLM_MODEL,
+    EMBEDDING_MODELS,
+    LLM_MODELS,
+    embedding_supports_dimensions,
+    get_openai_chat_overrides,
+)
 from src.shared.kernel.observability import trace_span
 from src.shared.context import get_current_tenant, get_request_id
 
@@ -74,68 +82,8 @@ class OpenAILLMProvider(BaseLLMProvider):
     provider_name = "openai"
     
     # Models supported by this provider for validation
-    models = {
-        "gpt-4o": {
-            "tier": ProviderTier.STANDARD,
-            "input_cost_per_1k": 0.005,  # $5/1M tokens
-            "output_cost_per_1k": 0.015,  # $15/1M tokens
-            "context_window": 128000,
-            "description": "Most capable GPT-4 model",
-        },
-        "gpt-4o-mini": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.00015,  # $0.15/1M tokens
-            "output_cost_per_1k": 0.0006,  # $0.60/1M tokens
-            "context_window": 128000,
-            "description": "Fast and cost-effective",
-        },
-        "gpt-4.1-mini": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.00015,
-            "output_cost_per_1k": 0.0006,
-            "context_window": 128000,
-            "description": "Updated fast mini model",
-        },
-        "gpt-4.1-nano": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.00010,
-            "output_cost_per_1k": 0.0004,
-            "context_window": 128000,
-            "description": "Updated compact nano model",
-        },
-        "gpt-5-mini": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.00015,  # Placeholder
-            "output_cost_per_1k": 0.0006,  # Placeholder
-            "context_window": 128000,
-            "max_top_k": 3,
-            "description": "Next-gen compact model",
-        },
-        "gpt-5-nano": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.00010,  # Placeholder
-            "output_cost_per_1k": 0.0004,  # Placeholder
-            "context_window": 128000,
-            "max_top_k": 3,
-            "description": "Ultra-efficient compact model",
-        },
-        "gpt-4-turbo": {
-            "tier": ProviderTier.STANDARD,
-            "input_cost_per_1k": 0.01,
-            "output_cost_per_1k": 0.03,
-            "context_window": 128000,
-            "description": "GPT-4 Turbo with vision",
-        },
-        "o1": {
-            "tier": ProviderTier.PREMIUM,
-            "input_cost_per_1k": 0.015,
-            "output_cost_per_1k": 0.06,
-            "context_window": 200000,
-            "description": "Reasoning model",
-        },
-    }
-    
-    default_model = "gpt-4.1-mini"
+    models = LLM_MODELS["openai"]
+    default_model = DEFAULT_LLM_MODEL["openai"]
     
     @property
     def model_name(self) -> str:
@@ -191,10 +139,12 @@ class OpenAILLMProvider(BaseLLMProvider):
                 "temperature": temperature,
             }
 
-            if model in ["o1", "o3-mini", "gpt-5-nano", "gpt-5-mini"]:
+            overrides = get_openai_chat_overrides(model)
+            if overrides["use_max_completion_tokens"]:
                 if max_tokens:
-                     params["max_completion_tokens"] = max_tokens
-                params["temperature"] = 1.0
+                    params["max_completion_tokens"] = max_tokens
+                if overrides["fixed_temperature"] is not None:
+                    params["temperature"] = overrides["fixed_temperature"]
             elif max_tokens:
                 params["max_tokens"] = max_tokens
 
@@ -296,14 +246,16 @@ class OpenAILLMProvider(BaseLLMProvider):
             }
             
             # Handle model-specific parameter differences
-            if model in ["o1", "o3-mini", "gpt-5-nano", "gpt-5-mini"]:
+            overrides = get_openai_chat_overrides(model)
+            if overrides["use_max_completion_tokens"]:
                 # These models require max_completion_tokens and fixed temperature
                 if max_tokens:
-                     params["max_completion_tokens"] = max_tokens
+                    params["max_completion_tokens"] = max_tokens
                 if "max_tokens" in params:
-                     del params["max_tokens"]
-                
-                params["temperature"] = 1.0
+                    del params["max_tokens"]
+
+                if overrides["fixed_temperature"] is not None:
+                    params["temperature"] = overrides["fixed_temperature"]
             elif max_tokens:
                 params["max_tokens"] = max_tokens
                     
@@ -391,28 +343,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
 
     provider_name = "openai"
 
-    models = {
-        "text-embedding-3-small": {
-            "dimensions": 1536,
-            "max_dimensions": 1536,
-            "cost_per_1k": 0.00002,  # $0.02/1M tokens
-            "description": "Efficient, cost-effective embeddings",
-        },
-        "text-embedding-3-large": {
-            "dimensions": 3072,
-            "max_dimensions": 3072,
-            "cost_per_1k": 0.00013,  # $0.13/1M tokens
-            "description": "High-quality embeddings with dimension flexibility",
-        },
-        "text-embedding-ada-002": {
-            "dimensions": 1536,
-            "max_dimensions": 1536,
-            "cost_per_1k": 0.0001,  # $0.10/1M tokens (legacy)
-            "description": "Legacy model",
-        },
-    }
-
-    default_model = "text-embedding-3-small"
+    models = EMBEDDING_MODELS["openai"]
+    default_model = DEFAULT_EMBEDDING_MODEL["openai"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)
@@ -452,7 +384,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         }
 
         # Support Matryoshka dimension reduction for v3 models
-        if dimensions and "text-embedding-3" in model:
+        if dimensions and embedding_supports_dimensions(model, provider=self.provider_name):
             request_params["dimensions"] = dimensions
 
         try:

@@ -8,6 +8,7 @@ import pytest
 
 from src.shared.kernel.models.query import SearchMode
 from src.core.retrieval.application.query.router import QueryRouter
+from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
 @pytest.mark.asyncio
@@ -42,7 +43,7 @@ async def test_router_llm_classification():
 
     mock_llm_config = MagicMock()
     mock_llm_config.provider = "openai"
-    mock_llm_config.model = "gpt-4"
+    mock_llm_config.model = DEFAULT_LLM_MODEL["openai"]
     mock_llm_config.temperature = 0.0
     mock_llm_config.seed = 42
 

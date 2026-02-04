@@ -10,6 +10,14 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 import os
 
+from src.shared.model_registry import EMBEDDING_MODELS
+
+
+LEGACY_EMBEDDING_MODEL = next(
+    name for name, info in EMBEDDING_MODELS["openai"].items() if not info.get("supports_dimensions")
+)
+LEGACY_EMBEDDING_DIM = EMBEDDING_MODELS["openai"][LEGACY_EMBEDDING_MODEL]["dimensions"]
+
 @pytest.mark.asyncio
 async def test_migration_service_detects_milvus_mismatch():
     """Verify EmbeddingMigrationService detects embedding dimension mismatch."""
@@ -23,8 +31,8 @@ async def test_migration_service_detects_milvus_mismatch():
     mock_tenant.is_active = True
     mock_tenant.config = {
         "embedding_provider": "openai",
-        "embedding_model": "text-embedding-ada-002",
-        "embedding_dimensions": 1536  # Config expects 1536
+        "embedding_model": LEGACY_EMBEDDING_MODEL,
+        "embedding_dimensions": LEGACY_EMBEDDING_DIM  # Config expects default dims
     }
     
     # Mock Session to return the tenant
@@ -36,8 +44,8 @@ async def test_migration_service_detects_milvus_mismatch():
     # Mock Settings
     mock_settings = MagicMock()
     mock_settings.default_embedding_provider = "openai"
-    mock_settings.default_embedding_model = "text-embedding-ada-002"
-    mock_settings.embedding_dimensions = 1536
+    mock_settings.default_embedding_model = LEGACY_EMBEDDING_MODEL
+    mock_settings.embedding_dimensions = LEGACY_EMBEDDING_DIM
     
     # Mock Vector Store Factory that returns MISMATCHED dimensions (768 instead of 1536)
     mock_store = AsyncMock()
@@ -80,8 +88,8 @@ async def test_migration_service_reports_compatible_when_dimensions_match():
     mock_tenant.is_active = True
     mock_tenant.config = {
         "embedding_provider": "openai",
-        "embedding_model": "text-embedding-ada-002",
-        "embedding_dimensions": 1536
+        "embedding_model": LEGACY_EMBEDDING_MODEL,
+        "embedding_dimensions": LEGACY_EMBEDDING_DIM
     }
     
     # Mock Session
@@ -93,12 +101,12 @@ async def test_migration_service_reports_compatible_when_dimensions_match():
     # Mock Settings
     mock_settings = MagicMock()
     mock_settings.default_embedding_provider = "openai"
-    mock_settings.default_embedding_model = "text-embedding-ada-002"
-    mock_settings.embedding_dimensions = 1536
+    mock_settings.default_embedding_model = LEGACY_EMBEDDING_MODEL
+    mock_settings.embedding_dimensions = LEGACY_EMBEDDING_DIM
     
     # Mock Vector Store Factory that returns MATCHING dimensions
     mock_store = AsyncMock()
-    mock_store.get_collection_dimensions = AsyncMock(return_value=1536)  # MATCH!
+    mock_store.get_collection_dimensions = AsyncMock(return_value=LEGACY_EMBEDDING_DIM)  # MATCH!
     mock_factory = MagicMock(return_value=mock_store)
     
     # Mock other dependencies

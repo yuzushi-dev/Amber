@@ -54,7 +54,6 @@ class EmbeddingService:
     Usage:
         service = EmbeddingService(
             openai_api_key="sk-...",
-            model="text-embedding-3-small",
         )
         embeddings = await service.embed_texts(["Hello", "World"])
     """
@@ -73,7 +72,7 @@ class EmbeddingService:
         provider: EmbeddingProviderPort | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
-        model: str = "text-embedding-3-small",
+        model: str | None = None,
         dimensions: int | None = None,
         max_tokens_per_batch: int | None = None,
         max_items_per_batch: int | None = None,
@@ -85,7 +84,7 @@ class EmbeddingService:
             provider: Pre-configured provider (optional)
             openai_api_key: OpenAI API key
             anthropic_api_key: Anthropic API key (for future use)
-            model: Default embedding model
+            model: Default embedding model (defaults to provider default)
             dimensions: Optional dimension reduction
             max_tokens_per_batch: Override default batch token limit
             max_items_per_batch: Override default batch item limit
@@ -102,7 +101,7 @@ class EmbeddingService:
                 factory = get_provider_factory()
             self.provider = factory.get_embedding_provider()
 
-        self.model = model
+        self.model = model or getattr(self.provider, "default_model", self.provider.get_default_model())
         self.dimensions = dimensions
         self.max_tokens = max_tokens_per_batch or self.MAX_TOKENS_PER_BATCH
         self.max_items = max_items_per_batch or self.MAX_ITEMS_PER_BATCH

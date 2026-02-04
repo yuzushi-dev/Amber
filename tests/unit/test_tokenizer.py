@@ -1,4 +1,5 @@
 from src.core.utils.tokenizer import Tokenizer
+from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
 def test_count_tokens():
@@ -23,8 +24,8 @@ def test_truncate_to_budget():
 
 def test_model_specific_encoding():
     text = "Special tokens and model specific behavior."
-    count_mini = Tokenizer.count_tokens(text, model="gpt-4o-mini")
-    count_legacy = Tokenizer.count_tokens(text, model="gpt-3.5-turbo")
+    count_mini = Tokenizer.count_tokens(text, model=DEFAULT_LLM_MODEL["openai"])
+    count_legacy = Tokenizer.count_tokens(text, model=DEFAULT_LLM_MODEL["anthropic"])
     # Just ensure it doesn't crash and returns valid counts
     assert count_mini > 0
     assert count_legacy > 0

@@ -563,7 +563,8 @@ class GenerationService:
             "event": "done",
             "data": {
                 "follow_ups": self._generate_follow_ups(query, full_answer),
-                "model": provider.model_name
+                "model": provider.model_name,
+                "provider": provider.provider_name,
             }
         }
     
