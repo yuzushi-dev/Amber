@@ -20,6 +20,7 @@ from src.core.generation.infrastructure.providers.base import (
     RateLimitError,
     TokenUsage,
 )
+from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 from src.shared.context import get_current_tenant, get_request_id
 
 try:
@@ -58,38 +59,8 @@ class AnthropicLLMProvider(BaseLLMProvider):
 
     provider_name = "anthropic"
 
-    models = {
-        "claude-sonnet-4-20250514": {
-            "tier": ProviderTier.STANDARD,
-            "input_cost_per_1k": 0.003,  # $3/1M tokens
-            "output_cost_per_1k": 0.015,  # $15/1M tokens
-            "context_window": 200000,
-            "description": "Claude Sonnet 4 - Best balance",
-        },
-        "claude-3-5-sonnet-20241022": {
-            "tier": ProviderTier.STANDARD,
-            "input_cost_per_1k": 0.003,
-            "output_cost_per_1k": 0.015,
-            "context_window": 200000,
-            "description": "Claude 3.5 Sonnet",
-        },
-        "claude-3-5-haiku-20241022": {
-            "tier": ProviderTier.ECONOMY,
-            "input_cost_per_1k": 0.0008,  # $0.80/1M tokens
-            "output_cost_per_1k": 0.004,  # $4/1M tokens
-            "context_window": 200000,
-            "description": "Claude 3.5 Haiku - Fast and affordable",
-        },
-        "claude-3-opus-20240229": {
-            "tier": ProviderTier.PREMIUM,
-            "input_cost_per_1k": 0.015,  # $15/1M tokens
-            "output_cost_per_1k": 0.075,  # $75/1M tokens
-            "context_window": 200000,
-            "description": "Claude 3 Opus - Most capable",
-        },
-    }
-
-    default_model = "claude-3-5-haiku-20241022"
+    models = LLM_MODELS["anthropic"]
+    default_model = DEFAULT_LLM_MODEL["anthropic"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)

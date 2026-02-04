@@ -9,6 +9,7 @@ from src.core.models.api_key import ApiKey
 from src.core.models.tenant import Tenant
 from src.core.database.session import async_session_maker
 from sqlalchemy import select
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
 
 async def main():
     try:
@@ -27,8 +28,8 @@ async def main():
                     api_key_prefix='amber_',
                     is_active=True,
                     config={
-                        "embedding_model": "text-embedding-3-small",
-                        "generation_model": "gpt-4o-mini",
+                        "embedding_model": DEFAULT_EMBEDDING_MODEL["openai"],
+                        "generation_model": DEFAULT_LLM_MODEL["openai"],
                         "top_k": 10,
                         "expansion_depth": 2,
                         "similarity_threshold": 0.7,

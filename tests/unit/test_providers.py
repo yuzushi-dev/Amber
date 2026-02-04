@@ -280,17 +280,21 @@ class TestCostEstimation:
 
     def test_openai_cost_estimation(self):
         from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
+        from src.shared.model_registry import DEFAULT_LLM_MODEL
 
         # Create with mock config (won't validate since we don't call generate)
         provider = object.__new__(OpenAILLMProvider)
         provider.models = OpenAILLMProvider.models
 
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
-        cost = provider.estimate_cost(usage, "gpt-4o-mini")
+        model = DEFAULT_LLM_MODEL["openai"]
+        cost = provider.estimate_cost(usage, model)
 
-        # gpt-4o-mini: $0.15/1M input, $0.60/1M output
-        # 1000 input = $0.00015, 500 output = $0.0003
-        expected = (0.00015 * 1000 / 1000) + (0.0006 * 500 / 1000)
+        model_info = provider.models[model]
+        expected = (
+            model_info.get("input_cost_per_1k", 0) * usage.input_tokens / 1000
+            + model_info.get("output_cost_per_1k", 0) * usage.output_tokens / 1000
+        )
         assert abs(cost - expected) < 0.0001
 
 

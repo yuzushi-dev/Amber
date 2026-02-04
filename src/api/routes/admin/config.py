@@ -21,6 +21,12 @@ from src.core.tenants.application.active_vector_collection import (
     backfill_active_vector_collections,
     ensure_active_collection_update_allowed,
 )
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LLM_MODEL,
+    EMBEDDING_MODELS,
+    LLM_MODELS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +36,26 @@ router = APIRouter(prefix="/config", tags=["admin-config"])
 # =============================================================================
 # Schemas
 # =============================================================================
+
+def _resolve_default_llm_model() -> str:
+    if settings.default_llm_model:
+        return settings.default_llm_model
+    provider = settings.default_llm_provider or "openai"
+    fallback = DEFAULT_LLM_MODEL.get(provider)
+    if not fallback:
+        fallback = next(iter(LLM_MODELS.get(provider, {})), None)
+    return fallback or DEFAULT_LLM_MODEL.get("openai", "")
+
+
+def _resolve_default_embedding_model() -> str:
+    if settings.default_embedding_model:
+        return settings.default_embedding_model
+    provider = settings.default_embedding_provider or "openai"
+    fallback = DEFAULT_EMBEDDING_MODEL.get(provider)
+    if not fallback:
+        fallback = next(iter(EMBEDDING_MODELS.get(provider, {})), None)
+    return fallback or DEFAULT_EMBEDDING_MODEL.get("openai", "")
+
 
 class RetrievalWeights(BaseModel):
     """Retrieval fusion weights."""
@@ -69,11 +95,11 @@ class TenantConfigResponse(BaseModel):
 
     # LLM Provider/Model settings
     llm_provider: str = Field(default_factory=lambda: settings.default_llm_provider or "openai")
-    llm_model: str = Field(default_factory=lambda: settings.default_llm_model or "gpt-4o-mini")
+    llm_model: str = Field(default_factory=_resolve_default_llm_model)
     
     # Embedding Provider/Model settings
     embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
-    embedding_model: str = Field(default_factory=lambda: settings.default_embedding_model or "text-embedding-3-small")
+    embedding_model: str = Field(default_factory=_resolve_default_embedding_model)
 
     # Vector Store Settings
     active_vector_collection: str | None = None
@@ -230,7 +256,7 @@ async def get_config_schema():
             type="select",
             label="LLM Model",
             description="Model for answer generation",
-            default=settings.default_llm_model or "gpt-4o-mini",
+            default=_resolve_default_llm_model(),
             options=[],  # Populated dynamically based on selected provider
             group="models"
         ),
@@ -248,7 +274,7 @@ async def get_config_schema():
             type="select",
             label="Embedding Model",
             description="Model for generating embeddings",
-            default=settings.default_embedding_model or "text-embedding-3-small",
+            default=_resolve_default_embedding_model(),
             options=[],  # Populated dynamically based on selected provider
             group="models"
         ),
@@ -498,9 +524,9 @@ async def get_tenant_config(tenant_id: str):
             hyde_enabled=config.get("hyde_enabled", False),
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
             llm_provider=config.get("llm_provider", settings.default_llm_provider or "openai"),
-            llm_model=resolved_model or settings.default_llm_model or "gpt-4o-mini",
+            llm_model=resolved_model or _resolve_default_llm_model(),
             embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
-            embedding_model=config.get("embedding_model", settings.default_embedding_model or "text-embedding-3-small"),
+            embedding_model=config.get("embedding_model", _resolve_default_embedding_model()),
             active_vector_collection=config.get("active_vector_collection"),
             seed=config.get("seed"),
             temperature=config.get("temperature"),

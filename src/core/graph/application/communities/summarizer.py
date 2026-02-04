@@ -131,7 +131,7 @@ class CommunitySummarizer:
         # Actually our query already orders by level ASC
 
         # Limit concurrency to avoid 429s or OOM with local LLMs or Economy models
-        # Economy models like gpt-5-mini have strict TPM limits (4k). Serializing ensures safety.
+        # Economy models with strict TPM limits can overload quickly. Serializing ensures safety.
         sem = asyncio.Semaphore(1)
 
         async def _bounded_summarize(cid):

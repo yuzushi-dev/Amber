@@ -15,6 +15,7 @@ from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
 
 
 @pytest.mark.asyncio
@@ -137,9 +138,9 @@ async def test_ingestion_integration_classification(db_session):
 
         # Mock settings
         mock_settings = MagicMock()
-        mock_settings.default_embedding_model = "text-embedding-3-small"
+        mock_settings.default_embedding_model = DEFAULT_EMBEDDING_MODEL["openai"]
         mock_settings.default_embedding_provider = "openai"
-        mock_settings.embedding_dimensions = 1536
+        mock_settings.embedding_dimensions = EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"]
         mock_settings.openai_api_key = "test-key"
 
         # Re-create service with extractor

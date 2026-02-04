@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from src.api.config import settings
 from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider, OpenAIEmbeddingProvider
+from src.shared.model_registry import EMBEDDING_MODELS, LLM_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ async def get_available_providers():
             name="anthropic",
             label="Anthropic",
             available=True,
-            models=["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
+            models=list(LLM_MODELS["anthropic"].keys())
         ))
     else:
         llm_providers.append(ProviderInfo(
@@ -208,7 +209,7 @@ async def get_available_providers():
         label="Local (ONNX)",
         available=local_available,
         error=local_error,
-        models=["bge-m3"] if local_available else []
+        models=list(EMBEDDING_MODELS["local"].keys()) if local_available else []
     ))
     
     return AvailableProvidersResponse(
@@ -239,7 +240,7 @@ async def validate_provider(request: ValidateProviderRequest):
     
     elif provider_name == "anthropic":
         available, error = check_anthropic_availability()
-        models = ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"] if available else []
+        models = list(LLM_MODELS["anthropic"].keys()) if available else []
         return ValidateProviderResponse(available=available, error=error, models=models)
     
     elif provider_name == "ollama":
@@ -249,7 +250,7 @@ async def validate_provider(request: ValidateProviderRequest):
     
     elif provider_name == "local":
         available, error = check_local_embeddings_availability()
-        models = ["bge-m3"] if available else []
+        models = list(EMBEDDING_MODELS["local"].keys()) if available else []
         return ValidateProviderResponse(available=available, error=error, models=models)
     
     else:

@@ -3,6 +3,8 @@ import asyncio
 import os
 from openai import AsyncOpenAI
 
+from src.shared.model_registry import DEFAULT_LLM_MODEL
+
 async def debug_stream():
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -11,7 +13,7 @@ async def debug_stream():
 
     client = AsyncOpenAI(api_key=api_key)
     
-    model = "gpt-5-nano"
+    model = DEFAULT_LLM_MODEL.get("openai") or next(iter(DEFAULT_LLM_MODEL.values()), "")
     print(f"Testing stream with model: {model}")
 
     try:

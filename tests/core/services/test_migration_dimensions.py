@@ -1,6 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
+
+OPENAI_EMBEDDING = DEFAULT_EMBEDDING_MODEL["openai"]
+OPENAI_EMBEDDING_DIM = EMBEDDING_MODELS["openai"][OPENAI_EMBEDDING]["dimensions"]
+OLLAMA_EMBEDDING = DEFAULT_EMBEDDING_MODEL["ollama"]
+OLLAMA_EMBEDDING_DIM = EMBEDDING_MODELS["ollama"][OLLAMA_EMBEDDING]["dimensions"]
 
 @pytest.fixture
 def mock_session():
@@ -43,20 +49,18 @@ def service(
 
 @pytest.mark.asyncio
 async def test_resolve_dimensions_known_model(service):
-    """Test that known models from hardcoded list return correct dimensions without calling provider."""
-    # Based on the MODEL_DIMENSIONS dict in the original file
-    dims = await service._resolve_dimensions("openai", "text-embedding-3-small")
-    assert dims == 1536
+    """Test that known registry models return correct dimensions without calling provider."""
+    dims = await service._resolve_dimensions("openai", OPENAI_EMBEDDING)
+    assert dims == OPENAI_EMBEDDING_DIM
 
-    dims = await service._resolve_dimensions("ollama", "nomic-embed-text")
-    assert dims == 768
+    dims = await service._resolve_dimensions("ollama", OLLAMA_EMBEDDING)
+    assert dims == OLLAMA_EMBEDDING_DIM
 
 @pytest.mark.asyncio
 async def test_resolve_dimensions_tagged_model_fuzzy_match(service):
-    """Test that tagged models match the hardcoded list if base name matches."""
-    # Should strip :latest and match nomic-embed-text
-    dims = await service._resolve_dimensions("ollama", "nomic-embed-text:latest")
-    assert dims == 768
+    """Test that tagged models match the registry list if base name matches."""
+    dims = await service._resolve_dimensions("ollama", f"{OLLAMA_EMBEDDING}:latest")
+    assert dims == OLLAMA_EMBEDDING_DIM
 
 @pytest.mark.asyncio
 async def test_resolve_dimensions_unknown_model_dynamic_check(service):
@@ -88,7 +92,7 @@ async def test_resolve_dimensions_unknown_model_dynamic_check(service):
         MockEmbeddingService.assert_called_with(
             provider=mock_provider,
             model="unknown-custom-model:v1",
-            dimensions=1536 # It might initialize with default if not known, but we care about the output
+            dimensions=OPENAI_EMBEDDING_DIM # It might initialize with default if not known, but we care about the output
         )
         mock_service_instance.embed_texts.assert_awaited_once()
 
@@ -106,4 +110,4 @@ async def test_resolve_dimensions_dynamic_failure_defaults(service):
         # We expect error log but graceful fallback
         dims = await service._resolve_dimensions("ollama", "super-broken-model")
         
-        assert dims == 1536
+        assert dims == OPENAI_EMBEDDING_DIM

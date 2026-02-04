@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
+from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
 @pytest.mark.asyncio
@@ -13,7 +14,7 @@ async def test_extractor_flow_mocked():
         mock_provider = AsyncMock()
         mock_get.return_value = mock_provider
         
-        mock_settings.return_value.default_llm_model = "gpt-4"
+        mock_settings.return_value.default_llm_model = DEFAULT_LLM_MODEL["openai"]
         mock_settings.return_value.db.redis_url = None
 
         # Mock response Tuple Tuple
@@ -40,7 +41,7 @@ async def test_extractor_gleaning_mocked():
         mock_provider = AsyncMock()
         mock_get.return_value = mock_provider
         
-        mock_settings.return_value.default_llm_model = "gpt-4"
+        mock_settings.return_value.default_llm_model = DEFAULT_LLM_MODEL["openai"]
         mock_settings.return_value.db.redis_url = None
 
         # Pass 1 response

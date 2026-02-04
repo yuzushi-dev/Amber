@@ -2,11 +2,23 @@ import pytest
 from types import SimpleNamespace
 
 from src.shared.kernel.runtime import configure_settings, _reset_for_tests
+from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
+
+
+def _first_other(models: dict, current: str) -> str:
+    for name in models:
+        if name != current:
+            return name
+    return current
+
+
+OPENAI_DEFAULT = DEFAULT_LLM_MODEL["openai"]
+OPENAI_ALT = _first_other(LLM_MODELS["openai"], OPENAI_DEFAULT)
 
 
 class DummySettings:
     default_llm_provider = "openai"
-    default_llm_model = "gpt-4o-mini"
+    default_llm_model = OPENAI_DEFAULT
     default_llm_temperature = 0.0
     seed = 42
     db = SimpleNamespace(redis_url="redis://test")
@@ -48,7 +60,7 @@ async def test_graph_extraction_uses_step_temperature(monkeypatch):
                 "temperature": 0.2,
                 "seed": 99,
                 "provider": "openai",
-                "model": "gpt-4o",
+                "model": OPENAI_ALT,
             }
         }
     }

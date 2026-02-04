@@ -9,6 +9,7 @@ sys.path.append(os.getcwd())
 
 from src.core.generation.application.llm_steps import resolve_llm_step_config
 from src.core.generation.infrastructure.providers.factory import ProviderTier
+from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 def verify_logic_priority():
     print("\n--- Verifying Logic Priority ---")
@@ -16,14 +17,14 @@ def verify_logic_priority():
     # 1. Setup Mock Settings (mimicking env vars)
     mock_settings = MagicMock()
     mock_settings.default_llm_provider = "openai"
-    mock_settings.default_llm_model = "gpt-4o-mini"
+    mock_settings.default_llm_model = DEFAULT_LLM_MODEL.get("openai")
     mock_settings.default_llm_temperature = 0.7
     mock_settings.seed = 42
     
     # 2. Setup Mock Tenant Config (mimicking DB settings)
     tenant_config = {
         "llm_provider": "anthropic",
-        "llm_model": "claude-3-opus",
+        "llm_model": DEFAULT_LLM_MODEL.get("anthropic"),
         "temperature": 0.2,
         "seed": 999
     }
@@ -46,8 +47,9 @@ def verify_logic_priority():
     if config.provider != "anthropic":
         failures.append(f"Provider not prioritized: Expected anthropic, got {config.provider}")
     
-    if config.model != "claude-3-opus":
-        failures.append(f"Model not prioritized: Expected claude-3-opus, got {config.model}")
+    expected_model = tenant_config["llm_model"]
+    if config.model != expected_model:
+        failures.append(f"Model not prioritized: Expected {expected_model}, got {config.model}")
         
     if config.temperature != 0.1: # chat.generation has fixed temp strategy unless overridden?
         # Let's check the definition of chat.generation in llm_steps.py

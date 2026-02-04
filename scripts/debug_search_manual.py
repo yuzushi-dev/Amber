@@ -7,6 +7,8 @@ from pymilvus import connections, Collection
 # Add src to path
 sys.path.append("/home/daniele/Amber_2.0")
 
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
+
 # Simulate config
 PROMPT = "determinism"
 TENANT_ID = "default"
@@ -29,10 +31,11 @@ async def main():
     import requests
     
     print(f"Embedding query: '{PROMPT}'...")
+    embedding_model = DEFAULT_EMBEDDING_MODEL.get("ollama") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
     response = requests.post(
         "http://localhost:11434/api/embeddings",
         json={
-            "model": "nomic-embed-text",
+            "model": embedding_model,
             "prompt": PROMPT
         }
     )

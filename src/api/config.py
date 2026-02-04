@@ -170,12 +170,17 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL")
     default_llm_provider: str | None = Field(default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider")
     default_llm_model: str | None = Field(default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model")
+    llm_fallback_local: str | None = Field(default=None, alias="LLM_FALLBACK_LOCAL", description="Fallback chain for local tier")
+    llm_fallback_economy: str | None = Field(default=None, alias="LLM_FALLBACK_ECONOMY", description="Fallback chain for economy tier")
+    llm_fallback_standard: str | None = Field(default=None, alias="LLM_FALLBACK_STANDARD", description="Fallback chain for standard tier")
+    llm_fallback_premium: str | None = Field(default=None, alias="LLM_FALLBACK_PREMIUM", description="Fallback chain for premium tier")
     default_llm_temperature: float = Field(default=0.0, alias="DEFAULT_LLM_TEMPERATURE", description="Default LLM temperature")
     seed: int = Field(default=42, alias="SEED", description="Global random seed")
 
     # Embedding Provider Configuration
     default_embedding_provider: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_PROVIDER", description="Default embedding provider (openai, ollama, local)")
     default_embedding_model: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_MODEL", description="Default embedding model")
+    embedding_fallback_order: str | None = Field(default=None, alias="EMBEDDING_FALLBACK_ORDER", description="Fallback chain for embeddings")
     embedding_dimensions: int | None = Field(default=None, alias="EMBEDDING_DIMENSIONS", description="Embedding dimensions (auto-detected if not set)")
 
     @field_validator("log_level")

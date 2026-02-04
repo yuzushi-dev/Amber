@@ -59,6 +59,23 @@ class AuthenticationError(ProviderError):
     """API key invalid or missing."""
 
 
+class ConfigurationError(Exception):
+    """
+    Configuration is missing or invalid.
+
+    Raised when required settings (e.g., provider/model) are not configured
+    via admin UI or environment. This is a clear error with no silent fallbacks.
+    """
+
+    def __init__(self, setting_name: str, message: str | None = None):
+        self.setting_name = setting_name
+        default_msg = (
+            f"Required setting '{setting_name}' is not configured. "
+            "Please set it via /admin/settings or environment variables."
+        )
+        super().__init__(message or default_msg)
+
+
 @dataclass
 class TokenUsage:
     """Token usage statistics."""

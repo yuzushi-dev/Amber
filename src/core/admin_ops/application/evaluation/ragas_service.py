@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from src.shared.model_registry import DEFAULT_LLM_MODEL
+
 logger = logging.getLogger(__name__)
 logging.getLogger("ragas").setLevel(logging.DEBUG)
 
@@ -49,7 +51,7 @@ class RagasService:
     def __init__(
         self,
         llm_client: Any | None = None,
-        model_name: str = "gpt-4o-mini"
+        model_name: str = DEFAULT_LLM_MODEL.get("openai", "")
     ):
         """
         Initialize the RagasService.

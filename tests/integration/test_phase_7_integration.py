@@ -9,6 +9,7 @@ import asyncio
 
 from src.core.generation.infrastructure.providers.base import GenerationResult, TokenUsage
 from src.core.generation.application.generation_service import GenerationService
+from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
 async def test_generation_service_orchestration():
@@ -16,12 +17,12 @@ async def test_generation_service_orchestration():
     
     # Mock LLM provider
     mock_llm = MagicMock()
-    mock_llm.model_name = "gpt-4o"
+    mock_llm.model_name = DEFAULT_LLM_MODEL["openai"]
 
     # Mock generate response
     mock_llm.generate = AsyncMock(return_value=GenerationResult(
         text="The main feature of GraphRAG is its ability to reason over long-range relationships [1].",
-        model="gpt-4o",
+        model=DEFAULT_LLM_MODEL["openai"],
         provider="openai",
         usage=TokenUsage(input_tokens=100, output_tokens=50),
         cost_estimate=0.001
@@ -54,7 +55,7 @@ async def test_generation_service_orchestration():
 async def test_generation_service_streaming():
     print("Running test_generation_service_streaming...")
     mock_llm = MagicMock()
-    mock_llm.model_name = "gpt-4o"
+    mock_llm.model_name = DEFAULT_LLM_MODEL["openai"]
 
     async def mock_stream(*args, **kwargs):
         tokens = ["Graph", "RAG", " is", " great", " [1]."]

@@ -22,6 +22,12 @@ from src.core.generation.infrastructure.providers.base import (
     RateLimitError,
     TokenUsage,
 )
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LLM_MODEL,
+    EMBEDDING_MODELS,
+    LLM_MODELS,
+)
 from src.shared.kernel.observability import trace_span
 from src.shared.context import get_current_tenant, get_request_id
 
@@ -67,22 +73,8 @@ class OllamaLLMProvider(BaseLLMProvider):
     provider_name = "ollama"
 
     # Common Ollama models (can be overridden by config)
-    models = {
-        "llama3": {
-            "tier": ProviderTier.LOCAL,
-            "description": "Meta Llama 3",
-        },
-        "mistral": {
-            "tier": ProviderTier.LOCAL,
-            "description": "Mistral 7B",
-        },
-        "phi3": {
-            "tier": ProviderTier.LOCAL,
-            "description": "Microsoft Phi-3",
-        },
-    }
-
-    default_model = "llama3"
+    models = LLM_MODELS["ollama"]
+    default_model = DEFAULT_LLM_MODEL["ollama"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)
@@ -293,39 +285,13 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     """
     Ollama embedding provider using OpenAI-compatible API.
 
-    Supports local embedding models like nomic-embed-text, mxbai-embed-large.
+    Supports local embedding models provided by Ollama.
     """
 
     provider_name = "ollama"
 
-    models = {
-        "nomic-embed-text": {
-            "dimensions": 768,
-            "max_dimensions": 768,
-            "cost_per_1k": 0.0,  # Free/local
-            "description": "Nomic's high quality text embeddings",
-        },
-        "mxbai-embed-large": {
-            "dimensions": 1024,
-            "max_dimensions": 1024,
-            "cost_per_1k": 0.0,
-            "description": "MixedBread AI large embeddings",
-        },
-        "all-minilm": {
-            "dimensions": 384,
-            "max_dimensions": 384,
-            "cost_per_1k": 0.0,
-            "description": "Fast, lightweight embeddings",
-        },
-        "snowflake-arctic-embed": {
-            "dimensions": 1024,
-            "max_dimensions": 1024,
-            "cost_per_1k": 0.0,
-            "description": "Snowflake Arctic embeddings",
-        },
-    }
-
-    default_model = "nomic-embed-text"
+    models = EMBEDDING_MODELS["ollama"]
+    default_model = DEFAULT_EMBEDDING_MODEL["ollama"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)

@@ -11,6 +11,7 @@ sys.path.insert(0, os.getcwd())
 
 from src.amber_platform.composition_root import platform, configure_settings
 from src.api.config import settings
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant # Mapper resolution
 from src.core.tenants.domain.tenant import Tenant # Mapper resolution
 from src.workers.tasks import _process_document_async, _process_communities_async
@@ -117,17 +118,17 @@ async def main():
     
     # Force environment variables for newly created factories/settings
     os.environ["DEFAULT_LLM_PROVIDER"] = "openai"
-    os.environ["DEFAULT_LLM_MODEL"] = "gpt-4o-mini"
+    os.environ["DEFAULT_LLM_MODEL"] = DEFAULT_LLM_MODEL["openai"]
     os.environ["DEFAULT_EMBEDDING_PROVIDER"] = "openai"
-    os.environ["DEFAULT_EMBEDDING_MODEL"] = "text-embedding-3-small"
+    os.environ["DEFAULT_EMBEDDING_MODEL"] = DEFAULT_EMBEDDING_MODEL["openai"]
     os.environ["EMBEDDING_DIMENSIONS"] = "1536"
     os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434/v1"
     
     # Update settings object too
     settings.default_llm_provider = "openai"
-    settings.default_llm_model = "gpt-4o-mini"
+    settings.default_llm_model = DEFAULT_LLM_MODEL["openai"]
     settings.default_embedding_provider = "openai"
-    settings.default_embedding_model = "text-embedding-3-small"
+    settings.default_embedding_model = DEFAULT_EMBEDDING_MODEL["openai"]
     settings.embedding_dimensions = 1536
     
     from src.shared.kernel.runtime import configure_settings as configure_runtime_settings

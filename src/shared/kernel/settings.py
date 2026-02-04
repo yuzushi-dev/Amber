@@ -57,8 +57,13 @@ class SettingsProtocol(Protocol):
     ollama_base_url: str
     default_llm_provider: str | None
     default_llm_model: str | None
+    llm_fallback_local: str | None
+    llm_fallback_economy: str | None
+    llm_fallback_standard: str | None
+    llm_fallback_premium: str | None
 
     # Embedding Configuration
     default_embedding_provider: str | None
     default_embedding_model: str | None
+    embedding_fallback_order: str | None
     embedding_dimensions: int | None

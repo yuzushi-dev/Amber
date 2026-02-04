@@ -15,13 +15,16 @@ from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 from src.core.tenants.domain.tenant import Tenant
 from src.core.tenants.application.active_vector_collection import ensure_active_vector_collection_config
 from src.shared.security import generate_api_key, hash_api_key, mask_api_key
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
 
 
 def _default_tenant_config() -> Dict[str, Any]:
+    default_llm_model = DEFAULT_LLM_MODEL.get("openai") or next(iter(DEFAULT_LLM_MODEL.values()), "")
+    default_embedding_model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
     return {
-        "embedding_model": "text-embedding-3-small",
-        "llm_model": "gpt-4o-mini",
-        "generation_model": "gpt-4o-mini",
+        "embedding_model": default_embedding_model,
+        "llm_model": default_llm_model,
+        "generation_model": default_llm_model,
         "top_k": 10,
         "expansion_depth": 2,
         "similarity_threshold": 0.7,

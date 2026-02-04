@@ -2,6 +2,7 @@ import pytest
 from types import SimpleNamespace
 
 from src.core.ingestion.application import ingestion_service as service_module
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
 
 
 class FakeDocumentRepository:
@@ -156,8 +157,8 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         content_extractor=FakeExtractor(),
         settings=SimpleNamespace(
             default_embedding_provider="openai",
-            default_embedding_model="text-embedding-3-small",
-            embedding_dimensions=1536,
+            default_embedding_model=DEFAULT_EMBEDDING_MODEL["openai"],
+            embedding_dimensions=EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"],
             openai_api_key="sk-test",
             ollama_base_url=None,
         ),

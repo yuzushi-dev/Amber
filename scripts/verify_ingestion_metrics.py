@@ -12,6 +12,7 @@ from src.core.database.session import async_session_maker, configure_database
 from src.core.admin_ops.domain.usage import UsageLog
 from src.api.routes.admin.maintenance import get_query_metrics
 from src.api.config import settings
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
 async def verify_ingestion_aggregation():
     # Configure DB
@@ -26,12 +27,13 @@ async def verify_ingestion_aggregation():
     async with async_session_maker() as session:
         # Create 3 chunk embedding logs
         logs = []
+        embedding_model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
         for i in range(3):
             log = UsageLog(
                 tenant_id=tenant_id,
                 operation="embedding",
                 provider="openai",
-                model="text-embedding-3-small",
+                model=embedding_model,
                 input_tokens=100,
                 output_tokens=0,
                 total_tokens=100,

@@ -9,12 +9,15 @@ import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from src.core.utils.tokenizer import DEFAULT_ENCODING, Tokenizer
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
-def get_token_counter(model: str = "gpt-4") -> Callable[[str], int]:
+def get_token_counter(model: str | None = None) -> Callable[[str], int]:
     """
     Get a token counter function for the specified model.
 
@@ -23,13 +26,12 @@ def get_token_counter(model: str = "gpt-4") -> Callable[[str], int]:
     try:
         import tiktoken
 
-        # Map model families to encodings
-        if "gpt-4" in model or "gpt-3.5" in model:
-            encoding = tiktoken.encoding_for_model(model)
-        elif "text-embedding" in model:
-            encoding = tiktoken.get_encoding("cl100k_base")
-        else:
-            encoding = tiktoken.get_encoding("cl100k_base")
+        if not model:
+            model = DEFAULT_LLM_MODEL.get("openai") or next(iter(DEFAULT_LLM_MODEL.values()), "")
+
+        encoding = Tokenizer.get_encoding(model)
+        if not encoding:
+            encoding = tiktoken.get_encoding(DEFAULT_ENCODING)
 
         return lambda text: len(encoding.encode(text))
 
@@ -135,7 +137,7 @@ def batch_by_tokens(
 
 def batch_texts_for_embedding(
     texts: list[str],
-    model: str = "text-embedding-3-small",
+    model: str | None = None,
     max_tokens: int = 8000,
     max_items: int = 2048,
 ) -> list[list[tuple[int, str]]]:
@@ -151,6 +153,8 @@ def batch_texts_for_embedding(
     Returns:
         Batches with (index, text) tuples
     """
+    if not model:
+        model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
     counter = get_token_counter(model)
     return batch_by_tokens(
         texts=texts,
