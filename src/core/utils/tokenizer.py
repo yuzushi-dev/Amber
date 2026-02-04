@@ -8,19 +8,12 @@ Utility for counting tokens using tiktoken (with fallback).
 import logging
 from typing import Any
 
+from src.shared.model_registry import DEFAULT_LLM_MODEL, resolve_token_encoding
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = DEFAULT_LLM_MODEL.get("openai", "")
 DEFAULT_ENCODING = "cl100k_base"
-
-# Mapping models to their encodings
-MODEL_TO_ENCODING = {
-    "gpt-4o": "o200k_base",
-    "gpt-4o-mini": "o200k_base",
-    "gpt-4": "cl100k_base",
-    "gpt-3.5-turbo": "cl100k_base",
-    "claude-3": "cl100k_base",  # Approximate for Claude
-}
 
 # Try importing tiktoken
 try:
@@ -45,11 +38,9 @@ class Tokenizer:
         encoding_name = DEFAULT_ENCODING
 
         if model:
-            # Check direct mapping
-            for m, e in MODEL_TO_ENCODING.items():
-                if model.startswith(m):
-                    encoding_name = e
-                    break
+            resolved = resolve_token_encoding(model)
+            if resolved:
+                encoding_name = resolved
             else:
                 try:
                     return tiktoken.encoding_for_model(model)

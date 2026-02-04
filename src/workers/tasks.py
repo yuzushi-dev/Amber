@@ -182,6 +182,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.retrieval.application.embeddings_service import EmbeddingService
     from src.core.admin_ops.application.tuning_service import TuningService
     from src.core.database.session import async_session_maker
+    from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     try:
         # 1. Detection
@@ -194,7 +195,14 @@ async def _process_communities_async(tenant_id: str) -> dict:
         # 2. Summarization
         factory = ProviderFactory(
             openai_api_key=settings.openai_api_key,
-            anthropic_api_key=settings.anthropic_api_key
+            anthropic_api_key=settings.anthropic_api_key,
+            ollama_base_url=settings.ollama_base_url,
+            default_llm_provider=settings.default_llm_provider,
+            default_llm_model=settings.default_llm_model,
+            llm_fallback_local=settings.llm_fallback_local,
+            llm_fallback_economy=settings.llm_fallback_economy,
+            llm_fallback_standard=settings.llm_fallback_standard,
+            llm_fallback_premium=settings.llm_fallback_premium,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
         tuning_service = TuningService(async_session_maker)
@@ -204,9 +212,18 @@ async def _process_communities_async(tenant_id: str) -> dict:
         await summarizer.summarize_all_stale(tenant_id, tenant_config=tenant_config)
 
         # 3. Embeddings
+        embeddings_config = getattr(settings, "embeddings", None)
+        embedding_model = getattr(embeddings_config, "default_model", None) if embeddings_config else None
+        if not embedding_model:
+            provider = settings.default_embedding_provider or "openai"
+            embedding_model = (
+                settings.default_embedding_model
+                or DEFAULT_EMBEDDING_MODEL.get(provider)
+                or DEFAULT_EMBEDDING_MODEL.get("openai")
+            )
         embedding_svc = EmbeddingService(
             openai_api_key=settings.openai_api_key,
-            model=settings.embeddings.default_model if hasattr(settings, 'embeddings') else "text-embedding-3-small"
+            model=embedding_model,
         )
         vector_store_factory = build_vector_store_factory()
         comm_vector_store = vector_store_factory(
@@ -305,6 +322,11 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         default_embedding_provider=settings.default_embedding_provider,
         default_embedding_model=settings.default_embedding_model,
         ollama_base_url=settings.ollama_base_url,
+        llm_fallback_local=settings.llm_fallback_local,
+        llm_fallback_economy=settings.llm_fallback_economy,
+        llm_fallback_standard=settings.llm_fallback_standard,
+        llm_fallback_premium=settings.llm_fallback_premium,
+        embedding_fallback_order=settings.embedding_fallback_order,
     )
 
     from src.core.graph.domain.ports.graph_extractor import set_graph_extractor

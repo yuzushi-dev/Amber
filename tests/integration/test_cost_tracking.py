@@ -7,6 +7,7 @@ from src.core.ingestion.application.use_cases_documents import compute_document_
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL, EMBEDDING_MODELS
 
 @pytest.mark.asyncio
 async def test_compute_document_cost_aggregation(db_session: AsyncSession):
@@ -23,7 +24,7 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
     log1 = UsageLog(
         tenant_id=test_tenant,
         provider="openai",
-        model="text-embedding-3-small",
+        model=DEFAULT_EMBEDDING_MODEL["openai"],
         operation="embedding",
         cost=0.005,
         metadata_json={"document_id": doc_id, "chunk_index": 0}
@@ -31,7 +32,7 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
     log2 = UsageLog(
         tenant_id=test_tenant,
         provider="openai",
-        model="text-embedding-3-small",
+        model=DEFAULT_EMBEDDING_MODEL["openai"],
         operation="embedding",
         cost=0.003,
         metadata_json={"document_id": doc_id, "chunk_index": 1}
@@ -39,7 +40,7 @@ async def test_compute_document_cost_aggregation(db_session: AsyncSession):
     log3 = UsageLog(
         tenant_id=test_tenant,
         provider="openai",
-        model="gpt-4",
+        model=DEFAULT_LLM_MODEL["openai"],
         operation="generation",
         cost=0.10,
         metadata_json={"document_id": "other_doc"} # Should be ignored
@@ -121,9 +122,9 @@ async def test_ingestion_passes_metadata(db_session: AsyncSession):
 
         # Configure settings mock
         mock_settings = MagicMock()
-        mock_settings.default_embedding_model = "text-embedding-3-small"
+        mock_settings.default_embedding_model = DEFAULT_EMBEDDING_MODEL["openai"]
         mock_settings.default_embedding_provider = "openai"
-        mock_settings.embedding_dimensions = 1536
+        mock_settings.embedding_dimensions = EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"]
         mock_settings.openai_api_key = "test-key"
 
         # Initialize Service (INSIDE patch to ensure mocked dependencies)

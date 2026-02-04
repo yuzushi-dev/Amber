@@ -497,6 +497,7 @@ async def _query_stream_impl(
             full_answer = ""
             collected_sources = []
             stream_model = ""
+            stream_provider = ""
             stream_start_time = time.perf_counter()  # Track generation latency
             
             # Extract User ID (Phase 3 Memory)
@@ -522,6 +523,7 @@ async def _query_stream_impl(
                     collected_sources = data
                 elif event == "done" and isinstance(data, dict):
                     stream_model = data.get("model", "")
+                    stream_provider = data.get("provider", "")
 
                 # ALWAYS JSON encode data to preserve newlines and special chars
                 data_str = json.dumps(data)
@@ -657,16 +659,7 @@ async def _query_stream_impl(
                 from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
                 from src.shared.identifiers import generate_query_id
                 from src.core.utils.tokenizer import Tokenizer
-                
-                # Pricing map (USD per 1k tokens) - Keep aligned with providers
-                MODEL_PRICING = {
-                    "gpt-4o": {"input": 0.005, "output": 0.015},
-                    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-                    "o1": {"input": 0.015, "output": 0.06},
-                    "claude-3-sonnet": {"input": 0.003, "output": 0.015},
-                    "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
-                    "default": {"input": 0.00015, "output": 0.0006}  # Fallback to mini rates
-                }
+                from src.shared.model_registry import LLM_MODELS
                 
                 query_id = generate_query_id()
                 
@@ -680,20 +673,20 @@ async def _query_stream_impl(
                 input_tokens = Tokenizer.count_tokens(input_text, stream_model)
                 
                 # 3. Calculate Cost
-                # Match model to pricing
-                pricing = MODEL_PRICING.get("default")
-                for key, rates in MODEL_PRICING.items():
-                    if key in stream_model.lower():
-                        pricing = rates
-                        break
+                pricing = {"input": 0.00015, "output": 0.0006}
+                model_cfg = LLM_MODELS.get(stream_provider, {}).get(stream_model)
+                if model_cfg:
+                    pricing = {
+                        "input": model_cfg.get("input_cost_per_1k", pricing["input"]),
+                        "output": model_cfg.get("output_cost_per_1k", pricing["output"]),
+                    }
                         
                 cost_estimate = (
                     (input_tokens * pricing["input"] / 1000) + 
                     (output_tokens * pricing["output"] / 1000)
                 )
                 
-                # Infer provider from model name
-                provider = "openai" if "gpt" in stream_model.lower() else "anthropic" if "claude" in stream_model.lower() else "unknown"
+                provider = stream_provider or "unknown"
                 
                 metrics_obj = QueryMetrics(
                     query_id=query_id,

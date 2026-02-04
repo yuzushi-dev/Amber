@@ -19,6 +19,12 @@ from src.core.generation.infrastructure.providers.base import (
     RerankResult,
     TokenUsage,
 )
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_RERANKER_MODEL,
+    EMBEDDING_MODELS,
+    RERANKER_MODELS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,34 +43,8 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
 
     provider_name = "local"
 
-    models = {
-        "BAAI/bge-m3": {
-            "dimensions": 1024,
-            "max_dimensions": 1024,
-            "cost_per_1k": 0.0,  # Free
-            "description": "Multilingual, high-quality local embeddings",
-        },
-        "BAAI/bge-large-en-v1.5": {
-            "dimensions": 1024,
-            "max_dimensions": 1024,
-            "cost_per_1k": 0.0,
-            "description": "English-focused, high quality",
-        },
-        "BAAI/bge-small-en-v1.5": {
-            "dimensions": 384,
-            "max_dimensions": 384,
-            "cost_per_1k": 0.0,
-            "description": "Fast, lightweight embeddings",
-        },
-        "sentence-transformers/all-MiniLM-L6-v2": {
-            "dimensions": 384,
-            "max_dimensions": 384,
-            "cost_per_1k": 0.0,
-            "description": "Popular lightweight model",
-        },
-    }
-
-    default_model = "BAAI/bge-m3"
+    models = EMBEDDING_MODELS["local"]
+    default_model = DEFAULT_EMBEDDING_MODEL["local"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)
@@ -161,16 +141,8 @@ class FlashRankReranker(BaseRerankerProvider):
 
     provider_name = "flashrank"
 
-    models = {
-        "ms-marco-MiniLM-L-12-v2": {
-            "description": "Default FlashRank model",
-        },
-        "ms-marco-MultiBERT-L-12": {
-            "description": "Multilingual support",
-        },
-    }
-
-    default_model = "ms-marco-MiniLM-L-12-v2"
+    models = RERANKER_MODELS["flashrank"]
+    default_model = DEFAULT_RERANKER_MODEL["flashrank"]
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)

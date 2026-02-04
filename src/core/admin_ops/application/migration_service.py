@@ -16,6 +16,7 @@ from src.core.tenants.domain.tenant import Tenant
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.state.machine import DocumentStatus
+from src.shared.model_registry import EMBEDDING_MODELS, LEGACY_EMBEDDING_DIMENSIONS, LEGACY_EMBEDDING_PROVIDERS
 logger = logging.getLogger(__name__)
 
 
@@ -70,7 +71,7 @@ class EmbeddingMigrationService:
             current_dims = self.settings.embedding_dimensions
             
             # If no stored config, it might be a legacy tenant or fresh install.
-            # We assume legacy tenants match the OLD default (e.g. text-embedding-3-small) 
+            # We assume legacy tenants match the previous default embedding model
             # OR we count it as "UNKNOWN" requiring manual check.
             # For robustness:
             # - If tenant has NO documents/chunks, it's compatible (auto-update).
@@ -193,29 +194,22 @@ class EmbeddingMigrationService:
 
         # Define model-to-provider mapping
         MODEL_PROVIDERS = {
-            "text-embedding-3-small": "openai",
-            "text-embedding-3-large": "openai",
-            "text-embedding-ada-002": "openai",
-            "voyage-3.5-lite": "voyage",
-            "bge-m3": "local",
-            "nomic-embed-text": "ollama",
-            "mxbai-embed-large": "ollama",
-            "all-minilm": "ollama"
+            model: provider
+            for provider, models in EMBEDDING_MODELS.items()
+            for model in models.keys()
         }
+        MODEL_PROVIDERS.update(LEGACY_EMBEDDING_PROVIDERS)
             
         # RESOLVE DIMENSIONS based on model if possible
         # This ensures that if we switch model, we switch dimensions too.
         # The frontend doesn't usually send dimensions, just the model.
         MODEL_DIMENSIONS = {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
-            "voyage-3.5-lite": 1536,
-            "bge-m3": 1024,
-            "nomic-embed-text": 768,
-            "mxbai-embed-large": 1024,
-            "all-minilm": 384
+            model: info["dimensions"]
+            for provider, models in EMBEDDING_MODELS.items()
+            for model, info in models.items()
+            if "dimensions" in info
         }
+        MODEL_DIMENSIONS.update(LEGACY_EMBEDDING_DIMENSIONS)
         
         model = new_config.get("embedding_model")
         current_provider = new_config.get("embedding_provider")
@@ -341,15 +335,12 @@ class EmbeddingMigrationService:
         """
         # Hardcoded defaults
         MODEL_DIMENSIONS = {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
-            "voyage-3.5-lite": 1536,
-            "bge-m3": 1024,
-            "nomic-embed-text": 768,
-            "mxbai-embed-large": 1024,
-            "all-minilm": 384
+            model: info["dimensions"]
+            for provider_name, models in EMBEDDING_MODELS.items()
+            for model, info in models.items()
+            if "dimensions" in info
         }
+        MODEL_DIMENSIONS.update(LEGACY_EMBEDDING_DIMENSIONS)
         
         # 1. Exact match
         if model in MODEL_DIMENSIONS:

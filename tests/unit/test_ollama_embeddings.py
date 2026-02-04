@@ -16,6 +16,19 @@ from src.core.generation.infrastructure.providers.base import (
     TokenUsage,
 )
 from src.core.generation.infrastructure.providers.ollama import OllamaEmbeddingProvider
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
+
+
+def _first_other(models: dict, current: str) -> str:
+    for name in models:
+        if name != current:
+            return name
+    return current
+
+
+OLLAMA_DEFAULT = DEFAULT_EMBEDDING_MODEL["ollama"]
+OLLAMA_DEFAULT_DIM = EMBEDDING_MODELS["ollama"][OLLAMA_DEFAULT]["dimensions"]
+OLLAMA_ALT = _first_other(EMBEDDING_MODELS["ollama"], OLLAMA_DEFAULT)
 
 
 class TestOllamaEmbeddingProvider:
@@ -26,16 +39,16 @@ class TestOllamaEmbeddingProvider:
         provider = OllamaEmbeddingProvider()
         
         assert provider.provider_name == "ollama"
-        assert provider.default_model == "nomic-embed-text"
-        assert "nomic-embed-text" in provider.models
-        assert provider.models["nomic-embed-text"]["dimensions"] == 768
+        assert provider.default_model == OLLAMA_DEFAULT
+        assert OLLAMA_DEFAULT in provider.models
+        assert provider.models[OLLAMA_DEFAULT]["dimensions"] == OLLAMA_DEFAULT_DIM
 
     def test_custom_model_from_env(self, monkeypatch):
         """Test that OLLAMA_EMBEDDING_MODEL env var overrides default."""
-        monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
+        monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", OLLAMA_ALT)
         
         provider = OllamaEmbeddingProvider()
-        assert provider.default_model == "mxbai-embed-large"
+        assert provider.default_model == OLLAMA_ALT
 
     def test_custom_base_url_from_config(self):
         """Test that base_url can be set via config."""
@@ -48,12 +61,7 @@ class TestOllamaEmbeddingProvider:
         """Test that all expected models are registered."""
         provider = OllamaEmbeddingProvider()
         
-        expected_models = [
-            "nomic-embed-text",
-            "mxbai-embed-large", 
-            "all-minilm",
-            "snowflake-arctic-embed",
-        ]
+        expected_models = EMBEDDING_MODELS["ollama"].keys()
         
         for model in expected_models:
             assert model in provider.models
@@ -61,10 +69,9 @@ class TestOllamaEmbeddingProvider:
     def test_get_dimensions(self):
         """Test get_dimensions returns correct values for known models."""
         provider = OllamaEmbeddingProvider()
-        
-        assert provider.get_dimensions("nomic-embed-text") == 768
-        assert provider.get_dimensions("mxbai-embed-large") == 1024
-        assert provider.get_dimensions("all-minilm") == 384
+
+        for model, info in EMBEDDING_MODELS["ollama"].items():
+            assert provider.get_dimensions(model) == info["dimensions"]
 
     @pytest.mark.asyncio
     async def test_embed_success(self):
@@ -74,7 +81,7 @@ class TestOllamaEmbeddingProvider:
         # Mock the OpenAI client response
         mock_embedding_data = MagicMock()
         mock_embedding_data.index = 0
-        mock_embedding_data.embedding = [0.1] * 768
+        mock_embedding_data.embedding = [0.1] * OLLAMA_DEFAULT_DIM
         
         mock_response = MagicMock()
         mock_response.data = [mock_embedding_data]
@@ -89,7 +96,7 @@ class TestOllamaEmbeddingProvider:
         
         assert isinstance(result, EmbeddingResult)
         assert len(result.embeddings) == 1
-        assert len(result.embeddings[0]) == 768
+        assert len(result.embeddings[0]) == OLLAMA_DEFAULT_DIM
         assert result.provider == "ollama"
         assert result.cost_estimate == 0.0  # Local is free
 
@@ -103,7 +110,7 @@ class TestOllamaEmbeddingProvider:
         for i in range(3):
             item = MagicMock()
             item.index = i
-            item.embedding = [0.1 * (i + 1)] * 768
+            item.embedding = [0.1 * (i + 1)] * OLLAMA_DEFAULT_DIM
             mock_data.append(item)
         
         mock_response = MagicMock()

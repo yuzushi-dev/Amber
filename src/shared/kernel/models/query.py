@@ -100,7 +100,7 @@ class QueryOptions(BaseModel):
     )
     model: str | None = Field(
         None,
-        description="Override LLM model for generation (e.g. gpt-5-nano)",
+        description="Override LLM model for generation (e.g. provider:model)",
     )
 
 

@@ -20,6 +20,14 @@ from src.core.generation.infrastructure.providers.base import (
 )
 from src.core.generation.infrastructure.providers.failover import FailoverEmbeddingProvider, FailoverLLMProvider
 from src.core.admin_ops.application.usage_tracker import UsageTracker
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_FALLBACK,
+    DEFAULT_LLM_FALLBACKS,
+    EMBEDDING_MODEL_TO_PROVIDERS,
+    LLM_MODEL_TO_PROVIDERS,
+    parse_fallback_chain,
+    resolve_provider_for_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +133,11 @@ class ProviderFactory:
         default_llm_tier: ProviderTier = ProviderTier.ECONOMY,
         default_embedding_provider: str | None = None,
         default_embedding_model: str | None = None,
+        llm_fallback_local: str | None = None,
+        llm_fallback_economy: str | None = None,
+        llm_fallback_standard: str | None = None,
+        llm_fallback_premium: str | None = None,
+        embedding_fallback_order: str | None = None,
         enable_local_fallback: bool = True,
     ):
         self.openai_api_key = openai_api_key
@@ -135,6 +148,11 @@ class ProviderFactory:
         self.default_llm_tier = default_llm_tier
         self.default_embedding_provider = default_embedding_provider
         self.default_embedding_model = default_embedding_model
+        self.llm_fallback_local = llm_fallback_local
+        self.llm_fallback_economy = llm_fallback_economy
+        self.llm_fallback_standard = llm_fallback_standard
+        self.llm_fallback_premium = llm_fallback_premium
+        self.embedding_fallback_order = embedding_fallback_order
         self.enable_local_fallback = enable_local_fallback
 
         # Initialize Usage Tracker
@@ -168,53 +186,36 @@ class ProviderFactory:
         """
         tier = tier or model_tier or self.default_llm_tier
 
+        if model and not provider_name:
+            provider_name = resolve_provider_for_model(model, LLM_MODEL_TO_PROVIDERS, kind="llm")
+
         if provider_name:
             return self._create_llm_provider(provider_name, model=model)
 
-        if model and self.default_llm_provider:
-            return self._create_llm_provider(
-                self.default_llm_provider,
-                model=model,
-            )
-
         # Check for explicit default provider
         if self.default_llm_provider:
-             return self._create_llm_provider(
-                 self.default_llm_provider,
-                 model=self.default_llm_model
-             )
+            return self._create_llm_provider(
+                self.default_llm_provider,
+                model=self.default_llm_model
+            )
 
-        # Build failover chain based on available keys
+        fallback_value = {
+            ProviderTier.LOCAL: self.llm_fallback_local,
+            ProviderTier.ECONOMY: self.llm_fallback_economy,
+            ProviderTier.STANDARD: self.llm_fallback_standard,
+            ProviderTier.PREMIUM: self.llm_fallback_premium,
+        }.get(tier)
+
+        chain = parse_fallback_chain(fallback_value, default=DEFAULT_LLM_FALLBACKS[tier])
         providers = []
-
-        # Primary based on tier
-        if tier == ProviderTier.LOCAL:
-             # Prioritize local providers
-             if self.ollama_base_url:
-                 providers.append(self._create_llm_provider("ollama"))
-
-        elif tier == ProviderTier.ECONOMY:
-            if self.ollama_base_url: # Ollama is good for economy too
-                 providers.append(self._create_llm_provider("ollama"))
-            if self.openai_api_key:
-                providers.append(self._create_llm_provider("openai", model="gpt-4.1-mini"))
-            if self.anthropic_api_key:
-                providers.append(self._create_llm_provider("anthropic", model="claude-3-5-haiku-20241022"))
-
-        elif tier == ProviderTier.STANDARD:
-            if self.ollama_base_url: # Fallback to local if standard fails? Or maybe not default.
-                 # Let's include it as a backup for standard too
-                 providers.append(self._create_llm_provider("ollama"))
-            if self.openai_api_key:
-                providers.append(self._create_llm_provider("openai", model="gpt-4o"))
-            if self.anthropic_api_key:
-                providers.append(self._create_llm_provider("anthropic", model="claude-sonnet-4-20250514"))
-
-        elif tier == ProviderTier.PREMIUM:
-            if self.anthropic_api_key:
-                providers.append(self._create_llm_provider("anthropic", model="claude-3-opus-20240229"))
-            if self.openai_api_key:
-                providers.append(self._create_llm_provider("openai", model="o1"))
+        for provider, model_name in chain:
+            if provider == "openai" and not self.openai_api_key:
+                continue
+            if provider == "anthropic" and not self.anthropic_api_key:
+                continue
+            if provider == "ollama" and not self.ollama_base_url:
+                continue
+            providers.append(self._create_llm_provider(provider, model=model_name))
 
         if not providers:
             raise ProviderUnavailableError(
@@ -234,6 +235,9 @@ class ProviderFactory:
         model: str | None = None,
     ) -> BaseEmbeddingProvider:
         """Get an embedding provider."""
+        if model and not provider_name:
+            provider_name = resolve_provider_for_model(model, EMBEDDING_MODEL_TO_PROVIDERS, kind="embedding")
+
         if provider_name:
             return self._create_embedding_provider(provider_name, model=model)
 
@@ -245,23 +249,19 @@ class ProviderFactory:
                 model=model or self.default_embedding_model
             )
 
+        chain = parse_fallback_chain(
+            self.embedding_fallback_order,
+            default=DEFAULT_EMBEDDING_FALLBACK,
+        )
         providers = []
-
-        if self.openai_api_key:
-            providers.append(self._create_embedding_provider("openai"))
-
-        # Prefer Ollama if configured (even if OpenAI key is present, though usually we want specific order)
-        # Actually, if no default is set, we might want to try Ollama if OpenAI fails? 
-        # But Failover is for availability.
-        if self.ollama_base_url:
-             providers.append(self._create_embedding_provider("ollama"))
-
-        # Local fallback
-        if self.enable_local_fallback:
-            try:
-                providers.append(self._create_embedding_provider("local"))
-            except Exception:
-                pass  # Local not available
+        for provider, model_name in chain:
+            if provider == "openai" and not self.openai_api_key:
+                continue
+            if provider == "ollama" and not self.ollama_base_url:
+                continue
+            if provider == "local" and not self.enable_local_fallback:
+                continue
+            providers.append(self._create_embedding_provider(provider, model=model_name))
 
         if not providers:
             raise ProviderUnavailableError(
@@ -392,6 +392,11 @@ def init_providers(
     default_llm_model: str | None = None,
     default_embedding_provider: str | None = None,
     default_embedding_model: str | None = None,
+    llm_fallback_local: str | None = None,
+    llm_fallback_economy: str | None = None,
+    llm_fallback_standard: str | None = None,
+    llm_fallback_premium: str | None = None,
+    embedding_fallback_order: str | None = None,
     **kwargs,
 ) -> ProviderFactory:
     """Initialize the default provider factory."""
@@ -404,6 +409,11 @@ def init_providers(
         default_llm_model=default_llm_model,
         default_embedding_provider=default_embedding_provider,
         default_embedding_model=default_embedding_model,
+        llm_fallback_local=llm_fallback_local,
+        llm_fallback_economy=llm_fallback_economy,
+        llm_fallback_standard=llm_fallback_standard,
+        llm_fallback_premium=llm_fallback_premium,
+        embedding_fallback_order=embedding_fallback_order,
         **kwargs,
     )
     set_provider_factory_builder(ProviderFactory)
