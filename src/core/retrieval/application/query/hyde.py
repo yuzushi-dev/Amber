@@ -32,10 +32,12 @@ class HyDEService:
         if provider_factory:
             self.factory = provider_factory
         else:
-            if openai_api_key or anthropic_api_key:
+            from src.api.config import settings
+            if openai_api_key or anthropic_api_key or settings.ollama_base_url:
                 self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,
                     anthropic_api_key=anthropic_api_key,
+                    ollama_base_url=settings.ollama_base_url,
                 )
             else:
                 self.factory = get_provider_factory()
