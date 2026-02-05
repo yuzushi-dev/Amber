@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from src.core.ingestion.application import ingestion_service as service_module
@@ -120,6 +121,7 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         hashtags=[],
         keywords=[],
         chunks=[],
+        created_at=datetime.now(timezone.utc),
     )
 
     class TenantRepo:
