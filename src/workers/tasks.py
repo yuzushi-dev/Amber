@@ -174,6 +174,8 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.amber_platform.composition_root import build_vector_store_factory, platform
     from src.api.config import settings
     from src.shared.kernel.runtime import configure_settings
+    
+    deep_reset_singletons()
     configure_settings(settings)
 
     from src.core.graph.application.communities.embeddings import CommunityEmbeddingService
