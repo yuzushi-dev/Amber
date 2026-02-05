@@ -25,7 +25,7 @@ from src.core.security.source_verifier import SourceVerifier
 logger = logging.getLogger(__name__)
 
 CITATION_NORMALIZE_PATTERN = re.compile(
-    r"\[\[\s*(?:source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*)?(\d+)\s*\]\]",
+    r"(?:\[\[|\[)\s*(?:source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*)?(\d+)\s*(?:\]\]|\])",
     re.IGNORECASE,
 )
 
@@ -132,7 +132,7 @@ class GenerationService:
     def _normalize_citations(self, text: str) -> str:
         if not text:
             return text
-        return CITATION_NORMALIZE_PATTERN.sub(r"[[Source:\1]]", text)
+        return CITATION_NORMALIZE_PATTERN.sub(r"[[Source: \1]]", text)
 
     @trace_span("GenerationService.generate")
     async def generate(
