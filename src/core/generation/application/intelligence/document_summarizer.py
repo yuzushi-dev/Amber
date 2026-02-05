@@ -74,10 +74,11 @@ class DocumentSummarizer:
         """Lazy-load LLM provider."""
         from src.shared.kernel.runtime import get_settings
         settings = get_settings()
-        if settings.openai_api_key or settings.anthropic_api_key:
+        if settings.openai_api_key or settings.anthropic_api_key or settings.ollama_base_url:
             factory = build_provider_factory(
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
+                ollama_base_url=settings.ollama_base_url,
             )
         else:
             factory = get_provider_factory()
@@ -290,3 +291,12 @@ def get_document_summarizer() -> DocumentSummarizer:
     if _summarizer_instance is None:
         _summarizer_instance = DocumentSummarizer()
     return _summarizer_instance
+
+
+def reset_document_summarizer() -> None:
+    """
+    Reset the singleton instance. Call this in worker processes after fork
+    to ensure fresh provider instances (and underlying httpx clients).
+    """
+    global _summarizer_instance
+    _summarizer_instance = None
