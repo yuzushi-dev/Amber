@@ -9,7 +9,6 @@ from src.core.state.machine import DocumentStatus
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
 import json
-from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
 
 @pytest.mark.asyncio
 async def test_process_document_handles_quota_exceeded():
@@ -59,10 +58,10 @@ async def test_process_document_handles_quota_exceeded():
         # Mock Settings
         mock_settings = MagicMock()
         mock_settings.default_embedding_provider = "openai"
-        mock_settings.default_embedding_model = DEFAULT_EMBEDDING_MODEL["openai"]
-        mock_settings.embedding_dimensions = EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"]
+        mock_settings.default_embedding_model = "text-embedding-3-small"
+        mock_settings.embedding_dimensions = 1536
         mock_settings.openai_api_key = "test-key"
-        mock_settings.ollama_base_url = "http://localhost:11434"
+        mock_settings.ollama_base_url = "http://test-ollama:11434"  # Test fixture URL
 
         # Mock Tenant Repo
         tenant_repo = AsyncMock()
@@ -75,7 +74,7 @@ async def test_process_document_handles_quota_exceeded():
             document_repository=document_repo,
             tenant_repository=tenant_repo,
             unit_of_work=uow,
-            storage_client=AsyncMock(),
+            storage_client=MagicMock(get_file=MagicMock(return_value=b"test")),
             neo4j_client=AsyncMock(),
             vector_store=AsyncMock(),
             content_extractor=mock_extractor,
@@ -97,3 +96,4 @@ async def test_process_document_handles_quota_exceeded():
         error_data = json.loads(mock_doc.error_message)
         assert error_data["code"] == "quota_exceeded"
         assert error_data["provider"] == "Openai"
+
