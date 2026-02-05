@@ -98,7 +98,15 @@ class EmbeddingService:
                     anthropic_api_key=anthropic_api_key,
                 )
             else:
-                factory = get_provider_factory()
+                from src.api.config import settings
+                if settings.ollama_base_url:
+                    factory = build_provider_factory(
+                        openai_api_key=openai_api_key,
+                        anthropic_api_key=anthropic_api_key,
+                        ollama_base_url=settings.ollama_base_url,
+                    )
+                else:
+                    factory = get_provider_factory()
             self.provider = factory.get_embedding_provider()
 
         self.model = model or getattr(self.provider, "default_model", self.provider.get_default_model())
