@@ -315,7 +315,8 @@ async def list_documents(
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
 
-    query = select(Document)
+    from sqlalchemy.orm import selectinload
+    query = select(Document).options(selectinload(Document.folder))
 
     if is_super_admin:
         # Super Admin: Show all if no tenant specified
@@ -333,6 +334,14 @@ async def list_documents(
     result = await session.execute(query)
     documents = result.scalars().all()
 
+    # Helper to merge dynamic folder into metadata
+    def enrich_metadata(doc):
+        meta = doc.metadata_ or {}
+        if doc.folder:
+            meta = meta.copy()
+            meta["folder"] = doc.folder.name
+        return meta
+
     return [
         DocumentResponse(
             id=doc.id,
@@ -348,6 +357,7 @@ async def list_documents(
             created_at=doc.created_at,
             error_message=doc.error_message,
             ingestion_cost=0.0,
+            metadata=enrich_metadata(doc),
         )
         for doc in documents
     ]
