@@ -55,6 +55,15 @@ logger = logging.getLogger(__name__)
 _openai_client = None
 
 
+def reset_client() -> None:
+    """
+    Reset cached OpenAI client. Call this in worker processes after fork
+    to ensure fresh httpx connections in the new event loop.
+    """
+    global _openai_client
+    _openai_client = None
+
+
 def _get_openai_client(api_key: str, base_url: str):
     """Get or create OpenAI client configured for Ollama."""
     global _openai_client

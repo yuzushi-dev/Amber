@@ -160,6 +160,7 @@ def process_communities(self, tenant_id: str) -> dict:
     Periodic or triggered task to update graph communities and summaries.
     """
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
+    deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
         result = run_async(_process_communities_async(tenant_id))
         return result
@@ -181,7 +182,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.generation.infrastructure.providers.factory import ProviderFactory
     from src.core.retrieval.application.embeddings_service import EmbeddingService
     from src.core.admin_ops.application.tuning_service import TuningService
-    from src.core.database.session import async_session_maker
+    from src.core.database.session import get_session_maker
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     try:
@@ -205,7 +206,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
             llm_fallback_premium=settings.llm_fallback_premium,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
-        tuning_service = TuningService(async_session_maker)
+        tuning_service = TuningService(get_session_maker())
         tenant_config = await tuning_service.get_tenant_config(tenant_id)
 
         # We summarize all that are now stale or new
@@ -288,6 +289,30 @@ def deep_reset_singletons():
     platform._graph_extractor = None 
     platform._content_extractor = None
     platform._initialized = False
+
+    # 4. Ollama/OpenAI httpx clients (prevent "attached to different loop" errors)
+    try:
+        from src.core.generation.infrastructure.providers.ollama import reset_client as reset_ollama_client
+        reset_ollama_client()
+    except Exception:
+        pass  # Ollama module may not be available in all envs
+
+    # 5. Document Summarizer (Reset singleton instance)
+    try:
+        from src.core.generation.application.intelligence.document_summarizer import reset_document_summarizer
+        reset_document_summarizer()
+    except ImportError:
+        pass
+
+    # 6. Metrics Collector (Clear LRU cache)
+    try:
+        from src.amber_platform.composition_root import build_metrics_collector
+        build_metrics_collector.cache_clear()
+    except ImportError:
+        pass
+
+    # 7. Platform Registry (Force reset to ensure fresh connections)
+    platform._milvus_vector_store = None
 
     logger.info("Platform registry singletons reset.")
 
