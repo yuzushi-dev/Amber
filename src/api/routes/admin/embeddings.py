@@ -154,6 +154,13 @@ async def get_migration_status(
     # Check document processing progress
     total_docs = state.get("total_docs", 0)
     
+    # Handle zero-document case: migration is instant complete
+    if total_docs == 0 and state.get("phase") == "Re-processing":
+        state["status"] = "complete"
+        state["phase"] = "complete"
+        state["message"] = "Migration complete! No documents to re-process."
+        state["progress"] = 100
+    
     if total_docs > 0 and state.get("phase") == "Re-processing":
         # Count documents that are READY or beyond
         ready_query = select(func.count(Document.id)).where(
