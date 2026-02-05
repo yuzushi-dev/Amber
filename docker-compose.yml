@@ -22,7 +22,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: graphrag-frontend
+
     ports:
       - "3000:3000"
     environment:
@@ -44,7 +44,7 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
-    container_name: graphrag-api
+
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
@@ -64,7 +64,7 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - OLLAMA_BASE_URL=http://ollama-host:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
@@ -115,7 +115,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
-    container_name: graphrag-worker
+
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -132,7 +132,7 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - OLLAMA_BASE_URL=http://ollama-host:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
@@ -173,7 +173,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: graphrag-redis
+
     ports:
       - "6379:6379"
     volumes:
@@ -192,7 +192,7 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: graphrag-postgres
+
     ports:
       - "5433:5432"
     environment:
@@ -215,7 +215,7 @@ services:
   # ---------------------------------------------------------------------------
   neo4j:
     image: neo4j:5-community
-    container_name: graphrag-neo4j
+
     hostname: graphrag-neo4j
     ports:
       - "7474:7474" # HTTP
@@ -246,7 +246,7 @@ services:
   # ---------------------------------------------------------------------------
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
-    container_name: graphrag-etcd
+
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -269,7 +269,7 @@ services:
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    container_name: graphrag-minio
+
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -293,7 +293,7 @@ services:
   # ---------------------------------------------------------------------------
   milvus:
     image: milvusdb/milvus:v2.5.4
-    container_name: graphrag-milvus
+
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
