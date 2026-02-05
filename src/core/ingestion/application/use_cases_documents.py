@@ -370,10 +370,11 @@ class GetDocumentUseCase:
 
     async def execute(self, request: GetDocumentRequest) -> DocumentOutput:
         from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
         from src.core.ingestion.domain.document import Document
         
         # 1. Fetch Request
-        query = select(Document).where(Document.id == request.document_id)
+        query = select(Document).options(selectinload(Document.folder)).where(Document.id == request.document_id)
         if not request.is_super_admin:
             query = query.where(Document.tenant_id == request.tenant_id)
             
@@ -397,6 +398,12 @@ class GetDocumentUseCase:
             if not content_type:
                 content_type = "application/octet-stream"
         
+        # 4. Dynamic Metadata (Folder)
+        metadata = document.metadata_ or {}
+        if document.folder:
+            metadata = metadata.copy()
+            metadata["folder"] = document.folder.name
+
         return DocumentOutput(
             id=document.id,
             filename=document.filename,
@@ -412,7 +419,7 @@ class GetDocumentUseCase:
             document_type=document.document_type,
             keywords=document.keywords or [],
             hashtags=document.hashtags or [],
-            metadata=document.metadata_,
+            metadata=metadata,
             stats=stats,
             ingestion_cost=cost,
         )

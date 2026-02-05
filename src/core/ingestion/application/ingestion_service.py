@@ -25,6 +25,9 @@ from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+from src.core.generation.application.llm_steps import resolve_llm_step_config
+import time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +178,8 @@ class IngestionService:
         sys.stdout.write(f"DEBUG: START process_document for {document_id}\n")
         sys.stdout.flush()
         
+        start_time = time.time()
+        
         # 1. Fetch Document
         document = await self.document_repository.get(document_id)
 
@@ -258,12 +263,30 @@ class IngestionService:
             logger.info(f"Classified document {document_id} as {domain.value}. Strategy: {strategy.name}")
 
             document.domain = domain.value
+            
+            # Metadata: Initial population (Clean Schema)
+            # We preserve internal technical fields (content_type, mime_type) for system use
+            # but present a cleaner view for the user.
+            
+            file_ext = document.filename.split('.')[-1] if '.' in document.filename else ""
+            fmt = "PDF" if file_ext.lower() == "pdf" else file_ext.upper()
+            
+            # Format creation date DD/MM/YYYY
+            # Convert to local time (CET) for user friendliness
+            local_dt = document.created_at.astimezone()
+            created_date = local_dt.strftime("%d/%m/%Y")
+            upload_time = local_dt.strftime("%H:%M")
+            
             document.metadata_ = {
-                **(extraction_result.metadata or {}),
-                "processing_method": "ocr" if extraction_result.extractor_used == "ocr" else "extraction",
-                "conversion_pipeline": "amber_v2_standard",
-                "file_extension": f".{document.filename.split('.')[-1]}" if '.' in document.filename else "",
-                "content_primary_type": "pdf" if document.filename.lower().endswith(".pdf") else "text"
+                "title": document.filename.rsplit('.', 1)[0],
+                "format": fmt,
+                "pageCount": extraction_result.metadata.get("page_count") if extraction_result.metadata else None,
+                "creationDate": created_date,
+                "uploadTime": upload_time,
+                # Technical preservation
+                "content_type": mime_type,
+                "mime_type": mime_type,
+                "file_size": len(file_content),
             }
 
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
@@ -378,7 +401,15 @@ class IngestionService:
                 logger.info(f"  - Tenant Config Model: {t_config.get('embedding_model')} (sys default: {sys_model})")
                 logger.info(f"  - Resolved Provider: {res_prov}")
                 logger.info(f"  - Resolved Model: {res_model}")
+                logger.info(f"  - Resolved Model: {res_model}")
                 logger.info(f"  - Factory: {factory.__class__.__name__}")
+                
+                # Capture Embedding Metadata
+                # Re-assign dict to trigger SQLAlchemy JSONB change tracking
+                meta_update = document.metadata_ or {}
+                meta_update["embeddingModel"] = f"{res_prov} {res_model}"
+                meta_update["vectorStore"] = active_collection
+                document.metadata_ = dict(meta_update)
 
                 if vector_store is None:
                     raise RuntimeError("Vector store not configured")
@@ -520,13 +551,41 @@ class IngestionService:
                 document.keywords = enrichment.get("keywords", [])
                 if domain and domain.value and domain.value not in document.keywords:
                     document.keywords.append(domain.value)
+                
+                # Capture LLM Metadata
+                try:
+                    llm_cfg = resolve_llm_step_config(
+                        tenant_config=tenant_config,
+                        step_id="ingestion.document_summarization",
+                        settings=self.settings or get_settings(), # fallback if self.settings is None
+                    )
+                    meta_update = document.metadata_ or {}
+                    meta_update["llmModel"] = f"{llm_cfg.provider} {llm_cfg.model}"
+                    document.metadata_ = dict(meta_update)
+                except Exception as e:
+                    logger.warning(f"Failed to resolve LLM config for metadata: {e}")
+
             except Exception as e:
                 logger.error(f"Document enrichment failed for {document_id}: {e}")
+
+            # 11. Update Document Status -> READY
+            # 11b. Finalize Metadata (Duration)
+            try:
+                duration_seconds = time.time() - start_time
+                minutes, secs = divmod(int(duration_seconds), 60)
+                duration_str = f"{minutes}m {secs}s" if minutes > 0 else f"{secs}s"
+                
+                meta_update = document.metadata_ or {}
+                meta_update["uploadDuration"] = duration_str
+                document.metadata_ = dict(meta_update)
+            except Exception as e:
+                logger.warning(f"Failed to set upload duration: {e}")
 
             # 11. Update Document Status -> READY
             await self.document_repository.update_status(document.id, DocumentStatus.READY)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.READY
+            
             await self.event_dispatcher.emit_state_change(StateChangeEvent(
                 document_id=document.id,
                 old_status=DocumentStatus.GRAPH_SYNC,
@@ -534,6 +593,7 @@ class IngestionService:
                 tenant_id=document.tenant_id,
                 details={"progress": 100}
             ))
+
 
             logger.info(f"Processed document {document_id}")
 
