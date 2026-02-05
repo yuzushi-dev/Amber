@@ -125,7 +125,7 @@ class GenerationService:
             else:
                 factory = get_provider_factory()
             self.factory = factory
-            self.llm = factory.get_llm_provider(tier=self.config.tier)
+            self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=False)
 
         self.verifier = SourceVerifier()
 
@@ -282,6 +282,7 @@ class GenerationService:
             provider_name=llm_cfg.provider,
             model=llm_cfg.model,
             tier=self.config.tier,
+            with_failover=False,
         ) if self.factory else self.llm
 
         llm_result = await provider.generate(
@@ -519,6 +520,7 @@ class GenerationService:
             provider_name=llm_cfg.provider,
             model=llm_cfg.model,
             tier=self.config.tier,
+            with_failover=False,
         ) if self.factory else self.llm
 
         full_answer = ""
@@ -605,6 +607,7 @@ class GenerationService:
             provider_name=llm_cfg.provider,
             model=llm_cfg.model,
             tier=self.config.tier,
+            with_failover=False,
         ) if self.factory else self.llm
 
         kwargs: dict[str, Any] = {
