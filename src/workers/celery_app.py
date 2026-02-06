@@ -104,36 +104,42 @@ def init_worker_process(**kwargs):
         from src.core.generation.infrastructure.providers.factory import init_providers
 
         configure_settings(settings)
-        from src.core.database.session import configure_database
-
-        configure_database(settings.db.database_url)
-        from src.amber_platform.composition_root import platform
-
-        asyncio.run(platform.initialize())
-
-        providers = getattr(settings, "providers", None)
-        openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
-        anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
-
-        # Initialize providers with API keys from settings
-        init_providers(
-            openai_api_key=openai_key,
-            anthropic_api_key=anthropic_key,
-            ollama_base_url=settings.ollama_base_url,
-            default_llm_provider=settings.default_llm_provider,
-            default_llm_model=settings.default_llm_model,
-            default_embedding_provider=settings.default_embedding_provider,
-            default_embedding_model=settings.default_embedding_model,
-            llm_fallback_local=settings.llm_fallback_local,
-            llm_fallback_economy=settings.llm_fallback_economy,
-            llm_fallback_standard=settings.llm_fallback_standard,
-            llm_fallback_premium=settings.llm_fallback_premium,
-            embedding_fallback_order=settings.embedding_fallback_order,
-        )
+        _initialize_worker_runtime(settings=settings, init_providers=init_providers)
         logger.info("Worker process providers initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize worker providers: {e}")
         # Don't fail worker startup - some tasks may not need providers
+
+
+def _initialize_worker_runtime(settings, init_providers):
+    """Initialize runtime dependencies required by worker tasks."""
+    from src.core.database.session import configure_database
+
+    configure_database(settings.db.database_url)
+
+    from src.amber_platform.composition_root import platform
+
+    asyncio.run(platform.initialize())
+
+    providers = getattr(settings, "providers", None)
+    openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
+    anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
+
+    # Initialize providers with API keys from settings
+    init_providers(
+        openai_api_key=openai_key,
+        anthropic_api_key=anthropic_key,
+        ollama_base_url=settings.ollama_base_url,
+        default_llm_provider=settings.default_llm_provider,
+        default_llm_model=settings.default_llm_model,
+        default_embedding_provider=settings.default_embedding_provider,
+        default_embedding_model=settings.default_embedding_model,
+        llm_fallback_local=settings.llm_fallback_local,
+        llm_fallback_economy=settings.llm_fallback_economy,
+        llm_fallback_standard=settings.llm_fallback_standard,
+        llm_fallback_premium=settings.llm_fallback_premium,
+        embedding_fallback_order=settings.embedding_fallback_order,
+    )
 
 
 @worker_ready.connect

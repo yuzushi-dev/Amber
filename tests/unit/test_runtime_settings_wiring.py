@@ -25,6 +25,9 @@ def test_worker_init_calls_configure_settings(monkeypatch):
         called["settings"] = settings
 
     monkeypatch.setattr(celery_app, "configure_settings", fake_configure, raising=False)
+    monkeypatch.setattr(
+        celery_app, "_initialize_worker_runtime", lambda **_kwargs: None, raising=False
+    )
     monkeypatch.setattr(providers_factory, "init_providers", lambda **_kwargs: None)
 
     celery_app.init_worker_process()

@@ -2,6 +2,8 @@
 Unit tests for SparseEmbeddingService with GPU batching.
 """
 
+import os
+from importlib.util import find_spec
 from unittest.mock import patch
 
 import pytest
@@ -50,15 +52,20 @@ class TestSparseEmbeddingServiceIntegration:
     @pytest.fixture
     def service(self):
         """Create a real service instance."""
-        try:
-            import torch
-            from transformers import AutoModelForMaskedLM
-        except ImportError:
+        if find_spec("torch") is None or find_spec("transformers") is None:
             pytest.skip("torch/transformers not available")
 
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 
-        return SparseEmbeddingService()
+        # Keep this deterministic for unit CI: run only with locally cached model artifacts.
+        with patch.dict(os.environ, {"TRANSFORMERS_OFFLINE": "1", "HF_HUB_OFFLINE": "1"}):
+            service = SparseEmbeddingService()
+            if not service.prewarm():
+                pytest.skip(
+                    "Sparse model is not cached locally. Pre-download "
+                    f"`{SparseEmbeddingService.DEFAULT_MODEL}` to run these tests."
+                )
+            return service
 
     def test_embed_batch_produces_results(self, service):
         """Batch should produce results for each input text."""
