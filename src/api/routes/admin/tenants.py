@@ -1,5 +1,7 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_admin
@@ -21,9 +23,6 @@ class TenantUpdate(BaseModel):
     is_active: bool | None = None
 
 
-from datetime import datetime
-
-
 class TenantKeySummary(BaseModel):
     id: str
     name: str
@@ -38,8 +37,7 @@ class TenantKeySummary(BaseModel):
         """Convert None to empty list for scopes field."""
         return v if v is not None else []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TenantResponse(BaseModel):
@@ -52,8 +50,7 @@ class TenantResponse(BaseModel):
     api_keys: list[TenantKeySummary] = []
     document_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("", response_model=list[TenantResponse], dependencies=[Depends(verify_admin)])

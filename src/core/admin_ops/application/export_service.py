@@ -9,7 +9,7 @@ import io
 import json
 import logging
 import zipfile
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,7 +134,7 @@ class ExportService:
             "tenant_id": conversation.tenant_id,
             "title": conversation.title,
             "created_at": conversation.created_at.isoformat(),
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "chunks": all_chunks_metadata,
             "referenced_documents": list(referenced_doc_ids),
         }

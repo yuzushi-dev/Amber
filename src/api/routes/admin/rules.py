@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,8 +51,7 @@ class RuleResponse(BaseModel):
     created_at: Any
     updated_at: Any
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================
@@ -70,7 +69,7 @@ async def list_rules(
     query = select(GlobalRule).order_by(GlobalRule.priority, GlobalRule.created_at)
 
     if not include_inactive:
-        query = query.where(GlobalRule.is_active == True)
+        query = query.where(GlobalRule.is_active.is_(True))
 
     result = await db.execute(query)
     rules = result.scalars().all()

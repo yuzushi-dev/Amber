@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -196,6 +197,10 @@ def _build_graph_sources(collected_sources: list[dict[str, Any]] | None) -> list
     ]
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 # =============================================================================
 # Streaming Endpoint
 # =============================================================================
@@ -359,8 +364,6 @@ async def _query_stream_impl(
                         request.query[:50] + "..." if len(request.query) > 50 else request.query
                     )
 
-                    from datetime import datetime
-
                     from src.api.deps import _get_async_session_maker
                     from src.core.generation.domain.memory_models import ConversationSummary
 
@@ -381,7 +384,7 @@ async def _query_stream_impl(
                                     "query": request.query,
                                     "answer": full_answer,
                                     "sources": agent_sources,
-                                    "timestamp": datetime.utcnow().isoformat(),
+                                    "timestamp": _utc_now_iso(),
                                 }
                             )
                             existing_summary.metadata_["history"] = history
@@ -390,7 +393,7 @@ async def _query_stream_impl(
                             existing_summary.metadata_["query"] = request.query
                             existing_summary.metadata_["answer"] = full_answer
                             existing_summary.metadata_["sources"] = agent_sources
-                            existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
+                            existing_summary.metadata_["timestamp"] = _utc_now_iso()
 
                             # 3. Flag as modified for SQLAlchemy
                             from sqlalchemy.orm.attributes import flag_modified
@@ -428,7 +431,7 @@ async def _query_stream_impl(
                                                 "categories": ["Agent Tools"],
                                                 "confidence": 1.0,
                                             },
-                                            "timestamp": datetime.utcnow().isoformat(),
+                                            "timestamp": _utc_now_iso(),
                                         }
                                     ],
                                 },
@@ -590,8 +593,6 @@ async def _query_stream_impl(
                     request.query[:50] + "..." if len(request.query) > 50 else request.query
                 )
 
-                from datetime import datetime
-
                 from src.api.deps import _get_async_session_maker
                 from src.core.generation.domain.memory_models import ConversationSummary
 
@@ -621,7 +622,7 @@ async def _query_stream_impl(
                                 "sources": collected_sources,
                                 "quality_score": persistence_quality,
                                 "routing_info": persistence_routing,
-                                "timestamp": datetime.utcnow().isoformat(),
+                                "timestamp": _utc_now_iso(),
                             }
                         )
                         existing_summary.metadata_["history"] = history
@@ -629,7 +630,7 @@ async def _query_stream_impl(
                         # 2. Update top-level metadata
                         existing_summary.metadata_["query"] = request.query
                         existing_summary.metadata_["answer"] = full_answer
-                        existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
+                        existing_summary.metadata_["timestamp"] = _utc_now_iso()
 
                         # 3. Flag as modified for SQLAlchemy
                         from sqlalchemy.orm.attributes import flag_modified
@@ -661,7 +662,7 @@ async def _query_stream_impl(
                                         "sources": collected_sources,
                                         "quality_score": persistence_quality,
                                         "routing_info": persistence_routing,
-                                        "timestamp": datetime.utcnow().isoformat(),
+                                        "timestamp": _utc_now_iso(),
                                     }
                                 ],
                             },
