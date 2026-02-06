@@ -10,6 +10,8 @@ import re
 import time
 from importlib import import_module
 
+from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,8 +32,6 @@ if HAS_PYMUPDF:
         logger.info("pymupdf_layout is available and activated.")
     except ImportError:
         logger.debug("pymupdf_layout not found, using standard pymupdf4llm.")
-
-from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
 
 
 def _extract_title_from_content(content: str) -> str | None:

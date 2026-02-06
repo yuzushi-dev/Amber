@@ -1,5 +1,3 @@
-import pytest
-
 """
 Integration Tests for Folder Pipeline
 ======================================
@@ -12,6 +10,8 @@ Tests for folder CRUD operations and document-folder associations:
 """
 
 import uuid
+
+import pytest
 
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus

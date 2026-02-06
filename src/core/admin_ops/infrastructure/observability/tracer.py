@@ -11,15 +11,12 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from src.shared.context import get_request_id, set_request_id
+
 logger = logging.getLogger(__name__)
 
 # Global tracer instance
 _tracer = None
-
-# Global tracer instance
-_tracer = None
-
-from src.shared.context import get_request_id, set_request_id
 
 
 def get_current_request_id() -> str | None:

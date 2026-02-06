@@ -113,10 +113,10 @@ class RestoreService:
 
                 return manifest
 
-        except zipfile.BadZipFile:
-            raise ValueError("Invalid backup: not a valid ZIP file")
-        except FileNotFoundError:
-            raise ValueError("Backup file not found")
+        except zipfile.BadZipFile as e:
+            raise ValueError("Invalid backup: not a valid ZIP file") from e
+        except FileNotFoundError as e:
+            raise ValueError("Backup file not found") from e
 
     async def restore(
         self,

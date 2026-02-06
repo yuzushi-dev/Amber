@@ -159,10 +159,12 @@ async def upload_document(
     except ValueError as e:
         # Map domain errors to HTTP errors
         if "empty" in str(e).lower():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
         elif "too large" in str(e).lower():
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(e))
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(e)
+            ) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     # Build events URL
     events_url = f"/v1/documents/{result.document_id}/events"
@@ -422,7 +424,7 @@ async def get_document(
             )
         )
     except LookupError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return DocumentResponse(
         id=output.id,
@@ -644,7 +646,7 @@ async def update_document(
             )
         )
     except LookupError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return DocumentResponse(
         id=output.id,
@@ -724,7 +726,7 @@ async def delete_document(
             )
         )
     except LookupError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error deleting document {document_id}: {e}")
         # In case of other errors, we might still want to return 500 or just generic error
@@ -733,7 +735,7 @@ async def delete_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during deletion",
-        )
+        ) from e
 
     logger.info(f"Document {document_id} deleted")
 

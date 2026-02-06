@@ -10,6 +10,8 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.retrieval.domain.ports.vector_store_port import SearchResult
+
 logger = logging.getLogger(__name__)
 
 # Lazy import to avoid errors if pymilvus not installed
@@ -51,9 +53,6 @@ def _get_milvus():
         raise ImportError(
             "pymilvus package is required. Install with: pip install pymilvus>=2.3.0"
         ) from e
-
-
-from src.core.retrieval.domain.ports.vector_store_port import SearchResult
 
 
 @dataclass

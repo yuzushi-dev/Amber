@@ -191,7 +191,7 @@ async def heal_node(request: HealRequest, tenant_id: str = Depends(get_current_u
 
     except Exception as e:
         logger.error(f"Healing failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/nodes/merge")
