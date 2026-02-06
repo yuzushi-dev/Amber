@@ -4,7 +4,7 @@
 # Common commands for development, testing, and deployment.
 # =============================================================================
 
-.PHONY: help install dev test lint format clean docker-up docker-down docker-build migrate
+.PHONY: help install dev test lint format clean docker-up docker-down docker-build migrate verify verify-backend verify-frontend
 
 # Default target
 help:
@@ -27,6 +27,9 @@ help:
 	@echo "  lint        Run linter (ruff)"
 	@echo "  format      Format code (ruff)"
 	@echo "  typecheck   Run type checker (mypy)"
+	@echo "  verify      Run full quality gate (backend + frontend)"
+	@echo "  verify-backend Run backend quality gate only"
+	@echo "  verify-frontend Run frontend quality gate only"
 	@echo ""
 	@echo "Docker:"
 	@echo "  docker-up   Start all services"
@@ -84,6 +87,15 @@ format:
 
 typecheck:
 	mypy src/
+
+verify:
+	bash scripts/verify.sh all
+
+verify-backend:
+	bash scripts/verify.sh backend
+
+verify-frontend:
+	bash scripts/verify.sh frontend
 
 # =============================================================================
 # Docker
