@@ -508,8 +508,8 @@ class IngestionService:
                         """
                         UNWIND $batch as row
                         MERGE (c:Chunk {id: row.id})
-                        ON CREATE SET 
-                            c.document_id = row.document_id, 
+                        ON CREATE SET
+                            c.document_id = row.document_id,
                             c.tenant_id = row.tenant_id,
                             c.content = row.content,
                             c.created_at = timestamp()

@@ -66,7 +66,7 @@ class VerifiedQAService:
                     .where(
                         Feedback.tenant_id == tenant_id,
                         Feedback.golden_status == "VERIFIED",
-                        Feedback.is_active == True,
+                        Feedback.is_active,
                         Feedback.query_embedding.isnot(None),
                     )
                 )

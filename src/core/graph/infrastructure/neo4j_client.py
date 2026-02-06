@@ -163,10 +163,10 @@ class Neo4jClient:
         ORDER BY source.name
         WITH target, collect(source.name) as aliases, collect(source.description) as descs
         SET target.aliases = coalesce(target.aliases, []) + aliases
-        
+
         // Append unique descriptions
         WITH target, descs
-        SET target.description = target.description + "\\n" + 
+        SET target.description = target.description + "\\n" +
             reduce(s = "", d IN [d IN descs WHERE d IS NOT NULL AND NOT target.description CONTAINS d] | s + "\\n" + d)
         """
 
@@ -386,7 +386,7 @@ class Neo4jClient:
         """
         query = """
         MATCH (n:Entity {tenant_id: $tenant_id})
-        WHERE toLower(n.name) CONTAINS toLower($q) 
+        WHERE toLower(n.name) CONTAINS toLower($q)
            OR toLower(n.description) CONTAINS toLower($q)
         RETURN n.name as id, n.name as label, n.type as type, n.community as community_id
         LIMIT $limit
@@ -413,7 +413,7 @@ class Neo4jClient:
         query = """
         MATCH (center:Entity {name: $node_id, tenant_id: $tenant_id})
         OPTIONAL MATCH (center)-[r]-(neighbor:Entity)
-        RETURN 
+        RETURN
             center.name as c_id, center.type as c_type, center.community as c_comm,
             type(r) as r_type, startNode(r).name as source, endNode(r).name as target,
             neighbor.name as n_id, neighbor.type as n_type, neighbor.community as n_comm

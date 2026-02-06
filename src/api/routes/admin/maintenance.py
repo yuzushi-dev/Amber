@@ -703,11 +703,11 @@ async def _get_neo4j_stats_consolidated(tenant_id: str) -> dict:
         MATCH (e:Entity {tenant_id: $tenant_id})
         WHERE (e)<-[:MENTIONS]-()  // Count only entities mentioned by at least one active chunk
         WITH count(e) as entity_count
-        
+
         MATCH (c:Community {tenant_id: $tenant_id})
         WHERE EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) } // Count only non-empty communities
         WITH entity_count, count(c) as community_count
-        
+
         // Count relationships connected to valid entities
         MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
         WHERE (a)<-[:MENTIONS]-() AND (b)<-[:MENTIONS]-()

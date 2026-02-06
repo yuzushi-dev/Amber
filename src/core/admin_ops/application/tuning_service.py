@@ -158,16 +158,16 @@ class TuningService:
             )
             prompt = f"""
             You are an expert RAG system analyzer. A user has provided negative feedback on a generated answer.
-            
+
             User Comment: "{comment or "No comment"}"
             Flagged Snippets (Incorrect parts):
             {snippets_text}
-            
+
             Task: Determine if this failure is due to:
             1. RETRIEVAL_FAILURE: The context was missing or irrelevant.
             2. HALLUCINATION: The context was correct, but the LLM made things up.
             3. OTHER: User error, style preference, etc.
-            
+
             Return JSON only: {{"reason": "RETRIEVAL_FAILURE" | "HALLUCINATION" | "OTHER", "confidence": float, "explanation": string}}
             """
 

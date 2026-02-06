@@ -235,7 +235,7 @@ class ContextGraphWriter:
             result = await graph_client.execute_read(
                 f"""
                 MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
-                RETURN 
+                RETURN
                     sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
                     sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count
                 """,

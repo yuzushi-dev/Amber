@@ -971,8 +971,8 @@ async def get_document_similarities(
         MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c1:Chunk)
         MATCH (c1)-[r:SIMILAR_TO]->(c2:Chunk)
         WHERE c1.id < c2.id
-        RETURN c1.id as source_id, 
-               c2.id as target_id, 
+        RETURN c1.id as source_id,
+               c2.id as target_id,
                r.score as score
         ORDER BY r.score DESC
         SKIP $offset

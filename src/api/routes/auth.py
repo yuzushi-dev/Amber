@@ -28,7 +28,7 @@ class TicketResponse(BaseModel):
     summary="Generate Auth Ticket",
     description="""
     Generate a short-lived, one-time use ticket for authenticating SSE connections.
-    
+
     The ticket effectively represents the valid API Key for 30 seconds.
     Use this ticket in the URL parameter `?ticket=...` for EventSource connections.
     """,

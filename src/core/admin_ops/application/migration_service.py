@@ -56,7 +56,7 @@ class EmbeddingMigrationService:
         Returns:
             List of status dicts per tenant.
         """
-        query = select(Tenant).where(Tenant.is_active == True)
+        query = select(Tenant).where(Tenant.is_active)
         result = await self.session.execute(query)
         tenants = result.scalars().all()
 
