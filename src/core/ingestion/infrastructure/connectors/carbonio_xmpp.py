@@ -81,7 +81,6 @@ class CarbonioWebSocketXMPP:
         try:
             # Prepare initial cookies
             cookies = self.cookies.copy()
-            domain = self._get_domain()
 
             async with httpx.AsyncClient(
                 verify=False, timeout=30.0, cookies=cookies, follow_redirects=True

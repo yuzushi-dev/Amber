@@ -177,9 +177,6 @@ async def get_db_status():
         def _check_status_sync():
             # Create a dedicated sync engine for Alembic operations to avoid AsyncEngine mixups
             # Alembic config usually reads alembic.ini, but we need to ensure it uses the same DB
-            db_url = settings.db.database_url.replace(
-                "+asyncpg", ""
-            )  # quick hack to get sync URL if needed,
             # OR better: let alembic use its own env.py logic which loads config
 
             # Implementation 2: Use Alembic's native config loading which handles DB connection

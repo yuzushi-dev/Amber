@@ -106,10 +106,6 @@ class GraphExtractor:
         try:
             # Helper to run generation and capture stats
             async def run_generation(prompt: str, temp: float) -> Any:
-                from src.shared.kernel.runtime import get_settings
-
-                settings = get_settings()
-
                 import hashlib
 
                 prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]

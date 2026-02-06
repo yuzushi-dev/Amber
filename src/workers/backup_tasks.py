@@ -378,7 +378,7 @@ def scheduled_backup(self, tenant_id: str, scope: str) -> dict:
     job_id = str(uuid4())
 
     try:
-        result = run_async(_create_scheduled_backup_job(job_id, tenant_id, scope))
+        run_async(_create_scheduled_backup_job(job_id, tenant_id, scope))
 
         # Trigger the main backup task
         create_backup.delay(job_id, tenant_id, scope)

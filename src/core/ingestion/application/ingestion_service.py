@@ -174,7 +174,7 @@ class IngestionService:
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
 
-    async def process_document(self, document_id: str, background_tasks: "BackgroundTasks" = None):
+    async def process_document(self, document_id: str):
         """
         Orchestrate the document ingestion pipeline.
         """

@@ -150,17 +150,6 @@ class JiraConnector(BaseConnector):
                     data = response.json()
                     fields = data.get("fields", {})
 
-                    # Get comments (usually expanded or separate request, but often included in issue detail by default)
-                    comments_data = fields.get("comment", {}).get("comments", [])
-                    comments_text = []
-                    for c in comments_data[-5:]:  # Last 5
-                        author = c.get("author", {}).get("displayName", "Unknown")
-                        body = c.get("body", {})  # Jira V3 uses ADF (complex struct) or Rendered?
-                        # Simplifying: Jira V3 usually returns 'content' in ADF.
-                        # FOR MVP: We rely on 'renderedFields' if available or raw text structure if simple.
-                        # Actually, getting rendered description is easier.
-                        pass
-
                     # Re-fetch with renderedFields for easier text parsing
                     # (Note: Requires complex logic to parse ADF, let's try to get 'renderedFields' via expand)
                     pass

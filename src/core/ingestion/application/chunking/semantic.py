@@ -356,7 +356,6 @@ class SemanticChunker:
         # Note: This may create overlapping chunks (e.g. Class chunk + Method chunk),
         # which is actually beneficial for RAG (finding both the container and the leaf).
 
-        current_char_offset = 0
         # Build line offsets map
         line_offsets = []
         acc = 0
