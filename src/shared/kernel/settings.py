@@ -34,6 +34,17 @@ class MinIOSettingsProtocol(Protocol):
     bucket_name: str
 
 
+class ObjectStorageSettingsProtocol(Protocol):
+    """Protocol for canonical object storage settings."""
+
+    host: str
+    port: int
+    access_key: str
+    secret_key: str
+    secure: bool
+    bucket_name: str
+
+
 class SettingsProtocol(Protocol):
     """
     Protocol defining the settings interface used by core/application layers.
@@ -49,6 +60,7 @@ class SettingsProtocol(Protocol):
 
     # Nested settings
     db: DatabaseSettingsProtocol
+    object_storage: ObjectStorageSettingsProtocol
     minio: MinIOSettingsProtocol
 
     # LLM Provider Keys
