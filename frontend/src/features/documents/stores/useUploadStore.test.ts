@@ -33,7 +33,7 @@ describe('useUploadStore', () => {
         global.Notification = {
             permission: 'default',
             requestPermission: vi.fn()
-        } as any
+        } as unknown as typeof Notification
     })
 
     it('enqueues files correctly', async () => {

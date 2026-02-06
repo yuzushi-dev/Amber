@@ -5,7 +5,7 @@ import { X, FileText, ExternalLink, Sparkles, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEffect, useRef, useMemo } from 'react'
-import { motion, AnimatePresence, Variants } from 'framer-motion'
+import { motion, AnimatePresence, type Variants } from 'framer-motion'
 
 export default function CitationExplorer() {
     const {
@@ -74,12 +74,12 @@ export default function CitationExplorer() {
         }
     }
 
-    const itemVariants = {
+    const itemVariants: Variants = {
         hidden: { opacity: 0, y: 5 },
         visible: {
             opacity: 1,
             y: 0,
-            transition: { duration: 0.3, ease: "easeOut" }
+            transition: { duration: 0.3 }
         },
         exit: { opacity: 0, transition: { duration: 0 } }
     }
@@ -176,7 +176,7 @@ function CitationCard({
     isSelected: boolean
     onHover: (id: string | null) => void
     onSelect: (id: string | null) => void
-    variants: any
+    variants: Variants
 }) {
     // Retrieve content from chat store
     const activeMessageId = useCitationStore(s => s.activeMessageId)

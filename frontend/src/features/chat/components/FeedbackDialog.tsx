@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import * as React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
+import { useState } from 'react'
+import * as React from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import {
     Dialog,
     DialogContent,
@@ -13,15 +13,15 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertCircle, MessageSquare } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from '@/lib/utils'
+import { CheckCircle2, AlertCircle, MessageSquare } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface FeedbackDialogProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onSubmit: (comment: string, selectedSnippets: string[]) => void;
-    content: string;
+    isOpen: boolean
+    onClose: () => void
+    onSubmit: (comment: string, selectedSnippets: string[]) => void
+    content: string
 }
 
 const SelectableBlock = ({
@@ -40,16 +40,14 @@ const SelectableBlock = ({
         if (node === null || node === undefined) return '';
         if (typeof node === 'string' || typeof node === 'number') return String(node);
         if (Array.isArray(node)) return node.map(getContent).join('');
-        // @ts-ignore
-        if (React.isValidElement(node)) {
-            // @ts-ignore
-            return getContent(node.props.children);
+        if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+            return getContent(node.props.children)
         }
-        if (typeof node === 'object') return ''; // Fallback for unknown objects
-        return String(node);
-    };
+        if (typeof node === 'object') return '' // Fallback for unknown objects
+        return String(node)
+    }
 
-    const content = getContent(children);
+    const content = getContent(children)
 
     return (
         <motion.div
@@ -114,15 +112,32 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
             newSelected.add(snippet);
         }
         setSelectedSnippets(newSelected);
-    };
+    }
 
     const handleSubmit = () => {
         onSubmit(comment, Array.from(selectedSnippets));
-        onClose();
-    };
+        onClose()
+    }
+
+    type MarkdownBlockProps = {
+        children?: React.ReactNode
+    }
+
+    type MarkdownPreProps = React.ComponentPropsWithoutRef<'pre'> & {
+        children?: React.ReactNode
+    }
+
+    const getSnippetContent = (children?: React.ReactNode): string => {
+        if (typeof children === 'string') return children
+        if (React.isValidElement<{ children?: React.ReactNode }>(children)) {
+            const nested = children.props.children
+            return typeof nested === 'string' ? nested : ''
+        }
+        return ''
+    }
 
     const components = {
-        p: ({ children }: any) => (
+        p: ({ children }: MarkdownBlockProps) => (
             <SelectableBlock
                 isSelected={selectedSnippets.has(children?.toString() || '')}
                 onSelect={() => toggleSnippet(children?.toString() || '')}
@@ -130,7 +145,7 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
                 <p className="leading-relaxed text-foreground/90">{children}</p>
             </SelectableBlock>
         ),
-        li: ({ children }: any) => (
+        li: ({ children }: MarkdownBlockProps) => (
             <SelectableBlock
                 isSelected={selectedSnippets.has(children?.toString() || '')}
                 onSelect={() => toggleSnippet(children?.toString() || '')}
@@ -138,8 +153,8 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
                 <li>{children}</li>
             </SelectableBlock>
         ),
-        pre: ({ children, ...props }: any) => {
-            const codeContent = children?.props?.children || '';
+        pre: ({ children, ...props }: MarkdownPreProps) => {
+            const codeContent = getSnippetContent(children)
             return (
                 <SelectableBlock
                     isSelected={selectedSnippets.has(codeContent)}
@@ -149,7 +164,7 @@ export function FeedbackDialog({ isOpen, onClose, onSubmit, content }: FeedbackD
                 </SelectableBlock>
             )
         }
-    };
+    }
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>

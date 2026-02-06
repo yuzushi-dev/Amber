@@ -108,12 +108,17 @@ export default function ConstellationLoader() {
             state.targetGlow = 1.0;
         };
 
-        canvas.addEventListener('mousedown', onStart as any);
-        canvas.addEventListener('mousemove', onMove as any);
+        const onMouseStart = (e: MouseEvent) => onStart(e);
+        const onMouseMove = (e: MouseEvent) => onMove(e);
+        const onTouchStart = (e: TouchEvent) => onStart(e);
+        const onTouchMove = (e: TouchEvent) => onMove(e);
+
+        canvas.addEventListener('mousedown', onMouseStart);
+        canvas.addEventListener('mousemove', onMouseMove);
         canvas.addEventListener('mouseup', onEnd);
         canvas.addEventListener('mouseleave', onEnd);
-        canvas.addEventListener('touchstart', onStart as any);
-        canvas.addEventListener('touchmove', onMove as any);
+        canvas.addEventListener('touchstart', onTouchStart);
+        canvas.addEventListener('touchmove', onTouchMove);
         canvas.addEventListener('touchend', onEnd);
 
         let id: number;
@@ -197,12 +202,12 @@ export default function ConstellationLoader() {
 
         return () => {
             cancelAnimationFrame(id);
-            canvas.removeEventListener('mousedown', onStart as any);
-            canvas.removeEventListener('mousemove', onMove as any);
+            canvas.removeEventListener('mousedown', onMouseStart);
+            canvas.removeEventListener('mousemove', onMouseMove);
             canvas.removeEventListener('mouseup', onEnd);
             canvas.removeEventListener('mouseleave', onEnd);
-            canvas.removeEventListener('touchstart', onStart as any);
-            canvas.removeEventListener('touchmove', onMove as any);
+            canvas.removeEventListener('touchstart', onTouchStart);
+            canvas.removeEventListener('touchmove', onTouchMove);
             canvas.removeEventListener('touchend', onEnd);
         };
     }, []);
