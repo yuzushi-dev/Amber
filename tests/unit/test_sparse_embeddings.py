@@ -2,7 +2,6 @@
 Unit tests for SparseEmbeddingService with GPU batching.
 """
 
-import os
 from importlib.util import find_spec
 from unittest.mock import patch
 
@@ -47,25 +46,79 @@ class TestSparseEmbeddingServiceBatch:
 
 @pytest.mark.integration
 class TestSparseEmbeddingServiceIntegration:
-    """Integration tests (require torch and transformers)."""
+    """Integration-style tests (torch path without network/model downloads)."""
 
     @pytest.fixture
     def service(self):
-        """Create a real service instance."""
+        """Create a service with deterministic local tokenizer/model stubs."""
         if find_spec("torch") is None or find_spec("transformers") is None:
             pytest.skip("torch/transformers not available")
 
+        import torch
+
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 
-        # Keep this deterministic for unit CI: run only with locally cached model artifacts.
-        with patch.dict(os.environ, {"TRANSFORMERS_OFFLINE": "1", "HF_HUB_OFFLINE": "1"}):
-            service = SparseEmbeddingService()
-            if not service.prewarm():
-                pytest.skip(
-                    "Sparse model is not cached locally. Pre-download "
-                    f"`{SparseEmbeddingService.DEFAULT_MODEL}` to run these tests."
-                )
-            return service
+        class DummyBatch(dict):
+            def __init__(self, input_ids: "torch.Tensor", attention_mask: "torch.Tensor"):
+                super().__init__(input_ids=input_ids, attention_mask=attention_mask)
+                self.attention_mask = attention_mask
+
+            def to(self, device: str):
+                self["input_ids"] = self["input_ids"].to(device)
+                self["attention_mask"] = self["attention_mask"].to(device)
+                self.attention_mask = self["attention_mask"]
+                return self
+
+        class DummyTokenizer:
+            def __init__(self, vocab_size: int = 128):
+                self.vocab_size = vocab_size
+
+            def _encode(self, text: str, max_length: int) -> list[int]:
+                tokens = [
+                    (sum(word.encode("utf-8")) % (self.vocab_size - 1)) + 1 for word in text.split()
+                ]
+                if not tokens:
+                    return [1]
+                return tokens[:max_length]
+
+            def __call__(
+                self,
+                texts: list[str],
+                *,
+                return_tensors: str,
+                padding: bool,
+                truncation: bool,
+                max_length: int,
+            ) -> DummyBatch:
+                assert return_tensors == "pt"
+                assert padding and truncation
+                encoded = [self._encode(text, max_length=max_length) for text in texts]
+                max_len = max(len(row) for row in encoded)
+                input_ids = torch.zeros((len(encoded), max_len), dtype=torch.long)
+                attention_mask = torch.zeros((len(encoded), max_len), dtype=torch.long)
+                for idx, row in enumerate(encoded):
+                    row_tensor = torch.tensor(row, dtype=torch.long)
+                    input_ids[idx, : len(row)] = row_tensor
+                    attention_mask[idx, : len(row)] = 1
+                return DummyBatch(input_ids=input_ids, attention_mask=attention_mask)
+
+        class DummyModel(torch.nn.Module):
+            def __init__(self, vocab_size: int = 128):
+                super().__init__()
+                self.vocab_size = vocab_size
+
+            def forward(self, input_ids=None, attention_mask=None):
+                del attention_mask
+                clamped = input_ids.clamp(min=0, max=self.vocab_size - 1)
+                one_hot = torch.nn.functional.one_hot(clamped, num_classes=self.vocab_size).float()
+                logits = one_hot * 5.0
+                return type("DummyOutput", (), {"logits": logits})
+
+        service = SparseEmbeddingService(model_name="dummy-local-splade")
+        service._tokenizer = DummyTokenizer()
+        service._model = DummyModel()
+        service._device = "cpu"
+        return service
 
     def test_embed_batch_produces_results(self, service):
         """Batch should produce results for each input text."""
