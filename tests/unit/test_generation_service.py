@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -5,6 +6,23 @@ import pytest
 from src.core.generation.application.generation_service import GenerationService
 from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
+from src.shared.kernel.runtime import _reset_for_tests, configure_settings
+from src.shared.model_registry import DEFAULT_LLM_MODEL
+
+
+class DummySettings:
+    default_llm_provider = "openai"
+    default_llm_model = DEFAULT_LLM_MODEL["openai"]
+    default_llm_temperature = 0.0
+    seed = 42
+    db = SimpleNamespace(redis_url="redis://test")
+
+
+@pytest.fixture(autouse=True)
+def configure_runtime_settings():
+    configure_settings(DummySettings())
+    yield
+    _reset_for_tests()
 
 
 @pytest.mark.asyncio
