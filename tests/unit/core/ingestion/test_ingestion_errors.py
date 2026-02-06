@@ -26,15 +26,13 @@ async def test_process_document_handles_quota_exceeded():
     # Patch dependencies
     # Patch global import (used in __init__)
     with (
-        unittest.mock.patch(
-            "src.core.ingestion.application.ingestion_service.EmbeddingService"
-        ) as MockGlobalEmbeddingService,
+        unittest.mock.patch("src.core.ingestion.application.ingestion_service.EmbeddingService"),
         unittest.mock.patch(
             "src.core.retrieval.application.embeddings_service.EmbeddingService"
         ) as MockLocalEmbeddingService,
         unittest.mock.patch(
             "src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService"
-        ) as MockSparse,
+        ),
         unittest.mock.patch(
             "src.core.generation.application.intelligence.classifier.DomainClassifier"
         ) as MockClassifier,

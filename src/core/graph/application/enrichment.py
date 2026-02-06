@@ -30,7 +30,7 @@ class GraphEnricher:
         if len(embedding1) != len(embedding2):
             return 0.0
 
-        dot_product = sum(a * b for a, b in zip(embedding1, embedding2))
+        dot_product = sum(a * b for a, b in zip(embedding1, embedding2, strict=False))
         magnitude1 = math.sqrt(sum(a * a for a in embedding1))
         magnitude2 = math.sqrt(sum(a * a for a in embedding2))
 

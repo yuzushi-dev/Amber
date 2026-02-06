@@ -320,7 +320,7 @@ async def upload_dataset(file: UploadFile = File(...)):
                         if ctx.startswith("[") and ctx.endswith("]"):
                             try:
                                 sample["contexts"] = json.loads(ctx)
-                            except:
+                            except Exception:
                                 sample["contexts"] = [c.strip() for c in ctx.strip("[]").split(",")]
                         else:
                             sample["contexts"] = ctx.split(";") if ctx else []

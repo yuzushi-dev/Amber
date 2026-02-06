@@ -357,7 +357,7 @@ class CarbonioConnector(BaseConnector):
                                     )
                                 )
                                 updated_str = dt.strftime("%Y-%m-%d %H:%M")
-                            except:
+                            except Exception:
                                 updated_str = updated_at[:16]
                         else:
                             updated_str = "unknown"
@@ -759,7 +759,7 @@ class CarbonioConnector(BaseConnector):
                     else:
                         start_dt = datetime.now()
                         end_dt = start_dt + timedelta(days=days)
-                except:
+                except Exception:
                     start_dt = datetime.now()
                     end_dt = start_dt + timedelta(days=days)
             else:

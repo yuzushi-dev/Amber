@@ -49,7 +49,7 @@ async def test_router_llm_classification():
 
     # Patch dependencies used inside the method
     with (
-        patch("src.shared.kernel.runtime.get_settings") as mock_get_settings,
+        patch("src.shared.kernel.runtime.get_settings"),
         patch(
             "src.core.generation.application.llm_steps.resolve_llm_step_config",
             return_value=mock_llm_config,

@@ -17,9 +17,7 @@ class TestSecurityRemediation(unittest.TestCase):
         self.assertIn("t***@example.com", clean_text)
 
         # Test query integration logic (mocked)
-        with patch(
-            "src.core.graph.application.context_writer.context_graph_writer.log_turn"
-        ) as mock_log:
+        with patch("src.core.graph.application.context_writer.context_graph_writer.log_turn"):
             # Simulate what happens in query.py
             request_query = "My SSN is 123-45-6789"
             answer = "I processed 123-45-6789"

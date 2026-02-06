@@ -97,7 +97,7 @@ class CommunityDetector:
                 edges.append((src, tgt, weight))
 
         # If no relationships, we still have nodes. Leiden handles disconnected graphs.
-        return sorted(list(nodes)), edges
+        return sorted(nodes), edges
 
     def _run_hierarchical_leiden(
         self,

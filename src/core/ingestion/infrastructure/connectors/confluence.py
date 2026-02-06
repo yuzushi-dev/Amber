@@ -198,7 +198,7 @@ class ConfluenceConnector(BaseConnector):
         updated_input = page.get("createdAt", "")
         try:
             updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
-        except:
+        except Exception:
             updated_at = datetime.now()
 
         # WebUI link usually in _links
@@ -229,7 +229,7 @@ class ConfluenceConnector(BaseConnector):
         try:
             # Confluence dates are usually ISO8601
             updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
-        except:
+        except Exception:
             updated_at = datetime.now()
 
         # Generate a web link (base_url + _links.webui)

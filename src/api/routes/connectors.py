@@ -390,7 +390,6 @@ async def list_connector_items(
         auth_params = {
             "email": config.get("email"),
             "api_token": config.get("api_token"),
-            "api_token": config.get("api_token"),
             "base_url": config.get("base_url"),
         }
     elif connector_type == "carbonio":

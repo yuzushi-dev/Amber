@@ -74,12 +74,11 @@ class TestSimilarity:
         celery_app.conf.task_always_eager = True
         celery_app.conf.task_eager_propagates = True
 
-        patch_process = patch("src.workers.tasks.process_communities").start()
-        patch_dispatch = patch(
+        patch("src.workers.tasks.process_communities").start()
+        patch(
             "src.infrastructure.adapters.celery_dispatcher.CeleryTaskDispatcher.dispatch",
             new_callable=AsyncMock,
         ).start()
-        mock_dispatch = patch_dispatch
 
         try:
             import uuid
