@@ -250,8 +250,8 @@ class GenerationService:
             # Fallback for old templates without memory_context
             user_prompt = user_prompt_template.format(context=context_result.content, query=query)
 
-        print(f"DEBUG: LLM Context: {context_result.content}")
-        print(f"DEBUG: LLM User Prompt: {user_prompt}")
+        logger.debug("LLM context built with %d chars", len(context_result.content))
+        logger.debug("LLM user prompt built with %d chars", len(user_prompt))
 
         # Step 3: LLM Call
         from src.core.generation.application.llm_steps import resolve_llm_step_config

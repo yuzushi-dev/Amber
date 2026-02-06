@@ -8,6 +8,7 @@ This is the only module that imports from both src.api.config and src.core.
 Infrastructure adapters are created here and injected into application services.
 """
 
+import logging
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,8 @@ from src.shared.kernel.settings import SettingsProtocol
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------------------------------------------------------
@@ -32,7 +35,7 @@ def configure_settings(settings: SettingsProtocol) -> None:
     This is the only way settings should be provided to core modules.
     """
     global _settings
-    print(f"DEBUG: configure_settings called with {settings}")
+    logger.debug("Configuring settings instance for composition root")
     _settings = settings
 
     # Also configure shared kernel runtime (used by infrastructure adapters)
@@ -51,7 +54,7 @@ def get_settings() -> SettingsProtocol:
         RuntimeError: If settings have not been configured.
     """
     if _settings is None:
-        print("DEBUG: get_settings FAILED - _settings is None")
+        logger.error("get_settings called before settings were configured")
         raise RuntimeError(
             "Settings not configured. Call configure_settings() at application startup."
         )
