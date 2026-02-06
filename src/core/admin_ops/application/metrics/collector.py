@@ -8,7 +8,7 @@ Centralized metrics collection for RAG pipeline monitoring and evaluation.
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class QueryMetrics:
     query_id: str
     tenant_id: str
     query: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Operation type: rag_query, chat_query, summarization, extraction
     operation: str = "rag_query"
@@ -248,7 +248,7 @@ class MetricsCollector:
         """Get aggregated metrics for a time period."""
         from datetime import timedelta
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         start = now - timedelta(hours=period_hours)
 
         # Filter buffer for time period

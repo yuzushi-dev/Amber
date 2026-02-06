@@ -16,7 +16,13 @@ class TestConversationMemoryManager:
     @pytest.fixture
     def mock_session_maker(self):
         """Create a mock session maker that returns an async context manager."""
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        mock_session.refresh = AsyncMock()
+        mock_session.execute = AsyncMock()
+        mock_session.delete = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session_factory = MagicMock()
 
         # Make the session factory return a context manager

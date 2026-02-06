@@ -8,7 +8,7 @@ Endpoints for viewing chat conversation history.
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,8 +38,7 @@ class ChatHistoryItem(BaseModel):
     feedback_score: float | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatHistoryResponse(BaseModel):
@@ -69,8 +68,7 @@ class ConversationDetail(BaseModel):
     metadata: dict
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================
