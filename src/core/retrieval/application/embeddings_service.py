@@ -17,13 +17,16 @@ from tenacity import (
     wait_exponential,
 )
 
+from src.core.generation.domain.ports.provider_factory import (
+    build_provider_factory,
+    get_provider_factory,
+)
+from src.core.generation.domain.ports.providers import EmbeddingProviderPort
 from src.core.generation.domain.provider_models import (
     EmbeddingResult,
     ProviderUnavailableError,
     RateLimitError,
 )
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
-from src.core.generation.domain.ports.providers import EmbeddingProviderPort
 from src.core.utils.batching import batch_texts_for_embedding
 
 logger = logging.getLogger(__name__)
@@ -99,6 +102,7 @@ class EmbeddingService:
                 )
             else:
                 from src.api.config import settings
+
                 if settings.ollama_base_url:
                     factory = build_provider_factory(
                         openai_api_key=openai_api_key,
@@ -109,7 +113,9 @@ class EmbeddingService:
                     factory = get_provider_factory()
             self.provider = factory.get_embedding_provider()
 
-        self.model = model or getattr(self.provider, "default_model", self.provider.get_default_model())
+        self.model = model or getattr(
+            self.provider, "default_model", self.provider.get_default_model()
+        )
         self.dimensions = dimensions
         self.max_tokens = max_tokens_per_batch or self.MAX_TOKENS_PER_BATCH
         self.max_items = max_items_per_batch or self.MAX_ITEMS_PER_BATCH
@@ -166,7 +172,7 @@ class EmbeddingService:
             batch_texts = [text for _, text in batch]
 
             # Embed with retries
-            # If this fails, we want it to raise an exception so the document fails 
+            # If this fails, we want it to raise an exception so the document fails
             # with a meaningful error (e.g. AuthError) instead of a confusing Milvus error later.
             result = await self._embed_batch_with_retry(
                 texts=batch_texts,

@@ -2,11 +2,13 @@ import asyncio
 import logging
 
 from src.amber_platform.composition_root import platform
+
 neo4j_client = platform.neo4j_client
 
 from src.core.security.graph_acl import graph_acl
 
 logging.basicConfig(level=logging.ERROR)
+
 
 async def verify_isolation():
     print("Verifying Graph Access Control & Isolation...")
@@ -39,10 +41,10 @@ async def verify_isolation():
         acl_query = graph_acl.security_pattern("tenantA", variable_name="e")
         query = f"{acl_query} RETURN e.name as name"
         res = await neo4j_client.execute_read(query, {"tenant_id": "tenantA"})
-        names = [r['name'] for r in res]
+        names = [r["name"] for r in res]
         print(f"Tenant A Query Result: {names}")
 
-        if 'EntityA' in names and 'EntityB' not in names:
+        if "EntityA" in names and "EntityB" not in names:
             print("✅ Tenant Isolation Passed")
         else:
             print(f"❌ Tenant Isolation Failed. Expected ['EntityA'], got {names}")
@@ -50,31 +52,35 @@ async def verify_isolation():
         # 3. Test Doc-Level Path ACL (e.g. User in Tenant A but only has access to docA? Or restricted?)
         print("Testing Path-Based ACL...")
         # Scenario: User has access to docA, should see EntityA
-        acl_pattern = graph_acl.security_pattern("tenantA", allowed_doc_ids=['docA'], variable_name="e")
+        acl_pattern = graph_acl.security_pattern(
+            "tenantA", allowed_doc_ids=["docA"], variable_name="e"
+        )
         query = f"{acl_pattern} RETURN e.name as name"
         params = {"tenant_id": "tenantA", "allowed_doc_ids": ["docA"]}
 
         res = await neo4j_client.execute_read(query, params)
-        names = [r['name'] for r in res]
+        names = [r["name"] for r in res]
         print(f"Doc Access Query Result: {names}")
 
-        if 'EntityA' in names:
+        if "EntityA" in names:
             print("✅ Path ACL Passed (Authorized)")
         else:
             print("❌ Path ACL Failed (Authorized)")
 
         # Scenario: User has access to empty list (or wrong doc), should NOT see EntityA
-        acl_pattern_fail = graph_acl.security_pattern("tenantA", allowed_doc_ids=['docX'], variable_name="e")
+        acl_pattern_fail = graph_acl.security_pattern(
+            "tenantA", allowed_doc_ids=["docX"], variable_name="e"
+        )
         query_fail = f"{acl_pattern_fail} RETURN e.name as name"
         params_fail = {"tenant_id": "tenantA", "allowed_doc_ids": ["docX"]}
 
         res_fail = await neo4j_client.execute_read(query_fail, params_fail)
-        names_fail = [r['name'] for r in res_fail]
+        names_fail = [r["name"] for r in res_fail]
 
         if not names_fail:
-             print("✅ Path ACL Passed (Unauthorized)")
+            print("✅ Path ACL Passed (Unauthorized)")
         else:
-             print(f"❌ Path ACL Failed (Unauthorized). Result: {names_fail}")
+            print(f"❌ Path ACL Failed (Unauthorized). Result: {names_fail}")
 
     except Exception as e:
         print(f"Integration Test Failed: {e}")
@@ -82,6 +88,7 @@ async def verify_isolation():
         # Cleanup
         await neo4j_client.execute_write(clear_query)
         await neo4j_client.close()
+
 
 if __name__ == "__main__":
     asyncio.run(verify_isolation())

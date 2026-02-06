@@ -5,17 +5,18 @@ Tenant Service
 Service for managing tenants and their associations with API keys.
 """
 
-from typing import Optional, Callable, Awaitable
-from uuid import uuid4
+from collections.abc import Awaitable, Callable
 
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.core.tenants.domain.tenant import Tenant
-from src.core.tenants.application.active_vector_collection import ensure_active_vector_collection_config
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 from src.core.ingestion.domain.document import Document
+from src.core.tenants.application.active_vector_collection import (
+    ensure_active_vector_collection_config,
+)
+from src.core.tenants.domain.tenant import Tenant
 
 
 class TenantService:
@@ -23,17 +24,10 @@ class TenantService:
         self.session = session
 
     async def create_tenant(
-        self,
-        name: str,
-        api_key_prefix: Optional[str] = None,
-        config: Optional[dict] = None
+        self, name: str, api_key_prefix: str | None = None, config: dict | None = None
     ) -> Tenant:
         """Create a new tenant."""
-        tenant = Tenant(
-            name=name,
-            api_key_prefix=api_key_prefix,
-            config=config or {}
-        )
+        tenant = Tenant(name=name, api_key_prefix=api_key_prefix, config=config or {})
         self.session.add(tenant)
         await self.session.flush()
         tenant.config = ensure_active_vector_collection_config(tenant.id, tenant.config)
@@ -41,15 +35,19 @@ class TenantService:
         await self.session.refresh(tenant)
         return tenant
 
-    async def get_tenant(self, tenant_id: str) -> Optional[Tenant]:
+    async def get_tenant(self, tenant_id: str) -> Tenant | None:
         """Get a tenant by ID."""
         query = select(Tenant).where(Tenant.id == tenant_id).options(selectinload(Tenant.api_keys))
         result = await self.session.execute(query)
         return result.scalars().first()
-    
-    async def get_tenant_by_prefix(self, prefix: str) -> Optional[Tenant]:
+
+    async def get_tenant_by_prefix(self, prefix: str) -> Tenant | None:
         """Get a tenant by API key prefix."""
-        query = select(Tenant).where(Tenant.api_key_prefix == prefix).options(selectinload(Tenant.api_keys))
+        query = (
+            select(Tenant)
+            .where(Tenant.api_key_prefix == prefix)
+            .options(selectinload(Tenant.api_keys))
+        )
         result = await self.session.execute(query)
         return result.scalars().first()
 
@@ -59,21 +57,23 @@ class TenantService:
         result = await self.session.execute(query)
         return result.scalars().all()
 
-    async def update_tenant(self, tenant_id: str, **kwargs) -> Optional[Tenant]:
+    async def update_tenant(self, tenant_id: str, **kwargs) -> Tenant | None:
         """Update a tenant."""
         tenant = await self.get_tenant(tenant_id)
         if not tenant:
             return None
-            
+
         for key, value in kwargs.items():
             if hasattr(tenant, key):
                 setattr(tenant, key, value)
-                
+
         await self.session.commit()
         await self.session.refresh(tenant)
         return tenant
 
-    async def delete_tenant(self, tenant_id: str, cleanup_callback: Optional[Callable[[str], Awaitable[None]]] = None) -> bool:
+    async def delete_tenant(
+        self, tenant_id: str, cleanup_callback: Callable[[str], Awaitable[None]] | None = None
+    ) -> bool:
         """
         Delete a tenant and all associated data.
         Performs cleanup in:
@@ -83,7 +83,7 @@ class TenantService:
         tenant = await self.get_tenant(tenant_id)
         if not tenant:
             return False
-            
+
         # 1. External Cleanup
         if cleanup_callback:
             try:
@@ -91,7 +91,10 @@ class TenantService:
             except Exception as e:
                 # Log but continue to ensure we don't block deletion on partial failure
                 from logging import getLogger
-                getLogger(__name__).error(f"Failed to cleanup external resources for tenant {tenant_id}: {e}")
+
+                getLogger(__name__).error(
+                    f"Failed to cleanup external resources for tenant {tenant_id}: {e}"
+                )
 
         # 2. Cleanup Postgres
         await self.session.delete(tenant)
@@ -107,7 +110,7 @@ class TenantService:
         else:
             link = ApiKeyTenant(api_key_id=api_key_id, tenant_id=tenant_id, role=role)
             self.session.add(link)
-            
+
         try:
             await self.session.commit()
             return True
@@ -123,12 +126,15 @@ class TenantService:
             await self.session.commit()
             return True
         return False
-        
+
     async def get_tenant_keys(self, tenant_id: str) -> list[ApiKey]:
         """Get all API keys linked to a tenant."""
-        query = select(ApiKey).join(ApiKeyTenant).where(
-            ApiKeyTenant.tenant_id == tenant_id
-        ).options(selectinload(ApiKey.tenants))
+        query = (
+            select(ApiKey)
+            .join(ApiKeyTenant)
+            .where(ApiKeyTenant.tenant_id == tenant_id)
+            .options(selectinload(ApiKey.tenants))
+        )
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -136,13 +142,12 @@ class TenantService:
         """Get document counts for a list of tenants."""
         if not tenant_ids:
             return {}
-            
-        query = select(
-            Document.tenant_id, 
-            func.count(Document.id)
-        ).where(
-            Document.tenant_id.in_(tenant_ids)
-        ).group_by(Document.tenant_id)
-        
+
+        query = (
+            select(Document.tenant_id, func.count(Document.id))
+            .where(Document.tenant_id.in_(tenant_ids))
+            .group_by(Document.tenant_id)
+        )
+
         result = await self.session.execute(query)
         return {row[0]: row[1] for row in result.all()}

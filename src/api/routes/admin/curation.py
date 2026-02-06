@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
 
-from src.core.database.session import async_session_maker
 from src.core.admin_ops.domain.flag import Flag, FlagStatus
+from src.core.database.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,10 @@ router = APIRouter(prefix="/curation", tags=["admin-curation"])
 # Schemas
 # =============================================================================
 
+
 class FlagContext(BaseModel):
     """Context information for a flag."""
+
     query_text: str | None = None
     chunk_text: str | None = None
     chunk_id: str | None = None
@@ -44,6 +46,7 @@ class FlagContext(BaseModel):
 
 class FlagSummary(BaseModel):
     """Summary of a flag for list views."""
+
     id: str
     tenant_id: str
     type: str
@@ -60,6 +63,7 @@ class FlagSummary(BaseModel):
 
 class FlagDetail(FlagSummary):
     """Detailed flag information including context."""
+
     context: FlagContext
     resolution_notes: str | None = None
     merge_target_id: str | None = None
@@ -67,6 +71,7 @@ class FlagDetail(FlagSummary):
 
 class FlagListResponse(BaseModel):
     """List of flags response."""
+
     flags: list[FlagSummary]
     total: int
     pending_count: int
@@ -75,6 +80,7 @@ class FlagListResponse(BaseModel):
 
 class FlagResolution(BaseModel):
     """Flag resolution request."""
+
     action: str = Field(..., description="Resolution action: accept, reject, merge")
     notes: str | None = Field(None, description="Resolution notes")
     merge_target_id: str | None = Field(None, description="Target entity ID for merge action")
@@ -82,6 +88,7 @@ class FlagResolution(BaseModel):
 
 class FlagCreateRequest(BaseModel):
     """Create flag request."""
+
     tenant_id: str
     flag_type: str
     target_type: str
@@ -93,6 +100,7 @@ class FlagCreateRequest(BaseModel):
 
 class CurationStats(BaseModel):
     """Curation queue statistics."""
+
     total_flags: int
     pending_count: int
     accepted_count: int
@@ -105,6 +113,7 @@ class CurationStats(BaseModel):
 # =============================================================================
 # Endpoints
 # =============================================================================
+
 
 @router.get("/flags", response_model=FlagListResponse)
 async def list_flags(
@@ -144,7 +153,11 @@ async def list_flags(
             flags = result.scalars().all()
 
             # Get counts
-            pending_query = select(func.count()).select_from(Flag).where(Flag.status == FlagStatus.PENDING.value)
+            pending_query = (
+                select(func.count())
+                .select_from(Flag)
+                .where(Flag.status == FlagStatus.PENDING.value)
+            )
             pending_result = await session.execute(pending_query)
             pending_count = pending_result.scalar() or 0
 
@@ -156,20 +169,22 @@ async def list_flags(
                 context = flag.context or {}
                 snippet = context.get("chunk_text", "")[:200] if context else ""
 
-                flag_summaries.append(FlagSummary(
-                    id=flag.id,
-                    tenant_id=flag.tenant_id,
-                    type=flag.type.value if hasattr(flag.type, 'value') else flag.type,
-                    status=flag.status.value if hasattr(flag.status, 'value') else flag.status,
-                    reported_by=flag.reported_by,
-                    target_type=flag.target_type,
-                    target_id=flag.target_id,
-                    comment=flag.comment,
-                    snippet_preview=snippet,
-                    created_at=flag.created_at.isoformat() if flag.created_at else "",
-                    resolved_at=flag.resolved_at,
-                    resolved_by=flag.resolved_by,
-                ))
+                flag_summaries.append(
+                    FlagSummary(
+                        id=flag.id,
+                        tenant_id=flag.tenant_id,
+                        type=flag.type.value if hasattr(flag.type, "value") else flag.type,
+                        status=flag.status.value if hasattr(flag.status, "value") else flag.status,
+                        reported_by=flag.reported_by,
+                        target_type=flag.target_type,
+                        target_id=flag.target_id,
+                        comment=flag.comment,
+                        snippet_preview=snippet,
+                        created_at=flag.created_at.isoformat() if flag.created_at else "",
+                        resolved_at=flag.resolved_at,
+                        resolved_by=flag.resolved_by,
+                    )
+                )
 
             return FlagListResponse(
                 flags=flag_summaries,
@@ -204,8 +219,8 @@ async def get_flag(flag_id: str):
             return FlagDetail(
                 id=flag.id,
                 tenant_id=flag.tenant_id,
-                type=flag.type.value if hasattr(flag.type, 'value') else flag.type,
-                status=flag.status.value if hasattr(flag.status, 'value') else flag.status,
+                type=flag.type.value if hasattr(flag.type, "value") else flag.type,
+                status=flag.status.value if hasattr(flag.status, "value") else flag.status,
                 reported_by=flag.reported_by,
                 target_type=flag.target_type,
                 target_id=flag.target_id,
@@ -241,16 +256,12 @@ async def resolve_flag(flag_id: str, resolution: FlagResolution):
         valid_actions = ["accept", "reject", "merge"]
         if resolution.action not in valid_actions:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid action. Must be one of: {valid_actions}"
+                status_code=400, detail=f"Invalid action. Must be one of: {valid_actions}"
             )
 
         # Validate merge requires target
         if resolution.action == "merge" and not resolution.merge_target_id:
-            raise HTTPException(
-                status_code=400,
-                detail="merge_target_id required for merge action"
-            )
+            raise HTTPException(status_code=400, detail="merge_target_id required for merge action")
 
         async with async_session_maker() as session:
             result = await session.execute(select(Flag).where(Flag.id == flag_id))
@@ -339,10 +350,7 @@ async def get_curation_stats():
 
         async with async_session_maker() as session:
             # OPTIMIZED: Single query for counts by status using GROUP BY
-            status_query = select(
-                Flag.status,
-                func.count().label('count')
-            ).group_by(Flag.status)
+            status_query = select(Flag.status, func.count().label("count")).group_by(Flag.status)
 
             status_result = await session.execute(status_query)
             status_counts = {row.status: row.count for row in status_result}
@@ -357,17 +365,18 @@ async def get_curation_stats():
             merged = status_counts.get(FlagStatus.MERGED.value, 0)
 
             # Counts by type (already uses GROUP BY - keep as is)
-            type_result = await session.execute(
-                select(Flag.type, func.count()).group_by(Flag.type)
-            )
-            by_type = {row[0].value if hasattr(row[0], 'value') else row[0]: row[1] for row in type_result}
+            type_result = await session.execute(select(Flag.type, func.count()).group_by(Flag.type))
+            by_type = {
+                row[0].value if hasattr(row[0], "value") else row[0]: row[1] for row in type_result
+            }
 
             # OPTIMIZED: Calculate average resolution time in SQL
             # Extract EPOCH from timestamp difference for resolution time calculation
             resolution_query = select(
                 func.avg(
-                    func.extract('epoch', func.cast(Flag.resolved_at, DateTime) - Flag.created_at) / 3600
-                ).label('avg_hours')
+                    func.extract("epoch", func.cast(Flag.resolved_at, DateTime) - Flag.created_at)
+                    / 3600
+                ).label("avg_hours")
             ).where(Flag.resolved_at.isnot(None))
 
             resolution_result = await session.execute(resolution_query)
@@ -390,4 +399,3 @@ async def get_curation_stats():
     except Exception as e:
         logger.error(f"Failed to get curation stats: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}") from e
-

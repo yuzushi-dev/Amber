@@ -3,7 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.core.generation.infrastructure.providers.base import GenerationResult, ProviderUnavailableError, TokenUsage
+from src.core.generation.infrastructure.providers.base import (
+    GenerationResult,
+    ProviderUnavailableError,
+    TokenUsage,
+)
 from src.core.generation.infrastructure.providers.failover import FailoverLLMProvider
 from src.core.generation.infrastructure.providers.resilience import CircuitBreaker, CircuitState
 
@@ -28,11 +32,12 @@ class TestCircuitBreaker:
         assert cb.state == CircuitState.OPEN
 
         time.sleep(0.2)
-        assert cb.allow_request() # Should transition to HALF_OPEN
+        assert cb.allow_request()  # Should transition to HALF_OPEN
         assert cb.state == CircuitState.HALF_OPEN
 
         cb.record_success()
         assert cb.state == CircuitState.CLOSED
+
 
 @pytest.mark.asyncio
 class TestFailoverLLMProvider:
@@ -44,9 +49,11 @@ class TestFailoverLLMProvider:
 
         p2 = MagicMock()
         p2.provider_name = "p2"
-        p2.generate = AsyncMock(return_value=GenerationResult(
-            text="Success", model="m", provider="p2", usage=TokenUsage()
-        ))
+        p2.generate = AsyncMock(
+            return_value=GenerationResult(
+                text="Success", model="m", provider="p2", usage=TokenUsage()
+            )
+        )
 
         failover = FailoverLLMProvider([p1, p2])
 
@@ -69,7 +76,6 @@ class TestFailoverLLMProvider:
         failover = FailoverLLMProvider([p1])
         failover.circuits["p1"].state = CircuitState.OPEN
         failover.circuits["p1"].last_failure_time = time.time()
-
 
         # Should skip p1 without calling generate
         # Since all skipped, should raise ProviderUnavailableError

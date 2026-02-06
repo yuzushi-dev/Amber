@@ -15,6 +15,7 @@ from typing import Any
 @dataclass
 class ConnectorItem:
     """Represents an item fetched from a connector."""
+
     id: str
     title: str
     url: str
@@ -81,7 +82,9 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
-    async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list["ConnectorItem"], bool]:
+    async def list_items(
+        self, page: int = 1, page_size: int = 20, search: str = None
+    ) -> tuple[list["ConnectorItem"], bool]:
         """
         List items from the external service.
 

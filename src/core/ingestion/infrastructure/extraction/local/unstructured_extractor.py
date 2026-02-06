@@ -10,6 +10,7 @@ import time
 
 try:
     from unstructured.partition.auto import partition
+
     HAS_UNSTRUCTURED = True
 except ImportError:
     HAS_UNSTRUCTURED = False
@@ -40,6 +41,7 @@ class UnstructuredExtractor(BaseExtractor):
 
         # Unstructured usually works best with files or file-likes
         import io
+
         file = io.BytesIO(file_content)
 
         try:
@@ -73,11 +75,11 @@ class UnstructuredExtractor(BaseExtractor):
 
             return ExtractionResult(
                 content=content,
-                tables=[], # Tables parsing in unstructured requires strategy="hi_res" usually
+                tables=[],  # Tables parsing in unstructured requires strategy="hi_res" usually
                 metadata={},
                 extractor_used=self.name,
-                confidence=0.8, # Generic confidence
-                extraction_time_ms=elapsed
+                confidence=0.8,  # Generic confidence
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

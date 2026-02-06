@@ -14,6 +14,7 @@ try:
     # We'll assume the library is installed or handle import error.
     from marker.convert import convert_single_pdf
     from marker.models import load_all_models
+
     HAS_MARKER = True
 except ImportError:
     HAS_MARKER = False
@@ -66,20 +67,20 @@ class MarkerExtractor(BaseExtractor):
             full_text, images, out_meta = convert_single_pdf(
                 tmp_path,
                 self._model_lst,
-                max_pages=None, # Extract all
-                parallel_factor=1 # Single threaded within this process
+                max_pages=None,  # Extract all
+                parallel_factor=1,  # Single threaded within this process
             )
 
             elapsed = (time.time() - start_time) * 1000
 
             return ExtractionResult(
                 content=full_text,
-                tables=[], # Marker integrates tables into text (markdown tables)
-                images=images, # Marker returns image paths/data
+                tables=[],  # Marker integrates tables into text (markdown tables)
+                images=images,  # Marker returns image paths/data
                 metadata=out_meta if out_meta else {},
                 extractor_used=self.name,
-                confidence=0.9, # High confidence generally
-                extraction_time_ms=elapsed
+                confidence=0.9,  # High confidence generally
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

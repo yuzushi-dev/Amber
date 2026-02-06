@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.shared.kernel.models.query import SearchMode
 from src.core.retrieval.application.query.router import QueryRouter
+from src.shared.kernel.models.query import SearchMode
 from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
@@ -31,12 +31,12 @@ async def test_router_heuristics_drift():
 
 @pytest.mark.asyncio
 async def test_router_llm_classification():
-    from unittest.mock import patch, MagicMock
-    
+    from unittest.mock import MagicMock, patch
+
     # Setup mocks
     mock_provider = AsyncMock()
     mock_provider.generate.return_value = "local"
-    
+
     # Provider factory is synchronous
     mock_factory = MagicMock()
     mock_factory.get_llm_provider.return_value = mock_provider
@@ -48,14 +48,18 @@ async def test_router_llm_classification():
     mock_llm_config.seed = 42
 
     # Patch dependencies used inside the method
-    with patch('src.shared.kernel.runtime.get_settings') as mock_get_settings, \
-         patch('src.core.generation.application.llm_steps.resolve_llm_step_config', return_value=mock_llm_config):
-        
+    with (
+        patch("src.shared.kernel.runtime.get_settings") as mock_get_settings,
+        patch(
+            "src.core.generation.application.llm_steps.resolve_llm_step_config",
+            return_value=mock_llm_config,
+        ),
+    ):
         router = QueryRouter(provider=mock_provider, provider_factory=mock_factory)
 
         # No keywords, should hit LLM
         mode = await router.route("Who is the CEO of Microsoft?", use_llm=True)
-        
+
         assert mode == SearchMode.LOCAL
         # Verify the factory was used to get the provider
         mock_factory.get_llm_provider.assert_called_once()

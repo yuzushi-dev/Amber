@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FetchResult:
     """Result of a URL fetch operation."""
+
     content: bytes
     content_type: str
     final_url: str
@@ -31,9 +32,7 @@ class URLFetcher:
     Fetches content from URLs with retry logic and custom headers.
     """
 
-    DEFAULT_HEADERS = {
-        "User-Agent": "Amber-GraphRAG/1.0 (Document Ingestion)"
-    }
+    DEFAULT_HEADERS = {"User-Agent": "Amber-GraphRAG/1.0 (Document Ingestion)"}
 
     MAX_REDIRECTS = 5
     MAX_RETRIES = 3
@@ -52,10 +51,7 @@ class URLFetcher:
         self._last_request_time = 0
 
     async def fetch(
-        self,
-        url: str,
-        headers: dict[str, str] | None = None,
-        timeout: float = None
+        self, url: str, headers: dict[str, str] | None = None, timeout: float = None
     ) -> FetchResult:
         """
         Fetch content from a URL with retry logic.
@@ -92,9 +88,7 @@ class URLFetcher:
                 await self._apply_rate_limit()
 
                 async with httpx.AsyncClient(
-                    follow_redirects=True,
-                    max_redirects=self.MAX_REDIRECTS,
-                    timeout=timeout_val
+                    follow_redirects=True, max_redirects=self.MAX_REDIRECTS, timeout=timeout_val
                 ) as client:
                     response = await client.get(url, headers=request_headers)
                     response.raise_for_status()
@@ -114,7 +108,7 @@ class URLFetcher:
                             "content_length": len(content),
                             "content_hash": hashlib.sha256(content).hexdigest(),
                             "response_headers": dict(response.headers),
-                        }
+                        },
                     )
 
             except httpx.HTTPStatusError as e:
@@ -131,8 +125,10 @@ class URLFetcher:
                 last_error = e
 
             # Calculate backoff delay
-            delay = self.RETRY_DELAY_BASE * (2 ** attempt)
-            logger.warning(f"Attempt {attempt + 1} failed for {url}, retrying in {delay}s: {last_error}")
+            delay = self.RETRY_DELAY_BASE * (2**attempt)
+            logger.warning(
+                f"Attempt {attempt + 1} failed for {url}, retrying in {delay}s: {last_error}"
+            )
             await asyncio.sleep(delay)
 
         # All retries exhausted
@@ -142,6 +138,7 @@ class URLFetcher:
     async def _apply_rate_limit(self):
         """Apply rate limiting between requests."""
         import time
+
         now = time.time()
         elapsed = now - self._last_request_time
 

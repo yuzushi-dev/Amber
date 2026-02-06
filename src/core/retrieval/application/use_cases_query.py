@@ -11,20 +11,19 @@ Handles orchestration of:
 
 import logging
 import time
-from typing import Optional, Any
+from typing import Any
 
+from src.core.admin_ops.application.metrics.collector import MetricsCollector
+from src.core.generation.application.generation_service import GenerationService
+from src.core.retrieval.application.retrieval_service import RetrievalService
 from src.shared.kernel.models.query import (
     QueryRequest,
     QueryResponse,
+    Source,
     StructuredQueryResponse,
     TimingInfo,
     TraceStep,
-    Source,
 )
-
-from src.core.retrieval.application.retrieval_service import RetrievalService
-from src.core.generation.application.generation_service import GenerationService
-from src.core.admin_ops.application.metrics.collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +47,23 @@ class QueryUseCase:
         self,
         request: QueryRequest,
         tenant_id: str,
-        http_request_state: Any = None, # For permissions/context if needed, or extract needed data
+        http_request_state: Any = None,  # For permissions/context if needed, or extract needed data
         user_id: str = "default_user",
     ) -> QueryResponse | StructuredQueryResponse:
         """
         Execute the query pipeline.
-        
+
         Args:
             request: The query request.
             tenant_id: The tenant context.
             http_request_state: Optional state from FastAPI request (for permissions).
             user_id: User identifier.
-            
+
         Returns:
             QueryResponse or StructuredQueryResponse.
         """
         start_time = time.perf_counter()
-        
+
         # Options
         include_trace = request.options.include_trace if request.options else False
         max_chunks = request.options.max_chunks if request.options else 10
@@ -84,7 +83,7 @@ class QueryUseCase:
                     f"Structured query executed: {structured_result.query_type.value} "
                     f"in {structured_result.execution_time_ms:.1f}ms"
                 )
-                
+
                 count = structured_result.count
                 query_type = structured_result.query_type.value
                 message = self._format_structured_message(query_type, count)
@@ -111,23 +110,28 @@ class QueryUseCase:
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}")
                 # Fallback to standard RAG
-        
+
         # 3. RAG PIPELINE
         # Generate query ID
         from src.shared.identifiers import generate_query_id
+
         query_id = generate_query_id()
 
         try:
-             async with self.metrics.track_query(query_id, tenant_id, request.query) as query_metrics:
+            async with self.metrics.track_query(
+                query_id, tenant_id, request.query
+            ) as query_metrics:
                 query_metrics.conversation_id = request.conversation_id or query_id
 
                 # Step 1: Parse
                 step_start = time.perf_counter()
-                trace_steps.append(TraceStep(
-                    step="parse_query",
-                    duration_ms=(time.perf_counter() - step_start) * 1000,
-                    details={"query_length": len(request.query), "query_id": query_id},
-                ))
+                trace_steps.append(
+                    TraceStep(
+                        step="parse_query",
+                        duration_ms=(time.perf_counter() - step_start) * 1000,
+                        details={"query_length": len(request.query), "query_id": query_id},
+                    )
+                )
 
                 # Step 2: Retrieval
                 step_start = time.perf_counter()
@@ -140,7 +144,7 @@ class QueryUseCase:
                     top_k=max_chunks,
                     include_trace=include_trace,
                     options=request.options,
-                    history=None, 
+                    history=None,
                 )
 
                 retrieval_ms = (time.perf_counter() - step_start) * 1000
@@ -149,15 +153,19 @@ class QueryUseCase:
                 query_metrics.cache_hit = retrieval_result.cache_hit
 
                 for rt in retrieval_result.trace:
-                    trace_steps.append(TraceStep(
-                        step=rt["step"],
-                        duration_ms=rt.get("duration_ms", 0),
-                        details={k: v for k, v in rt.items() if k not in ("step", "duration_ms")},
-                    ))
+                    trace_steps.append(
+                        TraceStep(
+                            step=rt["step"],
+                            duration_ms=rt.get("duration_ms", 0),
+                            details={
+                                k: v for k, v in rt.items() if k not in ("step", "duration_ms")
+                            },
+                        )
+                    )
 
                 # Step 3: Generation
                 step_start = time.perf_counter()
-                
+
                 if not retrieval_result.chunks:
                     answer = self._get_empty_result_message(request.query)
                     sources: list[Source] = []
@@ -170,13 +178,13 @@ class QueryUseCase:
                         options={
                             "user_id": user_id,
                             "tenant_id": tenant_id,
-                            "model": request.options.model if request.options else None
-                        }
+                            "model": request.options.model if request.options else None,
+                        },
                     )
 
                     answer = gen_result.answer
                     self._update_metrics_from_generation(query_metrics, gen_result, answer)
-                    
+
                     sources = [
                         Source(
                             chunk_id=s.chunk_id,
@@ -191,11 +199,15 @@ class QueryUseCase:
                     follow_ups = gen_result.follow_up_questions
 
                     for gt in gen_result.trace:
-                        trace_steps.append(TraceStep(
-                            step=gt["step"],
-                            duration_ms=gt.get("duration_ms", 0),
-                            details={k: v for k, v in gt.items() if k not in ("step", "duration_ms")},
-                        ))
+                        trace_steps.append(
+                            TraceStep(
+                                step=gt["step"],
+                                duration_ms=gt.get("duration_ms", 0),
+                                details={
+                                    k: v for k, v in gt.items() if k not in ("step", "duration_ms")
+                                },
+                            )
+                        )
 
                 generation_ms = (time.perf_counter() - step_start) * 1000
                 query_metrics.generation_latency_ms = generation_ms
@@ -216,7 +228,7 @@ class QueryUseCase:
             sources=sources,
             trace_steps=trace_steps if include_trace else None,
             total_ms=total_ms,
-            model=query_metrics.model if 'query_metrics' in locals() else None
+            model=query_metrics.model if "query_metrics" in locals() else None,
         )
 
         return QueryResponse(
@@ -235,9 +247,9 @@ class QueryUseCase:
     async def _execute_agent(self, request: QueryRequest, tenant_id: str, start_time: float):
         from src.core.generation.application.agent.orchestrator import AgentOrchestrator
         from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
-        from src.core.tools.retrieval import create_retrieval_tool
         from src.core.tools.filesystem import create_filesystem_tools
-        
+        from src.core.tools.retrieval import create_retrieval_tool
+
         # Tools Setup
         retrieval_tool_def = create_retrieval_tool(self.retrieval_service, tenant_id)
         tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
@@ -245,27 +257,27 @@ class QueryUseCase:
 
         agent_role = request.options.agent_role
         if agent_role == "maintainer":
-             fs_tools = create_filesystem_tools(base_path=".") 
-             for t in fs_tools:
-                 tool_map[t["name"]] = t["func"]
-                 tool_schemas.append(t["schema"])
+            fs_tools = create_filesystem_tools(base_path=".")
+            for t in fs_tools:
+                tool_map[t["name"]] = t["func"]
+                tool_schemas.append(t["schema"])
         else:
-             from src.core.tools.graph import GRAPH_TOOLS, query_graph
-             tool_map["query_graph"] = query_graph
-             tool_schemas.extend(GRAPH_TOOLS)
-        
+            from src.core.tools.graph import GRAPH_TOOLS, query_graph
+
+            tool_map["query_graph"] = query_graph
+            tool_schemas.extend(GRAPH_TOOLS)
+
         agent = AgentOrchestrator(
             generation_service=self.generation_service,
             tools=tool_map,
             tool_schemas=tool_schemas,
-            system_prompt=AGENT_SYSTEM_PROMPT
+            system_prompt=AGENT_SYSTEM_PROMPT,
         )
-        
+
         agent_response = await agent.run(
-            query=request.query,
-            conversation_id=request.conversation_id
+            query=request.query, conversation_id=request.conversation_id
         )
-        
+
         total_ms = (time.perf_counter() - start_time) * 1000
         agent_response.timing.total_ms = round(total_ms, 2)
         return agent_response
@@ -278,7 +290,7 @@ class QueryUseCase:
     def _get_empty_result_message(self, query_text: str) -> str:
         return (
             "I couldn't find any relevant information in the knowledge base "
-            f"to answer: \"{query_text[:100]}...\"\n\n"
+            f'to answer: "{query_text[:100]}..."\n\n'
             "This could mean:\n"
             "- No documents have been uploaded yet\n"
             "- The query doesn't match available content\n"
@@ -297,17 +309,33 @@ class QueryUseCase:
         metrics.operation = "rag_query"
         metrics.response = answer[:500] if len(answer) > 500 else answer
 
-    def _schedule_context_logging(self, query_id, conversation_id, tenant_id, query, answer, sources, trace_steps, total_ms, model):
+    def _schedule_context_logging(
+        self,
+        query_id,
+        conversation_id,
+        tenant_id,
+        query,
+        answer,
+        sources,
+        trace_steps,
+        total_ms,
+        model,
+    ):
         try:
             import asyncio
+
             from src.core.graph.application.context_writer import context_graph_writer
             from src.core.security.pii_scrubber import PIIScrubber
-            
-            source_data = [
-                {"chunk_id": s.chunk_id, "document_id": s.document_id, "score": s.score}
-                for s in sources
-            ] if sources else []
-            
+
+            source_data = (
+                [
+                    {"chunk_id": s.chunk_id, "document_id": s.document_id, "score": s.score}
+                    for s in sources
+                ]
+                if sources
+                else []
+            )
+
             scrubber = PIIScrubber()
             safe_query = scrubber.scrub_text(query)
             safe_answer = scrubber.scrub_text(answer)

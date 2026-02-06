@@ -1,18 +1,36 @@
-
 from pydantic import BaseModel, Field
 
 
 class ExtractedEntity(BaseModel):
     name: str = Field(..., description="Name of the entity. Capitalize properly.")
-    type: str = Field(..., description="Type of the entity (e.g., PERSON, ORGANIZATION, LOCATION, EVENT, CONCEPT, PRODUCT, DOCUMENT).")
-    description: str = Field(..., description="Brief, comprehensive description of the entity based on the text.")
+    type: str = Field(
+        ...,
+        description="Type of the entity (e.g., PERSON, ORGANIZATION, LOCATION, EVENT, CONCEPT, PRODUCT, DOCUMENT).",
+    )
+    description: str = Field(
+        ..., description="Brief, comprehensive description of the entity based on the text."
+    )
+
 
 class ExtractedRelationship(BaseModel):
-    source: str = Field(..., description="Name of the source entity (must match an extracted entity name).")
-    target: str = Field(..., description="Name of the target entity (must match an extracted entity name).")
-    type: str = Field(..., description="Type of the relationship (UPPER_SNAKE_CASE, e.g., AUTHORED, DEPLOYED_ON, HAS_IMPACT).")
-    description: str = Field(..., description="Description of how the source is related to the target.")
-    weight: float = Field(default=1.0, description="Strength of the relationship (0.0-1.0) based on importance/frequency.")
+    source: str = Field(
+        ..., description="Name of the source entity (must match an extracted entity name)."
+    )
+    target: str = Field(
+        ..., description="Name of the target entity (must match an extracted entity name)."
+    )
+    type: str = Field(
+        ...,
+        description="Type of the relationship (UPPER_SNAKE_CASE, e.g., AUTHORED, DEPLOYED_ON, HAS_IMPACT).",
+    )
+    description: str = Field(
+        ..., description="Description of how the source is related to the target."
+    )
+    weight: float = Field(
+        default=1.0,
+        description="Strength of the relationship (0.0-1.0) based on importance/frequency.",
+    )
+
 
 class ExtractionUsage(BaseModel):
     total_tokens: int = 0
@@ -22,6 +40,7 @@ class ExtractionUsage(BaseModel):
     model: str = ""
     provider: str = ""
 
+
 class ExtractionResult(BaseModel):
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relationships: list[ExtractedRelationship] = Field(default_factory=list)
@@ -30,7 +49,10 @@ class ExtractionResult(BaseModel):
 
 # Dynamic Tuple-based Prompt Generation
 
-def get_tuple_extraction_prompt(entity_types: list[str], relation_types: list[str], text_unit_id: str = "UNKNOWN") -> str:
+
+def get_tuple_extraction_prompt(
+    entity_types: list[str], relation_types: list[str], text_unit_id: str = "UNKNOWN"
+) -> str:
     """Generate prompt for tuple-delimited format (Phase 3)."""
     entity_types_str = ", ".join(entity_types)
     relation_types_str = ", ".join(relation_types)
@@ -72,10 +94,11 @@ You are processing TextUnit ID: {text_unit_id}. Always preserve this identifier 
 6. AVOID using <|> delimiter in descriptions
 """
 
+
 def get_gleaning_prompt(existing_entities: list[str], entity_types: list[str]) -> str:
     """Generate continuation prompt for gleaning pass."""
     # Show sample of already-extracted entities
-    entity_sample = existing_entities[:20] # Show up to 20
+    entity_sample = existing_entities[:20]  # Show up to 20
     summary = ", ".join(entity_sample)
     if len(existing_entities) > 20:
         summary += f" (and {len(existing_entities) - 20} more)"
@@ -94,4 +117,3 @@ IMPORTANT: MANY additional entities and relationships were MISSED in the previou
 - Be thorough and careful
 
 **Additional entities and relationships:**"""
-

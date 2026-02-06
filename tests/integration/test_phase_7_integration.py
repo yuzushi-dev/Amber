@@ -7,29 +7,32 @@ if "tiktoken" not in sys.modules:
 
 import asyncio
 
-from src.core.generation.infrastructure.providers.base import GenerationResult, TokenUsage
 from src.core.generation.application.generation_service import GenerationService
+from src.core.generation.infrastructure.providers.base import GenerationResult, TokenUsage
 from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 
 async def test_generation_service_orchestration():
     print("Running test_generation_service_orchestration...")
-    
+
     # Mock LLM provider
     mock_llm = MagicMock()
     mock_llm.model_name = DEFAULT_LLM_MODEL["openai"]
 
     # Mock generate response
-    mock_llm.generate = AsyncMock(return_value=GenerationResult(
-        text="The main feature of GraphRAG is its ability to reason over long-range relationships [1].",
-        model=DEFAULT_LLM_MODEL["openai"],
-        provider="openai",
-        usage=TokenUsage(input_tokens=100, output_tokens=50),
-        cost_estimate=0.001
-    ))
+    mock_llm.generate = AsyncMock(
+        return_value=GenerationResult(
+            text="The main feature of GraphRAG is its ability to reason over long-range relationships [1].",
+            model=DEFAULT_LLM_MODEL["openai"],
+            provider="openai",
+            usage=TokenUsage(input_tokens=100, output_tokens=50),
+            cost_estimate=0.001,
+        )
+    )
 
     # Mock rules service to avoid injecting global rules
     from unittest.mock import patch
+
     with patch("src.core.admin_ops.application.rules_service.get_rules_service") as mock_get_rules:
         mock_rules_svc = AsyncMock()
         mock_rules_svc.get_active_rules.return_value = []
@@ -38,12 +41,15 @@ async def test_generation_service_orchestration():
         service = GenerationService(llm_provider=mock_llm)
 
         candidates = [
-            {"content": "GraphRAG integrates vector search with knowledge graphs for deep reasoning.", "chunk_id": "chunk_1", "document_id": "doc_1"}
+            {
+                "content": "GraphRAG integrates vector search with knowledge graphs for deep reasoning.",
+                "chunk_id": "chunk_1",
+                "document_id": "doc_1",
+            }
         ]
 
         result = await service.generate(
-            query="What is a key feature of GraphRAG?",
-            candidates=candidates
+            query="What is a key feature of GraphRAG?", candidates=candidates
         )
 
         assert "reason over long-range relationships" in result.answer
@@ -51,6 +57,7 @@ async def test_generation_service_orchestration():
         assert result.sources[0].chunk_id == "chunk_1"
         assert result.tokens_used == 150
         print("test_generation_service_orchestration PASSED")
+
 
 async def test_generation_service_streaming():
     print("Running test_generation_service_streaming...")
@@ -66,6 +73,7 @@ async def test_generation_service_streaming():
 
     # Mock rules service to avoid injecting global rules
     from unittest.mock import patch
+
     with patch("src.core.admin_ops.application.rules_service.get_rules_service") as mock_get_rules:
         mock_rules_svc = AsyncMock()
         mock_rules_svc.get_active_rules.return_value = []
@@ -92,7 +100,9 @@ async def test_generation_service_streaming():
         assert "follow_ups" in events[-1]["data"]
         print("test_generation_service_streaming PASSED")
 
+
 if __name__ == "__main__":
+
     async def run_all():
         try:
             await test_generation_service_orchestration()
@@ -101,6 +111,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\nTEST FAILED: {e}")
             import traceback
+
             traceback.print_exc()
             sys.exit(1)
 

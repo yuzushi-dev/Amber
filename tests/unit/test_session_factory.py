@@ -28,6 +28,7 @@ def test_build_session_factory_uses_core_maker(monkeypatch):
     )
 
     import sqlalchemy.ext.asyncio as async_module
+
     monkeypatch.setattr(async_module, "create_async_engine", raise_unexpected)
 
     maker = composition_root.build_session_factory()

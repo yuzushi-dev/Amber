@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from src.shared.kernel.settings import SettingsProtocol
 
 if TYPE_CHECKING:
-    from src.api.config import Settings
+    pass
 
 
 # -----------------------------------------------------------------------------
@@ -27,25 +27,26 @@ _settings: SettingsProtocol | None = None
 def configure_settings(settings: SettingsProtocol) -> None:
     """
     Configure the global settings instance.
-    
+
     Called at application startup (API/worker) to inject the settings.
     This is the only way settings should be provided to core modules.
     """
     global _settings
     print(f"DEBUG: configure_settings called with {settings}")
     _settings = settings
-    
+
     # Also configure shared kernel runtime (used by infrastructure adapters)
     from src.shared.kernel.runtime import configure_settings as runtime_configure
+
     runtime_configure(settings)
 
 
 def get_settings() -> SettingsProtocol:
     """
     Get the configured settings instance.
-    
+
     This should be called by core modules instead of importing src.api.config.
-    
+
     Raises:
         RuntimeError: If settings have not been configured.
     """
@@ -61,7 +62,7 @@ def get_settings() -> SettingsProtocol:
 def get_settings_lazy() -> SettingsProtocol:
     """
     Lazy settings accessor that auto-configures from src.api.config if not set.
-    
+
     This provides backward compatibility during the migration period.
     New code should use get_settings() after explicit configuration.
     """
@@ -69,6 +70,7 @@ def get_settings_lazy() -> SettingsProtocol:
     if _settings is None:
         # Auto-configure from API config for backward compatibility
         from src.api.config import settings as api_settings
+
         _settings = api_settings
     return _settings
 
@@ -77,16 +79,17 @@ def get_settings_lazy() -> SettingsProtocol:
 # Platform Registry (Lifecycle-Managed Clients)
 # -----------------------------------------------------------------------------
 
+
 class PlatformRegistry:
     """
     Holds singleton client instances with explicit lifecycle management.
-    
+
     Usage:
         await platform.initialize()  # At app startup
         client = platform.neo4j_client
         await platform.shutdown()    # At app shutdown
     """
-    
+
     def __init__(self):
         self._neo4j_client = None
         self._minio_client = None
@@ -95,27 +98,30 @@ class PlatformRegistry:
         self._content_extractor = None
         self._milvus_vector_store = None
         self._initialized = False
-        
+
     async def initialize(self) -> None:
         """Initialize all managed clients."""
         if self._initialized:
             return
-            
+
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         settings = get_settings_lazy()
 
         # Observability tracer
-        from src.shared.kernel.observability import set_trace_span
         from src.core.admin_ops.infrastructure.observability import tracer as infra_tracer
+        from src.shared.kernel.observability import set_trace_span
+
         set_trace_span(infra_tracer.trace_span)
-        
+
         # Neo4j
         from src.core.graph.domain.ports.graph_client import set_graph_client
         from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
         from src.core.graph.infrastructure.neo4j_client import Neo4jClient
         from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
+
         self._neo4j_client = Neo4jClient(
             uri=settings.db.neo4j_uri,
             user=settings.db.neo4j_user,
@@ -130,9 +136,10 @@ class PlatformRegistry:
         # Graph extractor
         self._graph_extractor = GraphExtractor(use_gleaning=True)
         set_graph_extractor(self._graph_extractor)
-        
+
         # MinIO (sync client, no async init needed)
         from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
+
         self._minio_client = MinIOClient(
             host=settings.minio.host,
             port=settings.minio.port,
@@ -144,39 +151,48 @@ class PlatformRegistry:
 
         # Content extractor (fallback chain)
         from src.core.ingestion.domain.ports.content_extractor import set_content_extractor
-        from src.core.ingestion.infrastructure.extraction.fallback_extractor import FallbackContentExtractor
+        from src.core.ingestion.infrastructure.extraction.fallback_extractor import (
+            FallbackContentExtractor,
+        )
+
         self._content_extractor = FallbackContentExtractor()
         set_content_extractor(self._content_extractor)
 
         # Provider factory builder (LLM/embedding/reranker)
         from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder
         from src.core.generation.infrastructure.providers.factory import ProviderFactory
-        from src.core.generation.infrastructure.providers.factory import ProviderFactory
+
         set_provider_factory_builder(ProviderFactory)
-        
+
         # Milvus (Managed Vector Store)
-        from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+        from src.core.retrieval.infrastructure.vector_store.milvus import (
+            MilvusConfig,
+            MilvusVectorStore,
+        )
+
         milvus_config = MilvusConfig(
             host=settings.db.milvus_host,
             port=settings.db.milvus_port,
             dimensions=settings.embedding_dimensions or 1536,
         )
         self._milvus_vector_store = MilvusVectorStore(milvus_config)
-        # Note: We don't await connect() here as it lazily connects, 
+        # Note: We don't await connect() here as it lazily connects,
         # but we could force it if we wanted strict startup checks.
-        
+
         # Redis (shared connection for events)
         import redis.asyncio as aioredis
+
         self._redis_client = aioredis.from_url(settings.db.redis_url)
-        
+
         self._initialized = True
         logger.info("Platform registry initialized")
-        
+
     async def shutdown(self) -> None:
         """Close all managed clients."""
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         if self._neo4j_client:
             try:
                 await self._neo4j_client.close()
@@ -184,23 +200,31 @@ class PlatformRegistry:
                 logger.warning(f"Error closing Neo4j: {e}")
             self._neo4j_client = None
             from src.core.graph.domain.ports.graph_client import set_graph_client
+
             set_graph_client(None)
             from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+
             set_graph_extractor(None)
             self._graph_extractor = None
 
         if self._content_extractor:
             from src.core.ingestion.domain.ports.content_extractor import set_content_extractor
+
             set_content_extractor(None)
             self._content_extractor = None
 
-        from src.core.generation.domain.ports.provider_factory import set_provider_factory_builder, set_provider_factory
+        from src.core.generation.domain.ports.provider_factory import (
+            set_provider_factory,
+            set_provider_factory_builder,
+        )
+
         set_provider_factory_builder(None)
         set_provider_factory(None)
 
         from src.shared.kernel.observability import set_trace_span
+
         set_trace_span(None)
-            
+
         if self._redis_client:
             try:
                 await self._redis_client.close()
@@ -217,17 +241,19 @@ class PlatformRegistry:
             self._milvus_vector_store = None
 
         from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore
+
         await MilvusVectorStore.global_disconnect()
-            
+
         self._initialized = False
         logger.info("Platform registry shutdown complete")
-        
+
     @property
     def neo4j_client(self):
         """Get the managed Neo4j client."""
         if not self._neo4j_client:
             # Lazy fallback for backward compatibility
             from src.core.graph.infrastructure.neo4j_client import Neo4jClient
+
             settings = get_settings_lazy()
             self._neo4j_client = Neo4jClient(
                 uri=settings.db.neo4j_uri,
@@ -235,12 +261,13 @@ class PlatformRegistry:
                 password=settings.db.neo4j_password,
             )
         return self._neo4j_client
-        
+
     @property
     def minio_client(self):
         """Get the managed MinIO client."""
         if not self._minio_client:
             from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
+
             settings = get_settings_lazy()
             self._minio_client = MinIOClient(
                 host=settings.minio.host,
@@ -251,12 +278,13 @@ class PlatformRegistry:
                 bucket_name=settings.minio.bucket_name,
             )
         return self._minio_client
-        
+
     @property
     def redis_client(self):
         """Get the managed async Redis client."""
         if not self._redis_client:
             import redis.asyncio as aioredis
+
             settings = get_settings_lazy()
             self._redis_client = aioredis.from_url(settings.db.redis_url)
         return self._redis_client
@@ -265,7 +293,11 @@ class PlatformRegistry:
     def milvus_vector_store(self):
         """Get the managed Milvus vector store client."""
         if not self._milvus_vector_store:
-            from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+            from src.core.retrieval.infrastructure.vector_store.milvus import (
+                MilvusConfig,
+                MilvusVectorStore,
+            )
+
             settings = get_settings_lazy()
             milvus_config = MilvusConfig(
                 host=settings.db.milvus_host,
@@ -287,7 +319,7 @@ platform = PlatformRegistry()
 
 def build_neo4j_client():
     """Build a Neo4j client with settings from composition root.
-    
+
     DEPRECATED: Use `platform.neo4j_client` instead.
     """
     return platform.neo4j_client
@@ -295,7 +327,7 @@ def build_neo4j_client():
 
 def build_minio_client():
     """Build a MinIO client with settings from composition root.
-    
+
     DEPRECATED: Use `platform.minio_client` instead.
     """
     return platform.minio_client
@@ -304,7 +336,7 @@ def build_minio_client():
 def build_milvus_config():
     """Build Milvus configuration from settings."""
     from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig
-    
+
     settings = get_settings_lazy()
     return MilvusConfig(
         host=settings.db.milvus_host,
@@ -315,7 +347,10 @@ def build_milvus_config():
 
 def build_vector_store_factory():
     """Build a factory for vector store instances with custom dimensions."""
-    from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
+    from src.core.retrieval.infrastructure.vector_store.milvus import (
+        MilvusConfig,
+        MilvusVectorStore,
+    )
 
     base = build_milvus_config()
 
@@ -341,15 +376,16 @@ def build_session_factory():
     Return the canonical async session factory from the core database module.
     """
     from src.core.database.session import get_session_maker
+
     return get_session_maker()
 
 
 def build_uow_factory():
     """
     Build a Unit of Work factory function.
-    
+
     Returns a factory that creates UoW instances with the given tenant context.
-    
+
     Usage:
         uow_factory = build_uow_factory()
         async with uow_factory(tenant_id, is_super_admin=False) as uow:
@@ -357,20 +393,21 @@ def build_uow_factory():
             ...
     """
     from src.core.database.unit_of_work import SqlAlchemyUnitOfWork
-    
+
     session_maker = build_session_factory()
-    
+
     def make_uow(tenant_id: str, is_super_admin: bool = False) -> SqlAlchemyUnitOfWork:
-        return SqlAlchemyUnitOfWork(session_maker, tenant_id=tenant_id, is_super_admin=is_super_admin)
-    
+        return SqlAlchemyUnitOfWork(
+            session_maker, tenant_id=tenant_id, is_super_admin=is_super_admin
+        )
+
     return make_uow
-
-
 
 
 # -----------------------------------------------------------------------------
 # Service Factories
 # -----------------------------------------------------------------------------
+
 
 # @lru_cache # Removed because it now depends on Session (request-scoped)
 def build_upload_document_use_case(
@@ -382,12 +419,16 @@ def build_upload_document_use_case(
     """
     Build UploadDocumentUseCase with concrete infrastructure adapters.
     """
-    from src.core.ingestion.application.use_cases_documents import UploadDocumentUseCase
-    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
-    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
-    from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
-    from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
     from src.core.events.dispatcher import EventDispatcher
+    from src.core.ingestion.application.use_cases_documents import UploadDocumentUseCase
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+    from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+        PostgresTenantRepository,
+    )
+    from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
     from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
 
     vector_store_factory = build_vector_store_factory()
@@ -405,27 +446,31 @@ def build_upload_document_use_case(
         event_dispatcher=event_dispatcher or EventDispatcher(RedisStatePublisher()),
     )
 
+
 # @lru_cache # Removed because it now depends on Session (request-scoped)
 def build_retrieval_service(session=None):
     """
     Build the RetrievalService with configured providers.
-    
+
     Args:
         session: SQLAlchemy AsyncSession (required for DocumentRepository)
-        
+
     Raises:
         ValueError: If session is not provided.
     """
     if not session:
         raise ValueError("Session is required to build RetrievalService")
 
-    from src.core.retrieval.application.retrieval_service import RetrievalConfig, RetrievalService
-    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
-    from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
-    from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
-    from src.core.graph.infrastructure.neo4j_client import Neo4jClient
     from src.core.admin_ops.application.tuning_service import TuningService
-    
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+    from src.core.retrieval.application.retrieval_service import RetrievalConfig, RetrievalService
+    from src.core.retrieval.infrastructure.vector_store.milvus import (
+        MilvusConfig,
+        MilvusVectorStore,
+    )
+
     settings = get_settings_lazy()
     providers = getattr(settings, "providers", None)
     openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
@@ -435,10 +480,10 @@ def build_retrieval_service(session=None):
         milvus_host=settings.db.milvus_host,
         milvus_port=settings.db.milvus_port,
     )
-    
+
     # Repositories
     document_repo = PostgresDocumentRepository(session)
-    
+
     # Vector Store (using implicit global connection or managed by platform)
     # Ideally checking platform.milvus_client? MilvusVectorStore manages its own connection logic via globally imported pymilvus.
     # We instantiate it here.
@@ -448,7 +493,7 @@ def build_retrieval_service(session=None):
         dimensions=settings.embedding_dimensions or 1536,
     )
     vector_store = MilvusVectorStore(milvus_config)
-    
+
     # Graph Store (Client)
     # Use platform managed one
     neo4j_client = platform.neo4j_client
@@ -474,8 +519,10 @@ def build_retrieval_service(session=None):
 def build_generation_service(session=None):
     """Build the GenerationService with configured providers."""
     from src.core.generation.application.generation_service import GenerationService
-    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
-    
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+
     settings = get_settings_lazy()
     providers = getattr(settings, "providers", None)
     openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
@@ -484,7 +531,10 @@ def build_generation_service(session=None):
     doc_repo = None
     tenant_repo = None
     if session:
-        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
+        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+            PostgresTenantRepository,
+        )
+
         doc_repo = PostgresDocumentRepository(session)
         tenant_repo = PostgresTenantRepository(session)
 
@@ -503,7 +553,7 @@ def build_generation_service(session=None):
 def build_metrics_collector():
     """Build the MetricsCollector."""
     from src.core.admin_ops.application.metrics.collector import MetricsCollector
-    
+
     settings = get_settings_lazy()
     return MetricsCollector(
         redis_url=settings.db.redis_url,

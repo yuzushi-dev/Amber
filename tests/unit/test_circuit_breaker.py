@@ -11,10 +11,11 @@ def test_circuit_breaker_degradation():
     assert not cb.should_degrade
 
     # Record high latencies (above threshold)
-    for _ in range(6): # > 50% of 10
+    for _ in range(6):  # > 50% of 10
         cb.record_latency(200.0)
 
     assert cb.should_degrade
+
 
 def test_circuit_breaker_recovery():
     """Verify recovery once latency drops."""

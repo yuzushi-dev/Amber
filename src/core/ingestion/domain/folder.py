@@ -5,15 +5,16 @@ Folder Model
 Database model for document folders.
 """
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from src.core.ingestion.domain.document import Document
+
 
 class Folder(Base, TimestampMixin):
     """
@@ -25,9 +26,9 @@ class Folder(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     tenant_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    
+
     # Relationship to documents
-    documents: Mapped[List["Document"]] = relationship("Document", back_populates="folder")
+    documents: Mapped[list["Document"]] = relationship("Document", back_populates="folder")
 
     def __repr__(self):
         return f"<Folder(id={self.id}, name={self.name})>"

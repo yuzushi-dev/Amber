@@ -14,10 +14,12 @@ from base64 import b64encode
 
 _SECRET_KEY: str = "default-insecure-key"
 
+
 def configure_security(secret_key: str) -> None:
     """Configure security module with application secret."""
     global _SECRET_KEY
     _SECRET_KEY = secret_key
+
 
 def _get_salt() -> bytes:
     """Get the salt for hashing from the secret key."""

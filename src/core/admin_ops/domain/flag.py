@@ -16,6 +16,7 @@ from src.shared.kernel.models.base import Base, TimestampMixin
 
 class FlagType(str, enum.Enum):
     """Types of flags that can be reported."""
+
     WRONG_FACT = "wrong_fact"
     BAD_LINK = "bad_link"
     WRONG_ENTITY = "wrong_entity"
@@ -27,6 +28,7 @@ class FlagType(str, enum.Enum):
 
 class FlagStatus(str, enum.Enum):
     """Flag resolution status."""
+
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
@@ -40,6 +42,7 @@ class Flag(Base, TimestampMixin):
     Part of the SME (Subject Matter Expert) loop where analysts
     flag incorrect facts, entities, or relationships during their work.
     """
+
     __tablename__ = "flags"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -47,8 +50,16 @@ class Flag(Base, TimestampMixin):
 
     # Flag metadata
     # Use values_callable to ensure lowercase values match PostgreSQL enum
-    type = Column(SQLEnum(FlagType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
-    status = Column(SQLEnum(FlagStatus, values_callable=lambda x: [e.value for e in x]), default=FlagStatus.PENDING, index=True)
+    type = Column(
+        SQLEnum(FlagType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        index=True,
+    )
+    status = Column(
+        SQLEnum(FlagStatus, values_callable=lambda x: [e.value for e in x]),
+        default=FlagStatus.PENDING,
+        index=True,
+    )
 
     # Reporter info
     reported_by = Column(String, nullable=False)  # User ID or username

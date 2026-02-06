@@ -16,6 +16,7 @@ Descriptions:
 {descriptions}
 """
 
+
 class EntitySummarizer:
     """Service to summarize multiple descriptions of the same entity."""
 
@@ -49,8 +50,8 @@ class EntitySummarizer:
 
         # If we have meaningful variations, use LLM to summarize
         # Use Economy tier for summarization
-        from src.shared.kernel.runtime import get_settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
         tenant_config = tenant_config or {}
@@ -80,5 +81,6 @@ class EntitySummarizer:
             logger.warning(f"Summarization failed for {name}: {e}")
             # Fallback: return the longest description or the first one
             return max(unique_descs, key=len)
+
 
 entity_summarizer = EntitySummarizer()

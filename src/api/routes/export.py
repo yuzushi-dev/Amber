@@ -6,7 +6,7 @@ Endpoints for exporting conversation data.
 """
 
 import logging
-from datetime import datetime, UTC
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,11 +15,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, get_current_tenant_id
+from src.amber_platform.composition_root import platform
+from src.api.deps import get_current_tenant_id, get_db_session
+from src.core.admin_ops.application.export_service import ExportService
 from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
 from src.core.generation.domain.memory_models import ConversationSummary
-from src.amber_platform.composition_root import platform
-from src.core.admin_ops.application.export_service import ExportService
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,10 @@ router = APIRouter(prefix="/export", tags=["export"])
 # Response Models
 # =============================================================================
 
+
 class ExportJobResponse(BaseModel):
     """Response for export job creation/status."""
+
     job_id: str
     status: str
     progress: int | None = None
@@ -47,6 +49,7 @@ class ExportJobResponse(BaseModel):
 
 class StartExportResponse(BaseModel):
     """Response when starting a bulk export."""
+
     job_id: str
     status: str
     message: str
@@ -56,6 +59,7 @@ class StartExportResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
+
 @router.get("/conversation/{conversation_id}")
 async def export_conversation(
     conversation_id: str,
@@ -64,12 +68,12 @@ async def export_conversation(
 ):
     """
     Export a single conversation as a ZIP file.
-    
+
     The ZIP contains:
     - transcript.txt: Human-readable conversation text
     - metadata.json: Chunks and document references
     - documents/: Referenced source documents
-    
+
     This is a synchronous operation - the ZIP is generated and streamed directly.
     """
     # Verify conversation exists and belongs to tenant
@@ -79,27 +83,29 @@ async def export_conversation(
         .where(ConversationSummary.tenant_id == tenant_id)
     )
     conversation = result.scalar_one_or_none()
-    
+
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
+
     try:
         storage = platform.minio_client
         export_service = ExportService(session, storage)
-        
+
         zip_bytes = await export_service.generate_single_conversation_zip(conversation_id)
-        
+
         # Generate filename
-        safe_title = "".join(c if c.isalnum() or c in "._- " else "_" for c in conversation.title[:30])
+        safe_title = "".join(
+            c if c.isalnum() or c in "._- " else "_" for c in conversation.title[:30]
+        )
         filename = f"conversation_{safe_title}_{conversation_id[:8]}.zip"
-        
+
         return StreamingResponse(
             iter([zip_bytes]),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(zip_bytes)),
-            }
+            },
         )
     except Exception as e:
         logger.error(f"Failed to export conversation {conversation_id}: {e}")
@@ -113,16 +119,16 @@ async def start_export_all(
 ):
     """
     Start an async job to export all conversations.
-    
+
     This creates a background job that will:
     1. Generate a ZIP containing all conversations
     2. Upload it to storage
     3. Make it available for download
-    
+
     Poll /export/job/{job_id} to check status and get download URL.
     """
     from src.workers.export_tasks import export_all_conversations
-    
+
     # Create export job
     job_id = str(uuid4())
     job = ExportJob(
@@ -132,7 +138,7 @@ async def start_export_all(
     )
     session.add(job)
     await session.commit()
-    
+
     # Dispatch Celery task
     try:
         # Use job_id as task_id to allow easy revocation
@@ -144,11 +150,11 @@ async def start_export_all(
         job.error_message = f"Failed to dispatch task: {str(e)}"
         await session.commit()
         raise HTTPException(status_code=500, detail=f"Failed to start export: {str(e)}")
-    
+
     return StartExportResponse(
         job_id=job_id,
         status="pending",
-        message="Export job started. Poll /export/job/{job_id} for status."
+        message="Export job started. Poll /export/job/{job_id} for status.",
     )
 
 
@@ -160,19 +166,17 @@ async def get_export_job_status(
 ):
     """
     Get the status of an export job.
-    
+
     Returns current status, and if completed, includes download URL.
     """
     result = await session.execute(
-        select(ExportJob)
-        .where(ExportJob.id == job_id)
-        .where(ExportJob.tenant_id == tenant_id)
+        select(ExportJob).where(ExportJob.id == job_id).where(ExportJob.tenant_id == tenant_id)
     )
     job = result.scalar_one_or_none()
-    
+
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
-    
+
     response = ExportJobResponse(
         job_id=job.id,
         status=job.status.value,
@@ -180,12 +184,12 @@ async def get_export_job_status(
         completed_at=job.completed_at,
         error=job.error_message,
     )
-    
+
     if job.status == ExportStatus.COMPLETED and job.result_path:
         response.download_url = f"/api/v1/export/job/{job_id}/download"
         if job.file_size:
             response.file_size = int(job.file_size)
-    
+
     return response
 
 
@@ -197,41 +201,38 @@ async def download_export(
 ):
     """
     Download the completed export ZIP.
-    
+
     Only available after job status is 'completed'.
     """
     result = await session.execute(
-        select(ExportJob)
-        .where(ExportJob.id == job_id)
-        .where(ExportJob.tenant_id == tenant_id)
+        select(ExportJob).where(ExportJob.id == job_id).where(ExportJob.tenant_id == tenant_id)
     )
     job = result.scalar_one_or_none()
-    
+
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
-    
+
     if job.status != ExportStatus.COMPLETED:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Export not ready. Current status: {job.status.value}"
+            status_code=400, detail=f"Export not ready. Current status: {job.status.value}"
         )
-    
+
     if not job.result_path:
         raise HTTPException(status_code=500, detail="Export completed but no file found")
-    
+
     try:
         storage = platform.minio_client
         file_bytes = storage.get_file(job.result_path)
-        
+
         filename = f"amber_export_{job_id[:8]}.zip"
-        
+
         return StreamingResponse(
             iter([file_bytes]),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(file_bytes)),
-            }
+            },
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Export file not found in storage")
@@ -248,21 +249,19 @@ async def cancel_export_job(
 ):
     """
     Cancel or delete an export job.
-    
+
     - For pending/running jobs: marks as cancelled
     - For completed jobs: deletes the job record and any stored files
     - For failed jobs: deletes the job record
     """
     result = await session.execute(
-        select(ExportJob)
-        .where(ExportJob.id == job_id)
-        .where(ExportJob.tenant_id == tenant_id)
+        select(ExportJob).where(ExportJob.id == job_id).where(ExportJob.tenant_id == tenant_id)
     )
     job = result.scalar_one_or_none()
-    
+
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
-    
+
     # If job has a result file, try to delete it
     if job.result_path:
         try:
@@ -271,18 +270,19 @@ async def cancel_export_job(
             logger.info(f"Deleted export file: {job.result_path}")
         except Exception as e:
             logger.warning(f"Failed to delete export file {job.result_path}: {e}")
-    
+
     # If job is running, try to revoke the Celery task
     if job.status in (ExportStatus.PENDING, ExportStatus.RUNNING):
         try:
             from src.workers.celery_app import celery_app
+
             celery_app.control.revoke(job_id, terminate=True)
             logger.info(f"Revoked Celery task for job {job_id}")
         except Exception as e:
             logger.warning(f"Failed to revoke Celery task {job_id}: {e}")
-    
+
     # Delete the job record
     await session.delete(job)
     await session.commit()
-    
+
     return {"status": "cancelled", "message": f"Export job {job_id} cancelled and deleted"}

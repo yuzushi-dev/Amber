@@ -6,8 +6,9 @@ Vector storage and retrieval using Milvus.
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +48,12 @@ def _get_milvus():
             "RRFRanker": RRFRanker,
         }
     except ImportError as e:
-        raise ImportError("pymilvus package is required. Install with: pip install pymilvus>=2.3.0") from e
+        raise ImportError(
+            "pymilvus package is required. Install with: pip install pymilvus>=2.3.0"
+        ) from e
 
 
-from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort, SearchResult
+from src.core.retrieval.domain.ports.vector_store_port import SearchResult
 
 
 @dataclass
@@ -98,7 +101,7 @@ class MilvusVectorStore:
         # Sanitize collection name (Milvus does not allow hyphens)
         if self.config.collection_name:
             self.config.collection_name = self.config.collection_name.replace("-", "_")
-            
+
         self._client = None
         self._collection = None
         self._connected = False
@@ -106,24 +109,24 @@ class MilvusVectorStore:
     async def connect(self) -> None:
         """Connect to Milvus and ensure collection exists."""
         milvus = _get_milvus()
-        
+
         # FIX: Check global connection state first
         if milvus["connections"].has_connection("default"):
             self._connected = True
             # Still need to ensure collection exists even if connected
             # But we can't do that easily without the blocking call logic below.
-            # However, usually connection is enough. 
+            # However, usually connection is enough.
             # Let's fall through to _sync_connect ONLY if we need to load collection?
             # Actually, reusing connection avoids the ConfigException.
-            pass 
-        
+            pass
+
         import asyncio
 
         def _sync_connect():
             """Synchronous connection and loading logic."""
             # Connect using the connections module
             alias = "default"
-            
+
             # Only connect if not connected
             if not milvus["connections"].has_connection(alias):
                 milvus["connections"].connect(
@@ -146,7 +149,7 @@ class MilvusVectorStore:
             # Run blocking operations in thread pool
             self._collection = await asyncio.wait_for(
                 asyncio.to_thread(_sync_connect),
-                timeout=30.0  # 30 second timeout for connection
+                timeout=30.0,  # 30 second timeout for connection
             )
 
             if self._collection is None:
@@ -208,7 +211,7 @@ class MilvusVectorStore:
         schema = milvus["CollectionSchema"](
             fields=fields,
             description="Document chunk embeddings for semantic search",
-            enable_dynamic_field=True
+            enable_dynamic_field=True,
         )
 
         # Create collection
@@ -254,7 +257,9 @@ class MilvusVectorStore:
         # Load collection into memory
         self._collection.load()
 
-        logger.info(f"Collection {self.config.collection_name} created with HNSW index and Dynamic Fields")
+        logger.info(
+            f"Collection {self.config.collection_name} created with HNSW index and Dynamic Fields"
+        )
 
     async def close(self) -> None:
         """
@@ -267,18 +272,18 @@ class MilvusVectorStore:
             except Exception as e:
                 logger.warning(f"Failed to release collection: {e}")
             self._collection = None
-        
+
         self._connected = False
 
     async def disconnect(self) -> None:
         """
         Deprecated alias for close().
-        
+
         Note: In previous versions, this disconnected the TCP connection.
         Now it only releases local resources to allow shared connections via PlatformRegistry.
         """
         await self.close()
-        
+
     @staticmethod
     async def global_disconnect() -> None:
         """
@@ -292,7 +297,6 @@ class MilvusVectorStore:
                 logger.info("Global Milvus connection closed")
         except Exception as e:
             logger.warning(f"Error disconnecting Milvus: {e}")
-
 
     async def upsert_chunks(
         self,
@@ -337,10 +341,13 @@ class MilvusVectorStore:
 
             # Merge extra metadata (everything in c that isn't a reserved field)
             reserved = {
-                self.FIELD_CHUNK_ID, self.FIELD_DOCUMENT_ID,
-                self.FIELD_TENANT_ID, self.FIELD_CONTENT, self.FIELD_VECTOR,
+                self.FIELD_CHUNK_ID,
+                self.FIELD_DOCUMENT_ID,
+                self.FIELD_TENANT_ID,
+                self.FIELD_CONTENT,
+                self.FIELD_VECTOR,
                 self.FIELD_SPARSE_VECTOR,
-                "metadata" # avoid nesting if passed explicitly
+                "metadata",  # avoid nesting if passed explicitly
             }
             for k, v in c.items():
                 if k not in reserved:
@@ -418,7 +425,7 @@ class MilvusVectorStore:
                 else:
                     val_str = str(val).lower() if isinstance(val, bool) else str(val)
 
-                if " " in key: # e.g. "quality_score >"
+                if " " in key:  # e.g. "quality_score >"
                     field, op = key.split(" ", 1)
                     filter_list.append(f"{field} {op} {val_str}")
                 else:
@@ -454,19 +461,15 @@ class MilvusVectorStore:
                 consistency_level="Strong",
             )
 
-        
         try:
             # Run blocking search in thread pool with timeout
-            results = await asyncio.wait_for(
-                asyncio.to_thread(_sync_search),
-                timeout=30.0
-            )
+            results = await asyncio.wait_for(asyncio.to_thread(_sync_search), timeout=30.0)
 
             # Convert to SearchResult objects
             search_results = []
             for hits in results:
                 for hit in hits:
-                     # Apply score threshold if specified
+                    # Apply score threshold if specified
                     if score_threshold and hit.score < score_threshold:
                         continue
 
@@ -515,7 +518,7 @@ class MilvusVectorStore:
         try:
             # quote IDs for expression
             quoted_ids = [f'"{cid}"' for cid in chunk_ids]
-            expr = f'{self.FIELD_CHUNK_ID} in [{", ".join(quoted_ids)}]'
+            expr = f"{self.FIELD_CHUNK_ID} in [{', '.join(quoted_ids)}]"
 
             results = self._collection.query(
                 expr=expr,
@@ -547,9 +550,9 @@ class MilvusVectorStore:
         try:
             result = self._collection.delete(expr=expr)
             self._collection.flush()
-            
+
             # PyMilvus delete result handling
-            count = result.delete_count if hasattr(result, "delete_count") else len(chunk_ids) 
+            count = result.delete_count if hasattr(result, "delete_count") else len(chunk_ids)
             # Note: delete_count might not be accurate in all milvus metrics but it is best effort
             logger.info(f"Deleted {count} chunks for tenant {tenant_id}")
             return count
@@ -674,8 +677,12 @@ class MilvusVectorStore:
 
         # Check if hybrid search components are available
         if not milvus.get("AnnSearchRequest") or not milvus.get("RRFRanker"):
-             logger.warning("Hybrid search components not found (pymilvus too old?), falling back to Dense search")
-             return await self.search(dense_vector, tenant_id, document_ids=document_ids, limit=limit, filters=filters)
+            logger.warning(
+                "Hybrid search components not found (pymilvus too old?), falling back to Dense search"
+            )
+            return await self.search(
+                dense_vector, tenant_id, document_ids=document_ids, limit=limit, filters=filters
+            )
 
         # Build filter
         filter_list = [f'{self.FIELD_TENANT_ID} == "{tenant_id}"']
@@ -701,12 +708,14 @@ class MilvusVectorStore:
             anns_field=self.FIELD_VECTOR,
             param={"metric_type": self.config.metric_type, "params": {"ef": 128}},
             limit=limit,
-            expr=filter_expr
+            expr=filter_expr,
         )
 
         # Sparse
         # Check if sparse vector is valid and collection has the field
-        has_sparse_field = next((f for f in self._collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None)
+        has_sparse_field = next(
+            (f for f in self._collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None
+        )
 
         if not sparse_vector or not has_sparse_field:
             return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
@@ -714,9 +723,12 @@ class MilvusVectorStore:
         sparse_req = milvus["AnnSearchRequest"](
             data=[sparse_vector],
             anns_field=self.FIELD_SPARSE_VECTOR,
-            param={"metric_type": "IP", "params": {"drop_ratio_build": 0.2}}, # IP usually for Sparse
+            param={
+                "metric_type": "IP",
+                "params": {"drop_ratio_build": 0.2},
+            },  # IP usually for Sparse
             limit=limit,
-            expr=filter_expr
+            expr=filter_expr,
         )
 
         # 2. Define Reranker
@@ -726,49 +738,46 @@ class MilvusVectorStore:
 
         def _sync_hybrid():
             # Use the collection's hybrid_search method
-            # Define output fields explicitly  
+            # Define output fields explicitly
             output_fields = [
                 self.FIELD_CHUNK_ID,
                 self.FIELD_DOCUMENT_ID,
                 self.FIELD_TENANT_ID,
                 self.FIELD_CONTENT,
             ]
-            
+
             results = self._collection.hybrid_search(
                 reqs=[dense_req, sparse_req],
                 rerank=ranker,
                 limit=limit,
                 output_fields=output_fields,
-                consistency_level="Strong"
+                consistency_level="Strong",
             )
             return results
 
         try:
-            results = await asyncio.wait_for(
-                asyncio.to_thread(_sync_hybrid),
-                timeout=30.0
-            )
+            results = await asyncio.wait_for(asyncio.to_thread(_sync_hybrid), timeout=30.0)
 
             # Map results
             search_results = []
             for hits in results:
                 for hit in hits:
-                     # Extract fields directly from hit.entity using get()
-                     # Note: In pymilvus 2.4+, hit.entity.items() returns internal structure,
-                     # but direct field access via get() or subscript works correctly.
-                     meta = {
-                         self.FIELD_CONTENT: hit.entity.get(self.FIELD_CONTENT, ""),
-                     }
+                    # Extract fields directly from hit.entity using get()
+                    # Note: In pymilvus 2.4+, hit.entity.items() returns internal structure,
+                    # but direct field access via get() or subscript works correctly.
+                    meta = {
+                        self.FIELD_CONTENT: hit.entity.get(self.FIELD_CONTENT, ""),
+                    }
 
-                     search_results.append(
-                         SearchResult(
-                             chunk_id=hit.entity.get(self.FIELD_CHUNK_ID),
-                             document_id=hit.entity.get(self.FIELD_DOCUMENT_ID),
-                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
-                             score=hit.score,
-                             metadata=meta,
-                         )
-                     )
+                    search_results.append(
+                        SearchResult(
+                            chunk_id=hit.entity.get(self.FIELD_CHUNK_ID),
+                            document_id=hit.entity.get(self.FIELD_DOCUMENT_ID),
+                            tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
+                            score=hit.score,
+                            metadata=meta,
+                        )
+                    )
             return search_results
 
         except Exception as e:
@@ -796,7 +805,7 @@ class MilvusVectorStore:
     async def delete_tenant_collection(self, tenant_id: str) -> bool:
         """
         Delete all vector data for a tenant.
-        
+
         Strategies:
         1. Checks for dedicated tenant collection (amber_{tenant_id_sanitized}) and drops it.
         2. If not found, deletes vectors from the main collection by filtering.
@@ -805,7 +814,7 @@ class MilvusVectorStore:
         try:
             cleaned_id = tenant_id.replace("-", "_")
             tenant_collection = f"amber_{cleaned_id}"
-            
+
             milvus = _get_milvus()
             if milvus["utility"].has_collection(tenant_collection):
                 milvus["utility"].drop_collection(tenant_collection)
@@ -813,10 +822,12 @@ class MilvusVectorStore:
                 return True
             else:
                 # Fallback: Delete from main shared collection
-                logger.info(f"Dedicated collection {tenant_collection} not found, deleting from main collection")
+                logger.info(
+                    f"Dedicated collection {tenant_collection} not found, deleting from main collection"
+                )
                 # We need to use the main collection context
                 return await self.delete_by_tenant(tenant_id) > 0
-                
+
         except Exception as e:
             logger.error(f"Failed to clean up vectors for tenant {tenant_id}: {e}")
             return False
@@ -824,13 +835,13 @@ class MilvusVectorStore:
     async def export_vectors(self, tenant_id: str, batch_size: int = 1000) -> AsyncIterator[dict]:
         """
         Export all vectors for a tenant.
-        
+
         Yields:
             Dict containing vector data and metadata.
         """
         await self.connect()
         import asyncio
-        
+
         expr = f'{self.FIELD_TENANT_ID} == "{tenant_id}"'
         # Use wildcard to get all fields including dynamic metadata
         request_fields = ["*"]
@@ -838,15 +849,13 @@ class MilvusVectorStore:
         def _get_iterator():
             if hasattr(self._collection, "query_iterator"):
                 return self._collection.query_iterator(
-                    expr=expr, 
-                    output_fields=request_fields, 
-                    batch_size=batch_size
+                    expr=expr, output_fields=request_fields, batch_size=batch_size
                 )
             return None
 
         # 1. Try Iterator (Efficient)
         iterator = await asyncio.to_thread(_get_iterator)
-        
+
         if iterator:
             while True:
                 # Run next() in thread to avoid blocking, handle iteration logic
@@ -865,14 +874,14 @@ class MilvusVectorStore:
         else:
             # 2. Fallback: Standard Query (Limited to 16k usually)
             logger.warning("Milvus query_iterator not available. Exporting with limit 16384.")
-            
+
             def _query():
                 return self._collection.query(
-                    expr=expr, 
-                    output_fields=request_fields, 
-                    limit=16384 # Hard limit
+                    expr=expr,
+                    output_fields=request_fields,
+                    limit=16384,  # Hard limit
                 )
-                
+
             results = await asyncio.to_thread(_query)
             for hit in results:
                 yield hit
@@ -880,38 +889,38 @@ class MilvusVectorStore:
     async def import_vectors(self, vectors: Iterator[dict], batch_size: int = 500) -> int:
         """
         Import vectors in batches.
-        
+
         Args:
             vectors: Iterator of dicts (from export_vectors)
             batch_size: Batch size for upsert
-            
+
         Returns:
             Total vectors imported
         """
         await self.connect()
-        
+
         count = 0
         batch = []
-        
+
         for vec in vectors:
             # Adapt format for upsert_chunks
             # Input has 'vector' (field name), upsert expects 'embedding'
             if self.FIELD_VECTOR in vec and "embedding" not in vec:
                 vec["embedding"] = vec[self.FIELD_VECTOR]
-            
+
             # Handle sparse vector mapping if present
             # upsert_chunks checks for FIELD_SPARSE_VECTOR directly in input dict
             # so no mapping needed if names match, but export returns FIELD output names.
             # Milvus output usually matches field names.
-            
+
             batch.append(vec)
             if len(batch) >= batch_size:
                 await self.upsert_chunks(batch)
                 count += len(batch)
                 batch = []
-        
+
         if batch:
             await self.upsert_chunks(batch)
             count += len(batch)
-            
+
         return count

@@ -7,7 +7,7 @@ class NodeLabel(str, Enum):
     Chunk = "Chunk"
     Entity = "Entity"
     Community = "Community"
-    
+
     # Context Graph nodes (Decision Traces)
     Conversation = "Conversation"
     Turn = "Turn"
@@ -23,10 +23,9 @@ class RelationshipType(str, Enum):
     IN_COMMUNITY = "IN_COMMUNITY"
     POTENTIALLY_SAME_AS = "POTENTIALLY_SAME_AS"
     SAME_AS = "SAME_AS"
-    
-    # Context Graph relationships
-    HAS_TURN = "HAS_TURN"           # Conversation -> Turn
-    NEXT_TURN = "NEXT_TURN"         # Turn -> Turn (conversation threading)
-    RETRIEVED = "RETRIEVED"         # Turn -> Chunk (decision trace: which chunks were used)
-    RATES = "RATES"                 # UserFeedback -> Turn
 
+    # Context Graph relationships
+    HAS_TURN = "HAS_TURN"  # Conversation -> Turn
+    NEXT_TURN = "NEXT_TURN"  # Turn -> Turn (conversation threading)
+    RETRIEVED = "RETRIEVED"  # Turn -> Chunk (decision trace: which chunks were used)
+    RATES = "RATES"  # UserFeedback -> Turn

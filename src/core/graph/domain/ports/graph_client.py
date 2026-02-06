@@ -2,25 +2,21 @@ from typing import Any, Protocol
 
 
 class GraphClientPort(Protocol):
-    async def connect(self) -> None:
-        ...
+    async def connect(self) -> None: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
     async def execute_read(
         self,
         query: str,
         parameters: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     async def execute_write(
         self,
         query: str,
         parameters: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     async def import_graph(self, items: Any, mode: str) -> dict:
         """Import graph data from an iterator."""

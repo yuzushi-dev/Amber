@@ -1,7 +1,7 @@
 import pytest
 
-from src.core.tools.graph import query_graph
 from src.core.graph.domain.ports.graph_client import set_graph_client
+from src.core.tools.graph import query_graph
 
 
 class FakeGraphClient:

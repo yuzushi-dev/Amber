@@ -77,5 +77,5 @@ class QueryParser:
             document_ids=doc_ids,
             tags=tags,
             date_after=date_after,
-            date_before=date_before
+            date_before=date_before,
         )

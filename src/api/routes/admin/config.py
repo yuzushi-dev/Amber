@@ -10,13 +10,13 @@ Stage 10.2 - RAG Tuning Panel Backend
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-from src.core.database.session import async_session_maker
-from src.core.admin_ops.application.tuning_service import TuningService
 from src.api.config import settings
 from src.api.deps import verify_super_admin
+from src.core.admin_ops.application.tuning_service import TuningService
+from src.core.database.session import async_session_maker
 from src.core.tenants.application.active_vector_collection import (
     backfill_active_vector_collections,
     ensure_active_collection_update_allowed,
@@ -36,6 +36,7 @@ router = APIRouter(prefix="/config", tags=["admin-config"])
 # =============================================================================
 # Schemas
 # =============================================================================
+
 
 def _resolve_default_llm_model() -> str:
     if settings.default_llm_model:
@@ -59,11 +60,12 @@ def _resolve_default_embedding_model() -> str:
 
 class RetrievalWeights(BaseModel):
     """Retrieval fusion weights."""
+
     vector_weight: float = Field(0.35, ge=0, le=1, description="Vector search weight")
     graph_weight: float = Field(0.35, ge=0, le=1, description="Graph search weight")
     rerank_weight: float = Field(0.30, ge=0, le=1, description="Reranking influence")
 
-    @field_validator('*', mode='after')
+    @field_validator("*", mode="after")
     @classmethod
     def validate_weights(cls, v):
         return round(v, 3)
@@ -71,6 +73,7 @@ class RetrievalWeights(BaseModel):
 
 class LLMStepOverride(BaseModel):
     """Per-step LLM override settings."""
+
     provider: str | None = None
     model: str | None = None
     temperature: float | None = None
@@ -79,6 +82,7 @@ class LLMStepOverride(BaseModel):
 
 class TenantConfigResponse(BaseModel):
     """Tenant configuration response."""
+
     tenant_id: str
     config: dict[str, Any]
     weights: RetrievalWeights | None = None
@@ -96,14 +100,16 @@ class TenantConfigResponse(BaseModel):
     # LLM Provider/Model settings
     llm_provider: str = Field(default_factory=lambda: settings.default_llm_provider or "openai")
     llm_model: str = Field(default_factory=_resolve_default_llm_model)
-    
+
     # Embedding Provider/Model settings
-    embedding_provider: str = Field(default_factory=lambda: settings.default_embedding_provider or "openai")
+    embedding_provider: str = Field(
+        default_factory=lambda: settings.default_embedding_provider or "openai"
+    )
     embedding_model: str = Field(default_factory=_resolve_default_embedding_model)
 
     # Vector Store Settings
     active_vector_collection: str | None = None
-    
+
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
@@ -123,6 +129,7 @@ class TenantConfigResponse(BaseModel):
 
 class TenantConfigUpdate(BaseModel):
     """Tenant configuration update request."""
+
     # RAG Parameters
     top_k: int | None = Field(None, ge=1, le=100)
     expansion_depth: int | None = Field(None, ge=1, le=5)
@@ -139,14 +146,14 @@ class TenantConfigUpdate(BaseModel):
     # LLM Provider/Model settings
     llm_provider: str | None = None
     llm_model: str | None = None
-    
+
     # Embedding Provider/Model settings
     embedding_provider: str | None = None
     embedding_model: str | None = None
 
     # Vector Store Settings
     active_vector_collection: str | None = None
-    
+
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
@@ -166,6 +173,7 @@ class TenantConfigUpdate(BaseModel):
 
 class ConfigSchemaField(BaseModel):
     """Schema field definition for UI rendering."""
+
     name: str
     type: str  # 'number', 'boolean', 'string', 'select'
     label: str
@@ -181,6 +189,7 @@ class ConfigSchemaField(BaseModel):
 
 class ConfigSchemaResponse(BaseModel):
     """Configuration schema for form generation."""
+
     fields: list[ConfigSchemaField]
     groups: list[str]
 
@@ -188,6 +197,7 @@ class ConfigSchemaResponse(BaseModel):
 # =============================================================================
 # Endpoints
 # =============================================================================
+
 
 @router.get("/llm-steps")
 async def get_llm_steps():
@@ -227,7 +237,7 @@ async def get_config_schema():
             label="Enable Hybrid OCR",
             description="Use OCR only for image-heavy pages (slower but more accurate)",
             default=True,
-            group="ingestion"
+            group="ingestion",
         ),
         ConfigSchemaField(
             name="ocr_text_density_threshold",
@@ -238,9 +248,8 @@ async def get_config_schema():
             min=0,
             max=1000,
             step=10,
-            group="ingestion"
+            group="ingestion",
         ),
-
         # Model Settings - Provider Selection
         ConfigSchemaField(
             name="llm_provider",
@@ -249,7 +258,7 @@ async def get_config_schema():
             description="Provider for answer generation (models loaded dynamically)",
             default=settings.default_llm_provider or "openai",
             options=[],  # Populated dynamically by frontend from /admin/providers/available
-            group="models"
+            group="models",
         ),
         ConfigSchemaField(
             name="llm_model",
@@ -258,7 +267,7 @@ async def get_config_schema():
             description="Model for answer generation",
             default=_resolve_default_llm_model(),
             options=[],  # Populated dynamically based on selected provider
-            group="models"
+            group="models",
         ),
         ConfigSchemaField(
             name="embedding_provider",
@@ -267,7 +276,7 @@ async def get_config_schema():
             description="Provider for vector embeddings (models loaded dynamically)",
             default=settings.default_embedding_provider or "openai",
             options=[],  # Populated dynamically by frontend
-            group="models"
+            group="models",
         ),
         ConfigSchemaField(
             name="embedding_model",
@@ -276,9 +285,8 @@ async def get_config_schema():
             description="Model for generating embeddings",
             default=_resolve_default_embedding_model(),
             options=[],  # Populated dynamically based on selected provider
-            group="models"
+            group="models",
         ),
-
         # Model Parameters (Determinism)
         ConfigSchemaField(
             name="temperature",
@@ -289,7 +297,7 @@ async def get_config_schema():
             min=0.0,
             max=2.0,
             step=0.1,
-            group="models"
+            group="models",
         ),
         ConfigSchemaField(
             name="seed",
@@ -297,9 +305,8 @@ async def get_config_schema():
             label="Random Seed",
             description="Fixed integer for reproducible outputs (best effort)",
             default=settings.seed,  # Show global default in UI
-            group="models"
+            group="models",
         ),
-
         # Feature Toggles
         ConfigSchemaField(
             name="reranking_enabled",
@@ -307,7 +314,7 @@ async def get_config_schema():
             label="Enable Reranking",
             description="Use cross-encoder reranking for better precision",
             default=True,
-            group="features"
+            group="features",
         ),
         ConfigSchemaField(
             name="hyde_enabled",
@@ -315,7 +322,7 @@ async def get_config_schema():
             label="Enable HyDE",
             description="Generate hypothetical documents for retrieval",
             default=False,
-            group="features"
+            group="features",
         ),
         ConfigSchemaField(
             name="graph_expansion_enabled",
@@ -323,9 +330,8 @@ async def get_config_schema():
             label="Enable Graph Expansion",
             description="Expand results using knowledge graph relationships",
             default=True,
-            group="features"
+            group="features",
         ),
-
         # Retrieval Parameters
         ConfigSchemaField(
             name="top_k",
@@ -336,7 +342,7 @@ async def get_config_schema():
             min=1,
             max=100,
             step=1,
-            group="retrieval"
+            group="retrieval",
         ),
         ConfigSchemaField(
             name="active_vector_collection",
@@ -355,7 +361,7 @@ async def get_config_schema():
             min=1,
             max=5,
             step=1,
-            group="retrieval"
+            group="retrieval",
         ),
         ConfigSchemaField(
             name="similarity_threshold",
@@ -366,9 +372,8 @@ async def get_config_schema():
             min=0,
             max=1,
             step=0.05,
-            group="retrieval"
+            group="retrieval",
         ),
-
         # Weights
         ConfigSchemaField(
             name="vector_weight",
@@ -379,7 +384,7 @@ async def get_config_schema():
             min=0,
             max=1,
             step=0.05,
-            group="weights"
+            group="weights",
         ),
         ConfigSchemaField(
             name="graph_weight",
@@ -390,7 +395,7 @@ async def get_config_schema():
             min=0,
             max=1,
             step=0.05,
-            group="weights"
+            group="weights",
         ),
         ConfigSchemaField(
             name="rerank_weight",
@@ -401,9 +406,8 @@ async def get_config_schema():
             min=0,
             max=1,
             step=0.05,
-            group="weights"
+            group="weights",
         ),
-
         # Custom Prompts
         ConfigSchemaField(
             name="rag_system_prompt",
@@ -411,7 +415,7 @@ async def get_config_schema():
             label="RAG System Prompt",
             description="System instructions for answer generation. Controls tone, citation style, and grounding behavior.",
             default="",
-            group="prompts"
+            group="prompts",
         ),
         ConfigSchemaField(
             name="rag_user_prompt",
@@ -419,7 +423,7 @@ async def get_config_schema():
             label="RAG User Prompt Template",
             description="Template for formatting context and query. Use {context}, {memory_context}, {query} placeholders.",
             default="",
-            group="prompts"
+            group="prompts",
         ),
         ConfigSchemaField(
             name="agent_system_prompt",
@@ -427,7 +431,7 @@ async def get_config_schema():
             label="Agent System Prompt",
             description="Instructions for agentic mode with tool usage. Defines available tools and decision-making behavior.",
             default="",
-            group="prompts"
+            group="prompts",
         ),
         ConfigSchemaField(
             name="community_summary_prompt",
@@ -435,7 +439,7 @@ async def get_config_schema():
             label="Community Summary Prompt",
             description="Prompt for generating knowledge graph community reports.",
             default="",
-            group="prompts"
+            group="prompts",
         ),
         ConfigSchemaField(
             name="fact_extraction_prompt",
@@ -443,18 +447,18 @@ async def get_config_schema():
             label="Fact Extraction Prompt",
             description="Instructions for extracting memory facts from user conversations.",
             default="",
-            group="prompts"
+            group="prompts",
         ),
     ]
 
     return ConfigSchemaResponse(
-        fields=fields,
-        groups=["ingestion", "models", "features", "retrieval", "weights", "prompts"]
+        fields=fields, groups=["ingestion", "models", "features", "retrieval", "weights", "prompts"]
     )
 
 
 class DefaultPromptsResponse(BaseModel):
     """Default prompt templates."""
+
     rag_system_prompt: str
     rag_user_prompt: str
     agent_system_prompt: str
@@ -470,9 +474,11 @@ async def get_default_prompts():
     Returns all built-in prompts that are used when no tenant override is set.
     These serve as the baseline/fallback for all prompt fields.
     """
-    from src.core.generation.application.prompts.templates import PROMPTS, FACT_EXTRACTION_PROMPT
     from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
-    from src.core.generation.application.prompts.community_summary import COMMUNITY_SUMMARY_SYSTEM_PROMPT
+    from src.core.generation.application.prompts.community_summary import (
+        COMMUNITY_SUMMARY_SYSTEM_PROMPT,
+    )
+    from src.core.generation.application.prompts.templates import FACT_EXTRACTION_PROMPT, PROMPTS
 
     return DefaultPromptsResponse(
         rag_system_prompt=PROMPTS["rag_system"]["latest"],
@@ -491,7 +497,6 @@ async def get_tenant_config(tenant_id: str):
     Returns all tunable parameters and their current values.
     """
     try:
-
         tuning_service = TuningService(async_session_maker)
         config = await tuning_service.get_tenant_config(tenant_id)
 
@@ -525,7 +530,9 @@ async def get_tenant_config(tenant_id: str):
             graph_expansion_enabled=config.get("graph_expansion_enabled", True),
             llm_provider=config.get("llm_provider", settings.default_llm_provider or "openai"),
             llm_model=resolved_model or _resolve_default_llm_model(),
-            embedding_provider=config.get("embedding_provider", settings.default_embedding_provider or "openai"),
+            embedding_provider=config.get(
+                "embedding_provider", settings.default_embedding_provider or "openai"
+            ),
             embedding_model=config.get("embedding_model", _resolve_default_embedding_model()),
             active_vector_collection=config.get("active_vector_collection"),
             seed=config.get("seed"),
@@ -575,6 +582,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
         from sqlalchemy.future import select
 
         from src.core.tenants.domain.tenant import Tenant
+
         def apply_config_updates(tenant: Tenant, updates: dict[str, Any]) -> None:
             if not tenant.config:
                 tenant.config = {}
@@ -621,7 +629,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                         action="update_config",
                         target_type="tenant",
                         target_id=tenant.id,
-                        changes=llm_update
+                        changes=llm_update,
                     )
 
                 if other_update:
@@ -631,17 +639,12 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                         action="update_config",
                         target_type="tenant",
                         target_id=tenant_id,
-                        changes=other_update
+                        changes=other_update,
                     )
 
-                logger.info(
-                    "Updated LLM config for all tenants: %s",
-                    list(llm_update.keys())
-                )
+                logger.info("Updated LLM config for all tenants: %s", list(llm_update.keys()))
             else:
-                result = await session.execute(
-                    select(Tenant).where(Tenant.id == tenant_id)
-                )
+                result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
                 tenant = result.scalar_one_or_none()
 
                 if not tenant:
@@ -659,7 +662,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                     action="update_config",
                     target_type="tenant",
                     target_id=tenant_id,
-                    changes=update_dict
+                    changes=update_dict,
                 )
 
                 logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
@@ -687,9 +690,7 @@ async def reset_tenant_config(tenant_id: str):
         from src.core.tenants.domain.tenant import Tenant
 
         async with async_session_maker() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.id == tenant_id)
-            )
+            result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = result.scalar_one_or_none()
 
             if not tenant:
@@ -711,7 +712,7 @@ async def reset_tenant_config(tenant_id: str):
                 action="reset_config",
                 target_type="tenant",
                 target_id=tenant_id,
-                changes={"old_config": old_config}
+                changes={"old_config": old_config},
             )
 
             logger.info(f"Reset config for tenant {tenant_id}")
@@ -733,6 +734,7 @@ async def backfill_active_vector_collection():
     """
     try:
         from sqlalchemy.future import select
+
         from src.core.tenants.domain.tenant import Tenant
 
         async with async_session_maker() as session:

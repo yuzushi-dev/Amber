@@ -18,9 +18,12 @@ def _get_redis():
     """Get redis module with lazy loading."""
     try:
         import redis.asyncio as redis
+
         return redis
     except ImportError as e:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
+        raise ImportError(
+            "redis package is required. Install with: pip install redis>=5.0.0"
+        ) from e
 
 
 async def get_from_cache(key: str) -> dict | None:
@@ -126,6 +129,7 @@ def cached(ttl: int = 60, key_prefix: str = ""):
             # ... expensive queries ...
             return {"total": 100, "pending": 50}
     """
+
     def decorator(func: Callable):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -151,10 +155,10 @@ def cached(ttl: int = 60, key_prefix: str = ""):
             result = await func(*args, **kwargs)
 
             # Store in cache (convert to dict if needed)
-            if hasattr(result, 'dict'):
+            if hasattr(result, "dict"):
                 # Pydantic model
                 cache_data = result.dict()
-            elif hasattr(result, '__dict__'):
+            elif hasattr(result, "__dict__"):
                 # Regular object
                 cache_data = result.__dict__
             elif isinstance(result, dict):
@@ -169,4 +173,5 @@ def cached(ttl: int = 60, key_prefix: str = ""):
             return result
 
         return wrapper
+
     return decorator

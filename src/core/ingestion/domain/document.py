@@ -5,20 +5,19 @@ Document Model
 Database model for stored documents.
 """
 
-
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import String, Text, ForeignKey
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.shared.kernel.models.base import Base, TimestampMixin
+from src.core.ingestion.domain.folder import Folder
 from src.core.state.machine import DocumentStatus
+from src.shared.kernel.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from src.core.ingestion.domain.chunk import Chunk
-    from src.core.ingestion.domain.folder import Folder
 
 # We use str for ID fields to allow our custom ID types (DocumentId, TenantId) to be stored directly
 # SQLAlchemy will handle them as strings
@@ -36,17 +35,23 @@ class Document(Base, TimestampMixin):
 
     filename: Mapped[str] = mapped_column(String, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    storage_path: Mapped[str] = mapped_column(String, nullable=False) # Path in Object Storage (MinIO)
+    storage_path: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # Path in Object Storage (MinIO)
 
     status: Mapped[DocumentStatus] = mapped_column(
         SQLEnum(DocumentStatus), default=DocumentStatus.INGESTED, nullable=False
     )
 
-    domain: Mapped[str | None] = mapped_column(String, nullable=True) # E.g., LEGAL, TECHNICAL
+    domain: Mapped[str | None] = mapped_column(String, nullable=True)  # E.g., LEGAL, TECHNICAL
 
     # Source tracking
-    source_type: Mapped[str] = mapped_column(String, default="file", nullable=False)  # file, url, connector
-    source_url: Mapped[str | None] = mapped_column(String, nullable=True)  # Original URL if from URL/connector
+    source_type: Mapped[str] = mapped_column(
+        String, default="file", nullable=False
+    )  # file, url, connector
+    source_url: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # Original URL if from URL/connector
 
     # Metadata includes: page_count, custom tags, source info, processing_stats
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
@@ -56,16 +61,28 @@ class Document(Base, TimestampMixin):
 
     # Document enrichment fields (populated during ingestion)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # LLM-generated summary
-    document_type: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., user_manual, report
-    keywords: Mapped[list] = mapped_column("keywords", JSONB, server_default="[]", nullable=False)  # Extracted keywords
-    hashtags: Mapped[list] = mapped_column("hashtags", JSONB, server_default="[]", nullable=False)  # Generated hashtags
+    document_type: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # e.g., user_manual, report
+    keywords: Mapped[list] = mapped_column(
+        "keywords", JSONB, server_default="[]", nullable=False
+    )  # Extracted keywords
+    hashtags: Mapped[list] = mapped_column(
+        "hashtags", JSONB, server_default="[]", nullable=False
+    )  # Generated hashtags
 
     # Folder organization
-    folder_id: Mapped[str | None] = mapped_column(ForeignKey("folders.id"), nullable=True, index=True)
-    folder: Mapped["Folder"] = relationship("src.core.ingestion.domain.folder.Folder", back_populates="documents")
+    folder_id: Mapped[str | None] = mapped_column(
+        ForeignKey("folders.id"), nullable=True, index=True
+    )
+    folder: Mapped["Folder"] = relationship("Folder", back_populates="documents")
 
     # Relationship to chunks
-    chunks: Mapped[list["Chunk"]] = relationship("src.core.ingestion.domain.chunk.Chunk", back_populates="document", cascade="all, delete-orphan")
+    chunks: Mapped[list["Chunk"]] = relationship(
+        "src.core.ingestion.domain.chunk.Chunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"

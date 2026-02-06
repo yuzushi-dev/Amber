@@ -30,7 +30,10 @@ class TestConversationMemoryManager:
         """Test adding a user fact successfully."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
@@ -42,7 +45,7 @@ class TestConversationMemoryManager:
                 tenant_id="tenant_1",
                 user_id="user_1",
                 content="User prefers Python.",
-                importance=0.9
+                importance=0.9,
             )
 
             # Verify session.add was called
@@ -62,17 +65,16 @@ class TestConversationMemoryManager:
         """Test that default importance is 0.5."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
             mock_session.refresh = AsyncMock()
 
-            await manager.add_user_fact(
-                tenant_id="tenant_1",
-                user_id="user_1",
-                content="Some fact"
-            )
+            await manager.add_user_fact(tenant_id="tenant_1", user_id="user_1", content="Some fact")
 
             added_fact = mock_session.add.call_args[0][0]
             assert added_fact.importance == 0.5
@@ -82,7 +84,10 @@ class TestConversationMemoryManager:
         """Test that get_user_facts uses correct query filters."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
@@ -92,11 +97,7 @@ class TestConversationMemoryManager:
             mock_result.scalars.return_value.all.return_value = []
             mock_session.execute = AsyncMock(return_value=mock_result)
 
-            results = await manager.get_user_facts(
-                tenant_id="tenant_1",
-                user_id="user_1",
-                limit=10
-            )
+            results = await manager.get_user_facts(tenant_id="tenant_1", user_id="user_1", limit=10)
 
             # Verify execute was called
             mock_session.execute.assert_called_once()
@@ -107,7 +108,10 @@ class TestConversationMemoryManager:
         """Test that get_user_facts returns facts from query."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
@@ -122,10 +126,7 @@ class TestConversationMemoryManager:
             mock_result.scalars.return_value.all.return_value = [mock_fact1, mock_fact2]
             mock_session.execute = AsyncMock(return_value=mock_result)
 
-            results = await manager.get_user_facts(
-                tenant_id="tenant_1",
-                user_id="user_1"
-            )
+            results = await manager.get_user_facts(tenant_id="tenant_1", user_id="user_1")
 
             assert len(results) == 2
             assert results[0].content == "Fact 1"
@@ -136,7 +137,10 @@ class TestConversationMemoryManager:
         """Test saving a conversation summary successfully."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
@@ -147,7 +151,7 @@ class TestConversationMemoryManager:
                 user_id="user_1",
                 conversation_id="conv_123",
                 title="Python Discussion",
-                summary="Discussed async patterns."
+                summary="Discussed async patterns.",
             )
 
             mock_session.add.assert_called_once()
@@ -165,7 +169,10 @@ class TestConversationMemoryManager:
         """Test retrieving recent conversation summaries."""
         mock_factory, mock_session = mock_session_maker
 
-        with patch("src.core.generation.application.memory.manager.get_session_maker", return_value=mock_factory):
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
             from src.core.generation.application.memory.manager import ConversationMemoryManager
 
             manager = ConversationMemoryManager()
@@ -179,9 +186,7 @@ class TestConversationMemoryManager:
             mock_session.execute = AsyncMock(return_value=mock_result)
 
             results = await manager.get_recent_summaries(
-                tenant_id="tenant_1",
-                user_id="user_1",
-                limit=5
+                tenant_id="tenant_1", user_id="user_1", limit=5
             )
 
             assert len(results) == 1
@@ -199,7 +204,7 @@ class TestUserFactModel:
             user_id="user_1",
             content="Test content",
             importance=0.8,
-            metadata_={"source": "test"}
+            metadata_={"source": "test"},
         )
 
         assert fact.id == "fact_123"
@@ -216,7 +221,7 @@ class TestUserFactModel:
             tenant_id="tenant_1",
             user_id="user_1",
             content="This is a test fact for representation",
-            importance=0.5
+            importance=0.5,
         )
 
         repr_str = repr(fact)
@@ -235,7 +240,7 @@ class TestConversationSummaryModel:
             user_id="user_1",
             title="Test Conversation",
             summary="This is a test summary.",
-            metadata_={"message_count": 10}
+            metadata_={"message_count": 10},
         )
 
         assert summary.id == "conv_123"
@@ -251,7 +256,7 @@ class TestConversationSummaryModel:
             tenant_id="tenant_1",
             user_id="user_1",
             title="My Conversation",
-            summary="Summary text"
+            summary="Summary text",
         )
 
         repr_str = repr(summary)

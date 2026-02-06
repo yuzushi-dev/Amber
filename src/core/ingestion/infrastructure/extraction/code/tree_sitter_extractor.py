@@ -6,7 +6,6 @@ Extracts semantic structure (functions, classes) from code using Tree-Sitter.
 """
 
 import logging
-from typing import Any
 
 from tree_sitter import Node
 from tree_sitter_languages import get_language, get_parser
@@ -24,7 +23,7 @@ class TreeSitterExtractor(BaseExtractor):
     def __init__(self):
         self._parsers = {}
         self._languages = {}
-        
+
         # Mapping: MIME types / extensions -> tree-sitter language names
         self.supported_langs = {
             ".py": "python",
@@ -33,7 +32,7 @@ class TreeSitterExtractor(BaseExtractor):
             ".tsx": "typescript",
             "application/typescript": "typescript",
             ".js": "javascript",
-            "application/javascript": "javascript"
+            "application/javascript": "javascript",
         }
 
     @property
@@ -65,66 +64,66 @@ class TreeSitterExtractor(BaseExtractor):
                 if file_type.endswith(ext):
                     lang_name = name
                     break
-        
+
         if not lang_name:
             # Default to text extraction if language unknown
             return ExtractionResult(
                 content=file_content.decode("utf-8", errors="ignore"),
                 extractor_used="FallbackText",
-                metadata={"error": "Unsupported language"}
+                metadata={"error": "Unsupported language"},
             )
 
         # 2. Parse
         parser = self._get_parser(lang_name)
         if not parser:
-             return ExtractionResult(
+            return ExtractionResult(
                 content=file_content.decode("utf-8", errors="ignore"),
                 extractor_used="FallbackText",
-                metadata={"error": "Parser load failed"}
+                metadata={"error": "Parser load failed"},
             )
 
         text_content = file_content.decode("utf-8", errors="ignore")
         try:
             tree = parser.parse(bytes(text_content, "utf8"))
             root_node = tree.root_node
-            
+
             definitions = []
             self._traverse(root_node, definitions, text_content)
-            
+
             return ExtractionResult(
                 content=text_content,
                 extractor_used=self.name,
                 metadata={
                     "language": lang_name,
                     "definitions": definitions,
-                    "loc": len(text_content.splitlines())
-                }
+                    "loc": len(text_content.splitlines()),
+                },
             )
 
         except Exception as e:
             logger.error(f"Tree-sitter extraction error: {e}")
             return ExtractionResult(
-                content=text_content,
-                extractor_used=self.name,
-                metadata={"error": str(e)}
+                content=text_content, extractor_used=self.name, metadata={"error": str(e)}
             )
 
     def _traverse(self, node: Node, definitions: list, source_code: str):
         """Recursively traverse AST to find definitions."""
-        
+
         # Check if node is interesting
         if node.type in ("function_definition", "class_definition", "async_function_definition"):
             name = self._get_name(node, source_code)
             if name:
-                definitions.append({
-                    "type": node.type,
-                    "name": name,
-                    "start_line": node.start_point[0] + 1, # 1-indexed
-                    "end_line": node.end_point[0] + 1,
-                    # We could store content here, but might be too heavy for metadata.
-                    # "signature": ... 
-                })
-        
+                definitions.append(
+                    {
+                        "type": node.type,
+                        "name": name,
+                        "start_line": node.start_point[0] + 1,  # 1-indexed
+                        "end_line": node.end_point[0] + 1,
+                        # We could store content here, but might be too heavy for metadata.
+                        # "signature": ...
+                    }
+                )
+
         # Retrieve children
         for child in node.children:
             self._traverse(child, definitions, source_code)

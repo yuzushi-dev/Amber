@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 from fastapi import HTTPException
 
 from src.api.routes.admin import config as config_module
@@ -15,6 +16,7 @@ async def test_update_tenant_config_blocks_active_collection_for_non_super_admin
             class Result:
                 def scalar_one_or_none(self):
                     return SimpleNamespace(id="t-1", config={})
+
             return Result()
 
         def add(self, obj):
@@ -28,8 +30,10 @@ async def test_update_tenant_config_blocks_active_collection_for_non_super_admin
             class CM:
                 async def __aenter__(self):
                     return FakeSession()
+
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
+
             return CM()
 
     monkeypatch.setattr(config_module, "async_session_maker", FakeSessionMaker())

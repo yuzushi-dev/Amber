@@ -16,6 +16,7 @@ from src.core.ingestion.infrastructure.extraction.fallback import FallbackManage
 # Since we don't assume external tools (Marker, Mistral) are usable in test env,
 # we will mock the extractors to verify the CHAIN logic.
 
+
 @pytest.mark.asyncio
 async def test_fallback_chain_primary_success():
     """Test that if primary succeeds, chain stops."""
@@ -24,7 +25,9 @@ async def test_fallback_chain_primary_success():
     # Mock primary extractor (Registry lookup)
     mock_primary = AsyncMock()
     mock_primary.name = "primary"
-    mock_primary.extract.return_value = ExtractionResult(content="Primary Success", extractor_used="primary")
+    mock_primary.extract.return_value = ExtractionResult(
+        content="Primary Success", extractor_used="primary"
+    )
 
     with patch(
         "src.core.ingestion.infrastructure.extraction.registry.ExtractorRegistry.get_extractor",
@@ -52,16 +55,20 @@ async def test_fallback_chain_secondary_marker():
 
     # Mock Marker
     # We patch the class constructor to return our mock instance
-    with patch(
-        "src.core.ingestion.infrastructure.extraction.registry.ExtractorRegistry.get_extractor",
-        return_value=mock_primary,
-    ), patch(
-        "src.core.ingestion.infrastructure.extraction.fallback.MarkerExtractor"
-    ) as MockMarker:
-
+    with (
+        patch(
+            "src.core.ingestion.infrastructure.extraction.registry.ExtractorRegistry.get_extractor",
+            return_value=mock_primary,
+        ),
+        patch(
+            "src.core.ingestion.infrastructure.extraction.fallback.MarkerExtractor"
+        ) as MockMarker,
+    ):
         mock_marker_instance = AsyncMock()
         mock_marker_instance.name = "marker"
-        mock_marker_instance.extract.return_value = ExtractionResult(content="Marker Success", extractor_used="marker")
+        mock_marker_instance.extract.return_value = ExtractionResult(
+            content="Marker Success", extractor_used="marker"
+        )
         MockMarker.return_value = mock_marker_instance
 
         result = await FallbackManager.extract_with_fallback(content, "application/pdf", "test.pdf")

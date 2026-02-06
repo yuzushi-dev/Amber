@@ -61,16 +61,11 @@ class PlainTextExtractor(BaseExtractor):
                 content=text.strip(),
                 tables=[],
                 images=[],
-                metadata={
-                    "encoding": "utf-8",
-                    "is_markdown": is_markdown,
-                    "char_count": len(text)
-                },
+                metadata={"encoding": "utf-8", "is_markdown": is_markdown, "char_count": len(text)},
                 extractor_used=self.name,
                 confidence=1.0,
-                extraction_time_ms=extraction_time
+                extraction_time_ms=extraction_time,
             )
         except Exception as e:
             logger.error(f"PlainTextExtractor failed: {e}")
             raise
-

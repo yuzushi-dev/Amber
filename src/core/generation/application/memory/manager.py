@@ -1,4 +1,3 @@
-
 """
 Conversation Memory Manager
 ===========================
@@ -19,6 +18,7 @@ from src.core.generation.domain.memory_models import ConversationSummary, UserFa
 
 logger = logging.getLogger(__name__)
 
+
 class ConversationMemoryManager:
     """
     Manages long-term (facts) and mid-term (summaries) memory for user sessions.
@@ -34,7 +34,7 @@ class ConversationMemoryManager:
         user_id: str,
         content: str,
         importance: float = 0.5,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> UserFact:
         """
         Add a new permanent fact about the user.
@@ -49,7 +49,7 @@ class ConversationMemoryManager:
                     user_id=user_id,
                     content=content,
                     importance=importance,
-                    metadata_=metadata or {}
+                    metadata_=metadata or {},
                 )
                 session.add(fact)
                 await session.commit()
@@ -61,12 +61,7 @@ class ConversationMemoryManager:
                 await session.rollback()
                 raise
 
-    async def get_user_facts(
-        self,
-        tenant_id: str,
-        user_id: str,
-        limit: int = 20
-    ) -> list[UserFact]:
+    async def get_user_facts(self, tenant_id: str, user_id: str, limit: int = 20) -> list[UserFact]:
         """
         Retrieve top user facts, strictly filtered by tenant_id.
         """
@@ -88,7 +83,7 @@ class ConversationMemoryManager:
         conversation_id: str,
         title: str,
         summary: str,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> ConversationSummary:
         """
         Persist a summary of a completed conversation.
@@ -102,7 +97,7 @@ class ConversationMemoryManager:
                     user_id=user_id,
                     title=title,
                     summary=summary,
-                    metadata_=metadata or {}
+                    metadata_=metadata or {},
                 )
                 session.add(conv_summary)
                 await session.commit()
@@ -115,10 +110,7 @@ class ConversationMemoryManager:
                 raise
 
     async def get_recent_summaries(
-        self,
-        tenant_id: str,
-        user_id: str,
-        limit: int = 5
+        self, tenant_id: str, user_id: str, limit: int = 5
     ) -> list[ConversationSummary]:
         """
         Retrieve user's recent conversation history summaries.
@@ -140,10 +132,12 @@ class ConversationMemoryManager:
         """
         async with get_session_maker()() as session:
             try:
-                stmt = select(UserFact).where(UserFact.id == fact_id, UserFact.tenant_id == tenant_id)
+                stmt = select(UserFact).where(
+                    UserFact.id == fact_id, UserFact.tenant_id == tenant_id
+                )
                 result = await session.execute(stmt)
                 fact = result.scalar_one_or_none()
-                
+
                 if fact:
                     await session.delete(fact)
                     await session.commit()
@@ -162,12 +156,11 @@ class ConversationMemoryManager:
         async with get_session_maker()() as session:
             try:
                 stmt = select(ConversationSummary).where(
-                    ConversationSummary.id == summary_id, 
-                    ConversationSummary.tenant_id == tenant_id
+                    ConversationSummary.id == summary_id, ConversationSummary.tenant_id == tenant_id
                 )
                 result = await session.execute(stmt)
                 summary = result.scalar_one_or_none()
-                
+
                 if summary:
                     await session.delete(summary)
                     await session.commit()
@@ -178,6 +171,7 @@ class ConversationMemoryManager:
                 logger.error(f"Failed to delete conversation summary: {e}")
                 await session.rollback()
                 raise
+
 
 # Global Instance
 memory_manager = ConversationMemoryManager()

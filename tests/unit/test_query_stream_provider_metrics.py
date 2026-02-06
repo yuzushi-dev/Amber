@@ -1,6 +1,6 @@
 import pytest
 
-from src.core.generation.application.generation_service import GenerationService, GenerationConfig
+from src.core.generation.application.generation_service import GenerationConfig, GenerationService
 
 
 class DummyProvider:

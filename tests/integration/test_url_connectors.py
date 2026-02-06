@@ -43,8 +43,10 @@ def test_url_fetcher_invalid_url():
     fetcher = URLFetcher()
 
     import pytest
+
     with pytest.raises(ValueError, match="Invalid URL"):
         import asyncio
+
         asyncio.run(fetcher.fetch("not-a-url"))
 
 
@@ -68,7 +70,7 @@ def test_connector_item_dataclass():
         url="https://example.com/article/123",
         updated_at=datetime.now(),
         content_type="text/html",
-        metadata={"draft": False}
+        metadata={"draft": False},
     )
 
     assert item.id == "123"
@@ -86,11 +88,14 @@ def test_zendesk_unauthenticated():
     connector = ZendeskConnector(subdomain="test")
 
     import pytest
+
     with pytest.raises(RuntimeError, match="Not authenticated"):
         import asyncio
+
         async def fetch():
             async for _item in connector.fetch_items():
                 pass
+
         asyncio.run(fetch())
 
 
@@ -109,10 +114,7 @@ async def test_zendesk_authentication_success():
         mock_cm.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
         mock_client.return_value = mock_cm
 
-        result = await connector.authenticate({
-            "email": "test@test.com",
-            "api_token": "fake_token"
-        })
+        result = await connector.authenticate({"email": "test@test.com", "api_token": "fake_token"})
 
         assert result is True
         assert connector._authenticated is True
@@ -132,10 +134,7 @@ async def test_zendesk_authentication_failure():
         mock_cm.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
         mock_client.return_value = mock_cm
 
-        result = await connector.authenticate({
-            "email": "wrong@test.com",
-            "api_token": "bad_token"
-        })
+        result = await connector.authenticate({"email": "wrong@test.com", "api_token": "bad_token"})
 
         assert result is False
         assert connector._authenticated is False
@@ -166,10 +165,10 @@ async def test_zendesk_fetch_items_incremental_sync():
                     "author_id": 1,
                     "draft": False,
                     "promoted": True,
-                    "vote_sum": 10
+                    "vote_sum": 10,
                 }
             ],
-            "next_page": None
+            "next_page": None,
         }
 
         mock_get = AsyncMock(return_value=mock_response)
@@ -187,8 +186,9 @@ async def test_zendesk_fetch_items_incremental_sync():
 
         # Verify 'since' parameter was passed
         call_args = mock_get.call_args
-        assert "updated_after" in call_args.kwargs.get("params", {}) or \
-               (call_args.args and "updated_after" in str(call_args))
+        assert "updated_after" in call_args.kwargs.get("params", {}) or (
+            call_args.args and "updated_after" in str(call_args)
+        )
 
 
 @pytest.mark.asyncio
@@ -201,16 +201,20 @@ async def test_zendesk_fetch_items_pagination():
     page1_response.status_code = 200
     page1_response.raise_for_status = MagicMock()
     page1_response.json = lambda: {
-        "articles": [{"id": 1, "name": "Article 1", "html_url": "", "updated_at": "2024-01-01T00:00:00Z"}],
-        "next_page": "https://test.zendesk.com/api/v2/help_center/articles.json?page=2"
+        "articles": [
+            {"id": 1, "name": "Article 1", "html_url": "", "updated_at": "2024-01-01T00:00:00Z"}
+        ],
+        "next_page": "https://test.zendesk.com/api/v2/help_center/articles.json?page=2",
     }
 
     page2_response = MagicMock()
     page2_response.status_code = 200
     page2_response.raise_for_status = MagicMock()
     page2_response.json = lambda: {
-        "articles": [{"id": 2, "name": "Article 2", "html_url": "", "updated_at": "2024-01-02T00:00:00Z"}],
-        "next_page": None
+        "articles": [
+            {"id": 2, "name": "Article 2", "html_url": "", "updated_at": "2024-01-02T00:00:00Z"}
+        ],
+        "next_page": None,
     }
 
     with patch("httpx.AsyncClient") as mock_client:
@@ -240,10 +244,7 @@ async def test_zendesk_get_item_content():
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
         mock_response.json = lambda: {
-            "article": {
-                "id": 123,
-                "body": "<h1>Test Content</h1><p>This is the article body.</p>"
-            }
+            "article": {"id": 123, "body": "<h1>Test Content</h1><p>This is the article body.</p>"}
         }
 
         mock_cm = AsyncMock()
@@ -274,4 +275,3 @@ async def test_zendesk_error_handling_rate_limit():
         with pytest.raises(Exception, match="429"):
             async for _ in connector.fetch_items():
                 pass
-

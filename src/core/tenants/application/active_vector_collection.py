@@ -39,7 +39,9 @@ def ensure_active_vector_collection_config(tenant_id: str, config: dict | None) 
     """Ensure tenant config includes an active collection, returning a new dict."""
     new_config = dict(config or {})
     if not new_config.get("active_vector_collection"):
-        new_config["active_vector_collection"] = resolve_active_vector_collection(tenant_id, new_config)
+        new_config["active_vector_collection"] = resolve_active_vector_collection(
+            tenant_id, new_config
+        )
     return new_config
 
 

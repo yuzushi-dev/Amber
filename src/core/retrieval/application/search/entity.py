@@ -5,6 +5,7 @@ from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
+
 class EntitySearcher:
     """
     Handles semantic search against the Entity vector store.
@@ -22,7 +23,7 @@ class EntitySearcher:
         query_vector: list[float],
         tenant_id: str,
         limit: int = 10,
-        score_threshold: float | None = None
+        score_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
         """
         Execute semantic search over entities and return them.
@@ -34,16 +35,16 @@ class EntitySearcher:
                 tenant_id=tenant_id,
                 limit=limit,
                 score_threshold=score_threshold,
-                collection_name="entity_embeddings" # Assumes this is the collection name
+                collection_name="entity_embeddings",  # Assumes this is the collection name
             )
 
             return [
                 {
-                    "entity_id": r.chunk_id, # In entity collection, chunk_id is used for entity_id
+                    "entity_id": r.chunk_id,  # In entity collection, chunk_id is used for entity_id
                     "name": r.metadata.get("name", ""),
                     "score": r.score,
-                    "description": r.metadata.get("content", ""), # Description stored in 'content'
-                    "tenant_id": r.tenant_id
+                    "description": r.metadata.get("content", ""),  # Description stored in 'content'
+                    "tenant_id": r.tenant_id,
                 }
                 for r in results
             ]

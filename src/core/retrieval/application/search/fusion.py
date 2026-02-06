@@ -1,11 +1,8 @@
-
 from src.core.retrieval.domain.candidate import Candidate
 
 
 def fuse_results(
-    results_groups: dict[str, list[Candidate]],
-    k: int = 60,
-    weights: dict[str, float] = None
+    results_groups: dict[str, list[Candidate]], k: int = 60, weights: dict[str, float] = None
 ) -> list[Candidate]:
     """
     Reciprocal Rank Fusion (RRF) to combine multiple ranked lists.
@@ -19,8 +16,8 @@ def fuse_results(
     if weights is None:
         weights = dict.fromkeys(results_groups.keys(), 1.0)
 
-    fused_scores = {} # chunk_id -> rrf_score
-    candidates_map = {} # chunk_id -> Candidate (latest/best version)
+    fused_scores = {}  # chunk_id -> rrf_score
+    candidates_map = {}  # chunk_id -> Candidate (latest/best version)
 
     for source, candidates in results_groups.items():
         weight = weights.get(source, 1.0)

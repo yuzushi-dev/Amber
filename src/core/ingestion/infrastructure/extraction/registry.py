@@ -5,13 +5,18 @@ Extractor Registry
 Factory for getting the appropriate extractor for a file.
 """
 
-
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor
 from src.core.ingestion.infrastructure.extraction.config import extraction_settings
-from src.core.ingestion.infrastructure.extraction.local.plaintext_extractor import PlainTextExtractor
+from src.core.ingestion.infrastructure.extraction.local.hybrid_extractor import (
+    HybridMarkerExtractor,
+)
+from src.core.ingestion.infrastructure.extraction.local.plaintext_extractor import (
+    PlainTextExtractor,
+)
 from src.core.ingestion.infrastructure.extraction.local.pymupdf_extractor import PyMuPDFExtractor
-from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import UnstructuredExtractor
-from src.core.ingestion.infrastructure.extraction.local.hybrid_extractor import HybridMarkerExtractor
+from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
+    UnstructuredExtractor,
+)
 
 
 class ExtractorRegistry:
@@ -36,17 +41,28 @@ class ExtractorRegistry:
         # Primary routing logic
 
         # Plain text files (txt, md, etc.)
-        if "text/plain" in mime_type.lower() or file_extension.lower() in (".txt", ".md", ".markdown"):
+        if "text/plain" in mime_type.lower() or file_extension.lower() in (
+            ".txt",
+            ".md",
+            ".markdown",
+        ):
             return cls._get_instance("plaintext", PlainTextExtractor)
 
         if "text/markdown" in mime_type.lower() or "text/x-markdown" in mime_type.lower():
             return cls._get_instance("plaintext", PlainTextExtractor)
 
         # Code files (Python, Typescript, JS) - TreeSitter
-        if file_extension.lower() in (".py", ".ts", ".tsx", ".js", ".jsx") or \
-           mime_type.lower() in ("text/x-python", "application/javascript", "application/typescript", "text/javascript"):
-             from src.core.ingestion.infrastructure.extraction.code.tree_sitter_extractor import TreeSitterExtractor
-             return cls._get_instance("treesitter", TreeSitterExtractor)
+        if file_extension.lower() in (".py", ".ts", ".tsx", ".js", ".jsx") or mime_type.lower() in (
+            "text/x-python",
+            "application/javascript",
+            "application/typescript",
+            "text/javascript",
+        ):
+            from src.core.ingestion.infrastructure.extraction.code.tree_sitter_extractor import (
+                TreeSitterExtractor,
+            )
+
+            return cls._get_instance("treesitter", TreeSitterExtractor)
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":
@@ -70,4 +86,3 @@ class ExtractorRegistry:
         if name not in cls._extractors:
             cls._extractors[name] = verify_cls()
         return cls._extractors[name]
-

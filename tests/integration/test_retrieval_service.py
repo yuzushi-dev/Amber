@@ -37,7 +37,7 @@ def test_basic_search_orchestration(mock_rc, mock_sc, mock_builder):
     service.result_cache.set = AsyncMock()
 
     # Mock embedding
-    service.embedding_service.embed_single = AsyncMock(return_value=[0.1]*1536)
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 1536)
 
     # Mock router to return BASIC
     service.router.route = AsyncMock(return_value="basic")
@@ -55,6 +55,7 @@ def test_basic_search_orchestration(mock_rc, mock_sc, mock_builder):
     service.vector_searcher.search.assert_called_once()
     # Entity search is currently disabled in BASIC mode
     # service.entity_searcher.search.assert_called_once()
+
 
 @patch("src.core.generation.domain.ports.provider_factory._provider_factory_builder")
 @patch("src.core.retrieval.application.retrieval_service.SemanticCache")
@@ -74,8 +75,10 @@ def test_global_search_orchestration(mock_rc, mock_sc, mock_builder):
         neo4j_client=graph_store,
         openai_api_key="sk-test",
     )
-    service.global_search.search = AsyncMock(return_value={"answer": "Global Answer", "sources": ["s1"]})
-    service.router.route = AsyncMock(return_value="global") # Mode.GLOBAL
+    service.global_search.search = AsyncMock(
+        return_value={"answer": "Global Answer", "sources": ["s1"]}
+    )
+    service.router.route = AsyncMock(return_value="global")  # Mode.GLOBAL
 
     options = MagicMock()
     options.search_mode = "global"
@@ -85,6 +88,7 @@ def test_global_search_orchestration(mock_rc, mock_sc, mock_builder):
 
     assert result.chunks[0]["content"] == "Global Answer"
     service.global_search.search.assert_called_once()
+
 
 @patch("src.core.generation.domain.ports.provider_factory._provider_factory_builder")
 @patch("src.core.retrieval.application.retrieval_service.SemanticCache")
@@ -104,8 +108,10 @@ def test_drift_search_orchestration(mock_rc, mock_sc, mock_builder):
         neo4j_client=graph_store,
         openai_api_key="sk-test",
     )
-    service.drift_search.search = AsyncMock(return_value={"candidates": [], "follow_ups": [], "answer": "Drift"})
-    service.router.route = AsyncMock(return_value="drift") # Mode.DRIFT
+    service.drift_search.search = AsyncMock(
+        return_value={"candidates": [], "follow_ups": [], "answer": "Drift"}
+    )
+    service.router.route = AsyncMock(return_value="drift")  # Mode.DRIFT
 
     options = MagicMock()
     options.search_mode = "drift"

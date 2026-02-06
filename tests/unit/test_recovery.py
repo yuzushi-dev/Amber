@@ -41,9 +41,10 @@ class TestStaleDocumentRecovery:
         """Test when no documents are in stale states."""
         from src.workers.recovery import recover_stale_documents
 
-        with patch("src.workers.recovery.create_async_engine") as mock_engine, \
-             patch("src.workers.recovery.sessionmaker") as mock_sessionmaker:
-
+        with (
+            patch("src.workers.recovery.create_async_engine") as mock_engine,
+            patch("src.workers.recovery.sessionmaker") as mock_sessionmaker,
+        ):
             # Setup mocks
             mock_session = AsyncMock()
             mock_result = MagicMock()
@@ -66,10 +67,11 @@ class TestStaleDocumentRecovery:
         """Test that document in EXTRACTING state is marked as FAILED."""
         from src.workers.recovery import recover_stale_documents
 
-        with patch("src.workers.recovery.create_async_engine") as mock_engine, \
-             patch("src.workers.recovery.sessionmaker") as mock_sessionmaker, \
-             patch("src.workers.recovery._publish_recovery_status"):
-
+        with (
+            patch("src.workers.recovery.create_async_engine") as mock_engine,
+            patch("src.workers.recovery.sessionmaker") as mock_sessionmaker,
+            patch("src.workers.recovery._publish_recovery_status"),
+        ):
             # Setup mocks
             mock_session = AsyncMock()
 
@@ -97,19 +99,24 @@ class TestStaleDocumentRecovery:
             assert mock_document_extracting.status == DocumentStatus.FAILED
 
     @pytest.mark.asyncio
-    async def test_document_chunking_with_chunks_recovered(self, mock_document_chunking_with_chunks):
+    async def test_document_chunking_with_chunks_recovered(
+        self, mock_document_chunking_with_chunks
+    ):
         """Test that document in CHUNKING state with chunks is recovered to READY."""
         from src.workers.recovery import recover_stale_documents
 
-        with patch("src.workers.recovery.create_async_engine") as mock_engine, \
-             patch("src.workers.recovery.sessionmaker") as mock_sessionmaker, \
-             patch("src.workers.recovery._publish_recovery_status"):
-
+        with (
+            patch("src.workers.recovery.create_async_engine") as mock_engine,
+            patch("src.workers.recovery.sessionmaker") as mock_sessionmaker,
+            patch("src.workers.recovery._publish_recovery_status"),
+        ):
             mock_session = AsyncMock()
 
             # First query returns stale documents
             mock_result_stale = MagicMock()
-            mock_result_stale.scalars.return_value.all.return_value = [mock_document_chunking_with_chunks]
+            mock_result_stale.scalars.return_value.all.return_value = [
+                mock_document_chunking_with_chunks
+            ]
 
             # Second query (chunks) returns a chunk
             mock_chunk = MagicMock()
