@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -87,17 +87,78 @@ class UploadSettings(BaseSettings):
     max_concurrent: int = Field(default=5, description="Max concurrent ingestions")
 
 
+class ObjectStorageSettings(BaseSettings):
+    """Canonical object storage settings."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    host: str = Field(
+        default="localhost",
+        validation_alias=AliasChoices("OBJECT_STORAGE_HOST", "MINIO_HOST"),
+        description="Object storage host",
+    )
+    port: int = Field(
+        default=9000,
+        validation_alias=AliasChoices("OBJECT_STORAGE_PORT", "MINIO_PORT"),
+        description="Object storage API port",
+    )
+    access_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OBJECT_STORAGE_ACCESS_KEY", "MINIO_ROOT_USER"),
+        description="Object storage access key",
+    )
+    secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OBJECT_STORAGE_SECRET_KEY", "MINIO_ROOT_PASSWORD"),
+        description="Object storage secret key",
+    )
+    secure: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("OBJECT_STORAGE_SECURE", "MINIO_SECURE"),
+        description="Use HTTPS",
+    )
+    bucket_name: str = Field(
+        default="documents",
+        validation_alias=AliasChoices("OBJECT_STORAGE_BUCKET_NAME", "MINIO_BUCKET_NAME"),
+        description="Document storage bucket",
+    )
+
+
 class MinIOSettings(BaseSettings):
-    """MinIO object storage settings."""
+    """Backward-compatible MinIO settings view."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    host: str = Field(default="localhost", description="MinIO host")
-    port: int = Field(default=9000, description="MinIO API port")
-    root_user: str = Field(default="", description="MinIO access key")
-    root_password: str = Field(default="", description="MinIO secret key")
-    secure: bool = Field(default=False, description="Use HTTPS")
-    bucket_name: str = Field(default="documents", description="Document storage bucket")
+    host: str = Field(
+        default="localhost",
+        validation_alias=AliasChoices("OBJECT_STORAGE_HOST", "MINIO_HOST"),
+        description="MinIO host",
+    )
+    port: int = Field(
+        default=9000,
+        validation_alias=AliasChoices("OBJECT_STORAGE_PORT", "MINIO_PORT"),
+        description="MinIO API port",
+    )
+    root_user: str = Field(
+        default="",
+        validation_alias=AliasChoices("OBJECT_STORAGE_ACCESS_KEY", "MINIO_ROOT_USER"),
+        description="MinIO access key",
+    )
+    root_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("OBJECT_STORAGE_SECRET_KEY", "MINIO_ROOT_PASSWORD"),
+        description="MinIO secret key",
+    )
+    secure: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("OBJECT_STORAGE_SECURE", "MINIO_SECURE"),
+        description="Use HTTPS",
+    )
+    bucket_name: str = Field(
+        default="documents",
+        validation_alias=AliasChoices("OBJECT_STORAGE_BUCKET_NAME", "MINIO_BUCKET_NAME"),
+        description="Document storage bucket",
+    )
 
 
 class Settings(BaseSettings):
@@ -170,6 +231,7 @@ class Settings(BaseSettings):
     celery: CelerySettings = Field(default_factory=CelerySettings)
     rate_limits: RateLimitSettings = Field(default_factory=RateLimitSettings)
     uploads: UploadSettings = Field(default_factory=UploadSettings)
+    object_storage: ObjectStorageSettings = Field(default_factory=ObjectStorageSettings)
     minio: MinIOSettings = Field(default_factory=MinIOSettings)
 
     # LLM Provider Keys

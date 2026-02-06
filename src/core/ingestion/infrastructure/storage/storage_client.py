@@ -43,12 +43,25 @@ class MinIOClient:
         """
         if any(v is None for v in [host, port, access_key, secret_key, secure, bucket_name]):
             settings = get_settings()
-            host = host if host is not None else settings.minio.host
-            port = port if port is not None else settings.minio.port
-            access_key = access_key if access_key is not None else settings.minio.root_user
-            secret_key = secret_key if secret_key is not None else settings.minio.root_password
-            secure = secure if secure is not None else settings.minio.secure
-            bucket_name = bucket_name if bucket_name is not None else settings.minio.bucket_name
+            storage_settings = (
+                settings.object_storage if hasattr(settings, "object_storage") else settings.minio
+            )
+            host = host if host is not None else storage_settings.host
+            port = port if port is not None else storage_settings.port
+            access_key = (
+                access_key
+                if access_key is not None
+                else getattr(storage_settings, "access_key", getattr(storage_settings, "root_user", ""))
+            )
+            secret_key = (
+                secret_key
+                if secret_key is not None
+                else getattr(
+                    storage_settings, "secret_key", getattr(storage_settings, "root_password", "")
+                )
+            )
+            secure = secure if secure is not None else storage_settings.secure
+            bucket_name = bucket_name if bucket_name is not None else storage_settings.bucket_name
 
         self.client = Minio(
             endpoint=f"{host}:{port}",
@@ -135,5 +148,6 @@ class MinIOClient:
             # Preserve original traceback
             raise FileNotFoundError(msg) from e
 
+    def delete_file(self, object_name: str) -> None:
         """Delete a file from storage."""
         self.client.remove_object(self.bucket_name, object_name)

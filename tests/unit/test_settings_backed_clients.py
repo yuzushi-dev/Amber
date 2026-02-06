@@ -24,7 +24,34 @@ class FakeMinio:
     bucket_name = "amber"
 
 
+class FakeObjectStorage:
+    host = "seaweed-s3"
+    port = 8333
+    access_key = "seaweed"
+    secret_key = "secret"
+    secure = False
+    bucket_name = "amber-object"
+
+
 class FakeSettings:
+    app_name = "amber"
+    debug = False
+    log_level = "INFO"
+    secret_key = "secret"
+    db = FakeDb()
+    object_storage = FakeObjectStorage()
+    minio = FakeMinio()
+    openai_api_key = ""
+    anthropic_api_key = ""
+    ollama_base_url = ""
+    default_llm_provider = None
+    default_llm_model = None
+    default_embedding_provider = None
+    default_embedding_model = None
+    embedding_dimensions = None
+
+
+class FakeLegacySettings:
     app_name = "amber"
     debug = False
     log_level = "INFO"
@@ -55,5 +82,11 @@ def test_neo4j_client_uses_shared_settings():
 
 def test_minio_client_uses_shared_settings():
     configure_settings(FakeSettings())
+    client = MinIOClient()
+    assert client.bucket_name == FakeObjectStorage.bucket_name
+
+
+def test_minio_client_falls_back_to_legacy_minio_settings():
+    configure_settings(FakeLegacySettings())
     client = MinIOClient()
     assert client.bucket_name == FakeMinio.bucket_name

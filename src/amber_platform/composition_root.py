@@ -20,6 +20,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _get_storage_settings(settings: SettingsProtocol):
+    """Return canonical storage settings with backward compatibility."""
+    return settings.object_storage if hasattr(settings, "object_storage") else settings.minio
+
+
+def _get_storage_access_key(storage_settings) -> str:
+    return getattr(storage_settings, "access_key", getattr(storage_settings, "root_user", ""))
+
+
+def _get_storage_secret_key(storage_settings) -> str:
+    return getattr(storage_settings, "secret_key", getattr(storage_settings, "root_password", ""))
+
+
 # -----------------------------------------------------------------------------
 # Settings Provider
 # -----------------------------------------------------------------------------
@@ -143,13 +156,14 @@ class PlatformRegistry:
         # MinIO (sync client, no async init needed)
         from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
+        storage_settings = _get_storage_settings(settings)
         self._minio_client = MinIOClient(
-            host=settings.minio.host,
-            port=settings.minio.port,
-            access_key=settings.minio.root_user,
-            secret_key=settings.minio.root_password,
-            secure=settings.minio.secure,
-            bucket_name=settings.minio.bucket_name,
+            host=storage_settings.host,
+            port=storage_settings.port,
+            access_key=_get_storage_access_key(storage_settings),
+            secret_key=_get_storage_secret_key(storage_settings),
+            secure=storage_settings.secure,
+            bucket_name=storage_settings.bucket_name,
         )
 
         # Content extractor (fallback chain)
@@ -272,13 +286,14 @@ class PlatformRegistry:
             from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
             settings = get_settings_lazy()
+            storage_settings = _get_storage_settings(settings)
             self._minio_client = MinIOClient(
-                host=settings.minio.host,
-                port=settings.minio.port,
-                access_key=settings.minio.root_user,
-                secret_key=settings.minio.root_password,
-                secure=settings.minio.secure,
-                bucket_name=settings.minio.bucket_name,
+                host=storage_settings.host,
+                port=storage_settings.port,
+                access_key=_get_storage_access_key(storage_settings),
+                secret_key=_get_storage_secret_key(storage_settings),
+                secure=storage_settings.secure,
+                bucket_name=storage_settings.bucket_name,
             )
         return self._minio_client
 
