@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -162,6 +163,37 @@ def _fallback_response(
             "Ensure API keys are set in the environment",
         ],
     )
+
+
+def _score_from_chunk(chunk: Any) -> float:
+    if isinstance(chunk, dict):
+        return float(chunk.get("score", 0))
+    return float(getattr(chunk, "score", 0))
+
+
+def _build_quality_data(chunks: list[Any]) -> dict[str, float]:
+    scores = [_score_from_chunk(chunk) for chunk in chunks]
+    max_score = max(scores) if scores else 0
+    quality = round(max_score * 100, 1)
+    return {
+        "total": quality,
+        "retrieval": quality,
+        "generation": 0,
+    }
+
+
+def _build_graph_sources(collected_sources: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not collected_sources:
+        return []
+
+    return [
+        {
+            "chunk_id": source.get("chunk_id"),
+            "document_id": source.get("document_id"),
+            "score": source.get("score"),
+        }
+        for source in collected_sources
+    ]
 
 
 # =============================================================================
@@ -499,19 +531,7 @@ async def _query_stream_impl(
 
             # Emit Quality Score
             if retrieval_result.chunks:
-                scores = []
-                for c in retrieval_result.chunks:
-                    if isinstance(c, dict):
-                        scores.append(float(c.get("score", 0)))
-                    else:
-                        scores.append(float(getattr(c, "score", 0)))
-
-                max_score = max(scores) if scores else 0
-                quality_data = {
-                    "total": round(max_score * 100, 1),
-                    "retrieval": round(max_score * 100, 1),
-                    "generation": 0,
-                }
+                quality_data = _build_quality_data(retrieval_result.chunks)
                 yield f"event: quality\ndata: {json.dumps(quality_data)}\n\n"
 
             # Emit conversation_id IMMEDIATELY for threading (to match Agent behavior)
@@ -586,18 +606,7 @@ async def _query_stream_impl(
                     # Prepare stats for persistence
                     persistence_quality = None
                     if retrieval_result and retrieval_result.chunks:
-                        p_scores = []
-                        for c in retrieval_result.chunks:
-                            if isinstance(c, dict):
-                                p_scores.append(float(c.get("score", 0)))
-                            else:
-                                p_scores.append(float(getattr(c, "score", 0)))
-                        p_max = max(p_scores) if p_scores else 0
-                        persistence_quality = {
-                            "total": round(p_max * 100, 1),
-                            "retrieval": round(p_max * 100, 1),
-                            "generation": 0,
-                        }
+                        persistence_quality = _build_quality_data(retrieval_result.chunks)
 
                     persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
 
@@ -670,18 +679,7 @@ async def _query_stream_impl(
 
                 # Transform collected sources to graph format
                 # collected_sources is list of dicts from 'sources' event
-                graph_sources = (
-                    [
-                        {
-                            "chunk_id": s.get("chunk_id"),
-                            "document_id": s.get("document_id"),
-                            "score": s.get("score"),
-                        }
-                        for s in collected_sources
-                    ]
-                    if collected_sources
-                    else []
-                )
+                graph_sources = _build_graph_sources(collected_sources)
 
                 # Call log_turn asynchronously
                 asyncio.create_task(
