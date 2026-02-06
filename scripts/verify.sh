@@ -54,20 +54,29 @@ run_frontend_checks() {
   npm --prefix frontend run test
 }
 
-require_tool "$RUFF_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
-require_tool "$IMPORT_LINTER_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
-require_tool "$MYPY_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
-require_tool "$PYTEST_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
-require_tool "npm" "Install Node.js and npm, then run npm --prefix frontend install"
+require_backend_tools() {
+  require_tool "$RUFF_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
+  require_tool "$IMPORT_LINTER_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
+  require_tool "$MYPY_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
+  require_tool "$PYTEST_BIN" "Install backend dev dependencies: ./.venv/bin/pip install -e '.[dev]'"
+}
+
+require_frontend_tools() {
+  require_tool "npm" "Install Node.js and npm, then run npm --prefix frontend install"
+}
 
 case "$MODE" in
   backend)
+    require_backend_tools
     run_backend_checks
     ;;
   frontend)
+    require_frontend_tools
     run_frontend_checks
     ;;
   all)
+    require_backend_tools
+    require_frontend_tools
     run_backend_checks
     run_frontend_checks
     ;;
