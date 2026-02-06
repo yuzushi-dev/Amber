@@ -149,7 +149,7 @@ export default function TuningPage() {
             } else {
                 toast.error(`Connection failed: ${result.error}`)
             }
-        } catch (err) {
+        } catch {
             toast.error(`Validation failed for ${name}`)
         } finally {
             setValidatingProvider(null)
@@ -395,7 +395,7 @@ export default function TuningPage() {
 
                                             const renderFieldItem = (f: ConfigSchemaField) => {
                                                 // Inject dynamic options for dependent fields
-                                                let dynamicField = { ...f }
+                                                const dynamicField = { ...f }
                                                 if (f.name === 'embedding_model') {
                                                     const currentProvider = formValues['embedding_provider'] as string
                                                     const provDetails = availableProviders?.embedding_providers.find(p => p.name === currentProvider)
@@ -583,7 +583,7 @@ function LabelWithTooltip({ label, description }: { label: string, description: 
 
 function FieldInput({ field, value, onChange, defaultPrompts }: FieldInputProps) {
     switch (field.type) {
-        case 'number':
+        case 'number': {
             // If min/max are provided, use Slider. Otherwise use Input (e.g. seed)
             const isSlider = field.min !== undefined && field.max !== undefined
 
@@ -630,6 +630,7 @@ function FieldInput({ field, value, onChange, defaultPrompts }: FieldInputProps)
                     </div>
                 </div>
             )
+        }
 
         case 'boolean':
             return (

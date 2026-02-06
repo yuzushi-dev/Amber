@@ -10,7 +10,7 @@
  * - Document List
  */
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import {
@@ -381,7 +381,7 @@ export default function DatabaseSidebarContent({
     }
 
     // Toggle Document Selection
-    const toggleDocumentSelect = (id: string, _multi: boolean, _range: boolean) => {
+    const toggleDocumentSelect = (id: string) => {
         // Enforce exclusivity: Clear folders if selecting doc
         if (selectedFolderIds.size > 0) {
             setSelectedFolderIds(new Set())
@@ -430,7 +430,7 @@ export default function DatabaseSidebarContent({
     }
 
     // Filter documents
-    const filteredDocuments = useMemo(() => {
+    const filteredDocuments = (() => {
         if (!documents) return []
 
         let filtered = documents
@@ -452,12 +452,12 @@ export default function DatabaseSidebarContent({
         }
 
         return filtered
-    }, [documents, searchQuery, activeFolderId])
+    })()
 
 
 
     // Computed folder list for UI
-    const uiFolders = useMemo(() => {
+    const uiFolders = (() => {
         const allCount = documents?.length || 0
         const unfiledCount = documents?.filter(d => !d.folder_id).length || 0
 
@@ -476,7 +476,7 @@ export default function DatabaseSidebarContent({
         }))
 
         return [...base, ...folderItems]
-    }, [apiFolders, documents])
+    })()
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event

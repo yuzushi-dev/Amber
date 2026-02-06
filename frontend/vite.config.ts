@@ -4,7 +4,8 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()] as any[],
+  // @ts-expect-error Vite plugin type mismatch from duplicated vite typings in vitest.
+  plugins: [react()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -56,7 +57,7 @@ export default defineConfig({
               // console.log('Proxying Chat Request (via /v1):', req.url);
             }
           });
-          proxy.on('proxyRes', (proxyRes, _req) => {
+          proxy.on('proxyRes', (proxyRes) => {
             if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
               // console.log('Disabling buffering for SSE (main /v1 rule):', req.url);
               proxyRes.headers['cache-control'] = 'no-cache'
@@ -95,4 +96,3 @@ export default defineConfig({
     },
   },
 })
-
