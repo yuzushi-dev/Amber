@@ -15,6 +15,7 @@ from src.core.generation.infrastructure.providers.resilience import CircuitBreak
 
 logger = logging.getLogger(__name__)
 
+
 class FailoverLLMProvider(BaseLLMProvider):
     """
     LLM provider with automatic failover.
@@ -62,7 +63,9 @@ class FailoverLLMProvider(BaseLLMProvider):
 
             # Check circuit state
             if not circuit.allow_request():
-                logger.warning(f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})")
+                logger.warning(
+                    f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})"
+                )
                 continue
 
             try:
@@ -107,7 +110,7 @@ class FailoverLLMProvider(BaseLLMProvider):
 
         # All providers failed
         if not last_error:
-             last_error = "All providers skipped or unavailable"
+            last_error = "All providers skipped or unavailable"
 
         raise ProviderUnavailableError(
             f"All providers failed. Last error: {last_error}",
@@ -162,7 +165,7 @@ class FailoverLLMProvider(BaseLLMProvider):
                 continue
 
         if not last_error:
-             last_error = "All providers skipped or unavailable"
+            last_error = "All providers skipped or unavailable"
 
         raise ProviderUnavailableError(
             f"All providers failed for streaming. Last error: {last_error}",

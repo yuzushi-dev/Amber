@@ -7,18 +7,16 @@ Endpoints for capturing user feedback on RAG responses.
 
 import logging
 from typing import Any
-from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session as get_db
 from src.api.config import settings
+from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
-from src.core.database.session import async_session_maker
 from src.core.admin_ops.domain.feedback import Feedback
 from src.core.admin_ops.infrastructure.rate_limiter import RateLimitCategory, get_rate_limiter
-from src.core.admin_ops.application.tuning_service import TuningService
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -26,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Rate limiter factory
 _rate_limiter = None
+
 
 def _get_rate_limiter_instance():
     global _rate_limiter
@@ -38,6 +37,7 @@ def _get_rate_limiter_instance():
         )
     return _rate_limiter
 
+
 # from pydantic import BaseModel # Moved to top
 
 
@@ -49,17 +49,16 @@ class FeedbackCreate(BaseModel):
     correction: str | None = None
     metadata: dict[str, Any] = {}
 
+
 class FeedbackResponse(BaseModel):
     id: str
     request_id: str
     is_positive: bool
     comment: str | None = None
 
+
 @router.post("/", response_model=ResponseSchema[FeedbackResponse])
-async def create_feedback(
-    data: FeedbackCreate,
-    db: AsyncSession = Depends(get_db)
-):
+async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_db)):
     """
     Submit feedback for a RAG response.
     """
@@ -70,7 +69,7 @@ async def create_feedback(
     if not rl_result.allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many feedback submissions. Please try again later."
+            detail="Too many feedback submissions. Please try again later.",
         )
 
     try:
@@ -82,7 +81,7 @@ async def create_feedback(
             comment=data.comment,
             correction=data.correction,
             metadata_json=data.metadata,
-            golden_status="PENDING"
+            golden_status="PENDING",
         )
         db.add(feedback)
         await db.commit()
@@ -93,23 +92,20 @@ async def create_feedback(
                 id=feedback.id,
                 request_id=feedback.request_id,
                 is_positive=feedback.is_positive,
-                comment=feedback.comment
+                comment=feedback.comment,
             ),
-            message="Feedback submitted successfully"
+            message="Feedback submitted successfully",
         )
     except Exception as e:
         logger.error(f"Failed to submit feedback: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to submit feedback"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to submit feedback"
         ) from e
+
 
 @router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
-    request_id: str,
-    limit: int = 50,
-    offset: int = 0,
-    db: AsyncSession = Depends(get_db)
+    request_id: str, limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)
 ):
     """
     Get feedback for a specific request with pagination.
@@ -142,15 +138,12 @@ async def get_feedback(
         data={
             "items": [
                 FeedbackResponse(
-                    id=f.id,
-                    request_id=f.request_id,
-                    is_positive=f.is_positive,
-                    comment=f.comment
+                    id=f.id, request_id=f.request_id, is_positive=f.is_positive, comment=f.comment
                 )
                 for f in feedbacks
             ],
             "total": total or 0,
             "limit": limit,
-            "offset": offset
+            "offset": offset,
         }
     )

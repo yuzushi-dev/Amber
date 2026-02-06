@@ -4,21 +4,19 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+
 class CircuitState(Enum):
-    CLOSED = "CLOSED"     # Normal operation
-    OPEN = "OPEN"         # Failing, reject requests
-    HALF_OPEN = "HALF_OPEN" # Probing
+    CLOSED = "CLOSED"  # Normal operation
+    OPEN = "OPEN"  # Failing, reject requests
+    HALF_OPEN = "HALF_OPEN"  # Probing
+
 
 class CircuitBreaker:
     """
     Circuit Breaker pattern to prevent cascading failures when a provider is down.
     """
 
-    def __init__(
-        self,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0
-    ):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
 
@@ -45,7 +43,7 @@ class CircuitBreaker:
             # Only allow one trial request at a time (simplification)
             # In a real distributed system, this requires a lock or atomic counter
             if self._half_open_trial:
-                self._half_open_trial = False # Consume tokens
+                self._half_open_trial = False  # Consume tokens
                 return True
             return False
 
@@ -72,4 +70,6 @@ class CircuitBreaker:
         elif self.state == CircuitState.CLOSED:
             if self.failures >= self.failure_threshold:
                 self.state = CircuitState.OPEN
-                logger.warning(f"Circuit breaker tripped to OPEN state after {self.failures} failures")
+                logger.warning(
+                    f"Circuit breaker tripped to OPEN state after {self.failures} failures"
+                )

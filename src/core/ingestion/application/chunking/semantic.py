@@ -11,12 +11,13 @@ from dataclasses import dataclass, field
 
 try:
     import tiktoken
+
     HAS_TIKTOKEN = True
 except ImportError:
     HAS_TIKTOKEN = False
 
-from src.core.ingestion.application.chunking.quality import ChunkQualityScorer
 from src.core.generation.application.intelligence.strategies import ChunkingStrategy
+from src.core.ingestion.application.chunking.quality import ChunkQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ChunkData:
     """Represents a single chunk with metadata."""
+
     content: str
     index: int
     start_char: int
@@ -44,10 +46,10 @@ class SemanticChunker:
     """
 
     # Regex patterns
-    HEADER_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
-    CODE_BLOCK_PATTERN = re.compile(r'```[\s\S]*?```', re.MULTILINE)
-    PARAGRAPH_PATTERN = re.compile(r'\n\n+')
-    SENTENCE_PATTERN = re.compile(r'(?<=[.!?])\s+')
+    HEADER_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+    CODE_BLOCK_PATTERN = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+    PARAGRAPH_PATTERN = re.compile(r"\n\n+")
+    SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 
     def __init__(self, strategy: ChunkingStrategy, encoding_name: str = "cl100k_base"):
         """
@@ -78,7 +80,9 @@ class SemanticChunker:
         # Fallback: rough word-based estimate
         return len(text.split())
 
-    def chunk(self, text: str, document_title: str | None = None, metadata: dict | None = None) -> list[ChunkData]:
+    def chunk(
+        self, text: str, document_title: str | None = None, metadata: dict | None = None
+    ) -> list[ChunkData]:
         """
         Split text into semantic chunks.
 
@@ -151,7 +155,7 @@ class SemanticChunker:
         for match in headers:
             # Add content before this header
             if match.start() > prev_end:
-                before = text[prev_end:match.start()].strip()
+                before = text[prev_end : match.start()].strip()
                 if before:
                     sections.append(before)
             prev_end = match.start()
@@ -168,13 +172,15 @@ class SemanticChunker:
 
         # If section fits, return as single chunk
         if tokens <= self.chunk_size:
-            return [ChunkData(
-                content=section.strip(),
-                index=0,  # Will be reassigned later
-                start_char=start_offset,
-                end_char=start_offset + len(section),
-                token_count=tokens
-            )]
+            return [
+                ChunkData(
+                    content=section.strip(),
+                    index=0,  # Will be reassigned later
+                    start_char=start_offset,
+                    end_char=start_offset + len(section),
+                    token_count=tokens,
+                )
+            ]
 
         # Split by paragraphs
         paragraphs = self.PARAGRAPH_PATTERN.split(section)
@@ -195,60 +201,64 @@ class SemanticChunker:
             else:
                 # Check if the new paragraph ITSELF is too large
                 if self.count_tokens(para) > self.chunk_size:
-                    # Fix for orphan headers: 
+                    # Fix for orphan headers:
                     # If we have a current_chunk (e.g. "## Header") and the new para is huge,
                     # don't emit "## Header" alone. Combine them and split the whole block by sentences.
-                    
+
                     combined_text = current_chunk + "\n\n" + para if current_chunk else para
-                    
+
                     # We need to trace back the start char for the combined block
                     # If current_chunk exists, it starts at chunk_start.
                     # If not, it starts at chunk_start (which matches the loop invariant).
-                    
+
                     sentence_chunks = self._split_by_sentences(combined_text, chunk_start)
                     chunks.extend(sentence_chunks)
-                    
+
                     # Update Start Offset
                     chunk_start += len(combined_text)
                     current_chunk = ""
-                    
+
                 else:
                     # Normal Case: new para doesn't fit in current one, but fits in a new one
                     if current_chunk:
-                        chunks.append(ChunkData(
-                            content=current_chunk.strip(),
-                            index=0,
-                            start_char=chunk_start,
-                            end_char=chunk_start + len(current_chunk),
-                            token_count=self.count_tokens(current_chunk)
-                        ))
+                        chunks.append(
+                            ChunkData(
+                                content=current_chunk.strip(),
+                                index=0,
+                                start_char=chunk_start,
+                                end_char=chunk_start + len(current_chunk),
+                                token_count=self.count_tokens(current_chunk),
+                            )
+                        )
                         chunk_start += len(current_chunk)
-                        
-                        # Add the \n\n skipped? 
-                        # Logic in loop: `para` comes from split(\n\n). 
+
+                        # Add the \n\n skipped?
+                        # Logic in loop: `para` comes from split(\n\n).
                         # We need to account for the separators length in `chunk_start` if we want exact precision,
                         # but typically `len(current_chunk)` updates appropriately if current_chunk INCLUDES the separators.
                         # Wait, `test_chunk = current_chunk + "\n\n" + para`.
                         # If we reset current_chunk to `para`, we technically skipped the `\n\n` between old `current` and `para` in the previous block.
                         # Actually previous logic `chunk_start += len(current_chunk)` might have drifted if we didn't include separators.
                         # But let's stick to the minimal fix logic:
-                        
+
                         # Re-calculate drift?
-                        # `current_chunk` usually accumulated `\n\n` inside it? 
+                        # `current_chunk` usually accumulated `\n\n` inside it?
                         # Yes: ` current_chunk = test_chunk` where `test_chunk` has `\n\n`.
-                        
+
                         # So simply:
                         current_chunk = para
 
         # Add remaining
         if current_chunk:
-            chunks.append(ChunkData(
-                content=current_chunk.strip(),
-                index=0,
-                start_char=chunk_start,
-                end_char=chunk_start + len(current_chunk),
-                token_count=self.count_tokens(current_chunk)
-            ))
+            chunks.append(
+                ChunkData(
+                    content=current_chunk.strip(),
+                    index=0,
+                    start_char=chunk_start,
+                    end_char=chunk_start + len(current_chunk),
+                    token_count=self.count_tokens(current_chunk),
+                )
+            )
 
         return chunks
 
@@ -270,24 +280,28 @@ class SemanticChunker:
                 current_chunk = test_chunk
             else:
                 if current_chunk:
-                    chunks.append(ChunkData(
-                        content=current_chunk.strip(),
-                        index=0,
-                        start_char=chunk_start,
-                        end_char=chunk_start + len(current_chunk),
-                        token_count=self.count_tokens(current_chunk)
-                    ))
+                    chunks.append(
+                        ChunkData(
+                            content=current_chunk.strip(),
+                            index=0,
+                            start_char=chunk_start,
+                            end_char=chunk_start + len(current_chunk),
+                            token_count=self.count_tokens(current_chunk),
+                        )
+                    )
                     chunk_start += len(current_chunk)
                 current_chunk = sentence
 
         if current_chunk:
-            chunks.append(ChunkData(
-                content=current_chunk.strip(),
-                index=0,
-                start_char=chunk_start,
-                end_char=chunk_start + len(current_chunk),
-                token_count=self.count_tokens(current_chunk)
-            ))
+            chunks.append(
+                ChunkData(
+                    content=current_chunk.strip(),
+                    index=0,
+                    start_char=chunk_start,
+                    end_char=chunk_start + len(current_chunk),
+                    token_count=self.count_tokens(current_chunk),
+                )
+            )
 
         return chunks
 
@@ -328,18 +342,20 @@ class SemanticChunker:
             words = text.split()
             return " ".join(words[-n:]) if len(words) > n else text
 
-    def _split_from_definitions(self, text: str, definitions: list[dict], document_title: str | None) -> list[ChunkData]:
+    def _split_from_definitions(
+        self, text: str, definitions: list[dict], document_title: str | None
+    ) -> list[ChunkData]:
         """
         Split text based on pre-parsed definitions from Tree-Sitter.
         Generates chunks for each definition to ensure they are searchable.
         """
         chunks = []
         lines = text.splitlines(keepends=True)
-        
-        # We iterate through all definitions. 
+
+        # We iterate through all definitions.
         # Note: This may create overlapping chunks (e.g. Class chunk + Method chunk),
         # which is actually beneficial for RAG (finding both the container and the leaf).
-        
+
         current_char_offset = 0
         # Build line offsets map
         line_offsets = []
@@ -347,42 +363,47 @@ class SemanticChunker:
         for line in lines:
             line_offsets.append(acc)
             acc += len(line)
-        line_offsets.append(acc) # Sentinel for EOF
-        
+        line_offsets.append(acc)  # Sentinel for EOF
+
         # Helper to get char range from line numbers (1-indexed)
         def get_range(start_line, end_line):
             start_off = line_offsets[start_line - 1]
-            end_off = line_offsets[end_line] # end_line is inclusive, so slice up to next line start
+            end_off = line_offsets[
+                end_line
+            ]  # end_line is inclusive, so slice up to next line start
             return start_off, end_off
 
         for idx, defn in enumerate(definitions):
             start = defn["start_line"]
             end = defn["end_line"]
-            
+
             # Clamp to valid range
             start = max(1, start)
             end = min(len(lines), end)
-            
-            if start > end: continue
-            
+
+            if start > end:
+                continue
+
             start_char, end_char = get_range(start, end)
-            
+
             # Extract content directly from text to assume consistency
             content = text[start_char:end_char]
-            
-            chunks.append(ChunkData(
-                content=content,
-                index=idx,
-                start_char=start_char,
-                end_char=end_char,
-                token_count=self.count_tokens(content),
-                metadata={
-                    "type": defn["type"],
-                    "name": defn["name"],
-                    "start_line": start,
-                    "end_line": end,
-                    "document_title": document_title
-                }
-            ))
+
+            chunks.append(
+                ChunkData(
+                    content=content,
+                    index=idx,
+                    start_char=start_char,
+                    end_char=end_char,
+                    token_count=self.count_tokens(content),
+                    metadata={
+                        "type": defn["type"],
+                        "name": defn["name"],
+                        "start_line": start,
+                        "end_line": end,
+                        "document_title": document_title,
+                    },
+                )
+            )
 
         return chunks

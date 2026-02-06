@@ -25,8 +25,10 @@ router = APIRouter(prefix="/jobs", tags=["admin-jobs"])
 # Schemas
 # =============================================================================
 
+
 class JobStatus(str, Enum):
     """Celery task states."""
+
     PENDING = "PENDING"
     STARTED = "STARTED"
     PROGRESS = "PROGRESS"
@@ -38,6 +40,7 @@ class JobStatus(str, Enum):
 
 class JobInfo(BaseModel):
     """Job information response."""
+
     task_id: str
     task_name: str | None = None
     status: str
@@ -53,6 +56,7 @@ class JobInfo(BaseModel):
 
 class JobListResponse(BaseModel):
     """List of jobs response."""
+
     jobs: list[JobInfo]
     total: int
     active_count: int
@@ -61,6 +65,7 @@ class JobListResponse(BaseModel):
 
 class QueueInfo(BaseModel):
     """Queue status information."""
+
     queue_name: str
     message_count: int
     consumer_count: int
@@ -68,6 +73,7 @@ class QueueInfo(BaseModel):
 
 class WorkerInfo(BaseModel):
     """Worker status information."""
+
     hostname: str
     status: str
     active_tasks: int
@@ -78,6 +84,7 @@ class WorkerInfo(BaseModel):
 
 class QueuesResponse(BaseModel):
     """Queue and worker status response."""
+
     queues: list[QueueInfo]
     workers: list[WorkerInfo]
     total_active_tasks: int
@@ -85,6 +92,7 @@ class QueuesResponse(BaseModel):
 
 class CancelResponse(BaseModel):
     """Cancel task response."""
+
     task_id: str
     status: str
     message: str
@@ -92,6 +100,7 @@ class CancelResponse(BaseModel):
 
 class CancelAllResponse(BaseModel):
     """Cancel all tasks response."""
+
     cancelled_count: int
     message: str
 
@@ -100,10 +109,13 @@ class CancelAllResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
+
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
     status: JobStatus | None = Query(None, description="Filter by status"),
-    task_type: str | None = Query(None, description="Filter by task type (e.g., 'process_document')"),
+    task_type: str | None = Query(
+        None, description="Filter by task type (e.g., 'process_document')"
+    ),
     limit: int = Query(50, ge=1, le=200, description="Maximum results"),
 ):
     """
@@ -191,7 +203,7 @@ async def get_job(task_id: str):
         if job_info.started_at:
             end_time = job_info.completed_at or datetime.now(UTC)
             if isinstance(job_info.started_at, str):
-                start = datetime.fromisoformat(job_info.started_at.replace('Z', '+00:00'))
+                start = datetime.fromisoformat(job_info.started_at.replace("Z", "+00:00"))
             else:
                 start = job_info.started_at
             job_info.runtime_seconds = (end_time - start).total_seconds()
@@ -204,7 +216,9 @@ async def get_job(task_id: str):
 
 
 @router.post("/{task_id}/cancel", response_model=CancelResponse)
-async def cancel_job(task_id: str, terminate: bool = Query(False, description="Force terminate if running")):
+async def cancel_job(
+    task_id: str, terminate: bool = Query(False, description="Force terminate if running")
+):
     """
     Cancel or revoke a task.
 
@@ -219,11 +233,11 @@ async def cancel_job(task_id: str, terminate: bool = Query(False, description="F
             return CancelResponse(
                 task_id=task_id,
                 status=current_status,
-                message=f"Task already in terminal state: {current_status}"
+                message=f"Task already in terminal state: {current_status}",
             )
 
         # Revoke the task
-        celery_app.control.revoke(task_id, terminate=terminate, signal='SIGTERM')
+        celery_app.control.revoke(task_id, terminate=terminate, signal="SIGTERM")
 
         message = "Task revoked"
         if terminate:
@@ -231,11 +245,7 @@ async def cancel_job(task_id: str, terminate: bool = Query(False, description="F
 
         logger.info(f"Cancelled task {task_id}, terminate={terminate}")
 
-        return CancelResponse(
-            task_id=task_id,
-            status="REVOKED",
-            message=message
-        )
+        return CancelResponse(task_id=task_id, status="REVOKED", message=message)
 
     except Exception as e:
         logger.error(f"Failed to cancel job {task_id}: {e}")
@@ -276,21 +286,20 @@ async def cancel_all_jobs():
 
         # Revoke all tasks with terminate=True
         # Use SIGKILL to ensure immediate termination for "Stop All"
-        import signal
-        
+
         for task_id in task_ids:
             try:
                 # First try SIGTERM for a graceful shutdown
-                celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+                celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
                 # Then follow up with SIGKILL to be sure
-                celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+                celery_app.control.revoke(task_id, terminate=True, signal="SIGKILL")
                 cancelled_count += 1
             except Exception as e:
                 logger.warning(f"Failed to revoke task {task_id}: {e}")
 
         # Also purge any queued messages from all active queues
         queues_to_purge = ["celery", "ingestion", "extraction", "evaluation"]
-        
+
         # Add any queues found in inspector
         try:
             active_queues = inspect.active_queues()
@@ -300,7 +309,7 @@ async def cancel_all_jobs():
                         if q["name"] not in queues_to_purge:
                             queues_to_purge.append(q["name"])
         except Exception:
-            pass # Fallback to known list if inspection fails
+            pass  # Fallback to known list if inspection fails
 
         for queue_name in queues_to_purge:
             try:
@@ -308,7 +317,7 @@ async def cancel_all_jobs():
                 with celery_app.connection_or_acquire() as conn:
                     count = conn.default_channel.queue_purge(queue_name)
                     if count:
-                         logger.info(f"Purged {count} messages from queue {queue_name}")
+                        logger.info(f"Purged {count} messages from queue {queue_name}")
             except Exception as e:
                 logger.warning(f"Failed to purge queue {queue_name}: {e}")
 
@@ -316,7 +325,7 @@ async def cancel_all_jobs():
 
         return CancelAllResponse(
             cancelled_count=cancelled_count,
-            message=f"Successfully cancelled {cancelled_count} jobs and purged all queues"
+            message=f"Successfully cancelled {cancelled_count} jobs and purged all queues",
         )
 
     except Exception as e:
@@ -345,14 +354,18 @@ async def get_queue_status():
             active_tasks = len(active.get(hostname, []))
             total_active += active_tasks
 
-            workers.append(WorkerInfo(
-                hostname=hostname,
-                status="online",
-                active_tasks=active_tasks,
-                processed_total=worker_stats.get("total", {}).get("src.workers.tasks.process_document", 0),
-                concurrency=worker_stats.get("pool", {}).get("max-concurrency", 0),
-                queues=[q.get("name", "unknown") for q in worker_stats.get("queues", [])],
-            ))
+            workers.append(
+                WorkerInfo(
+                    hostname=hostname,
+                    status="online",
+                    active_tasks=active_tasks,
+                    processed_total=worker_stats.get("total", {}).get(
+                        "src.workers.tasks.process_document", 0
+                    ),
+                    concurrency=worker_stats.get("pool", {}).get("max-concurrency", 0),
+                    queues=[q.get("name", "unknown") for q in worker_stats.get("queues", [])],
+                )
+            )
 
         # Get queue info (from Redis)
         queues = []
@@ -360,17 +373,20 @@ async def get_queue_status():
             import os
 
             import redis
+
             redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
             r = redis.from_url(redis_url)
             try:
                 for queue_name in ["celery", "ingestion", "extraction"]:
                     try:
                         count = r.llen(queue_name)
-                        queues.append(QueueInfo(
-                            queue_name=queue_name,
-                            message_count=count,
-                            consumer_count=len([w for w in workers if queue_name in w.queues]),
-                        ))
+                        queues.append(
+                            QueueInfo(
+                                queue_name=queue_name,
+                                message_count=count,
+                                consumer_count=len([w for w in workers if queue_name in w.queues]),
+                            )
+                        )
                     except Exception:
                         pass
             finally:
@@ -392,6 +408,7 @@ async def get_queue_status():
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def _task_to_job_info(task: dict, default_status: str) -> JobInfo:
     """Convert Celery task dict to JobInfo."""

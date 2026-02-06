@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session
 from src.core.admin_ops.domain.feedback import Feedback
-from src.core.admin_ops.domain.usage import UsageLog
 
 router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
 
@@ -23,8 +22,10 @@ router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
 # Response Models
 # =============================================================================
 
+
 class ChatHistoryItem(BaseModel):
     """Single chat history entry."""
+
     request_id: str
     tenant_id: str
     query_text: str | None = None
@@ -43,6 +44,7 @@ class ChatHistoryItem(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     """Paginated chat history."""
+
     conversations: list[ChatHistoryItem]
     total: int
     limit: int
@@ -51,6 +53,7 @@ class ChatHistoryResponse(BaseModel):
 
 class ConversationDetail(BaseModel):
     """Full conversation details."""
+
     request_id: str
     tenant_id: str
     trace_id: str | None = None
@@ -78,6 +81,7 @@ class ConversationDetail(BaseModel):
 # Endpoints
 # =============================================================================
 
+
 @router.get("/history", response_model=ChatHistoryResponse)
 async def list_chat_history(
     request: Request,
@@ -88,7 +92,7 @@ async def list_chat_history(
 ):
     """
     List recent chat conversations.
-    
+
     Privacy Rules:
     - Admins can see metadata for all conversations.
     - Query/Response content is REDACTED unless the conversation has user feedback.
@@ -120,14 +124,14 @@ async def list_chat_history(
 
         # Build response
         conversations = []
-        
+
         # Fetch QueryMetrics for cost/token data
         from src.api.config import settings
         from src.core.admin_ops.application.metrics.collector import MetricsCollector
-        
+
         collector = MetricsCollector(redis_url=settings.db.redis_url)
         all_metrics = await collector.get_recent(tenant_id=tenant_id, limit=500)
-        
+
         # Build a lookup by conversation_id
         metrics_by_conv: dict[str, dict] = {}
         for m in all_metrics:
@@ -141,32 +145,34 @@ async def list_chat_history(
                     }
                 metrics_by_conv[m.conversation_id]["total_tokens"] += m.tokens_used
                 metrics_by_conv[m.conversation_id]["cost"] += m.cost_estimate
-        
+
         # Fetch all conversation IDs with feedback for bulk lookup
         conv_ids = [conv.id for conv in rows]
-        feedback_query = select(Feedback.request_id).where(
-            Feedback.request_id.in_(conv_ids)
-        ).distinct()
+        feedback_query = (
+            select(Feedback.request_id).where(Feedback.request_id.in_(conv_ids)).distinct()
+        )
         feedback_result = await session.execute(feedback_query)
         conversations_with_feedback = {row[0] for row in feedback_result.fetchall()}
-        
+
         for conv in rows:
             # Extract query/response from metadata
             metadata = conv.metadata_ or {}
             query_text = metadata.get("query")
             response_text = metadata.get("answer")
             model = metadata.get("model", "default")
-            
+
             # PRIVACY REDACTION: Only show content if conversation has feedback
             has_feedback = conv.id in conversations_with_feedback
             if not has_feedback:
                 query_text = "[REDACTED - PRIVACY]"
                 response_text = "[REDACTED - PRIVACY]"
-            
+
             # Create preview
             response_preview = None
             if response_text:
-                response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                response_preview = (
+                    response_text[:100] + "..." if len(response_text) > 100 else response_text
+                )
             elif conv.summary and has_feedback:
                 response_preview = conv.summary[:100]
             elif not has_feedback:
@@ -180,19 +186,21 @@ async def list_chat_history(
                 model = conv_metrics["model"]
             provider = conv_metrics.get("provider", "openai")
 
-            conversations.append(ChatHistoryItem(
-                request_id=conv.id,
-                tenant_id=conv.tenant_id,
-                query_text=query_text or conv.title if has_feedback else "[REDACTED - PRIVACY]",
-                response_preview=response_preview,
-                model=model,
-                provider=provider,
-                total_tokens=total_tokens,
-                cost=cost,
-                has_feedback=has_feedback,
-                feedback_score=None,
-                created_at=conv.created_at,
-            ))
+            conversations.append(
+                ChatHistoryItem(
+                    request_id=conv.id,
+                    tenant_id=conv.tenant_id,
+                    query_text=query_text or conv.title if has_feedback else "[REDACTED - PRIVACY]",
+                    response_preview=response_preview,
+                    model=model,
+                    provider=provider,
+                    total_tokens=total_tokens,
+                    cost=cost,
+                    has_feedback=has_feedback,
+                    feedback_score=None,
+                    created_at=conv.created_at,
+                )
+            )
 
         return ChatHistoryResponse(
             conversations=conversations,
@@ -203,7 +211,10 @@ async def list_chat_history(
     except Exception as e:
         import logging
         import traceback
-        logging.getLogger(__name__).error(f"Chat history query failed: {e}\n{traceback.format_exc()}")
+
+        logging.getLogger(__name__).error(
+            f"Chat history query failed: {e}\n{traceback.format_exc()}"
+        )
         return ChatHistoryResponse(
             conversations=[],
             total=0,
@@ -220,7 +231,7 @@ async def get_conversation_detail(
 ):
     """
     Get full details for a specific conversation.
-    
+
     Privacy Rules:
     - Query/Response content is REDACTED unless the conversation has user feedback.
     """
@@ -244,7 +255,7 @@ async def get_conversation_detail(
     query_text = metadata.get("query")
     response_text = metadata.get("answer")
     model = metadata.get("model", "default")
-    
+
     # PRIVACY REDACTION: Only show content if conversation has feedback
     if not has_feedback:
         query_text = "[REDACTED - PRIVACY]"

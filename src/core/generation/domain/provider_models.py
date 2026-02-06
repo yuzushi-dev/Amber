@@ -51,6 +51,7 @@ class RateLimitError(ProviderError):
 class QuotaExceededError(ProviderError):
     """Quota limit exceeded (insufficient funds/credits). Should NOT retry."""
 
+
 class InvalidRequestError(ProviderError):
     """Invalid request parameters (bad input, context too long, etc.)."""
 

@@ -1,7 +1,13 @@
 import pytest
-from src.core.generation.domain.provider_models import ConfigurationError, ProviderTier
+
+from src.core.generation.domain.provider_models import ConfigurationError
 from src.shared import model_registry as mr
-from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL, EMBEDDING_MODELS, LLM_MODELS
+from src.shared.model_registry import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LLM_MODEL,
+    EMBEDDING_MODELS,
+    LLM_MODELS,
+)
 
 
 def _first_other(models: dict, current: str) -> str:
@@ -47,12 +53,21 @@ def test_resolve_token_encoding_llm_models():
     model = next(iter(mr.TOKEN_ENCODING_BY_MODEL))
     assert mr.resolve_token_encoding(model) == mr.TOKEN_ENCODING_BY_MODEL[model]
     assert mr.resolve_token_encoding(OPENAI_DEFAULT) == mr.TOKEN_ENCODING_BY_PROVIDER["openai"]
-    assert mr.resolve_token_encoding(DEFAULT_LLM_MODEL["anthropic"]) == mr.TOKEN_ENCODING_BY_PROVIDER["anthropic"]
+    assert (
+        mr.resolve_token_encoding(DEFAULT_LLM_MODEL["anthropic"])
+        == mr.TOKEN_ENCODING_BY_PROVIDER["anthropic"]
+    )
 
 
 def test_resolve_token_encoding_embedding_models():
-    assert mr.resolve_token_encoding(DEFAULT_EMBEDDING_MODEL["openai"]) == mr.TOKEN_ENCODING_BY_PROVIDER["openai"]
-    assert mr.resolve_token_encoding(DEFAULT_EMBEDDING_MODEL["ollama"]) == mr.TOKEN_ENCODING_BY_PROVIDER["ollama"]
+    assert (
+        mr.resolve_token_encoding(DEFAULT_EMBEDDING_MODEL["openai"])
+        == mr.TOKEN_ENCODING_BY_PROVIDER["openai"]
+    )
+    assert (
+        mr.resolve_token_encoding(DEFAULT_EMBEDDING_MODEL["ollama"])
+        == mr.TOKEN_ENCODING_BY_PROVIDER["ollama"]
+    )
 
 
 def test_openai_chat_overrides_reasoning_models():
@@ -70,8 +85,14 @@ def test_openai_chat_overrides_default_models():
 
 
 def test_embedding_supports_dimensions_openai():
-    supports = [name for name, info in EMBEDDING_MODELS["openai"].items() if info.get("supports_dimensions")]
-    legacy = [name for name, info in EMBEDDING_MODELS["openai"].items() if not info.get("supports_dimensions")]
+    supports = [
+        name for name, info in EMBEDDING_MODELS["openai"].items() if info.get("supports_dimensions")
+    ]
+    legacy = [
+        name
+        for name, info in EMBEDDING_MODELS["openai"].items()
+        if not info.get("supports_dimensions")
+    ]
     assert mr.embedding_supports_dimensions(supports[0], provider="openai") is True
     assert mr.embedding_supports_dimensions(supports[1], provider="openai") is True
     assert mr.embedding_supports_dimensions(legacy[0], provider="openai") is False

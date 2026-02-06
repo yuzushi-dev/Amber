@@ -68,6 +68,7 @@ async def test_register_document_emits_state_change(monkeypatch):
     monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
     monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
     monkeypatch.setattr(service_module, "Document", StubDocument)
+
     async def _direct_to_thread(func, *args, **kwargs):
         return func(*args, **kwargs)
 

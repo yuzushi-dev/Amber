@@ -10,49 +10,147 @@ import logging
 import re
 from typing import Any
 
+from src.core.generation.domain.ports.provider_factory import (
+    build_provider_factory,
+    get_provider_factory,
+)
 from src.core.generation.domain.provider_models import ProviderTier
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
 
 logger = logging.getLogger(__name__)
 
 # Comprehensive document type taxonomy
 DOCUMENT_TYPES = [
-    "quote", "invoice", "receipt", "purchase_order",
-    "contract", "agreement",
-    "report", "financial_report", "research_report", "business_report", "technical_report",
-    "resume", "cv", "cover_letter",
-    "insurance_document", "insurance_policy", "claim_form",
-    "medical_record", "prescription",
-    "legal_document", "court_document", "deed", "will", "power_of_attorney",
-    "academic_paper", "thesis", "dissertation",
-    "article", "blog_post", "news_article", "press_release",
-    "whitepaper", "specification", "technical_specification",
-    "manual", "user_manual", "guide", "tutorial",
-    "presentation", "slide_deck",
-    "proposal", "business_proposal", "project_proposal", "grant_proposal",
-    "memo", "memorandum", "letter", "business_letter", "email",
-    "form", "application_form", "registration_form", "tax_form",
-    "financial_statement", "balance_sheet", "income_statement", "cash_flow_statement",
-    "budget", "forecast",
-    "plan", "business_plan", "project_plan", "marketing_plan",
-    "strategy_document", "policy_document", "procedure_document", "sop",
-    "checklist", "schedule", "calendar", "agenda",
-    "minutes", "meeting_minutes", "transcript", "interview_transcript",
-    "certificate", "diploma", "license", "permit",
-    "warranty", "guarantee",
-    "specification_sheet", "datasheet",
-    "brochure", "catalog", "flyer", "pamphlet", "booklet",
-    "book", "ebook", "chapter", "section",
-    "reference_document", "documentation", "api_documentation", "code_documentation",
-    "readme", "changelog", "release_notes",
-    "announcement", "notice", "notification", "alert", "bulletin", "newsletter",
-    "journal_entry", "log", "record", "note", "annotation", "comment",
-    "review", "feedback", "survey", "questionnaire",
-    "assessment", "evaluation", "test", "exam", "quiz",
-    "worksheet", "assignment", "homework",
-    "syllabus", "curriculum", "lesson_plan", "lecture_notes",
-    "study_guide", "reference_sheet", "cheat_sheet",
-    "other"
+    "quote",
+    "invoice",
+    "receipt",
+    "purchase_order",
+    "contract",
+    "agreement",
+    "report",
+    "financial_report",
+    "research_report",
+    "business_report",
+    "technical_report",
+    "resume",
+    "cv",
+    "cover_letter",
+    "insurance_document",
+    "insurance_policy",
+    "claim_form",
+    "medical_record",
+    "prescription",
+    "legal_document",
+    "court_document",
+    "deed",
+    "will",
+    "power_of_attorney",
+    "academic_paper",
+    "thesis",
+    "dissertation",
+    "article",
+    "blog_post",
+    "news_article",
+    "press_release",
+    "whitepaper",
+    "specification",
+    "technical_specification",
+    "manual",
+    "user_manual",
+    "guide",
+    "tutorial",
+    "presentation",
+    "slide_deck",
+    "proposal",
+    "business_proposal",
+    "project_proposal",
+    "grant_proposal",
+    "memo",
+    "memorandum",
+    "letter",
+    "business_letter",
+    "email",
+    "form",
+    "application_form",
+    "registration_form",
+    "tax_form",
+    "financial_statement",
+    "balance_sheet",
+    "income_statement",
+    "cash_flow_statement",
+    "budget",
+    "forecast",
+    "plan",
+    "business_plan",
+    "project_plan",
+    "marketing_plan",
+    "strategy_document",
+    "policy_document",
+    "procedure_document",
+    "sop",
+    "checklist",
+    "schedule",
+    "calendar",
+    "agenda",
+    "minutes",
+    "meeting_minutes",
+    "transcript",
+    "interview_transcript",
+    "certificate",
+    "diploma",
+    "license",
+    "permit",
+    "warranty",
+    "guarantee",
+    "specification_sheet",
+    "datasheet",
+    "brochure",
+    "catalog",
+    "flyer",
+    "pamphlet",
+    "booklet",
+    "book",
+    "ebook",
+    "chapter",
+    "section",
+    "reference_document",
+    "documentation",
+    "api_documentation",
+    "code_documentation",
+    "readme",
+    "changelog",
+    "release_notes",
+    "announcement",
+    "notice",
+    "notification",
+    "alert",
+    "bulletin",
+    "newsletter",
+    "journal_entry",
+    "log",
+    "record",
+    "note",
+    "annotation",
+    "comment",
+    "review",
+    "feedback",
+    "survey",
+    "questionnaire",
+    "assessment",
+    "evaluation",
+    "test",
+    "exam",
+    "quiz",
+    "worksheet",
+    "assignment",
+    "homework",
+    "syllabus",
+    "curriculum",
+    "lesson_plan",
+    "lecture_notes",
+    "study_guide",
+    "reference_sheet",
+    "cheat_sheet",
+    "other",
 ]
 
 
@@ -73,6 +171,7 @@ class DocumentSummarizer:
     def _get_llm(self, provider_name: str | None = None, model: str | None = None):
         """Lazy-load LLM provider."""
         from src.shared.kernel.runtime import get_settings
+
         settings = get_settings()
         if settings.openai_api_key or settings.anthropic_api_key or settings.ollama_base_url:
             factory = build_provider_factory(
@@ -128,9 +227,9 @@ class DocumentSummarizer:
             if len(full_content) > 12000:
                 full_content = full_content[:12000]
                 # Try to end at a sentence boundary
-                last_period = full_content.rfind('.')
+                last_period = full_content.rfind(".")
                 if last_period > 10000:
-                    full_content = full_content[:last_period + 1]
+                    full_content = full_content[: last_period + 1]
 
             # Create LLM prompts
             system_prompt = self._build_system_prompt(max_summary_length)
@@ -138,11 +237,11 @@ class DocumentSummarizer:
 
             # Generate response with metrics tracking
             from src.shared.kernel.runtime import get_settings
+
             settings = get_settings()
             from src.core.admin_ops.application.metrics.collector import MetricsCollector
-            from src.shared.identifiers import generate_query_id
-            
             from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.shared.identifiers import generate_query_id
 
             tenant_config = tenant_config or {}
             llm_cfg = resolve_llm_step_config(
@@ -154,8 +253,10 @@ class DocumentSummarizer:
             llm = self._get_llm(provider_name=llm_cfg.provider, model=llm_cfg.model)
             query_id = generate_query_id()
             collector = MetricsCollector(redis_url=settings.db.redis_url)
-            
-            async with collector.track_query(query_id, "system", f"Summarize: {document_title}") as qm:
+
+            async with collector.track_query(
+                query_id, "system", f"Summarize: {document_title}"
+            ) as qm:
                 qm.operation = "summarization"
                 result = await llm.generate(
                     prompt=user_prompt,
@@ -164,19 +265,19 @@ class DocumentSummarizer:
                     max_tokens=800,
                     seed=llm_cfg.seed,
                 )
-                qm.tokens_used = result.usage.total_tokens if hasattr(result, 'usage') else 0
-                qm.input_tokens = result.usage.input_tokens if hasattr(result, 'usage') else 0
-                qm.output_tokens = result.usage.output_tokens if hasattr(result, 'usage') else 0
-                qm.cost_estimate = result.cost_estimate if hasattr(result, 'cost_estimate') else 0.0
-                qm.model = result.model if hasattr(result, 'model') else ""
-                qm.provider = result.provider if hasattr(result, 'provider') else ""
+                qm.tokens_used = result.usage.total_tokens if hasattr(result, "usage") else 0
+                qm.input_tokens = result.usage.input_tokens if hasattr(result, "usage") else 0
+                qm.output_tokens = result.usage.output_tokens if hasattr(result, "usage") else 0
+                qm.cost_estimate = result.cost_estimate if hasattr(result, "cost_estimate") else 0.0
+                qm.model = result.model if hasattr(result, "model") else ""
+                qm.provider = result.provider if hasattr(result, "provider") else ""
                 qm.response = result.text[:500] if len(result.text) > 500 else result.text
 
             # Parse JSON response
             parsed = self._parse_response(result.text)
 
             # Validate and clean
-            summary = parsed.get("summary", "")[:int(max_summary_length * 1.5)]
+            summary = parsed.get("summary", "")[: int(max_summary_length * 1.5)]
             document_type = parsed.get("document_type", "other").lower().strip()
             hashtags = self._clean_hashtags(parsed.get("hashtags", []))
             keywords = parsed.get("keywords", [])
@@ -197,7 +298,7 @@ class DocumentSummarizer:
                 "document_type": document_type,
                 "hashtags": hashtags,
                 "keywords": keywords,
-                "categories": categories
+                "categories": categories,
             }
 
         except Exception as e:
@@ -251,7 +352,7 @@ Provide a concise summary (max {max_length} chars), document type, and hashtags 
         import json
 
         # Extract JSON from response (handle markdown code blocks)
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group())
@@ -267,18 +368,14 @@ Provide a concise summary (max {max_length} chars), document type, and hashtags 
         for tag in hashtags:
             if isinstance(tag, str):
                 tag = tag.strip()
-                if not tag.startswith('#'):
-                    tag = '#' + tag
+                if not tag.startswith("#"):
+                    tag = "#" + tag
                 cleaned.append(tag)
         return cleaned[:8]  # Limit to 8
 
     def _empty_result(self) -> dict[str, Any]:
         """Return empty result structure."""
-        return {
-            "summary": "",
-            "document_type": "other",
-            "hashtags": []
-        }
+        return {"summary": "", "document_type": "other", "hashtags": []}
 
 
 # Module-level singleton

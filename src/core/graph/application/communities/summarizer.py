@@ -4,15 +4,16 @@ import logging
 import re
 from typing import Any
 
-from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.generation.application.prompts.community_summary import (
     COMMUNITY_SUMMARY_SYSTEM_PROMPT,
     COMMUNITY_SUMMARY_USER_PROMPT,
 )
-from src.core.generation.domain.provider_models import ProviderTier
 from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 
 logger = logging.getLogger(__name__)
+
 
 class CommunitySummarizer:
     """
@@ -54,19 +55,19 @@ class CommunitySummarizer:
 
         # If it's a higher level community, we might want to include summaries of child communities
         if data["child_summaries"]:
-            child_summaries_str = "\n".join([f"- {s['title']}: {s['summary']}" for s in data["child_summaries"]])
+            child_summaries_str = "\n".join(
+                [f"- {s['title']}: {s['summary']}" for s in data["child_summaries"]]
+            )
             entities_str += f"\n\nCHILD COMMUNITIES SUMMARIES:\n{child_summaries_str}"
 
         prompt = COMMUNITY_SUMMARY_USER_PROMPT.format(
-            entities=entities_str,
-            relationships=relationships_str,
-            text_units=text_units_str
+            entities=entities_str, relationships=relationships_str, text_units=text_units_str
         )
 
         # 3. Call LLM
         try:
-            from src.shared.kernel.runtime import get_settings
             from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.shared.kernel.runtime import get_settings
 
             settings = get_settings()
             tenant_config = tenant_config or {}
@@ -102,7 +103,7 @@ class CommunitySummarizer:
             # Set a failure status on the node
             await self.graph.execute_write(
                 "MATCH (c:Community {id: $id}) SET c.status = 'failed', c.error = $error",
-                {"id": community_id, "error": str(e)}
+                {"id": community_id, "error": str(e)},
             )
             return {}
 
@@ -125,7 +126,9 @@ class CommunitySummarizer:
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
         community_ids = [r["id"] for r in results]
-        logger.info(f"Found {len(community_ids)} communities needing summarization for tenant {tenant_id}")
+        logger.info(
+            f"Found {len(community_ids)} communities needing summarization for tenant {tenant_id}"
+        )
 
         # Group by level to ensure child communities are summarized before parents
         # Actually our query already orders by level ASC
@@ -140,7 +143,7 @@ class CommunitySummarizer:
 
         # Create tasks for all IDs (semaphore controls active execution)
         tasks = [_bounded_summarize(cid) for cid in community_ids]
-        
+
         # Run safely
         await asyncio.gather(*tasks)
 
@@ -190,22 +193,24 @@ class CommunitySummarizer:
             "relationships": relationships,
             "child_summaries": child_summaries,
             "text_units": text_units,
-            "child_communities": []
+            "child_communities": [],
         }
 
     def _format_entities(self, entities: list[dict[str, Any]]) -> str:
         return "\n".join([f"- {e['name']} ({e['type']}): {e['description']}" for e in entities])
 
     def _format_relationships(self, relationships: list[dict[str, Any]]) -> str:
-        return "\n".join([f"- {r['source']} -> {r['type']} -> {r['target']}: {r['description']}" for r in relationships])
+        return "\n".join(
+            [
+                f"- {r['source']} -> {r['type']} -> {r['target']}: {r['description']}"
+                for r in relationships
+            ]
+        )
 
     def _format_text_units(self, text_units: list[dict[str, Any]]) -> str:
         if not text_units:
             return "(No exemplar text units available)"
-        return "\n".join([
-            f"--- TextUnit ID: {tu['id']} ---\n{tu['content']}"
-            for tu in text_units
-        ])
+        return "\n".join([f"--- TextUnit ID: {tu['id']} ---\n{tu['content']}" for tu in text_units])
 
     def _parse_json(self, text: str) -> dict[str, Any]:
         """Clean and parse JSON from LLM response."""
@@ -247,6 +252,6 @@ class CommunitySummarizer:
             "summary": summary.get("summary", ""),
             "rating": summary.get("rating", 0),
             "key_entities": summary.get("key_entities", []),
-            "findings": summary.get("findings", [])
+            "findings": summary.get("findings", []),
         }
         await self.graph.execute_write(query, params)

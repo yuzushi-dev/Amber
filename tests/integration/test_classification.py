@@ -11,9 +11,9 @@ import pytest
 
 from src.core.generation.application.intelligence.classifier import DomainClassifier
 from src.core.generation.application.intelligence.strategies import DocumentDomain, get_strategy
+from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
-from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.state.machine import DocumentStatus
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
 
@@ -37,6 +37,7 @@ async def test_domain_classifier_logic():
 
     await classifier.close()
 
+
 @pytest.mark.asyncio
 async def test_strategy_mapping():
     """Test that domains map to correct strategies."""
@@ -47,41 +48,44 @@ async def test_strategy_mapping():
     strategy = get_strategy("technical")
     assert strategy.chunk_size == 800
 
+
 @pytest.mark.asyncio
 async def test_ingestion_integration_classification(db_session):
     """
     Verify IngestionService.process_document invokes classification.
     We mock the storage and classifier to focus on the flow.
     """
-    from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-    from src.core.ingestion.domain.document import Document
-    from src.core.tenants.domain.tenant import Tenant
-    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
-    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
     # from src.core.database.unit_of_work import SqlAlchemyUnitOfWork # Not used
-    
     import uuid
-    
+
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+    from src.core.tenants.domain.tenant import Tenant
+    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+        PostgresTenantRepository,
+    )
+
     # Create tenant first
     tenant_id = str(uuid.uuid4())
     tenant = Tenant(id=tenant_id, name="Test Tenant")
     db_session.add(tenant)
     await db_session.commit()
-    
+
     # Setup mocks for external dependencies
     mock_storage = MagicMock()
     mock_response = MagicMock()
     mock_response.read.return_value = b"def code(): pass"  # Technical content
     mock_storage.get_file.return_value = mock_response
     mock_storage.upload_file = AsyncMock(return_value="storage/path/code.py")
-    
+
     mock_neo4j = MagicMock()
     mock_neo4j.execute_write = AsyncMock(return_value=[])
-    
+
     mock_vector_store = MagicMock()
     mock_vector_store.insert = AsyncMock(return_value=None)
     mock_vector_store.upsert_chunks = AsyncMock(return_value=None)
-    
+
     # Create repositories
     doc_repo = PostgresDocumentRepository(db_session)
     tenant_repo = PostgresTenantRepository(db_session)
@@ -91,12 +95,13 @@ async def test_ingestion_integration_classification(db_session):
     # Mock wrapper for provider factory
     mock_factory = MagicMock()
     mock_provider = MagicMock()
-    mock_provider.embed = AsyncMock(return_value=MagicMock()) # Ensure awaitable
+    mock_provider.embed = AsyncMock(return_value=MagicMock())  # Ensure awaitable
     mock_provider.count_tokens = AsyncMock(return_value=10)
     mock_factory.get_embedding_provider.return_value = mock_provider
     mock_factory.get_llm_provider.return_value = mock_provider
-    
+
     from src.core.generation.domain.ports.provider_factory import set_provider_factory
+
     set_provider_factory(mock_factory)
 
     try:
@@ -112,16 +117,16 @@ async def test_ingestion_integration_classification(db_session):
             event_dispatcher=None,
             vector_store_factory=None,
         )
-        
+
         # Pre-seed document in DB
         doc_id = str(uuid.uuid4())
         doc = Document(
-            id=doc_id, 
-            tenant_id=tenant_id, 
-            filename="code.py", 
-            status=DocumentStatus.INGESTED, 
-            content_hash=str(uuid.uuid4()), 
-            storage_path="path"
+            id=doc_id,
+            tenant_id=tenant_id,
+            filename="code.py",
+            status=DocumentStatus.INGESTED,
+            content_hash=str(uuid.uuid4()),
+            storage_path="path",
         )
         db_session.add(doc)
         await db_session.commit()
@@ -132,7 +137,7 @@ async def test_ingestion_integration_classification(db_session):
         mock_extractor_result.confidence = 1.0
         mock_extractor_result.metadata = {}
         mock_extractor_result.extraction_time_ms = 10
-        
+
         mock_extractor = MagicMock()
         mock_extractor.extract = AsyncMock(return_value=mock_extractor_result)
 
@@ -140,7 +145,9 @@ async def test_ingestion_integration_classification(db_session):
         mock_settings = MagicMock()
         mock_settings.default_embedding_model = DEFAULT_EMBEDDING_MODEL["openai"]
         mock_settings.default_embedding_provider = "openai"
-        mock_settings.embedding_dimensions = EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"]
+        mock_settings.embedding_dimensions = EMBEDDING_MODELS["openai"][
+            DEFAULT_EMBEDDING_MODEL["openai"]
+        ]["dimensions"]
         mock_settings.openai_api_key = "test-key"
 
         # Re-create service with extractor
@@ -159,9 +166,12 @@ async def test_ingestion_integration_classification(db_session):
         )
 
         # Run process
-        with patch("src.core.generation.domain.ports.provider_factory.build_provider_factory", return_value=mock_factory):
+        with patch(
+            "src.core.generation.domain.ports.provider_factory.build_provider_factory",
+            return_value=mock_factory,
+        ):
             await service.process_document(doc_id)
-            
+
     finally:
         set_provider_factory(None)
 
@@ -172,6 +182,7 @@ async def test_ingestion_integration_classification(db_session):
 
     # Verify Chunk metadata
     from sqlalchemy import select
+
     result = await db_session.execute(select(Chunk).where(Chunk.document_id == doc_id))
     chunk = result.scalars().first()
 

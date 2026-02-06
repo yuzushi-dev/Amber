@@ -11,6 +11,7 @@ import time
 
 try:
     from mistralai import Mistral
+
     HAS_MISTRAL = True
 except ImportError:
     HAS_MISTRAL = False
@@ -38,11 +39,11 @@ class MistralOCRExtractor(BaseExtractor):
             raise ImportError("mistralai is not installed.")
 
         if not extraction_settings.mistral_ocr_enabled:
-             raise ValueError("Mistral OCR is disabled by configuration.")
+            raise ValueError("Mistral OCR is disabled by configuration.")
 
-        api_key = os.getenv("MISTRAL_API_KEY") # Or from app_settings
+        api_key = os.getenv("MISTRAL_API_KEY")  # Or from app_settings
         if not api_key:
-             raise ValueError("MISTRAL_API_KEY is not set.")
+            raise ValueError("MISTRAL_API_KEY is not set.")
 
         start_time = time.time()
 
@@ -76,7 +77,7 @@ class MistralOCRExtractor(BaseExtractor):
                 metadata={"source": "mistral-ocr"},
                 extractor_used=self.name,
                 confidence=0.99,
-                extraction_time_ms=elapsed
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

@@ -1,9 +1,9 @@
 import logging
 import re
 
+from src.core.generation.application.prompts.entity_extraction import ExtractionResult
 from src.core.graph.domain.ports.graph_client import get_graph_client
 from src.core.graph.domain.schema import NodeLabel, RelationshipType
-from src.core.generation.application.prompts.entity_extraction import ExtractionResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class GraphWriter:
         chunk_id: str,
         tenant_id: str,
         result: ExtractionResult,
-        filename: str = None
+        filename: str = None,
     ):
         """
         Persist extraction results for a single chunk.
@@ -59,7 +59,6 @@ class GraphWriter:
         MERGE (d)-[:{RelationshipType.HAS_CHUNK.value}]->(c)
         """
 
-
         # 2. Merge Entities
         if entities_param:
             query += f"""
@@ -80,7 +79,7 @@ class GraphWriter:
             "chunk_id": chunk_id,
             "tenant_id": tenant_id,
             "filename": filename,
-            "entities": entities_param
+            "entities": entities_param,
         }
 
         try:
@@ -92,7 +91,7 @@ class GraphWriter:
                 rels_by_type = {}
                 for rel in result.relationships:
                     # Sanitize: UPPER_CASE only, replace special chars with _
-                    safe_type = re.sub(r'[^A-Z0-9_]', '_', rel.type.upper())
+                    safe_type = re.sub(r"[^A-Z0-9_]", "_", rel.type.upper())
                     if not safe_type:
                         safe_type = "RELATED_TO"
 
@@ -115,10 +114,9 @@ class GraphWriter:
                     ON MATCH SET
                         r.weight = rel.weight
                     """
-                    await get_graph_client().execute_write(rel_query, {
-                        "batch": rel_batch,
-                        "tenant_id": tenant_id
-                    })
+                    await get_graph_client().execute_write(
+                        rel_query, {"batch": rel_batch, "tenant_id": tenant_id}
+                    )
 
             logger.info(
                 f"Graph write complete for chunk {chunk_id}: "
@@ -127,19 +125,25 @@ class GraphWriter:
 
             # Trigger community staleness (Phase 4.3)
             try:
-                from src.core.graph.application.communities.lifecycle import CommunityLifecycleManager
+                from src.core.graph.application.communities.lifecycle import (
+                    CommunityLifecycleManager,
+                )
+
                 lifecycle = CommunityLifecycleManager(get_graph_client())
                 # Find the entity IDs from the graph (we only have names in params)
                 # We can just use names if we update lifecycle to handle names and tenant_id
                 # but it's safer to use the 'id' which we don't have here yet.
                 # Actually, Neo4j MERGE uses name + tenant_id as unique key.
                 # Let's update lifecycle to use names for efficiency.
-                await lifecycle.mark_stale_by_entities_by_name([e["name"] for e in entities_param], tenant_id)
+                await lifecycle.mark_stale_by_entities_by_name(
+                    [e["name"] for e in entities_param], tenant_id
+                )
             except Exception as e:
                 logger.warning(f"Failed to trigger community staleness: {e}")
 
         except Exception as e:
             logger.error(f"Failed to write graph data for chunk {chunk_id}: {e}")
             raise
+
 
 graph_writer = GraphWriter()

@@ -9,11 +9,15 @@ from src.shared.model_registry import DEFAULT_LLM_MODEL
 
 @pytest.mark.asyncio
 async def test_extractor_flow_mocked():
-    with patch("src.core.ingestion.infrastructure.extraction.graph_extractor.get_llm_provider") as mock_get, \
-         patch("src.shared.kernel.runtime.get_settings") as mock_settings:
+    with (
+        patch(
+            "src.core.ingestion.infrastructure.extraction.graph_extractor.get_llm_provider"
+        ) as mock_get,
+        patch("src.shared.kernel.runtime.get_settings") as mock_settings,
+    ):
         mock_provider = AsyncMock()
         mock_get.return_value = mock_provider
-        
+
         mock_settings.return_value.default_llm_model = DEFAULT_LLM_MODEL["openai"]
         mock_settings.return_value.db.redis_url = None
 
@@ -22,7 +26,7 @@ async def test_extractor_flow_mocked():
         mock_response.text = '("entity"<|>MORPHEUS<|>PERSON<|>Captain<|>0.9)'
         mock_response.usage = SimpleNamespace(total_tokens=10, input_tokens=5, output_tokens=5)
         mock_response.cost_estimate = 0.001
-        
+
         mock_provider.generate.return_value = mock_response
 
         extractor = GraphExtractor(use_gleaning=False)
@@ -31,16 +35,21 @@ async def test_extractor_flow_mocked():
         assert len(result.entities) == 1
         assert result.entities[0].name == "MORPHEUS"
         assert result.entities[0].type == "PERSON"
-        
+
         mock_settings.assert_called()
+
 
 @pytest.mark.asyncio
 async def test_extractor_gleaning_mocked():
-    with patch("src.core.ingestion.infrastructure.extraction.graph_extractor.get_llm_provider") as mock_get, \
-         patch("src.shared.kernel.runtime.get_settings") as mock_settings:
+    with (
+        patch(
+            "src.core.ingestion.infrastructure.extraction.graph_extractor.get_llm_provider"
+        ) as mock_get,
+        patch("src.shared.kernel.runtime.get_settings") as mock_settings,
+    ):
         mock_provider = AsyncMock()
         mock_get.return_value = mock_provider
-        
+
         mock_settings.return_value.default_llm_model = DEFAULT_LLM_MODEL["openai"]
         mock_settings.return_value.db.redis_url = None
 
@@ -64,5 +73,5 @@ async def test_extractor_gleaning_mocked():
         # Should contain both
         names = sorted([e.name for e in result.entities])
         assert names == ["NEO", "TRINITY"]
-        
+
         mock_settings.assert_called()

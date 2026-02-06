@@ -11,22 +11,23 @@ Implements LLM-as-a-Judge for automated evaluation of RAG outputs.
     when Ragas is not installed.
 """
 
-
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 from src.core.generation.application.registry import PromptRegistry
-from src.shared.kernel.observability import trace_span
 from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class EvaluationResult:
     score: float  # 0.0 to 1.0
     reasoning: str
     metadata: dict[str, Any]
+
 
 class JudgeService:
     """
@@ -52,10 +53,10 @@ class JudgeService:
         prompt = prompt_tmpl.format(query=query, context=context, answer=answer)
 
         # We use a lower temperature for evaluation
-        from src.shared.kernel.runtime import get_settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.core.generation.domain.ports.provider_factory import get_provider_factory
         from src.core.generation.domain.provider_models import ProviderTier
+        from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
         tenant_config = tenant_config or {}
@@ -99,10 +100,10 @@ class JudgeService:
         prompt_tmpl = self.prompts.get_prompt("relevance_judge")
         prompt = prompt_tmpl.format(query=query, answer=answer)
 
-        from src.shared.kernel.runtime import get_settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.core.generation.domain.ports.provider_factory import get_provider_factory
         from src.core.generation.domain.provider_models import ProviderTier
+        from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
         tenant_config = tenant_config or {}
@@ -158,7 +159,5 @@ class JudgeService:
             reasoning = text
 
         return EvaluationResult(
-            score=min(max(score, 0.0), 1.0),
-            reasoning=reasoning,
-            metadata={"raw_output": text}
+            score=min(max(score, 0.0), 1.0), reasoning=reasoning, metadata={"raw_output": text}
         )

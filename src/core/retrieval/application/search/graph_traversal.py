@@ -7,6 +7,7 @@ from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
 
+
 class GraphTraversalService:
     """
     Implements Beam Search traversal for multi-hop graph exploration.
@@ -22,7 +23,7 @@ class GraphTraversalService:
         tenant_id: str,
         depth: int = 2,
         beam_width: int = 5,
-        timeout_ms: int = 200
+        timeout_ms: int = 200,
     ) -> list[Candidate]:
         """
         Executes a bounded BFS (Beam Search) from seed entities.
@@ -84,13 +85,9 @@ class GraphTraversalService:
             results = await asyncio.wait_for(
                 self.neo4j.execute_read(
                     query,
-                    {
-                        "seed_ids": seed_entity_ids,
-                        "tenant_id": tenant_id,
-                        "beam_width": beam_width
-                    }
+                    {"seed_ids": seed_entity_ids, "tenant_id": tenant_id, "beam_width": beam_width},
                 ),
-                timeout=timeout_ms / 1000.0
+                timeout=timeout_ms / 1000.0,
             )
 
             return [
@@ -99,8 +96,8 @@ class GraphTraversalService:
                     document_id=r["document_id"],
                     tenant_id=tenant_id,
                     content=r["content"],
-                    score=0.7, # Graph reasoning hits
-                    source="graph"
+                    score=0.7,  # Graph reasoning hits
+                    source="graph",
                 )
                 for r in results
             ]

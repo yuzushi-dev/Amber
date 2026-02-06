@@ -100,30 +100,12 @@ Reasoning: [Provide a brief explanation of why you gave this score]
 
 # Registry of prompts by name and version
 PROMPTS = {
-    "rag_system": {
-        "v1": SYSTEM_PROMPT_v1,
-        "latest": SYSTEM_PROMPT_v1
-    },
-    "rag_user": {
-        "v1": USER_PROMPT_v1,
-        "latest": USER_PROMPT_v1
-    },
-    "global_summarize": {
-        "v1": GLOBAL_SUMMARIZE_PROMPT_v1,
-        "latest": GLOBAL_SUMMARIZE_PROMPT_v1
-    },
-    "drift_primer": {
-        "v1": DRIFT_PRIMER_PROMPT_v1,
-        "latest": DRIFT_PRIMER_PROMPT_v1
-    },
-    "faithfulness_judge": {
-        "v1": FAITHFULNESS_JUDGE_v1,
-        "latest": FAITHFULNESS_JUDGE_v1
-    },
-    "relevance_judge": {
-        "v1": RELEVANCE_JUDGE_v1,
-        "latest": RELEVANCE_JUDGE_v1
-    }
+    "rag_system": {"v1": SYSTEM_PROMPT_v1, "latest": SYSTEM_PROMPT_v1},
+    "rag_user": {"v1": USER_PROMPT_v1, "latest": USER_PROMPT_v1},
+    "global_summarize": {"v1": GLOBAL_SUMMARIZE_PROMPT_v1, "latest": GLOBAL_SUMMARIZE_PROMPT_v1},
+    "drift_primer": {"v1": DRIFT_PRIMER_PROMPT_v1, "latest": DRIFT_PRIMER_PROMPT_v1},
+    "faithfulness_judge": {"v1": FAITHFULNESS_JUDGE_v1, "latest": FAITHFULNESS_JUDGE_v1},
+    "relevance_judge": {"v1": RELEVANCE_JUDGE_v1, "latest": RELEVANCE_JUDGE_v1},
 }
 
 # =============================================================================

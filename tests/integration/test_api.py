@@ -1,11 +1,11 @@
 import pytest
+
 """
 Integration Tests for API Endpoints
 ====================================
 
 Tests that require a running API server.
 """
-
 
 
 @pytest.mark.asyncio

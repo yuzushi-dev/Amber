@@ -20,13 +20,17 @@ class ErrorDetail(BaseModel):
     timestamp: datetime | None = Field(None, description="When the error occurred")
     details: dict[str, Any] | None = Field(None, description="Additional context")
 
-    model_config = {"json_schema_extra": {"example": {
-        "code": "NOT_FOUND",
-        "message": "Document not found: doc_abc123",
-        "request_id": "req_1234567890abcdef",
-        "timestamp": "2024-01-15T10:30:00Z",
-        "details": {"resource": "Document", "identifier": "doc_abc123"},
-    }}}
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "code": "NOT_FOUND",
+                "message": "Document not found: doc_abc123",
+                "request_id": "req_1234567890abcdef",
+                "timestamp": "2024-01-15T10:30:00Z",
+                "details": {"resource": "Document", "identifier": "doc_abc123"},
+            }
+        }
+    }
 
 
 class ErrorResponse(BaseModel):
@@ -34,11 +38,15 @@ class ErrorResponse(BaseModel):
 
     error: ErrorDetail
 
-    model_config = {"json_schema_extra": {"example": {
-        "error": {
-            "code": "NOT_FOUND",
-            "message": "Document not found: doc_abc123",
-            "request_id": "req_1234567890abcdef",
-            "timestamp": "2024-01-15T10:30:00Z",
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Document not found: doc_abc123",
+                    "request_id": "req_1234567890abcdef",
+                    "timestamp": "2024-01-15T10:30:00Z",
+                }
+            }
         }
-    }}}
+    }

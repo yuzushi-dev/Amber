@@ -20,8 +20,8 @@ class SourceVerifier:
             return True
 
         # 2. Normalized match (ignore whitespace/case)
-        norm_citation = re.sub(r'\s+', ' ', citation_text).strip().lower()
-        norm_source = re.sub(r'\s+', ' ', source_text).strip().lower()
+        norm_citation = re.sub(r"\s+", " ", citation_text).strip().lower()
+        norm_source = re.sub(r"\s+", " ", source_text).strip().lower()
 
         if norm_citation in norm_source:
             return True

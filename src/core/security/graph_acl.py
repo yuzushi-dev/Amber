@@ -1,5 +1,3 @@
-
-
 class GraphACL:
     """
     Helper for generating secure Cypher/Graph queries that enforce Access Control.
@@ -7,9 +5,7 @@ class GraphACL:
 
     @staticmethod
     def security_pattern(
-        tenant_id: str,
-        allowed_doc_ids: list[str] | None = None,
-        variable_name: str = "e"
+        tenant_id: str, allowed_doc_ids: list[str] | None = None, variable_name: str = "e"
     ) -> str:
         """
         Generates a MATCH/WHERE clause to ensure the entity is accessible.
@@ -48,11 +44,14 @@ class GraphACL:
             return f"MATCH ({variable_name}:Entity {{tenant_id: $tenant_id}})"
 
     @staticmethod
-    def inject_security_parameters(params: dict, tenant_id: str, allowed_doc_ids: list[str] | None = None):
+    def inject_security_parameters(
+        params: dict, tenant_id: str, allowed_doc_ids: list[str] | None = None
+    ):
         """Helper to inject security params into the parameters dict."""
         params["tenant_id"] = tenant_id
         if allowed_doc_ids is not None:
             params["allowed_doc_ids"] = allowed_doc_ids
         return params
+
 
 graph_acl = GraphACL()

@@ -5,18 +5,18 @@ Tenant Tuning Service
 Handles retrieval of tenant configuration and dynamic weight adjustments.
 """
 
+import json
 import logging
 from typing import Any
 
 from sqlalchemy.future import select
-import json
-from src.core.generation.domain.ports.provider_factory import get_llm_provider
-from src.core.generation.domain.provider_models import ProviderTier
 
 from src.core.admin_ops.domain.audit import AuditLog
+from src.core.generation.domain.provider_models import ProviderTier
 from src.core.tenants.domain.tenant import Tenant
 
 logger = logging.getLogger(__name__)
+
 
 class TuningService:
     """
@@ -37,9 +37,7 @@ class TuningService:
 
         try:
             async with self.session_factory() as session:
-                result = await session.execute(
-                    select(Tenant).where(Tenant.id == tenant_id)
-                )
+                result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     config = tenant.config or {}
@@ -56,9 +54,7 @@ class TuningService:
         """
         try:
             async with self.session_factory() as session:
-                result = await session.execute(
-                    select(Tenant).where(Tenant.id == tenant_id)
-                )
+                result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     if not tenant.config:
@@ -78,7 +74,7 @@ class TuningService:
                         action="update_weights",
                         target_type="tenant",
                         target_id=tenant_id,
-                        changes={"weights": weights}
+                        changes={"weights": weights},
                     )
 
                     # Invalidate cache
@@ -94,7 +90,7 @@ class TuningService:
         action: str,
         target_type: str,
         target_id: str,
-        changes: dict[str, Any]
+        changes: dict[str, Any],
     ):
         """Records a change in the audit log."""
         try:
@@ -105,7 +101,7 @@ class TuningService:
                     action=action,
                     target_type=target_type,
                     target_id=target_id,
-                    changes=changes
+                    changes=changes,
                 )
                 session.add(log)
                 await session.commit()
@@ -113,18 +109,20 @@ class TuningService:
             logger.error(f"Failed to write audit log: {e}")
 
     async def analyze_feedback_for_tuning(
-        self, 
-        tenant_id: str, 
-        request_id: str, 
+        self,
+        tenant_id: str,
+        request_id: str,
         is_positive: bool,
         comment: str | None = None,
-        selected_snippets: list[str] | None = None
+        selected_snippets: list[str] | None = None,
     ):
         """
         Analyze feedback to determine if we need to adjust retrieval weights.
         """
         if is_positive:
-            logger.info(f"Positive feedback for {request_id}. Marking as PENDING for Golden Dataset.")
+            logger.info(
+                f"Positive feedback for {request_id}. Marking as PENDING for Golden Dataset."
+            )
             # In the future, we could auto-promote high confidence answers here
             return
 
@@ -137,9 +135,9 @@ class TuningService:
 
         try:
             # Stage 1: Get LLM for analysis
-            from src.shared.kernel.runtime import get_settings
             from src.core.generation.application.llm_steps import resolve_llm_step_config
             from src.core.generation.domain.ports.provider_factory import get_provider_factory
+            from src.shared.kernel.runtime import get_settings
 
             settings = get_settings()
             tenant_config = await self.get_tenant_config(tenant_id)
@@ -153,13 +151,15 @@ class TuningService:
                 model=llm_cfg.model,
                 tier=ProviderTier.STANDARD,
             )
-            
+
             # Stage 2: Construct Prompt
-            snippets_text = "\n".join([f"- {s}" for s in selected_snippets]) if selected_snippets else "None"
+            snippets_text = (
+                "\n".join([f"- {s}" for s in selected_snippets]) if selected_snippets else "None"
+            )
             prompt = f"""
             You are an expert RAG system analyzer. A user has provided negative feedback on a generated answer.
             
-            User Comment: "{comment or 'No comment'}"
+            User Comment: "{comment or "No comment"}"
             Flagged Snippets (Incorrect parts):
             {snippets_text}
             
@@ -180,17 +180,20 @@ class TuningService:
                 kwargs["seed"] = llm_cfg.seed
 
             response = await llm.generate(prompt, **kwargs)
-            
+
             # Parse JSON (naive parsing for now)
             try:
                 # cleanup markdown code blocks if present
                 clean_response = response.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(clean_response)
-                
+
                 logger.info(f"Smart Tuning Analysis: {analysis}")
 
                 # Stage 4: Apply Actions (Heuristic)
-                if analysis.get("reason") == "RETRIEVAL_FAILURE" and analysis.get("confidence", 0) > 0.7:
+                if (
+                    analysis.get("reason") == "RETRIEVAL_FAILURE"
+                    and analysis.get("confidence", 0) > 0.7
+                ):
                     logger.info("Detected Retrieval Failure. Suggesting weight adjustment.")
                     # Placeholder for actual adjustment logic
                     # current = await self.get_tenant_config(tenant_id)

@@ -25,12 +25,7 @@ def test_resolve_llm_step_config_fallbacks():
     tenant_config = {
         "llm_provider": "anthropic",
         "llm_model": ANTHROPIC_DEFAULT,
-        "llm_steps": {
-            "ingestion.graph_extraction": {
-                "temperature": 0.2,
-                "seed": 123
-            }
-        }
+        "llm_steps": {"ingestion.graph_extraction": {"temperature": 0.2, "seed": 123}},
     }
 
     cfg = resolve_llm_step_config(

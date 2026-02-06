@@ -5,6 +5,7 @@ from src.core.graph.domain.ports.graph_client import GraphClientPort
 
 logger = logging.getLogger(__name__)
 
+
 class GraphMaintenanceService:
     """
     Service for periodic graph maintenance and integrity checks.
@@ -62,4 +63,6 @@ class GraphMaintenanceService:
         result = await self.graph.execute_write(query, {"tenant_id": tenant_id})
         count = result[0]["count"] if result else 0
         if count > 0:
-            logger.warning(f"Reset {count} stalled community summarization jobs for tenant {tenant_id}")
+            logger.warning(
+                f"Reset {count} stalled community summarization jobs for tenant {tenant_id}"
+            )

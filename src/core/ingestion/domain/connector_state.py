@@ -26,9 +26,13 @@ class ConnectorState(Base, TimestampMixin):
     connector_type: Mapped[str] = mapped_column(String, nullable=False)  # zendesk, confluence, etc.
 
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    sync_cursor: Mapped[dict] = mapped_column(JSONB, server_default="{}", nullable=False)  # Pagination state
+    sync_cursor: Mapped[dict] = mapped_column(
+        JSONB, server_default="{}", nullable=False
+    )  # Pagination state
 
-    status: Mapped[str] = mapped_column(String, default="idle", nullable=False)  # idle, syncing, error
+    status: Mapped[str] = mapped_column(
+        String, default="idle", nullable=False
+    )  # idle, syncing, error
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
 
     def __repr__(self):

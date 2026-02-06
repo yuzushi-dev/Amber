@@ -15,10 +15,10 @@ from pydantic import BaseModel, Field
 class SearchMode(str, Enum):
     """Available search strategies."""
 
-    BASIC = "basic"         # Vector search only
-    LOCAL = "local"         # Entity-focused graph traversal
-    GLOBAL = "global"       # Map-reduce over community summaries
-    DRIFT = "drift"         # Dynamic reasoning and exploration
+    BASIC = "basic"  # Vector search only
+    LOCAL = "local"  # Entity-focused graph traversal
+    GLOBAL = "global"  # Map-reduce over community summaries
+    DRIFT = "drift"  # Dynamic reasoning and exploration
     STRUCTURED = "structured"  # Direct Cypher for list/count queries
 
 
@@ -96,7 +96,7 @@ class QueryOptions(BaseModel):
     agent_role: str = Field(
         "knowledge",
         description="Agent role: 'knowledge' (default, RAG tools only) or 'maintainer' (filesystem access)",
-        pattern="^(knowledge|maintainer)$"
+        pattern="^(knowledge|maintainer)$",
     )
     model: str | None = Field(
         None,

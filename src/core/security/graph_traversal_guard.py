@@ -1,4 +1,3 @@
-
 class GraphTraversalGuard:
     """
     Security component to enforce ACLs during graph traversals.
@@ -25,11 +24,13 @@ class GraphTraversalGuard:
         return f"{node_alias}.document_id IN ${param_name}"
 
     @staticmethod
-    def filter_path_query(base_query: str, check_nodes: list[str], param_name: str = "allowed_doc_ids") -> str:
+    def filter_path_query(
+        base_query: str, check_nodes: list[str], param_name: str = "allowed_doc_ids"
+    ) -> str:
         """
         Injects ACL checks into a Cypher query.
 
         This is a simple helper. For complex queries, it is better to construct
         the query with the checks explicitly.
         """
-        pass # Not implemented for now, relying on manual query construction with `get_acl_fragment`.
+        pass  # Not implemented for now, relying on manual query construction with `get_acl_fragment`.

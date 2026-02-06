@@ -15,6 +15,7 @@ from src.shared.kernel.models.base import Base, TimestampMixin
 
 class BenchmarkStatus(str, enum.Enum):
     """Status of a benchmark run."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -25,6 +26,7 @@ class BenchmarkRun(Base, TimestampMixin):
     """
     Tracks Ragas benchmark runs for evaluation.
     """
+
     __tablename__ = "benchmark_runs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -33,7 +35,7 @@ class BenchmarkRun(Base, TimestampMixin):
     status = Column(
         Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x]),
         default=BenchmarkStatus.PENDING,
-        nullable=False
+        nullable=False,
     )
 
     # Aggregated metrics (stored after completion)

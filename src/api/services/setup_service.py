@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class FeatureStatus(str, Enum):
     """Installation status for optional features."""
+
     NOT_INSTALLED = "not_installed"
     INSTALLING = "installing"
     INSTALLED = "installed"
@@ -28,6 +29,7 @@ class FeatureStatus(str, Enum):
 @dataclass
 class Feature:
     """Optional feature definition."""
+
     id: str
     name: str
     description: str
@@ -45,7 +47,13 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="local_embeddings",
         name="Local Embeddings",
         description="Generate embeddings locally (Est. ~5 mins)",
-        packages=["torch", "sentence-transformers>=2.7.0", "transformers>=4.40.1", "huggingface-hub<1.0", "tokenizers"],
+        packages=[
+            "torch",
+            "sentence-transformers>=2.7.0",
+            "transformers>=4.40.1",
+            "huggingface-hub<1.0",
+            "tokenizers",
+        ],
         size_mb=2100,
         check_import="sentence_transformers",
         pip_extra_args=["--extra-index-url", "https://download.pytorch.org/whl/cpu"],
@@ -93,7 +101,6 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
 }
 
 
-
 class SetupService:
     """
     Manages optional dependency installation.
@@ -130,12 +137,12 @@ class SetupService:
         if env_path:
             self.PACKAGES_DIR = env_path
         elif os.path.exists("/app") and os.access("/app", os.W_OK):
-             self.PACKAGES_DIR = "/app/.packages"
+            self.PACKAGES_DIR = "/app/.packages"
         else:
-             # Fallback to project root .packages
-             # src/api/services/setup_service.py -> src/api/services -> src/api -> src -> root
-             project_root = Path(__file__).parent.parent.parent.parent
-             self.PACKAGES_DIR = str(project_root / ".packages")
+            # Fallback to project root .packages
+            # src/api/services/setup_service.py -> src/api/services -> src/api -> src -> root
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.PACKAGES_DIR = str(project_root / ".packages")
 
         # Ensure directory exists
         try:
@@ -178,20 +185,26 @@ class SetupService:
         """Return current setup status for UI."""
         features_status = []
         for feature in self._features.values():
-            features_status.append({
-                "id": feature.id,
-                "name": feature.name,
-                "description": feature.description,
-                "size_mb": feature.size_mb,
-                "status": feature.status.value,
-                "error_message": feature.error_message,
-                "packages": feature.packages,
-            })
+            features_status.append(
+                {
+                    "id": feature.id,
+                    "name": feature.name,
+                    "description": feature.description,
+                    "size_mb": feature.size_mb,
+                    "status": feature.status.value,
+                    "error_message": feature.error_message,
+                    "packages": feature.packages,
+                }
+            )
 
         # Calculate totals
         total_features = len(self._features)
-        installed_count = sum(1 for f in self._features.values() if f.status == FeatureStatus.INSTALLED)
-        installing_count = sum(1 for f in self._features.values() if f.status == FeatureStatus.INSTALLING)
+        installed_count = sum(
+            1 for f in self._features.values() if f.status == FeatureStatus.INSTALLED
+        )
+        installing_count = sum(
+            1 for f in self._features.values() if f.status == FeatureStatus.INSTALLING
+        )
 
         return {
             "initialized": self._setup_complete or installed_count == total_features,
@@ -202,7 +215,7 @@ class SetupService:
                 "installed": installed_count,
                 "installing": installing_count,
                 "not_installed": total_features - installed_count - installing_count,
-            }
+            },
         }
 
     async def install_feature(self, feature_id: str) -> dict[str, Any]:
@@ -230,9 +243,13 @@ class SetupService:
 
                 # Build pip command - install to custom packages directory
                 cmd = [
-                    sys.executable, "-m", "pip", "install",
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
                     "--no-cache-dir",
-                    "--target", self.PACKAGES_DIR,
+                    "--target",
+                    self.PACKAGES_DIR,
                     *feature.pip_extra_args,
                     *feature.packages,
                 ]
@@ -240,16 +257,14 @@ class SetupService:
                 # Run pip install
                 # Set TMPDIR to a subdir of packages to ensure same-device for move operations
                 import os
+
                 env = os.environ.copy()
                 tmp_dir = os.path.join(self.PACKAGES_DIR, ".tmp")
                 os.makedirs(tmp_dir, exist_ok=True)
                 env["TMPDIR"] = tmp_dir
 
                 process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env
                 )
 
                 stdout, stderr = await process.communicate()
@@ -267,7 +282,9 @@ class SetupService:
                 else:
                     feature.status = FeatureStatus.FAILED
                     feature.error_message = stderr.decode()[:500]  # Truncate long errors
-                    logger.error(f"Feature '{feature_id}' installation failed: {feature.error_message}")
+                    logger.error(
+                        f"Feature '{feature_id}' installation failed: {feature.error_message}"
+                    )
                     return {"success": False, "error": feature.error_message}
 
             except Exception as e:
@@ -346,11 +363,16 @@ class SetupService:
             try:
                 # Build pip command with progress output
                 cmd = [
-                    sys.executable, "-m", "pip", "install",
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
                     "--upgrade",  # Force upgrade/downgrade to match constraints
                     "--no-cache-dir",
-                    "--progress-bar", "on",
-                    "--target", self.PACKAGES_DIR,
+                    "--progress-bar",
+                    "on",
+                    "--target",
+                    self.PACKAGES_DIR,
                     *feature.pip_extra_args,
                     *feature.packages,
                 ]
@@ -363,31 +385,38 @@ class SetupService:
 
                 # CLEANUP: Remove conflicting packages to prevent "ghost" versions in --target
                 # This is crucial for fixing dependency hell (e.g. tokenizers 0.19 vs 0.22)
-                import shutil
                 import glob
-                
+                import shutil
+
                 for pkg_spec in feature.packages:
                     # Extract package name (e.g. "tokenizers>=0.19" -> "tokenizers")
-                    pkg_name = re.split(r'[<>=!]', pkg_spec)[0].strip()
+                    pkg_name = re.split(r"[<>=!]", pkg_spec)[0].strip()
                     logger.info(f"Cleaning existing artifacts for {pkg_name}...")
-                    
+
                     # Normalize (pip converts - to _)
                     name_variations = [pkg_name, pkg_name.replace("-", "_")]
-                    
+
                     for name in name_variations:
                         # 1. Remove dist-info (metadata)
                         # This removes 'ghost' versions like tokenizers-0.22.2.dist-info
-                        for path in glob.glob(os.path.join(self.PACKAGES_DIR, f"{name}-*.dist-info")):
+                        for path in glob.glob(
+                            os.path.join(self.PACKAGES_DIR, f"{name}-*.dist-info")
+                        ):
                             try:
                                 shutil.rmtree(path)
                                 logger.debug(f"Removed ghost metadata: {path}")
                             except Exception as e:
                                 logger.warning(f"Failed to remove {path}: {e}")
-                                
+
                         # 2. Remove package directory (optional, but safer)
                         # Skip large packages like torch to match original intent, OR clean all for robustness?
                         # For "fix forever", we clean verification-critical packages
-                        if name in ["tokenizers", "transformers", "huggingface_hub", "sentence_transformers"]:
+                        if name in [
+                            "tokenizers",
+                            "transformers",
+                            "huggingface_hub",
+                            "sentence_transformers",
+                        ]:
                             pkg_dir = os.path.join(self.PACKAGES_DIR, name)
                             if os.path.isdir(pkg_dir):
                                 try:
@@ -488,7 +517,7 @@ class SetupService:
                             error_msg = "Unknown import error"
                         except Exception as import_error:
                             error_msg = str(import_error)[:100]
-                        
+
                         feature.status = FeatureStatus.FAILED
                         feature.error_message = f"Import verification failed: {error_msg}"
                         logger.error(f"Feature '{feature_id}' import failed: {error_msg}")
@@ -540,6 +569,7 @@ class SetupService:
         # PostgreSQL check
         try:
             import asyncpg  # noqa: F401
+
             # Just check import works, actual connection test would need config
             results["postgresql"] = {"status": "available", "message": "Driver loaded"}
         except ImportError:
@@ -548,6 +578,7 @@ class SetupService:
         # Neo4j check
         try:
             import neo4j  # noqa: F401
+
             results["neo4j"] = {"status": "available", "message": "Driver loaded"}
         except ImportError:
             results["neo4j"] = {"status": "error", "message": "Missing neo4j driver"}
@@ -555,6 +586,7 @@ class SetupService:
         # Milvus check
         try:
             import pymilvus  # noqa: F401
+
             results["milvus"] = {"status": "available", "message": "Driver loaded"}
         except ImportError:
             results["milvus"] = {"status": "error", "message": "Missing pymilvus"}
@@ -562,6 +594,7 @@ class SetupService:
         # Redis check
         try:
             import redis  # noqa: F401
+
             results["redis"] = {"status": "available", "message": "Driver loaded"}
         except ImportError:
             results["redis"] = {"status": "missing", "message": "redis not installed"}

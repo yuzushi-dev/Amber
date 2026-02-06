@@ -2,10 +2,11 @@ import logging
 from typing import Any
 
 from src.core.retrieval.domain.candidate import Candidate
-from src.shared.kernel.observability import trace_span
 from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
+from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
+
 
 class VectorSearcher:
     """
@@ -48,7 +49,7 @@ class VectorSearcher:
                     content=r.metadata.get("content", ""),
                     score=r.score,
                     source="vector",
-                    metadata=r.metadata
+                    metadata=r.metadata,
                 )
                 for r in results
             ]

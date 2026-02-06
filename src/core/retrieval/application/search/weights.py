@@ -1,19 +1,13 @@
-
-
 def get_adaptive_weights(
     domain: str | None = None,
     query_type: str | None = None,
-    tenant_config: dict[str, float] | None = None
+    tenant_config: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """
     Returns adaptive fusion weights based on document domain or query classification.
     """
     # Default balanced weights
-    weights = {
-        "vector": 1.0,
-        "graph": 1.0,
-        "community": 1.0
-    }
+    weights = {"vector": 1.0, "graph": 1.0, "community": 1.0}
 
     # Adjust based on domain (from Phase 1 classification)
     if domain:

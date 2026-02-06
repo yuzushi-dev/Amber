@@ -24,7 +24,7 @@ class ExtractionSettings(BaseSettings):
     unstructured_enabled: bool = True
 
     # Marker (Heavy)
-    marker_enabled: bool = False # Disabled by default in basic setup
+    marker_enabled: bool = False  # Disabled by default in basic setup
 
     # Docling (Table specialist)
     docling_enabled: bool = False
@@ -42,7 +42,7 @@ class ExtractionSettings(BaseSettings):
     min_ocr_confidence: float = 0.7  # Minimum OCR confidence to accept
     min_content_density: float = 0.1  # Minimum chars per page to accept
     min_content_length: int = 100  # Minimum total character count
-    
+
     # Hybrid OCR Settings
     hybrid_ocr_enabled: bool = True
     ocr_text_density_threshold: int = 50  # Character count threshold for triggering OCR

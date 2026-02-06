@@ -9,8 +9,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.state.machine import DocumentStatus
 from src.core.events.ports import StateChangePublisher
+from src.core.state.machine import DocumentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,7 @@ class EventDispatcher:
         """
         old_status_val = event.old_status.value if event.old_status else "None"
         logger.info(
-            f"State Change [Doc: {event.document_id}] "
-            f"{old_status_val} -> {event.new_status.value}"
+            f"State Change [Doc: {event.document_id}] {old_status_val} -> {event.new_status.value}"
         )
         if event.details:
             logger.debug(f"Event details: {event.details}")

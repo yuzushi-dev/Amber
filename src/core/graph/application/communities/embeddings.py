@@ -6,6 +6,7 @@ from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
+
 class CommunityEmbeddingService:
     """
     Handles embedding and storage of community summaries in the vector store.
@@ -37,28 +38,26 @@ class CommunityEmbeddingService:
         embedding = await self.embedding_service.embed_single(text_to_embed)
 
         try:
-            await self.vector_store.upsert_chunks([
-                {
-                    "chunk_id": community_data["id"],
-                    "document_id": community_data["id"],
-                    "tenant_id": community_data["tenant_id"],
-                    "content": community_data["summary"],
-                    "embedding": embedding,
-                    "title": community_data["title"],
-                    "level": community_data["level"],
-                }
-            ])
+            await self.vector_store.upsert_chunks(
+                [
+                    {
+                        "chunk_id": community_data["id"],
+                        "document_id": community_data["id"],
+                        "tenant_id": community_data["tenant_id"],
+                        "content": community_data["summary"],
+                        "embedding": embedding,
+                        "title": community_data["title"],
+                        "level": community_data["level"],
+                    }
+                ]
+            )
             logger.info(f"Stored embedding for community {community_data['id']}")
         except Exception as e:
             logger.error(f"Failed to store community embedding: {e}")
             raise
 
     async def search_communities(
-        self,
-        query_vector: list[float],
-        tenant_id: str,
-        level: int | None = None,
-        limit: int = 5
+        self, query_vector: list[float], tenant_id: str, level: int | None = None, limit: int = 5
     ) -> list[dict[str, Any]]:
         """
         Searches for communities semantically similar to the query.

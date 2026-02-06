@@ -25,8 +25,8 @@ async def test_bootstrap_sets_active_collection_on_default_tenant():
     session.execute = AsyncMock(
         side_effect=[
             Result(scalars_first=None),  # ApiKey lookup
-            Result(scalar=None),         # Tenant lookup
-            Result(scalar=None),         # ApiKeyTenant lookup
+            Result(scalar=None),  # Tenant lookup
+            Result(scalar=None),  # ApiKeyTenant lookup
         ]
     )
     session.add = MagicMock()

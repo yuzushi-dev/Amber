@@ -2,12 +2,13 @@ import asyncio
 import logging
 from typing import Any
 
-from src.core.generation.domain.provider_models import ProviderTier
 from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
 from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.core.generation.domain.provider_models import ProviderTier
 from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
+
 
 class GlobalSearchService:
     """
@@ -45,13 +46,13 @@ class GlobalSearchService:
         # 1. Retrieve relevant community reports via vector search
         # Embed the query
         query_vector = await self.embedding_service.embed_single(query)
-        
+
         # Community report embeddings were stored in Phase 4
         reports = await self.vector_store.search(
             query_vector=query_vector,
             tenant_id=tenant_id,
             limit=max_reports,
-            collection_name="community_embeddings"
+            collection_name="community_embeddings",
         )
 
         if not reports:
@@ -59,8 +60,8 @@ class GlobalSearchService:
 
         # 2. Map Phase: Extract key points from each report
         # In a real implementation, we would call the LLM for each report or batch them.
-        from src.shared.kernel.runtime import get_settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
         tenant_config = tenant_config or {}
@@ -108,7 +109,7 @@ class GlobalSearchService:
 
         return {
             "answer": final_answer,
-            "sources": [r.chunk_id for r in reports] # Community IDs
+            "sources": [r.chunk_id for r in reports],  # Community IDs
         }
 
     async def _map_report(self, query: str, report_content: str, llm_cfg: Any) -> str:

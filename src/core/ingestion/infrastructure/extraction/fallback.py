@@ -7,7 +7,9 @@ Orchestrates the fallback chain for document extraction.
 
 import logging
 
-from src.core.ingestion.infrastructure.extraction.api.mistral_ocr_extractor import MistralOCRExtractor
+from src.core.ingestion.infrastructure.extraction.api.mistral_ocr_extractor import (
+    MistralOCRExtractor,
+)
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
 from src.core.ingestion.infrastructure.extraction.config import extraction_settings
 from src.core.ingestion.infrastructure.extraction.local.marker_extractor import MarkerExtractor
@@ -22,7 +24,9 @@ class FallbackManager:
     """
 
     @classmethod
-    async def extract_with_fallback(cls, file_content: bytes, mime_type: str, filename: str) -> ExtractionResult:
+    async def extract_with_fallback(
+        cls, file_content: bytes, mime_type: str, filename: str
+    ) -> ExtractionResult:
         """
         Extract content by trying a sequence of extractors.
         """
@@ -33,10 +37,7 @@ class FallbackManager:
         for extractor in chain:
             try:
                 logger.info(f"Attempting extraction with {extractor.name} for {filename}")
-                return await extractor.extract(
-                    file_content=file_content,
-                    file_type=mime_type
-                )
+                return await extractor.extract(file_content=file_content, file_type=mime_type)
             except Exception as e:
                 logger.warning(f"Extractor {extractor.name} failed for {filename}: {e}")
                 errors[extractor.name] = str(e)
@@ -44,7 +45,9 @@ class FallbackManager:
 
         # If all fail
         logger.error(f"All extractors failed for {filename}. Errors: {errors}")
-        raise RuntimeError(f"Extraction failed after checking {len(chain)} tools. Details: {errors}")
+        raise RuntimeError(
+            f"Extraction failed after checking {len(chain)} tools. Details: {errors}"
+        )
 
     @classmethod
     def _build_chain(cls, mime_type: str) -> list[BaseExtractor]:
@@ -58,12 +61,12 @@ class FallbackManager:
             primary = ExtractorRegistry.get_extractor(mime_type)
             chain.append(primary)
         except ValueError:
-            pass # No primary found? Should fall back to unstructured usually.
+            pass  # No primary found? Should fall back to unstructured usually.
 
         # 2. Secondary (Marker - Heavy Local)
         # Typically for PDFs or Images.
         if "pdf" in mime_type.lower() and extraction_settings.marker_enabled:
-             chain.append(MarkerExtractor())
+            chain.append(MarkerExtractor())
 
         # 3. Tertiary (Mistral OCR - API)
         # Final resort

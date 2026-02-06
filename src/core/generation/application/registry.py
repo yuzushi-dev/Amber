@@ -11,6 +11,7 @@ from src.core.generation.application.prompts.templates import PROMPTS
 
 logger = logging.getLogger(__name__)
 
+
 class PromptRegistry:
     """
     Service for managing and retrieving prompt templates.
@@ -46,7 +47,9 @@ class PromptRegistry:
 
         versions = self._prompts[name]
         if version not in versions:
-            logger.warning(f"Version '{version}' for prompt '{name}' not found, falling back to 'latest'")
+            logger.warning(
+                f"Version '{version}' for prompt '{name}' not found, falling back to 'latest'"
+            )
             return versions.get("latest", "")
 
         return versions[version]

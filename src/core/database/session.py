@@ -23,17 +23,14 @@ _async_session_maker: async_sessionmaker[AsyncSession] | None = None
 # Database configuration holder
 _db_config: dict = {}
 
-def configure_database(
-    database_url: str,
-    pool_size: int = 5,
-    max_overflow: int = 10
-) -> None:
+
+def configure_database(database_url: str, pool_size: int = 5, max_overflow: int = 10) -> None:
     """Configure database connection parameters. Called by API layer on startup."""
     global _db_config
     _db_config = {
         "database_url": database_url,
         "pool_size": pool_size,
-        "max_overflow": max_overflow
+        "max_overflow": max_overflow,
     }
 
 
@@ -79,6 +76,7 @@ def get_session_maker() -> async_sessionmaker[AsyncSession]:
 # These are properties that lazily return the engine/session_maker
 class _LazyEngine:
     """Lazy proxy for the engine to maintain backward compatibility."""
+
     def __getattr__(self, name):
         return getattr(get_engine(), name)
 
@@ -88,6 +86,7 @@ class _LazyEngine:
 
 class _LazySessionMaker:
     """Lazy proxy for the session maker to maintain backward compatibility."""
+
     def __getattr__(self, name):
         return getattr(get_session_maker(), name)
 

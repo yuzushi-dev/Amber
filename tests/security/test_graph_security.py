@@ -14,6 +14,7 @@ class TestGraphTraversalGuard:
         fragment = GraphTraversalGuard.get_acl_fragment("c", "allowed_list")
         assert fragment == "c.document_id IN $allowed_list"
 
+
 @pytest.mark.asyncio
 class TestGraphSearcherSecurity:
     async def test_search_by_entities_with_acls(self):

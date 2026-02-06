@@ -5,7 +5,6 @@ from src.core.generation.infrastructure.providers import factory as factory_mod
 from src.core.generation.infrastructure.providers.factory import ProviderFactory
 from src.shared.model_registry import DEFAULT_LLM_MODEL
 
-
 AMBIGUOUS_MODEL = DEFAULT_LLM_MODEL["openai"]
 
 

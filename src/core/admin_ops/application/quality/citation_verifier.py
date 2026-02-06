@@ -12,13 +12,16 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class GroundingResult:
     """Result of grounding verification."""
+
     is_grounded: bool
     score: float
     unsupported_claims: list[str]
     verified_citations: list[int]
+
 
 class CitationVerifier:
     """
@@ -81,20 +84,20 @@ class CitationVerifier:
             is_grounded=is_grounded,
             score=round(grounding_score, 2),
             unsupported_claims=unsupported_claims,
-            verified_citations=list(set(verified_citations))
+            verified_citations=list(set(verified_citations)),
         )
 
     def _extract_claims(self, text: str) -> list[tuple[str, list[int]]]:
         """Splits answer into sentences and extracts associated citations."""
         # Split by sentence boundaries roughly
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = re.split(r"(?<=[.!?])\s+", text)
         claims = []
 
         for sentence in sentences:
-            citations = [int(m) for m in re.findall(r'\[(\d+)\]', sentence)]
+            citations = [int(m) for m in re.findall(r"\[(\d+)\]", sentence)]
             if citations:
                 # Clean sentence from citation tags for alignment check
-                clean_sentence = re.sub(r'\[\d+\]', '', sentence).strip()
+                clean_sentence = re.sub(r"\[\d+\]", "", sentence).strip()
                 claims.append((clean_sentence, citations))
 
         return claims
@@ -103,13 +106,13 @@ class CitationVerifier:
         """Retrieves source content for a given 1-based index."""
         for s in sources:
             # Check for Source object
-            if hasattr(s, 'index') and s.index == index:
+            if hasattr(s, "index") and s.index == index:
                 # We need the full content, not just preview
                 # In Phase 7, we might need to pass candidates separately or enrich Source
-                return getattr(s, 'content', '')
+                return getattr(s, "content", "")
             # Check for dict (candidate)
-            elif isinstance(s, dict) and s.get('index') == index:
-                 return s.get('content', '')
+            elif isinstance(s, dict) and s.get("index") == index:
+                return s.get("content", "")
         return ""
 
     def _compute_alignment_score(self, sentence: str, source: str) -> float:
@@ -118,19 +121,35 @@ class CitationVerifier:
             return 0.0
 
         # Basic keyword overlap (normalized)
-        s_words = set(re.findall(r'\w+', sentence.lower()))
-        ctx_words = set(re.findall(r'\w+', source.lower()))
+        s_words = set(re.findall(r"\w+", sentence.lower()))
+        ctx_words = set(re.findall(r"\w+", source.lower()))
 
         if not s_words:
             return 1.0
 
         overlap = s_words.intersection(ctx_words)
         # We value common words less
-        stop_words = {'the', 'a', 'an', 'in', 'on', 'at', 'is', 'are', 'was', 'were', 'to', 'for', 'of', 'and', 'or'}
+        stop_words = {
+            "the",
+            "a",
+            "an",
+            "in",
+            "on",
+            "at",
+            "is",
+            "are",
+            "was",
+            "were",
+            "to",
+            "for",
+            "of",
+            "and",
+            "or",
+        }
         significant_words = s_words - stop_words
 
         if not significant_words:
-             return len(overlap) / len(s_words)
+            return len(overlap) / len(s_words)
 
         score = len(significant_words.intersection(ctx_words)) / len(significant_words)
         return score

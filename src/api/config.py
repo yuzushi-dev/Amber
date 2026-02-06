@@ -6,12 +6,12 @@ Centralized configuration management using Pydantic Settings.
 Environment variables take precedence over config file values.
 """
 
+import logging
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import logging
-import secrets
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,7 +34,9 @@ class DatabaseSettings(BaseSettings):
     max_overflow: int = Field(default=20, description="SQLAlchemy pool max overflow")
 
     # Neo4j
-    neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI", description="Neo4j connection URI")
+    neo4j_uri: str = Field(
+        default="bolt://localhost:7687", alias="NEO4J_URI", description="Neo4j connection URI"
+    )
     neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER", description="Neo4j username")
     neo4j_password: str = Field(default="", alias="NEO4J_PASSWORD", description="Neo4j password")
 
@@ -43,7 +45,9 @@ class DatabaseSettings(BaseSettings):
     milvus_port: int = Field(default=19530, alias="MILVUS_PORT", description="Milvus port")
 
     # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL", description="Redis connection URL")
+    redis_url: str = Field(
+        default="redis://localhost:6379/0", alias="REDIS_URL", description="Redis connection URL"
+    )
 
 
 class CelerySettings(BaseSettings):
@@ -136,23 +140,27 @@ class Settings(BaseSettings):
         """Warn if a random secret key is being used (hashing instability)."""
         # Pydantic validates defaults too. If we are here, we might be using the default factory.
         # But `v` is just the string. We can't easily know if it came from env or factory here
-        # without checking env again. 
+        # without checking env again.
         # Actually, simpler: The factory runs if env is missing.
-        # We can add a check in `get_settings` or `model_post_init` in Pydantic v2, 
+        # We can add a check in `get_settings` or `model_post_init` in Pydantic v2,
         # but Field validator is fine if we accept we might log on every validation.
         # A clearer place is __init__ or a validator that checks os.environ.
         return v
-    
+
     def __init__(self, **data):
         super().__init__(**data)
         # S03: Warning if using generated secret
         import os
-        if not os.getenv("SECRET_KEY") and not data.get("secret_key") and not self.load_yaml_config().get("secret_key"):
-             # This check is heuristic because self.secret_key is already populated by factory
-             # If we want to be sure, we check if the value matches what we'd expect or if env is empty.
-             # Better: Check strictly env var.
-             pass
 
+        if (
+            not os.getenv("SECRET_KEY")
+            and not data.get("secret_key")
+            and not self.load_yaml_config().get("secret_key")
+        ):
+            # This check is heuristic because self.secret_key is already populated by factory
+            # If we want to be sure, we check if the value matches what we'd expect or if env is empty.
+            # Better: Check strictly env var.
+            pass
 
     # Tenant
     tenant_id: str = Field(default="default", description="Default tenant ID")
@@ -167,21 +175,49 @@ class Settings(BaseSettings):
     # LLM Provider Keys
     openai_api_key: str = Field(default="", description="OpenAI API key")
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
-    ollama_base_url: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL")
-    default_llm_provider: str | None = Field(default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider")
-    default_llm_model: str | None = Field(default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model")
-    llm_fallback_local: str | None = Field(default=None, alias="LLM_FALLBACK_LOCAL", description="Fallback chain for local tier")
-    llm_fallback_economy: str | None = Field(default=None, alias="LLM_FALLBACK_ECONOMY", description="Fallback chain for economy tier")
-    llm_fallback_standard: str | None = Field(default=None, alias="LLM_FALLBACK_STANDARD", description="Fallback chain for standard tier")
-    llm_fallback_premium: str | None = Field(default=None, alias="LLM_FALLBACK_PREMIUM", description="Fallback chain for premium tier")
-    default_llm_temperature: float = Field(default=0.0, alias="DEFAULT_LLM_TEMPERATURE", description="Default LLM temperature")
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL"
+    )
+    default_llm_provider: str | None = Field(
+        default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider"
+    )
+    default_llm_model: str | None = Field(
+        default=None, alias="DEFAULT_LLM_MODEL", description="Default LLM model"
+    )
+    llm_fallback_local: str | None = Field(
+        default=None, alias="LLM_FALLBACK_LOCAL", description="Fallback chain for local tier"
+    )
+    llm_fallback_economy: str | None = Field(
+        default=None, alias="LLM_FALLBACK_ECONOMY", description="Fallback chain for economy tier"
+    )
+    llm_fallback_standard: str | None = Field(
+        default=None, alias="LLM_FALLBACK_STANDARD", description="Fallback chain for standard tier"
+    )
+    llm_fallback_premium: str | None = Field(
+        default=None, alias="LLM_FALLBACK_PREMIUM", description="Fallback chain for premium tier"
+    )
+    default_llm_temperature: float = Field(
+        default=0.0, alias="DEFAULT_LLM_TEMPERATURE", description="Default LLM temperature"
+    )
     seed: int = Field(default=42, alias="SEED", description="Global random seed")
 
     # Embedding Provider Configuration
-    default_embedding_provider: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_PROVIDER", description="Default embedding provider (openai, ollama, local)")
-    default_embedding_model: str | None = Field(default=None, alias="DEFAULT_EMBEDDING_MODEL", description="Default embedding model")
-    embedding_fallback_order: str | None = Field(default=None, alias="EMBEDDING_FALLBACK_ORDER", description="Fallback chain for embeddings")
-    embedding_dimensions: int | None = Field(default=None, alias="EMBEDDING_DIMENSIONS", description="Embedding dimensions (auto-detected if not set)")
+    default_embedding_provider: str | None = Field(
+        default=None,
+        alias="DEFAULT_EMBEDDING_PROVIDER",
+        description="Default embedding provider (openai, ollama, local)",
+    )
+    default_embedding_model: str | None = Field(
+        default=None, alias="DEFAULT_EMBEDDING_MODEL", description="Default embedding model"
+    )
+    embedding_fallback_order: str | None = Field(
+        default=None, alias="EMBEDDING_FALLBACK_ORDER", description="Fallback chain for embeddings"
+    )
+    embedding_dimensions: int | None = Field(
+        default=None,
+        alias="EMBEDDING_DIMENSIONS",
+        description="Embedding dimensions (auto-detected if not set)",
+    )
 
     @field_validator("log_level")
     @classmethod
@@ -227,6 +263,7 @@ def get_settings() -> Settings:
 
     # S03: Check for Secret Key persistence
     import os
+
     if not os.getenv("SECRET_KEY") and "secret_key" not in Settings.load_yaml_config():
         logger.warning("!" * 60)
         logger.warning("SECURITY WARNING: Using randomly generated SECRET_KEY.")

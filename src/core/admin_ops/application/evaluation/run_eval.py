@@ -11,10 +11,14 @@ import logging
 
 from src.core.admin_ops.application.evaluation.judge import JudgeService
 from src.core.generation.application.registry import PromptRegistry
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.ports.provider_factory import (
+    build_provider_factory,
+    get_provider_factory,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
     """
@@ -47,28 +51,25 @@ async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
         actual_answer = f"Simulated answer for: {query}"
         actual_context = entry.get("ideal_context", "Sample context")
 
-        print(f"[{i+1}/{len(dataset)}] Evaluating Query: {query}")
+        print(f"[{i + 1}/{len(dataset)}] Evaluating Query: {query}")
 
         # Evaluate Faithfulness
         faith_res = await judge.evaluate_faithfulness(
-            query=query,
-            context=actual_context,
-            answer=actual_answer
+            query=query, context=actual_context, answer=actual_answer
         )
 
         # Evaluate Relevance
-        rel_res = await judge.evaluate_relevance(
-            query=query,
-            answer=actual_answer
-        )
+        rel_res = await judge.evaluate_relevance(query=query, answer=actual_answer)
 
-        results.append({
-            "query": query,
-            "faithfulness": faith_res.score,
-            "relevance": rel_res.score,
-            "reasoning_faith": faith_res.reasoning,
-            "reasoning_rel": rel_res.reasoning
-        })
+        results.append(
+            {
+                "query": query,
+                "faithfulness": faith_res.score,
+                "relevance": rel_res.score,
+                "reasoning_faith": faith_res.reasoning,
+                "reasoning_rel": rel_res.reasoning,
+            }
+        )
 
     # Summary
     avg_faith = sum(r["faithfulness"] for r in results) / len(results)
@@ -80,6 +81,7 @@ async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
     print("--------------------------\n")
 
     return results
+
 
 if __name__ == "__main__":
     asyncio.run(run_evaluation("src/core/evaluation/golden_dataset.json"))

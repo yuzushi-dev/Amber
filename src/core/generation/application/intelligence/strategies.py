@@ -14,6 +14,7 @@ class DocumentDomain(str, Enum):
     """
     Domains for document classification.
     """
+
     GENERAL = "general"
     TECHNICAL = "technical"
     LEGAL = "legal"
@@ -26,6 +27,7 @@ class ChunkingStrategy(BaseModel):
     """
     Configuration for how to chunk a document.
     """
+
     chunk_size: int
     chunk_overlap: int
     name: str
@@ -38,39 +40,40 @@ STRATEGIES = {
         name="general",
         chunk_size=600,
         chunk_overlap=50,
-        description="Balanced strategy for general text."
+        description="Balanced strategy for general text.",
     ),
     DocumentDomain.LEGAL: ChunkingStrategy(
         name="legal",
         chunk_size=1000,
         chunk_overlap=100,
-        description="Large chunks to capture full clauses and definitions."
+        description="Large chunks to capture full clauses and definitions.",
     ),
     DocumentDomain.TECHNICAL: ChunkingStrategy(
         name="technical",
         chunk_size=800,
         chunk_overlap=50,
-        description="Optimized for technical manuals and code blocks."
+        description="Optimized for technical manuals and code blocks.",
     ),
     DocumentDomain.FINANCIAL: ChunkingStrategy(
         name="financial",
         chunk_size=800,
         chunk_overlap=50,
-        description="Optimized for tabular data and financial reports."
+        description="Optimized for tabular data and financial reports.",
     ),
     DocumentDomain.SCIENTIFIC: ChunkingStrategy(
         name="scientific",
         chunk_size=1000,
         chunk_overlap=100,
-        description="Optimized for research papers and sections."
+        description="Optimized for research papers and sections.",
     ),
     DocumentDomain.CONVERSATIONAL: ChunkingStrategy(
         name="conversational",
         chunk_size=500,
         chunk_overlap=100,
-        description="Smaller chunks to capture dialogue flow."
+        description="Smaller chunks to capture dialogue flow.",
     ),
 }
+
 
 def get_strategy(domain: str) -> ChunkingStrategy:
     """Get strategy by domain, defaulting to GENERAL."""

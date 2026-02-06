@@ -17,7 +17,7 @@ class InjectionDetector:
         r"what\s+are\s+your\s+instructions",
         r"output\s+source\s+code",
         r"endoftext",
-        r"<\|endoftext\|>"
+        r"<\|endoftext\|>",
     ]
 
     def __init__(self):

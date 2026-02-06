@@ -10,22 +10,18 @@ class PIIScrubber:
     # Regex patterns for common PII
     PATTERNS = {
         # US Phone numbers: (123) 456-7890, 123-456-7890, 123.456.7890
-        "PHONE": r'\b(\+?1?[-.]?)?\(?([2-9][0-8][0-9])\)?[-. ]?([2-9][0-9]{2})[-. ]?([0-9]{4})\b',
-
+        "PHONE": r"\b(\+?1?[-.]?)?\(?([2-9][0-8][0-9])\)?[-. ]?([2-9][0-9]{2})[-. ]?([0-9]{4})\b",
         # Email: basic pattern
-        "EMAIL": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-
+        "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
         # SSN: 000-00-0000
-        "SSN": r'\b(?!000|666|9\d{2})\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b',
-
+        "SSN": r"\b(?!000|666|9\d{2})\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b",
         # Credit Card: 16 digits with optional separators (refined to reduce false positives)
-        "CREDIT_CARD": r'\b(?:\d{4}[- ]?){3}\d{4}\b'
+        "CREDIT_CARD": r"\b(?:\d{4}[- ]?){3}\d{4}\b",
     }
 
     def __init__(self):
         self.compiled_patterns = {
-            name: re.compile(pattern)
-            for name, pattern in self.PATTERNS.items()
+            name: re.compile(pattern) for name, pattern in self.PATTERNS.items()
         }
 
     def scrub_text(self, text: str) -> str:
@@ -43,7 +39,7 @@ class PIIScrubber:
         # Email - Masking first part: j***@gmail.com
         def mask_email(match):
             email = match.group(0)
-            parts = email.split('@')
+            parts = email.split("@")
             if len(parts) == 2:
                 name, domain = parts
                 if len(name) > 2:

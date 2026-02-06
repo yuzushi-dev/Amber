@@ -1,7 +1,8 @@
-import pytest
 from types import SimpleNamespace
 
-from src.shared.kernel.runtime import configure_settings, _reset_for_tests
+import pytest
+
+from src.shared.kernel.runtime import _reset_for_tests, configure_settings
 from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 
 
@@ -52,7 +53,9 @@ async def test_graph_extraction_uses_step_temperature(monkeypatch):
     )
 
     extractor = GraphExtractor(use_gleaning=False)
-    extractor.parser = SimpleNamespace(parse=lambda _text: SimpleNamespace(entities=[], relationships=[]))
+    extractor.parser = SimpleNamespace(
+        parse=lambda _text: SimpleNamespace(entities=[], relationships=[])
+    )
 
     tenant_config = {
         "llm_steps": {
@@ -66,7 +69,9 @@ async def test_graph_extraction_uses_step_temperature(monkeypatch):
     }
 
     try:
-        await extractor.extract("sample", chunk_id="c1", track_usage=False, tenant_config=tenant_config)
+        await extractor.extract(
+            "sample", chunk_id="c1", track_usage=False, tenant_config=tenant_config
+        )
 
         assert provider.calls
         assert provider.calls[0]["temperature"] == 0.2

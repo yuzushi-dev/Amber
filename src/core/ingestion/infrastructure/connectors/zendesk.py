@@ -61,8 +61,7 @@ class ZendeskConnector(BaseConnector):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.base_url}/users/me.json",
-                    auth=(f"{email}/token", api_token)
+                    f"{self.base_url}/users/me.json", auth=(f"{email}/token", api_token)
                 )
                 response.raise_for_status()
                 self._authenticated = True
@@ -91,9 +90,7 @@ class ZendeskConnector(BaseConnector):
         async with httpx.AsyncClient() as client:
             while url:
                 response = await client.get(
-                    url,
-                    params=params,
-                    auth=(f"{self.email}/token", self.api_token)
+                    url, params=params, auth=(f"{self.email}/token", self.api_token)
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -103,7 +100,9 @@ class ZendeskConnector(BaseConnector):
                         id=str(article["id"]),
                         title=article.get("name", "Untitled"),
                         url=article.get("html_url", ""),
-                        updated_at=datetime.fromisoformat(article["updated_at"].replace("Z", "+00:00")),
+                        updated_at=datetime.fromisoformat(
+                            article["updated_at"].replace("Z", "+00:00")
+                        ),
                         content_type="text/html",
                         metadata={
                             "section_id": article.get("section_id"),
@@ -111,7 +110,7 @@ class ZendeskConnector(BaseConnector):
                             "draft": article.get("draft", False),
                             "promoted": article.get("promoted", False),
                             "vote_sum": article.get("vote_sum", 0),
-                        }
+                        },
                     )
 
                 # Handle pagination
@@ -128,7 +127,7 @@ class ZendeskConnector(BaseConnector):
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.base_url}/help_center/articles/{item_id}.json",
-                auth=(f"{self.email}/token", self.api_token)
+                auth=(f"{self.email}/token", self.api_token),
             )
             response.raise_for_status()
             data = response.json()
@@ -139,7 +138,9 @@ class ZendeskConnector(BaseConnector):
     def get_connector_type(self) -> str:
         return "zendesk"
 
-    async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list[ConnectorItem], bool]:
+    async def list_items(
+        self, page: int = 1, page_size: int = 20, search: str = None
+    ) -> tuple[list[ConnectorItem], bool]:
         """
         List items from Zendesk.
         """
@@ -147,7 +148,7 @@ class ZendeskConnector(BaseConnector):
             raise RuntimeError("Not authenticated. Call authenticate() first.")
 
         params = {"page": page, "per_page": page_size}
-        
+
         if search:
             url = f"{self.base_url}/help_center/articles/search.json"
             params["query"] = search
@@ -156,9 +157,7 @@ class ZendeskConnector(BaseConnector):
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                url,
-                params=params,
-                auth=(f"{self.email}/token", self.api_token)
+                url, params=params, auth=(f"{self.email}/token", self.api_token)
             )
             response.raise_for_status()
             data = response.json()
@@ -171,21 +170,25 @@ class ZendeskConnector(BaseConnector):
                 # Basic validation to ensure we have an ID and Title
                 if "id" not in article:
                     continue
-                    
-                items.append(ConnectorItem(
-                    id=str(article["id"]),
-                    title=article.get("name", article.get("title", "Untitled")),
-                    url=article.get("html_url", ""),
-                    updated_at=datetime.fromisoformat(article["updated_at"].replace("Z", "+00:00")),
-                    content_type="text/html",
-                    metadata={
-                        "section_id": article.get("section_id"),
-                        "author_id": article.get("author_id"),
-                        "draft": article.get("draft", False),
-                        "promoted": article.get("promoted", False),
-                        "vote_sum": article.get("vote_sum", 0),
-                    }
-                ))
+
+                items.append(
+                    ConnectorItem(
+                        id=str(article["id"]),
+                        title=article.get("name", article.get("title", "Untitled")),
+                        url=article.get("html_url", ""),
+                        updated_at=datetime.fromisoformat(
+                            article["updated_at"].replace("Z", "+00:00")
+                        ),
+                        content_type="text/html",
+                        metadata={
+                            "section_id": article.get("section_id"),
+                            "author_id": article.get("author_id"),
+                            "draft": article.get("draft", False),
+                            "promoted": article.get("promoted", False),
+                            "vote_sum": article.get("vote_sum", 0),
+                        },
+                    )
+                )
 
             # Check for next page
             has_more = bool(data.get("next_page"))
@@ -212,31 +215,33 @@ class ZendeskConnector(BaseConnector):
             params = {"per_page": limit, "sort_by": "updated_at", "sort_order": "desc"}
             # Basic basic filtering via search API is often better, but let's try standard list first
             # "GET /api/v2/tickets.json" lists all. For filtering we might need search.
-            
+
             url = f"{self.base_url}/tickets.json"
-            
+
             # If filters provided, use Search API instead
             if status or priority:
                 url = f"{self.base_url}/search.json"
                 query_parts = ["type:ticket"]
-                if status: query_parts.append(f"status:{status}")
-                if priority: query_parts.append(f"priority:{priority}")
+                if status:
+                    query_parts.append(f"status:{status}")
+                if priority:
+                    query_parts.append(f"priority:{priority}")
                 params["query"] = " ".join(query_parts)
-            
+
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
-                        url, 
-                        params=params, 
-                        auth=(f"{self.email}/token", self.api_token)
+                        url, params=params, auth=(f"{self.email}/token", self.api_token)
                     )
                     if response.status_code != 200:
                         return f"Error: HTTP {response.status_code} - {response.text}"
-                    
+
                     data = response.json()
                     # Search results vs List results
-                    tickets = data.get("results", []) if "query" in params else data.get("tickets", [])
-                    
+                    tickets = (
+                        data.get("results", []) if "query" in params else data.get("tickets", [])
+                    )
+
                     if not tickets:
                         return "No tickets found."
 
@@ -246,9 +251,11 @@ class ZendeskConnector(BaseConnector):
                         subj = t.get("subject", "No Subject")
                         stat = t.get("status", "unknown")
                         prio = t.get("priority", "none")
-                        updated = t.get("updated_at", "")[:16] # Truncate iso
-                        results.append(f"- [#{tid}] {subj} (Status: {stat}, Priority: {prio}, Updated: {updated})")
-                    
+                        updated = t.get("updated_at", "")[:16]  # Truncate iso
+                        results.append(
+                            f"- [#{tid}] {subj} (Status: {stat}, Priority: {prio}, Updated: {updated})"
+                        )
+
                     return "\n".join(results)
 
             except Exception as e:
@@ -266,12 +273,20 @@ class ZendeskConnector(BaseConnector):
                         "type": "object",
                         "properties": {
                             "limit": {"type": "integer", "description": "Max results (default 10)"},
-                            "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"], "description": "Filter by status"},
-                            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Filter by priority"}
-                        }
-                    }
-                }
-            }
+                            "status": {
+                                "type": "string",
+                                "enum": ["new", "open", "pending", "hold", "solved", "closed"],
+                                "description": "Filter by status",
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["low", "normal", "high", "urgent"],
+                                "description": "Filter by priority",
+                            },
+                        },
+                    },
+                },
+            },
         }
 
     def _tool_get_ticket(self):
@@ -284,7 +299,7 @@ class ZendeskConnector(BaseConnector):
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
                         f"{self.base_url}/tickets/{ticket_id}.json",
-                        auth=(f"{self.email}/token", self.api_token)
+                        auth=(f"{self.email}/token", self.api_token),
                     )
                     if response.status_code == 404:
                         return f"Ticket #{ticket_id} not found."
@@ -292,7 +307,7 @@ class ZendeskConnector(BaseConnector):
                         return f"Error: HTTP {response.status_code}"
 
                     t = response.json().get("ticket", {})
-                    
+
                     details = [
                         f"Ticket #{t.get('id')}: {t.get('subject')}",
                         f"Status: {t.get('status')}",
@@ -303,7 +318,7 @@ class ZendeskConnector(BaseConnector):
                         f"Requester ID: {t.get('requester_id')}",
                         f"Assignee ID: {t.get('assignee_id')}",
                         "---",
-                        f"Description:\n{t.get('description')}"
+                        f"Description:\n{t.get('description')}",
                     ]
                     return "\n".join(details)
             except Exception as e:
@@ -322,14 +337,16 @@ class ZendeskConnector(BaseConnector):
                         "properties": {
                             "ticket_id": {"type": "integer", "description": "Ticket ID"}
                         },
-                        "required": ["ticket_id"]
-                    }
-                }
-            }
+                        "required": ["ticket_id"],
+                    },
+                },
+            },
         }
 
     def _tool_create_ticket(self):
-        async def create_ticket(subject: str, description: str, priority: str = "normal", type: str = "question") -> str:
+        async def create_ticket(
+            subject: str, description: str, priority: str = "normal", type: str = "question"
+        ) -> str:
             """Create a new Zendesk ticket."""
             if not self._authenticated:
                 return "Error: Not authenticated."
@@ -339,20 +356,20 @@ class ZendeskConnector(BaseConnector):
                     "subject": subject,
                     "comment": {"body": description},
                     "priority": priority,
-                    "type": type
+                    "type": type,
                 }
             }
-            
+
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
                         f"{self.base_url}/tickets.json",
                         json=body,
-                        auth=(f"{self.email}/token", self.api_token)
+                        auth=(f"{self.email}/token", self.api_token),
                     )
                     if response.status_code != 201:
                         return f"Error creating ticket: {response.text}"
-                    
+
                     t = response.json().get("ticket", {})
                     return f"Ticket created successfully. ID: #{t.get('id')}"
             except Exception as e:
@@ -370,25 +387,42 @@ class ZendeskConnector(BaseConnector):
                         "type": "object",
                         "properties": {
                             "subject": {"type": "string", "description": "Ticket subject"},
-                            "description": {"type": "string", "description": "Wait content/description"},
-                            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
-                            "type": {"type": "string", "enum": ["problem", "incident", "question", "task"]}
+                            "description": {
+                                "type": "string",
+                                "description": "Wait content/description",
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["low", "normal", "high", "urgent"],
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["problem", "incident", "question", "task"],
+                            },
                         },
-                        "required": ["subject", "description"]
-                    }
-                }
-            }
+                        "required": ["subject", "description"],
+                    },
+                },
+            },
         }
 
     def _tool_update_ticket(self):
-        async def update_ticket(ticket_id: int, status: str = None, priority: str = None, comment: str = None, public_comment: bool = True) -> str:
+        async def update_ticket(
+            ticket_id: int,
+            status: str = None,
+            priority: str = None,
+            comment: str = None,
+            public_comment: bool = True,
+        ) -> str:
             """Update an existing ticket (status, priority, or add comment)."""
             if not self._authenticated:
                 return "Error: Not authenticated."
 
             ticket_data = {}
-            if status: ticket_data["status"] = status
-            if priority: ticket_data["priority"] = priority
+            if status:
+                ticket_data["status"] = status
+            if priority:
+                ticket_data["priority"] = priority
             if comment:
                 ticket_data["comment"] = {"body": comment, "public": public_comment}
 
@@ -402,11 +436,11 @@ class ZendeskConnector(BaseConnector):
                     response = await client.put(
                         f"{self.base_url}/tickets/{ticket_id}.json",
                         json=body,
-                        auth=(f"{self.email}/token", self.api_token)
+                        auth=(f"{self.email}/token", self.api_token),
                     )
                     if response.status_code != 200:
                         return f"Error updating ticket: {response.text}"
-                    
+
                     return f"Ticket #{ticket_id} updated successfully."
             except Exception as e:
                 return f"Exception: {e}"
@@ -423,15 +457,27 @@ class ZendeskConnector(BaseConnector):
                         "type": "object",
                         "properties": {
                             "ticket_id": {"type": "integer"},
-                            "status": {"type": "string", "enum": ["open", "pending", "hold", "solved", "closed"]},
-                            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
-                            "comment": {"type": "string", "description": "Optional comment to add with update"},
-                            "public_comment": {"type": "boolean", "description": "If comment is public (default True)"}
+                            "status": {
+                                "type": "string",
+                                "enum": ["open", "pending", "hold", "solved", "closed"],
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["low", "normal", "high", "urgent"],
+                            },
+                            "comment": {
+                                "type": "string",
+                                "description": "Optional comment to add with update",
+                            },
+                            "public_comment": {
+                                "type": "boolean",
+                                "description": "If comment is public (default True)",
+                            },
                         },
-                        "required": ["ticket_id"]
-                    }
-                }
-            }
+                        "required": ["ticket_id"],
+                    },
+                },
+            },
         }
 
     def _tool_get_ticket_comments(self):
@@ -444,23 +490,25 @@ class ZendeskConnector(BaseConnector):
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
                         f"{self.base_url}/tickets/{ticket_id}/comments.json",
-                        auth=(f"{self.email}/token", self.api_token)
+                        auth=(f"{self.email}/token", self.api_token),
                     )
                     if response.status_code != 200:
                         return f"Error: {response.status_code}"
-                    
+
                     comments = response.json().get("comments", [])
                     if not comments:
                         return "No comments found."
-                        
+
                     results = []
                     for c in comments:
-                        author = c.get("author_id", "Unknown") # We could resolve this if we had user cache
+                        author = c.get(
+                            "author_id", "Unknown"
+                        )  # We could resolve this if we had user cache
                         body = c.get("body", "")
                         created = c.get("created_at", "")
                         public = "Public" if c.get("public") else "Internal"
                         results.append(f"[{created}] User {author} ({public}):\n{body}\n")
-                    
+
                     return "\n".join(results)
             except Exception as e:
                 return f"Exception: {e}"
@@ -475,13 +523,11 @@ class ZendeskConnector(BaseConnector):
                     "description": "Get conversation history for a ticket.",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "ticket_id": {"type": "integer"}
-                        },
-                        "required": ["ticket_id"]
-                    }
-                }
-            }
+                        "properties": {"ticket_id": {"type": "integer"}},
+                        "required": ["ticket_id"],
+                    },
+                },
+            },
         }
 
     def _tool_create_ticket_comment(self):
@@ -504,10 +550,10 @@ class ZendeskConnector(BaseConnector):
                         "properties": {
                             "ticket_id": {"type": "integer"},
                             "comment": {"type": "string"},
-                            "public": {"type": "boolean", "default": True}
+                            "public": {"type": "boolean", "default": True},
                         },
-                        "required": ["ticket_id", "comment"]
-                    }
-                }
-            }
+                        "required": ["ticket_id", "comment"],
+                    },
+                },
+            },
         }

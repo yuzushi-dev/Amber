@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 try:
     import pdf2image
     import pytesseract
+
     # from PIL import Image # Unused
     HAS_TESSERACT = True
 except ImportError:
@@ -81,7 +82,7 @@ class TesseractExtractor(BaseExtractor):
                 },
                 extractor_used=self.name,
                 confidence=avg_confidence / 100,  # Normalize to 0-1
-                extraction_time_ms=elapsed
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

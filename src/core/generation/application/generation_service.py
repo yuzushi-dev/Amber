@@ -12,15 +12,18 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.core.generation.application.context_builder import ContextBuilder
 from src.core.generation.application.registry import PromptRegistry
-from src.shared.kernel.observability import trace_span
-from src.core.generation.domain.provider_models import ProviderTier
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.ports.provider_factory import (
+    build_provider_factory,
+    get_provider_factory,
+)
 from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.security.source_verifier import SourceVerifier
+from src.core.tenants.domain.ports.tenant_repository import TenantRepository
+from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -152,23 +155,26 @@ class GenerationService:
         # Step 0.5: Inject global rules as candidates
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
+
             rules_service = get_rules_service()
             active_rules = await rules_service.get_active_rules()
-            
+
             if active_rules:
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
-                    rule_candidates.append({
-                        "id": f"global_rule_{idx}",
-                        "chunk_id": f"global_rule_{idx}",
-                        "document_id": f"rule_doc_{idx}",
-                        "content": rule_content,
-                        "metadata": {
+                    rule_candidates.append(
+                        {
+                            "id": f"global_rule_{idx}",
+                            "chunk_id": f"global_rule_{idx}",
                             "document_id": f"rule_doc_{idx}",
-                            "title": "Global Domain Rule"
-                        },
-                        "score": 2.0
-                    })
+                            "content": rule_content,
+                            "metadata": {
+                                "document_id": f"rule_doc_{idx}",
+                                "title": "Global Domain Rule",
+                            },
+                            "score": 2.0,
+                        }
+                    )
                 candidates = rule_candidates + candidates
         except Exception as e:
             logger.warning(f"Failed to inject global rules: {e}")
@@ -176,7 +182,7 @@ class GenerationService:
         # Step 1: Build context
         builder = ContextBuilder(
             max_tokens=self.config.max_context_tokens,
-            model=self.config.model or self.llm.model_name
+            model=self.config.model or self.llm.model_name,
         )
         context_result = builder.build(candidates, query=query)
 
@@ -191,21 +197,21 @@ class GenerationService:
                 # For MVP, we do it sequentially or just use gather if we were fully async optimized here
                 # But simple sequential await is fine for now
                 from src.core.generation.application.memory.manager import memory_manager
-                
+
                 # 1. Facts
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 formatted_facts = "\n".join([f"- {f.content}" for f in facts])
-                
+
                 # 2. Summaries
                 summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
                 formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
-                
+
                 parts = []
                 if formatted_facts:
                     parts.append(f"USER FACTS:\n{formatted_facts}")
                 if formatted_summaries:
                     parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
-                    
+
                 memory_context = "\n\n".join(parts)
             except Exception as e:
                 logger.warning(f"Failed to retrieve memory: {e}")
@@ -216,7 +222,7 @@ class GenerationService:
 
         # Apply Tenant Overrides
         tenant_config: dict[str, Any] = {}
-        
+
         if tenant_id and self.tenant_repository:
             try:
                 tenant_obj = await self.tenant_repository.get(tenant_id)
@@ -227,34 +233,28 @@ class GenerationService:
                     if t_conf.get("rag_system_prompt"):
                         system_prompt = t_conf.get("rag_system_prompt")
                         logger.debug(f"Applied tenant system prompt override for {tenant_id}")
-                    
+
                     if t_conf.get("rag_user_prompt"):
                         user_prompt_template = t_conf.get("rag_user_prompt")
                         logger.debug(f"Applied tenant user prompt override for {tenant_id}")
-                        
+
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for prompt override: {e}")
 
         # Inject memory_context if not empty
         try:
             user_prompt = user_prompt_template.format(
-                context=context_result.content,
-                query=query,
-                memory_context=memory_context
+                context=context_result.content, query=query, memory_context=memory_context
             )
         except KeyError:
             # Fallback for old templates without memory_context
-            user_prompt = user_prompt_template.format(
-                context=context_result.content,
-                query=query
-            )
+            user_prompt = user_prompt_template.format(context=context_result.content, query=query)
 
         print(f"DEBUG: LLM Context: {context_result.content}")
         print(f"DEBUG: LLM User Prompt: {user_prompt}")
 
         # Step 3: LLM Call
         from src.api.config import settings
-
         from src.core.generation.application.llm_steps import resolve_llm_step_config
 
         llm_cfg = resolve_llm_step_config(
@@ -269,21 +269,27 @@ class GenerationService:
             llm_cfg = replace(llm_cfg, model=req_model)
             logger.info(f"Model override from request: {req_model}")
 
-        logger.info(f"RESOLVED LLM STEP CONFIG [generate] | Step: chat.generation")
+        logger.info("RESOLVED LLM STEP CONFIG [generate] | Step: chat.generation")
         logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
         logger.info(f"  - Settings Default: {settings.default_llm_provider}")
         logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
 
         # Priority: explicit config > step config
-        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        temp = (
+            self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
-        provider = self.factory.get_llm_provider(
-            provider_name=llm_cfg.provider,
-            model=llm_cfg.model,
-            tier=self.config.tier,
-            with_failover=False,
-        ) if self.factory else self.llm
+        provider = (
+            self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=self.config.tier,
+                with_failover=False,
+            )
+            if self.factory
+            else self.llm
+        )
 
         llm_result = await provider.generate(
             prompt=user_prompt,
@@ -293,13 +299,14 @@ class GenerationService:
             seed=seed,
             model=llm_cfg.model,
         )
-        
+
         # Step 3.5: Trigger Async Memory Extraction
         if user_id and llm_result.text:
             try:
-                from src.core.generation.application.memory.extractor import memory_extractor
                 import asyncio
-                
+
+                from src.core.generation.application.memory.extractor import memory_extractor
+
                 # Fire and forget fact extraction
                 asyncio.create_task(
                     memory_extractor.extract_and_save_facts(
@@ -311,8 +318,6 @@ class GenerationService:
                 )
             except Exception as e:
                 logger.warning(f"Failed to trigger memory extraction: {e}")
-
-
 
         # Step 4: Parse citations and map sources
         normalized_answer = self._normalize_citations(llm_result.text)
@@ -351,9 +356,11 @@ class GenerationService:
             output_tokens=llm_result.usage.output_tokens,
             context_tokens=context_result.tokens,
             trace=trace if include_trace else [],
-            follow_up_questions=self._generate_follow_ups(query, normalized_answer) if self.config.enable_follow_up else [],
+            follow_up_questions=self._generate_follow_ups(query, normalized_answer)
+            if self.config.enable_follow_up
+            else [],
             is_grounded=is_grounded,
-            grounding_score=grounding_score
+            grounding_score=grounding_score,
         )
 
     async def generate_stream(
@@ -371,23 +378,26 @@ class GenerationService:
         # Step 0.5: Inject global rules as candidates (so they can be cited)
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
+
             rules_service = get_rules_service()
             active_rules = await rules_service.get_active_rules()
-            
+
             if active_rules:
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
-                    rule_candidates.append({
-                        "id": f"global_rule_{idx}",
-                        "chunk_id": f"global_rule_{idx}",
-                        "document_id": f"rule_doc_{idx}",
-                        "content": rule_content,
-                        "metadata": {
+                    rule_candidates.append(
+                        {
+                            "id": f"global_rule_{idx}",
+                            "chunk_id": f"global_rule_{idx}",
                             "document_id": f"rule_doc_{idx}",
-                            "title": "Global Domain Rule"
-                        },
-                        "score": 2.0
-                    })
+                            "content": rule_content,
+                            "metadata": {
+                                "document_id": f"rule_doc_{idx}",
+                                "title": "Global Domain Rule",
+                            },
+                            "score": 2.0,
+                        }
+                    )
                 candidates = rule_candidates + candidates
         except Exception as e:
             logger.warning(f"Failed to inject global rules: {e}")
@@ -395,7 +405,7 @@ class GenerationService:
         # Step 1: Build context
         builder = ContextBuilder(
             max_tokens=self.config.max_context_tokens,
-            model=self.config.model or self.llm.model_name
+            model=self.config.model or self.llm.model_name,
         )
         ctx = builder.build(candidates, query=query)
 
@@ -403,40 +413,44 @@ class GenerationService:
         memory_context = ""
         user_id = options.get("user_id") if options else None
         tenant_id = options.get("tenant_id") if options else "default"
-        
+
         logger.debug(f"Generation - User ID: {user_id}, Tenant: {tenant_id}")
 
         if user_id:
             try:
                 from src.core.generation.application.memory.manager import memory_manager
-                
+
                 # Retrieve facts and summaries
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
-                
+
                 summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                logger.debug(f"Generation - Retrieved {len(summaries)} summaries for user {user_id}")
-                
+                logger.debug(
+                    f"Generation - Retrieved {len(summaries)} summaries for user {user_id}"
+                )
+
                 parts = []
                 if facts:
                     formatted_facts = "\n".join([f"- {f.content}" for f in facts])
                     parts.append(f"USER FACTS:\n{formatted_facts}")
                 if summaries:
-                    formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
+                    formatted_summaries = "\n".join(
+                        [f"- {s.title}: {s.summary}" for s in summaries]
+                    )
                     parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
-                    
+
                 memory_context = "\n\n".join(parts)
                 if memory_context:
                     logger.debug(f"Generation - Memory Context Injected:\n{memory_context}")
                     # Signal Source Type to Frontend
                     yield {
                         "event": "routing",
-                        "data": {"categories": ["User Memory"], "confidence": 1.0}
+                        "data": {"categories": ["User Memory"], "confidence": 1.0},
                     }
                     # Signal High Confidence for Memory
                     yield {
                         "event": "quality",
-                        "data": {"total": 100, "retrieval": 100, "generation": 100}
+                        "data": {"total": 100, "retrieval": 100, "generation": 100},
                     }
             except Exception as e:
                 logger.warning(f"Failed to retrieve memory in stream: {e}")
@@ -447,13 +461,19 @@ class GenerationService:
             {
                 "index": i + 1,
                 "chunk_id": getattr(c, "id", c.get("chunk_id", f"chunk_{i}")),
-                "document_id": getattr(c, "metadata", c).get("document_id", "unknown") if hasattr(c, "metadata") else c.get("document_id", "unknown"),
+                "document_id": getattr(c, "metadata", c).get("document_id", "unknown")
+                if hasattr(c, "metadata")
+                else c.get("document_id", "unknown"),
                 "title": doc_titles.get(
-                    getattr(c, "metadata", c).get("document_id", "") if hasattr(c, "metadata") else c.get("document_id", ""),
-                    getattr(c, "metadata", {}).get("title", "Untitled") if isinstance(c, dict) else getattr(c, "metadata", {}).get("title", "Untitled")
+                    getattr(c, "metadata", c).get("document_id", "")
+                    if hasattr(c, "metadata")
+                    else c.get("document_id", ""),
+                    getattr(c, "metadata", {}).get("title", "Untitled")
+                    if isinstance(c, dict)
+                    else getattr(c, "metadata", {}).get("title", "Untitled"),
                 ),
                 "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "..."),
-                "text": getattr(c, "content", c.get("content", ""))
+                "text": getattr(c, "content", c.get("content", "")),
             }
             for i, c in enumerate(ctx.used_candidates)
         ]
@@ -462,7 +482,7 @@ class GenerationService:
         # Step 4: Preparation
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-        
+
         # Apply Tenant Overrides (Stream)
         tenant_config: dict[str, Any] = {}
 
@@ -481,16 +501,11 @@ class GenerationService:
 
         try:
             user_prompt = user_prompt_template.format(
-                context=ctx.content, 
-                query=query,
-                memory_context=memory_context
+                context=ctx.content, query=query, memory_context=memory_context
             )
         except KeyError:
             # Fallback for old templates
-            user_prompt = user_prompt_template.format(
-                context=ctx.content, 
-                query=query
-            )
+            user_prompt = user_prompt_template.format(context=ctx.content, query=query)
 
         # Step 5: Stream tokens
         from src.api.config import settings
@@ -508,20 +523,26 @@ class GenerationService:
             llm_cfg = replace(llm_cfg, model=req_model)
             logger.info(f"Model override from request (stream): {req_model}")
 
-        logger.info(f"RESOLVED LLM STEP CONFIG [stream] | Step: chat.generation")
+        logger.info("RESOLVED LLM STEP CONFIG [stream] | Step: chat.generation")
         logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
         logger.info(f"  - Settings Default: {settings.default_llm_provider}")
         logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
 
-        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        temp = (
+            self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
-        provider = self.factory.get_llm_provider(
-            provider_name=llm_cfg.provider,
-            model=llm_cfg.model,
-            tier=self.config.tier,
-            with_failover=False,
-        ) if self.factory else self.llm
+        provider = (
+            self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=self.config.tier,
+                with_failover=False,
+            )
+            if self.factory
+            else self.llm
+        )
 
         full_answer = ""
         try:
@@ -533,7 +554,7 @@ class GenerationService:
                 max_tokens=self.config.max_tokens,
                 seed=seed,
                 model=llm_cfg.model,
-                history=conversation_history
+                history=conversation_history,
             ):
                 full_answer += token
                 yield {"event": "token", "data": token}
@@ -546,9 +567,10 @@ class GenerationService:
         # Step 5.5: Trigger Async Memory Extraction
         if user_id and full_answer:
             try:
-                from src.core.generation.application.memory.extractor import memory_extractor
                 import asyncio
-                
+
+                from src.core.generation.application.memory.extractor import memory_extractor
+
                 asyncio.create_task(
                     memory_extractor.extract_and_save_facts(
                         tenant_id=tenant_id,
@@ -567,22 +589,22 @@ class GenerationService:
                 "follow_ups": self._generate_follow_ups(query, full_answer),
                 "model": provider.model_name,
                 "provider": provider.provider_name,
-            }
+            },
         }
-    
+
     async def chat_completion(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        tool_choice: Any | None = "auto"
+        tool_choice: Any | None = "auto",
     ) -> Any:
         """
         Direct chat completion with tool support (Agentic Mode).
         Exposes the raw provider response object (e.g. ChatCompletion).
         """
-        from src.shared.context import get_current_tenant
-        from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.api.config import settings
+        from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.context import get_current_tenant
 
         tenant_config: dict[str, Any] = {}
         tenant_id = get_current_tenant()
@@ -600,15 +622,21 @@ class GenerationService:
             settings=settings,
         )
 
-        temp = self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        temp = (
+            self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
+        )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
-        provider = self.factory.get_llm_provider(
-            provider_name=llm_cfg.provider,
-            model=llm_cfg.model,
-            tier=self.config.tier,
-            with_failover=False,
-        ) if self.factory else self.llm
+        provider = (
+            self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=self.config.tier,
+                with_failover=False,
+            )
+            if self.factory
+            else self.llm
+        )
 
         kwargs: dict[str, Any] = {
             "messages": messages,
@@ -627,12 +655,12 @@ class GenerationService:
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
         normalized_answer = self._normalize_citations(answer)
-        pattern = r"\[\[Source:(\d+)\]\]" # Updated regex to match new prompt format
+        pattern = r"\[\[Source:(\d+)\]\]"  # Updated regex to match new prompt format
         matches = re.findall(pattern, normalized_answer)
         # Fallback for old format [1] just in case
         if not matches:
-             matches = re.findall(r"\[(\d+)\]", normalized_answer)
-             
+            matches = re.findall(r"\[(\d+)\]", normalized_answer)
+
         cited_indices = {int(m) for m in matches}
 
         sources = []
@@ -650,13 +678,15 @@ class GenerationService:
                     did = getattr(cand, "metadata", {}).get("document_id", "unknown")
                     title = getattr(cand, "metadata", {}).get("title", "Untitled")
 
-                sources.append(Source(
-                    index=i,
-                    chunk_id=cid,
-                    document_id=did,
-                    content_preview=content[:100] + "..." if len(content) > 100 else content,
-                    title=title
-                ))
+                sources.append(
+                    Source(
+                        index=i,
+                        chunk_id=cid,
+                        document_id=did,
+                        content_preview=content[:100] + "..." if len(content) > 100 else content,
+                        title=title,
+                    )
+                )
         return sources
 
     def _generate_follow_ups(self, query: str, answer: str) -> list[str]:

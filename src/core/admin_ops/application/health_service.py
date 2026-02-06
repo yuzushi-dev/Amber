@@ -59,14 +59,14 @@ class HealthChecker:
     """
 
     def __init__(
-        self, 
+        self,
         database_url: str,
         redis_url: str,
         neo4j_uri: str,
         neo4j_user: str,
         neo4j_password: str,
         milvus_host: str,
-        timeout: float = 5.0
+        timeout: float = 5.0,
     ):
         """
         Initialize health checker.

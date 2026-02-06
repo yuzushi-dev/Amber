@@ -10,36 +10,38 @@ import hashlib
 import io
 import logging
 import sys
+import time
 from collections.abc import Callable
 from typing import Any
 
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
-from src.core.ingestion.domain.document import Document
-from src.core.state.machine import DocumentStatus
-from src.shared.identifiers import generate_document_id, DocumentId
-from src.shared.context import set_current_tenant
-
-from src.core.graph.application.processor import GraphProcessor
-from src.core.graph.application.enrichment import GraphEnricher
-from src.core.ingestion.application.chunking.semantic import SemanticChunker
-from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
-from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.generation.application.llm_steps import resolve_llm_step_config
-import time
-from datetime import datetime
+from src.core.graph.application.enrichment import GraphEnricher
+from src.core.graph.application.processor import GraphProcessor
+from src.core.ingestion.application.chunking.semantic import SemanticChunker
+from src.core.ingestion.domain.document import Document
+from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.core.state.machine import DocumentStatus
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+from src.shared.context import set_current_tenant
+from src.shared.identifiers import DocumentId
 
 logger = logging.getLogger(__name__)
 
 
-from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
+from src.core.ingestion.domain.ports.content_extractor import (
+    ContentExtractorPort,
+    get_content_extractor,
+)
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
-from src.core.ingestion.domain.ports.content_extractor import ContentExtractorPort, get_content_extractor
-from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.ingestion.domain.ports.graph_client import GraphPort
+from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
+
 
 class IngestionService:
     """
@@ -47,7 +49,7 @@ class IngestionService:
     """
 
     def __init__(
-        self, 
+        self,
         document_repository: DocumentRepository,
         tenant_repository: TenantRepository,
         unit_of_work: UnitOfWork,
@@ -56,7 +58,8 @@ class IngestionService:
         vector_store: VectorStorePort | None,
         content_extractor: ContentExtractorPort | None = None,
         settings: Any = None,  # Settings object for embedding/LLM config
-        task_dispatcher: TaskDispatcher | None = None,  # Optional for backward compat during migration
+        task_dispatcher: TaskDispatcher
+        | None = None,  # Optional for backward compat during migration
         event_dispatcher: EventDispatcher | None = None,
         vector_store_factory: Callable[[int], VectorStorePort] | None = None,
     ):
@@ -71,15 +74,15 @@ class IngestionService:
         self.settings = settings
         self.task_dispatcher = task_dispatcher
         self.event_dispatcher = event_dispatcher or EventDispatcher()
-        
+
         # Initialize components
         self.chunker = SemanticChunker(STRATEGIES[DocumentDomain.GENERAL])
         self.embedding_service = EmbeddingService()
-        
+
         # GraphProcessor uses global graph_writer internally, but that's handled by tasks.py patch for safety
         self.graph_processor = GraphProcessor()
         self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
-        
+
     async def register_document(
         self,
         tenant_id: str,
@@ -119,7 +122,7 @@ class IngestionService:
         doc_hex = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
         doc_id = DocumentId(f"doc_{doc_hex}")
         storage_path = f"{tenant_id}/{doc_id}/{filename}"
-        
+
         # 4. Upload to MinIO
         # We need a file-like object for upload_file
         file_io = io.BytesIO(file_content)
@@ -150,13 +153,13 @@ class IngestionService:
             storage_path=storage_path,
             status=DocumentStatus.INGESTED,
             source_type="file",
-            metadata_={"original_filename": filename, "content_type": content_type}
+            metadata_={"original_filename": filename, "content_type": content_type},
         )
-        
+
         await self.document_repository.save(new_doc)
         # Note: Caller responsible for commit if needed, or we rely on implicit UoW scope?
         # Usage implies session commit happens outside.
-        
+
         # 6. Emit Event
         await self.event_dispatcher.emit_state_change(
             StateChangeEvent(
@@ -164,7 +167,7 @@ class IngestionService:
                 old_status=None,
                 new_status=DocumentStatus.INGESTED,
                 tenant_id=tenant_id,
-                details={"filename": filename}
+                details={"filename": filename},
             )
         )
 
@@ -177,9 +180,9 @@ class IngestionService:
         """
         sys.stdout.write(f"DEBUG: START process_document for {document_id}\n")
         sys.stdout.flush()
-        
+
         start_time = time.time()
-        
+
         # 1. Fetch Document
         document = await self.document_repository.get(document_id)
 
@@ -191,9 +194,7 @@ class IngestionService:
 
         # 2. Check State & Transition (INGESTED -> EXTRACTING)
         updated = await self.document_repository.update_status(
-            document_id, 
-            DocumentStatus.EXTRACTING, 
-            old_status=DocumentStatus.INGESTED
+            document_id, DocumentStatus.EXTRACTING, old_status=DocumentStatus.INGESTED
         )
 
         if not updated:
@@ -227,15 +228,14 @@ class IngestionService:
 
             # 4. Extract Content (Fallback Chain)
             import mimetypes
+
             mime_type, _ = mimetypes.guess_type(document.filename)
             if not mime_type:
                 mime_type = "application/octet-stream"
 
             extractor = self.content_extractor or get_content_extractor()
             extraction_result = await extractor.extract(
-                file_content=file_content,
-                mime_type=mime_type,
-                filename=document.filename
+                file_content=file_content, mime_type=mime_type, filename=document.filename
             )
 
             # 5. Classify Domain (Stage 1.4)
@@ -243,13 +243,15 @@ class IngestionService:
             await self.unit_of_work.commit()
             document.status = DocumentStatus.CLASSIFYING
 
-            await self.event_dispatcher.emit_state_change(StateChangeEvent(
-                document_id=document.id,
-                old_status=DocumentStatus.EXTRACTING,
-                new_status=DocumentStatus.CLASSIFYING,
-                tenant_id=document.tenant_id,
-                details={"progress": 20}
-            ))
+            await self.event_dispatcher.emit_state_change(
+                StateChangeEvent(
+                    document_id=document.id,
+                    old_status=DocumentStatus.EXTRACTING,
+                    new_status=DocumentStatus.CLASSIFYING,
+                    tenant_id=document.tenant_id,
+                    details={"progress": 20},
+                )
+            )
 
             from src.core.generation.application.intelligence.classifier import DomainClassifier
             from src.core.generation.application.intelligence.strategies import get_strategy
@@ -260,27 +262,31 @@ class IngestionService:
 
             # 6. Select Strategy
             strategy = get_strategy(domain.value)
-            logger.info(f"Classified document {document_id} as {domain.value}. Strategy: {strategy.name}")
+            logger.info(
+                f"Classified document {document_id} as {domain.value}. Strategy: {strategy.name}"
+            )
 
             document.domain = domain.value
-            
+
             # Metadata: Initial population (Clean Schema)
             # We preserve internal technical fields (content_type, mime_type) for system use
             # but present a cleaner view for the user.
-            
-            file_ext = document.filename.split('.')[-1] if '.' in document.filename else ""
+
+            file_ext = document.filename.split(".")[-1] if "." in document.filename else ""
             fmt = "PDF" if file_ext.lower() == "pdf" else file_ext.upper()
-            
+
             # Format creation date DD/MM/YYYY
             # Convert to local time (CET) for user friendliness
             local_dt = document.created_at.astimezone()
             created_date = local_dt.strftime("%d/%m/%Y")
             upload_time = local_dt.strftime("%H:%M")
-            
+
             document.metadata_ = {
-                "title": document.filename.rsplit('.', 1)[0],
+                "title": document.filename.rsplit(".", 1)[0],
                 "format": fmt,
-                "pageCount": extraction_result.metadata.get("page_count") if extraction_result.metadata else None,
+                "pageCount": extraction_result.metadata.get("page_count")
+                if extraction_result.metadata
+                else None,
                 "creationDate": created_date,
                 "uploadTime": upload_time,
                 # Technical preservation
@@ -294,20 +300,26 @@ class IngestionService:
             await self.unit_of_work.commit()
             document.status = DocumentStatus.CHUNKING
 
-            await self.event_dispatcher.emit_state_change(StateChangeEvent(
-                document_id=document.id,
-                old_status=DocumentStatus.CLASSIFYING,
-                new_status=DocumentStatus.CHUNKING,
-                tenant_id=document.tenant_id,
-                details={"progress": 40}
-            ))
+            await self.event_dispatcher.emit_state_change(
+                StateChangeEvent(
+                    document_id=document.id,
+                    old_status=DocumentStatus.CLASSIFYING,
+                    new_status=DocumentStatus.CHUNKING,
+                    tenant_id=document.tenant_id,
+                    details={"progress": 40},
+                )
+            )
 
             from src.core.ingestion.application.chunking.semantic import SemanticChunker
             from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
             from src.shared.identifiers import generate_chunk_id
 
             chunker = SemanticChunker(strategy)
-            chunk_data_list = chunker.chunk(extraction_result.content, document_title=document.filename, metadata=extraction_result.metadata)
+            chunk_data_list = chunker.chunk(
+                extraction_result.content,
+                document_title=document.filename,
+                metadata=extraction_result.metadata,
+            )
 
             logger.info(f"Document {document_id} split into {len(chunk_data_list)} chunks")
 
@@ -328,44 +340,49 @@ class IngestionService:
                         "start_char": cd.start_char,
                         "end_char": cd.end_char,
                         **cd.metadata,
-                        **extraction_result.metadata
+                        **extraction_result.metadata,
                     },
-                    embedding_status=EmbeddingStatus.PENDING
+                    embedding_status=EmbeddingStatus.PENDING,
                 )
                 chunks_to_process.append(chunk)
 
             document.chunks = chunks_to_process
             await self.document_repository.save(document)
-            
+
             # 8. Generate Embeddings and Store in Milvus
             await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.EMBEDDING
-            
-            await self.event_dispatcher.emit_state_change(StateChangeEvent(
-                document_id=document.id,
-                old_status=DocumentStatus.CHUNKING,
-                new_status=DocumentStatus.EMBEDDING,
-                tenant_id=document.tenant_id,
-                details={"progress": 60, "chunk_count": len(chunks_to_process)}
-            ))
+
+            await self.event_dispatcher.emit_state_change(
+                StateChangeEvent(
+                    document_id=document.id,
+                    old_status=DocumentStatus.CHUNKING,
+                    new_status=DocumentStatus.EMBEDDING,
+                    tenant_id=document.tenant_id,
+                    details={"progress": 60, "chunk_count": len(chunks_to_process)},
+                )
+            )
 
             vector_store = None
             try:
                 settings = self.settings
+                from src.core.generation.domain.ports.provider_factory import (
+                    build_provider_factory,
+                    get_provider_factory,
+                )
                 from src.core.retrieval.application.embeddings_service import EmbeddingService
-                from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-                from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
-                from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
-                from src.core.tenants.domain.tenant import Tenant
+                from src.core.retrieval.application.sparse_embeddings_service import (
+                    SparseEmbeddingService,
+                )
 
                 tenant_obj = await self.tenant_repository.get(document.tenant_id)
                 t_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
-                
+
                 sys_prov = settings.default_embedding_provider
                 sys_model = settings.default_embedding_model
                 sys_dims = settings.embedding_dimensions or 1536
-                
+
                 res_prov = t_config.get("embedding_provider") or sys_prov
                 res_model = t_config.get("embedding_model") or sys_model
                 res_dims = t_config.get("embedding_dimensions") or sys_dims
@@ -379,7 +396,7 @@ class IngestionService:
                     )
                 except RuntimeError:
                     factory = get_provider_factory()
-                
+
                 embedding_service = EmbeddingService(
                     provider=factory.get_embedding_provider(
                         provider_name=res_prov,
@@ -392,18 +409,26 @@ class IngestionService:
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
                 if self.vector_store_factory:
-                    vector_store = self.vector_store_factory(res_dims, collection_name=active_collection)
+                    vector_store = self.vector_store_factory(
+                        res_dims, collection_name=active_collection
+                    )
                 else:
                     vector_store = self.vector_store
-                
-                logger.info(f"RESOLVED EMBEDDING CONFIG | Document: {document.id} | Tenant: {document.tenant_id}")
-                logger.info(f"  - Tenant Config Provider: {t_config.get('embedding_provider')} (sys default: {sys_prov})")
-                logger.info(f"  - Tenant Config Model: {t_config.get('embedding_model')} (sys default: {sys_model})")
+
+                logger.info(
+                    f"RESOLVED EMBEDDING CONFIG | Document: {document.id} | Tenant: {document.tenant_id}"
+                )
+                logger.info(
+                    f"  - Tenant Config Provider: {t_config.get('embedding_provider')} (sys default: {sys_prov})"
+                )
+                logger.info(
+                    f"  - Tenant Config Model: {t_config.get('embedding_model')} (sys default: {sys_model})"
+                )
                 logger.info(f"  - Resolved Provider: {res_prov}")
                 logger.info(f"  - Resolved Model: {res_model}")
                 logger.info(f"  - Resolved Model: {res_model}")
                 logger.info(f"  - Factory: {factory.__class__.__name__}")
-                
+
                 # Capture Embedding Metadata
                 # Re-assign dict to trigger SQLAlchemy JSONB change tracking
                 meta_update = document.metadata_ or {}
@@ -416,21 +441,22 @@ class IngestionService:
 
                 chunk_contents = [c.content for c in chunks_to_process]
                 embeddings, stats = await embedding_service.embed_texts(
-                    chunk_contents,
-                    metadata={"document_id": document.id}
+                    chunk_contents, metadata={"document_id": document.id}
                 )
 
                 # Log Aggregated Ingestion Metrics
                 try:
-                    from src.shared.kernel.runtime import get_settings
                     from src.core.admin_ops.application.metrics.collector import MetricsCollector
                     from src.shared.identifiers import generate_query_id
-                    
+                    from src.shared.kernel.runtime import get_settings
+
                     m_settings = get_settings()
                     m_collector = MetricsCollector(redis_url=m_settings.db.redis_url)
                     m_label = f"Ingestion: {document.filename} ({len(chunks_to_process)} chunks)"
-                    
-                    async with m_collector.track_query(generate_query_id(), document.tenant_id, m_label) as qm:
+
+                    async with m_collector.track_query(
+                        generate_query_id(), document.tenant_id, m_label
+                    ) as qm:
                         qm.operation = "ingestion"
                         qm.tokens_used = stats.total_tokens
                         qm.cost_estimate = stats.total_cost
@@ -449,7 +475,9 @@ class IngestionService:
                     sparse_embeddings = [{} for _ in chunks_to_process]
 
                 milvus_data = []
-                for chunk, emb, sparse_emb in zip(chunks_to_process, embeddings, sparse_embeddings, strict=False):
+                for chunk, emb, sparse_emb in zip(
+                    chunks_to_process, embeddings, sparse_embeddings, strict=False
+                ):
                     data = {
                         "chunk_id": chunk.id,
                         "document_id": chunk.document_id,
@@ -469,7 +497,12 @@ class IngestionService:
                     chunk.embedding_status = EmbeddingStatus.COMPLETED
 
                 chunk_params = [
-                    {"id": c.id, "document_id": c.document_id, "tenant_id": document.tenant_id, "content": c.content} 
+                    {
+                        "id": c.id,
+                        "document_id": c.document_id,
+                        "tenant_id": document.tenant_id,
+                        "content": c.content,
+                    }
                     for c in chunks_to_process
                 ]
                 if chunk_params:
@@ -483,7 +516,7 @@ class IngestionService:
                             c.content = row.content,
                             c.created_at = timestamp()
                         """,
-                        {"batch": chunk_params}
+                        {"batch": chunk_params},
                     )
 
                 try:
@@ -492,7 +525,7 @@ class IngestionService:
                         await self.graph_enricher.create_similarity_edges(
                             chunk_id=data["chunk_id"],
                             embedding=data["embedding"],
-                            tenant_id=document.tenant_id
+                            tenant_id=document.tenant_id,
                         )
                 except Exception as e:
                     logger.error(f"Similarity edge generation failed: {e}")
@@ -514,20 +547,23 @@ class IngestionService:
             await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.GRAPH_SYNC
-            await self.event_dispatcher.emit_state_change(StateChangeEvent(
-                document_id=document.id,
-                old_status=DocumentStatus.EMBEDDING,
-                new_status=DocumentStatus.GRAPH_SYNC,
-                tenant_id=document.tenant_id,
-                details={"progress": 80}
-            ))
+            await self.event_dispatcher.emit_state_change(
+                StateChangeEvent(
+                    document_id=document.id,
+                    old_status=DocumentStatus.EMBEDDING,
+                    new_status=DocumentStatus.GRAPH_SYNC,
+                    tenant_id=document.tenant_id,
+                    details={"progress": 80},
+                )
+            )
 
             try:
                 from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
                 get_provider_factory()
                 if chunks_to_process:
                     await self.graph_processor.process_chunks(
-                        chunks_to_process, 
+                        chunks_to_process,
                         document.tenant_id,
                         filename=document.filename,
                         tenant_config=tenant_config,
@@ -537,7 +573,10 @@ class IngestionService:
 
             # 10. Document Enrichment
             try:
-                from src.core.generation.application.intelligence.document_summarizer import get_document_summarizer
+                from src.core.generation.application.intelligence.document_summarizer import (
+                    get_document_summarizer,
+                )
+
                 summarizer = get_document_summarizer()
                 chunk_contents = [c.content for c in chunks_to_process[:10]]
                 enrichment = await summarizer.extract_summary(
@@ -551,13 +590,14 @@ class IngestionService:
                 document.keywords = enrichment.get("keywords", [])
                 if domain and domain.value and domain.value not in document.keywords:
                     document.keywords.append(domain.value)
-                
+
                 # Capture LLM Metadata
                 try:
                     llm_cfg = resolve_llm_step_config(
                         tenant_config=tenant_config,
                         step_id="ingestion.document_summarization",
-                        settings=self.settings or get_settings(), # fallback if self.settings is None
+                        settings=self.settings
+                        or get_settings(),  # fallback if self.settings is None
                     )
                     meta_update = document.metadata_ or {}
                     meta_update["llmModel"] = f"{llm_cfg.provider} {llm_cfg.model}"
@@ -574,7 +614,7 @@ class IngestionService:
                 duration_seconds = time.time() - start_time
                 minutes, secs = divmod(int(duration_seconds), 60)
                 duration_str = f"{minutes}m {secs}s" if minutes > 0 else f"{secs}s"
-                
+
                 meta_update = document.metadata_ or {}
                 meta_update["uploadDuration"] = duration_str
                 document.metadata_ = dict(meta_update)
@@ -585,15 +625,16 @@ class IngestionService:
             await self.document_repository.update_status(document.id, DocumentStatus.READY)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.READY
-            
-            await self.event_dispatcher.emit_state_change(StateChangeEvent(
-                document_id=document.id,
-                old_status=DocumentStatus.GRAPH_SYNC,
-                new_status=DocumentStatus.READY,
-                tenant_id=document.tenant_id,
-                details={"progress": 100}
-            ))
 
+            await self.event_dispatcher.emit_state_change(
+                StateChangeEvent(
+                    document_id=document.id,
+                    old_status=DocumentStatus.GRAPH_SYNC,
+                    new_status=DocumentStatus.READY,
+                    tenant_id=document.tenant_id,
+                    details={"progress": 100},
+                )
+            )
 
             logger.info(f"Processed document {document_id}")
 
@@ -606,13 +647,15 @@ class IngestionService:
                     # Use shared error mapping for structured persistence
                     try:
                         import json
+
                         from src.shared.error_handling import map_exception_to_error_data
+
                         error_data = map_exception_to_error_data(e)
                         document.error_message = json.dumps(error_data)
                     except Exception as map_err:
                         logger.error(f"Failed to map error for {document_id}: {map_err}")
                         document.error_message = f"{type(e).__name__}: {str(e)}"
-                    
+
                     await self.document_repository.save(document)
                     await self.unit_of_work.commit()
             except Exception as inner_err:
