@@ -251,12 +251,13 @@ export const useUploadStore = create<UploadState>()(
 
                     await processItemUpload(nextItem.id, file)
 
-                } catch (e: any) {
+                } catch (e: unknown) {
+                    const errorMessage = e instanceof Error ? e.message : 'Upload failed'
                     set(state => ({
                         items: state.items.map(i => i.id === nextItem.id ? {
                             ...i,
-                            status: e.message === 'File data missing' ? 'missingFile' : 'failed',
-                            error: e.message || 'Upload failed'
+                            status: errorMessage === 'File data missing' ? 'missingFile' : 'failed',
+                            error: errorMessage
                         } : i)
                     }))
                     // Continue worker
@@ -363,13 +364,19 @@ const processItemUpload = async (itemId: string, file: File) => {
         // Trigger next
         useUploadStore.getState().startWorker()
 
-    } catch (e: any) {
-        if (e.name === 'AbortError') {
+    } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') {
             // Handled by caller or user action
         } else {
             throw e
         }
     }
+}
+
+type UploadStatusEvent = {
+    status?: string
+    error_message?: string
+    error?: string
 }
 
 const startSSEMonitoring = async (itemId: string, documentId: string, eventsUrl?: string) => {
@@ -411,7 +418,7 @@ const startSSEMonitoring = async (itemId: string, documentId: string, eventsUrl?
     }
 }
 
-const handleSSEMessage = (itemId: string, data: any) => {
+const handleSSEMessage = (itemId: string, data: UploadStatusEvent) => {
     if (!data.status) return
 
     // Map backend status to store 
@@ -465,7 +472,7 @@ const handleSSEMessage = (itemId: string, data: any) => {
 
 const checkStatus = async (itemId: string, documentId: string) => {
     try {
-        const res = await apiClient.get<any>(`/documents/${documentId}`)
+        const res = await apiClient.get<UploadStatusEvent>(`/documents/${documentId}`)
         handleSSEMessage(itemId, res.data)
     } catch (e) {
         console.error('Polling error', e)

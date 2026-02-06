@@ -66,9 +66,10 @@ function formatPayloadDetails(actionType: string, payload: Record<string, unknow
     switch (actionType) {
         case 'connect':
             return `${payload.source} ↔ ${payload.target}`;
-        case 'merge':
+        case 'merge': {
             const sources = (payload.source_ids as string[]) || [];
             return `${sources.join(', ')} → ${payload.target_id}`;
+        }
         case 'delete_edge':
             return `${payload.source} ↛ ${payload.target}`;
         case 'delete_node':

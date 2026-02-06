@@ -91,7 +91,14 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
         graphData: processedData,
         nodeLabel: 'name',
         nodeColor: 'color',
-        onNodeClick: onNodeClick as any,
+        onNodeClick: onNodeClick
+            ? (node: { id?: string | number }) => {
+                const nodeId = typeof node.id === 'number' ? String(node.id) : node.id
+                if (!nodeId) return
+                const selected = processedData.nodes.find(item => item.id === nodeId)
+                if (selected) onNodeClick(selected)
+            }
+            : undefined,
         width: width,
         height: height,
         backgroundColor: backgroundColor,
@@ -101,8 +108,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
     if (mode === '2d') {
         return (
             <ForceGraph2D
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ref={graphRef as any}
+                ref={graphRef}
                 {...commonProps}
                 nodeRelSize={6}
                 linkDirectionalArrowLength={3.5}
@@ -113,8 +119,6 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
 
     return (
         <ForceGraph3D
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ref={graphRef as any}
             {...commonProps}
             nodeOpacity={0.9}
             linkOpacity={0.3}

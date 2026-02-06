@@ -45,8 +45,8 @@ export function StepConfigDialog({
     if (!step) return null
 
     // Helper to handle partial updates
-    const handleChange = (key: keyof LlmStepOverride, value: any) => {
-        onChange({ [key]: value })
+    const handleChange = <K extends keyof LlmStepOverride>(key: K, value: LlmStepOverride[K]) => {
+        onChange({ [key]: value } as LlmStepOverride)
     }
 
 

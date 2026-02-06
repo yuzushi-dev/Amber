@@ -45,8 +45,13 @@ export default function ThreeGraph({
     highlightedNodeIds = [],
     zoomToNodeId
 }: ThreeGraphProps) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ForceGraph3D ref type is complex
-    const fgRef = useRef<any>(null);
+    const fgRef = useRef<{
+        cameraPosition: (
+            position: { x: number; y: number; z: number },
+            lookAt?: object,
+            ms?: number
+        ) => void
+    } | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
     const buildTheme = () => {
@@ -106,11 +111,7 @@ export default function ThreeGraph({
         };
     };
 
-    const [theme, setTheme] = useState(buildTheme);
-
-    useEffect(() => {
-        setTheme(buildTheme());
-    }, []);
+    const theme = useMemo(() => buildTheme(), []);
 
     const getCommunityColor = useCallback((communityId?: number | null): string => {
         if (communityId === undefined || communityId === null) return theme.edges.default;
@@ -324,7 +325,7 @@ export default function ThreeGraph({
         group.add(sprite);
 
         return group;
-    }, []);
+    }, [theme.background, theme.foreground]);
 
     return (
         <div

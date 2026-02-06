@@ -1,4 +1,4 @@
-import { useChatStore } from '../store'
+import { useChatStore, type Source, type QualityScore, type RoutingInfo } from '../store'
 import { useChatStream } from '../hooks/useChatStream'
 import MessageList from './MessageList'
 import QueryInput from './QueryInput'
@@ -10,6 +10,55 @@ import { useCitationStore } from '../store/citationStore'
 import { Button } from '@/components/ui/button'
 import { Download, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+
+type HistoryTurn = {
+    query: string
+    answer: string
+    timestamp?: string
+    sources?: unknown
+    quality_score?: number
+    routing_info?: unknown
+}
+
+const parseUnknownJson = (value: unknown): unknown => {
+    if (typeof value !== 'string') return value
+    try {
+        return JSON.parse(value)
+    } catch {
+        return undefined
+    }
+}
+
+const toSources = (value: unknown): Source[] | undefined => {
+    if (Array.isArray(value)) return value as Source[]
+    const parsed = parseUnknownJson(value)
+    return Array.isArray(parsed) ? (parsed as Source[]) : undefined
+}
+
+const toQualityScore = (value: unknown): QualityScore | undefined => {
+    if (!value || typeof value !== 'object') return undefined
+    const candidate = value as Record<string, unknown>
+    if (
+        typeof candidate.total === 'number' &&
+        typeof candidate.retrieval === 'number' &&
+        typeof candidate.generation === 'number'
+    ) {
+        return candidate as unknown as QualityScore
+    }
+    return undefined
+}
+
+const toRoutingInfo = (value: unknown): RoutingInfo | undefined => {
+    if (!value || typeof value !== 'object') return undefined
+    const candidate = value as Record<string, unknown>
+    if (Array.isArray(candidate.categories) && typeof candidate.confidence === 'number') {
+        return {
+            categories: candidate.categories.filter((item): item is string => typeof item === 'string'),
+            confidence: candidate.confidence
+        }
+    }
+    return undefined
+}
 
 export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
@@ -121,7 +170,7 @@ export default function ChatContainer() {
                         const history = initialDetail.metadata?.history
                         if (Array.isArray(history) && history.length > 0) {
                             // Reconstruct ALL messages from history array
-                            history.forEach((turn: { query: string; answer: string; timestamp?: string }, idx: number) => {
+                            history.forEach((turn: HistoryTurn, idx: number) => {
                                 // User message
                                 if (turn.query) {
                                     addMessage({
@@ -137,14 +186,10 @@ export default function ChatContainer() {
                                         id: `assistant-${requestId}-${idx}`,
                                         role: 'assistant',
                                         content: turn.answer,
-                                        sources: Array.isArray((turn as any).sources)
-                                            ? (turn as any).sources
-                                            : (typeof (turn as any).sources === 'string'
-                                                ? JSON.parse((turn as any).sources)
-                                                : undefined),
+                                        sources: toSources(turn.sources),
                                         timestamp: turn.timestamp || initialDetail.created_at,
-                                        quality_score: (turn as any).quality_score,
-                                        routing_info: (turn as any).routing_info
+                                        quality_score: toQualityScore(turn.quality_score),
+                                        routing_info: toRoutingInfo(turn.routing_info)
                                     })
                                 }
                             })
@@ -190,7 +235,6 @@ export default function ChatContainer() {
             // New chat - clear messages AND reset conversation threading
             clearMessages()
             resetConversation()
-            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset title on route change
             setTitle('New Conversation')
         }
     }, [requestId, clearMessages, addMessage, resetConversation, setConversationId, activeConversationId, resetCitations, setActiveConversationId])
@@ -203,7 +247,6 @@ export default function ChatContainer() {
                 const newTitle = firstUserContent.length > 50
                     ? firstUserContent.substring(0, 50) + '...'
                     : firstUserContent
-                // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: derive title from messages
                 setTitle(newTitle)
             }
         }

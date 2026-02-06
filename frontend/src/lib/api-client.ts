@@ -191,6 +191,29 @@ export interface ChatHistoryResponse {
     offset: number
 }
 
+export interface ChatConversationDetail {
+    request_id: string
+    tenant_id: string
+    trace_id: string | null
+    query_text: string | null
+    response_text: string | null
+    model: string
+    provider: string
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    cost: number
+    feedback: {
+        score: number
+        is_positive: boolean
+        comment: string | null
+        correction: string | null
+        created_at: string | null
+    } | null
+    metadata: Record<string, unknown>
+    created_at: string
+}
+
 export const chatApi = {
     list: async (params?: { limit?: number; offset?: number }) => {
         const response = await apiClient.get<ChatHistoryResponse>('/chat/history', { params })
@@ -198,9 +221,7 @@ export const chatApi = {
     },
 
     getDetail: async (requestId: string) => {
-        // Import ConversationDetail type if needed, or define compatible one
-        // For now using any to avoid circular imports if types are in api-admin
-        const response = await apiClient.get<any>(`/chat/history/${requestId}`)
+        const response = await apiClient.get<ChatConversationDetail>(`/chat/history/${requestId}`)
         return response.data
     },
 

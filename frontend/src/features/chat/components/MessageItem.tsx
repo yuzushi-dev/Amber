@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown'
+import type { ComponentPropsWithoutRef } from 'react'
 import { Message } from '../store'
 import { cn } from '@/lib/utils'
 import { User, Loader2, FileText, Code } from 'lucide-react'
@@ -39,7 +40,7 @@ export default function MessageItem({ message, queryContent, isStreaming }: Mess
     }, [citations, message.id, registerCitations]);
 
     const components = useMemo(() => ({
-        a: ({ href, children, ...props }: any) => {
+        a: ({ href, children, ...props }: ComponentPropsWithoutRef<'a'>) => {
             if (href?.startsWith('#citation-')) {
                 const id = href.replace('#citation-', '');
                 const citation = citations.find(c => c.id === id);
