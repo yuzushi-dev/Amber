@@ -98,7 +98,7 @@ async def migrate_embeddings(tenant_id: str, db: AsyncSession = Depends(get_db_s
         return ResponseSchema(data=result, message="Migration initiated successfully")
     except ValueError as e:
         _migration_state.pop(tenant_id, None)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except Exception as e:
         _migration_state[tenant_id] = {
             "status": "failed",
@@ -108,7 +108,7 @@ async def migrate_embeddings(tenant_id: str, db: AsyncSession = Depends(get_db_s
         }
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Migration failed: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/migration-status", response_model=ResponseSchema[Any])

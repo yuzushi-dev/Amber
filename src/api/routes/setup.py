@@ -86,7 +86,7 @@ async def get_setup_status():
         return status
     except Exception as e:
         logger.error(f"Failed to get setup status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/install", response_model=dict[str, Any])
@@ -98,7 +98,7 @@ async def install_features(request: BatchInstallRequest):
         return await service.install_features_batch(request.feature_ids)
     except Exception as e:
         logger.error(f"Failed to install features: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/skip")
@@ -110,7 +110,7 @@ async def skip_setup():
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to mark setup complete: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/install/events")
@@ -244,4 +244,4 @@ async def run_db_migration():
 
     except Exception as e:
         logger.error(f"Failed to run migration: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

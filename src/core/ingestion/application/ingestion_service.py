@@ -20,15 +20,6 @@ from src.core.graph.application.enrichment import GraphEnricher
 from src.core.graph.application.processor import GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.ingestion.domain.document import Document
-from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.core.state.machine import DocumentStatus
-from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
-from src.shared.context import set_current_tenant
-from src.shared.identifiers import DocumentId
-
-logger = logging.getLogger(__name__)
-
-
 from src.core.ingestion.domain.ports.content_extractor import (
     ContentExtractorPort,
     get_content_extractor,
@@ -39,7 +30,14 @@ from src.core.ingestion.domain.ports.graph_client import GraphPort
 from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
+from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.core.state.machine import DocumentStatus
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
+from src.shared.context import set_current_tenant
+from src.shared.identifiers import DocumentId
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionService:

@@ -18,6 +18,7 @@ Run with: pytest tests/integration/test_ingestion_pipeline.py -v
 import asyncio
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 from src.amber_platform.composition_root import build_session_factory, platform
@@ -133,9 +134,6 @@ def test_pdf_file() -> tuple[str, bytes, str]:
     # Add random comment to PDF content to ensure unique hash
     unique_content = TEST_PDF_CONTENT + f"\n% Random: {random_id} {time.time()}".encode()
     return (f"test_integration_{random_id}.pdf", unique_content, "application/pdf")
-
-
-import pytest_asyncio
 
 
 class TestIngestionPipeline:

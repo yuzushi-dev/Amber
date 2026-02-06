@@ -76,7 +76,7 @@ class HybridMarkerExtractor(BaseExtractor):
         try:
             doc = fitz.open(stream=file_content, filetype="pdf")
         except Exception as e:
-            raise ValueError(f"Failed to open PDF: {e}")
+            raise ValueError(f"Failed to open PDF: {e}") from e
 
         # 2. Analyze Pages
         text_pages = []

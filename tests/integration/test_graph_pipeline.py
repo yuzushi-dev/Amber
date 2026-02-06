@@ -3,9 +3,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.amber_platform.composition_root import platform
-
-neo4j_client = platform.neo4j_client
-
 from src.core.generation.application.prompts.entity_extraction import (
     ExtractedEntity,
     ExtractedRelationship,
@@ -13,6 +10,8 @@ from src.core.generation.application.prompts.entity_extraction import (
 )
 from src.core.graph.application.writer import graph_writer
 from src.core.graph.domain.schema import NodeLabel, RelationshipType
+
+neo4j_client = platform.neo4j_client
 
 
 @pytest.mark.asyncio

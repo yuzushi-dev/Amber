@@ -285,7 +285,7 @@ async def apply_pending_edit(
 
     except Exception as e:
         logger.error(f"Failed to apply edit {edit_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("/{edit_id}")
@@ -466,4 +466,4 @@ async def undo_applied_edit(
         raise
     except Exception as e:
         logger.error(f"Failed to undo edit {edit_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

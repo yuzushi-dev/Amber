@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import asyncio
 import os
 

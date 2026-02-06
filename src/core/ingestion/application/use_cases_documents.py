@@ -13,6 +13,15 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.events.dispatcher import EventDispatcher
+from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+from src.core.ingestion.domain.ports.graph_client import GraphPort
+from src.core.ingestion.domain.ports.storage import StoragePort
+from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
+from src.core.ingestion.domain.ports.vector_store import VectorStorePort
+from src.core.tenants.domain.ports.tenant_repository import TenantRepository
+
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
@@ -43,15 +52,6 @@ class UploadDocumentResult:
 # -----------------------------------------------------------------------------
 # Use Case Implementation
 # -----------------------------------------------------------------------------
-
-from src.core.events.dispatcher import EventDispatcher
-from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
-from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-from src.core.ingestion.domain.ports.graph_client import GraphPort
-from src.core.ingestion.domain.ports.storage import StoragePort
-from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
-from src.core.ingestion.domain.ports.vector_store import VectorStorePort
-from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 
 
 class UploadDocumentUseCase:

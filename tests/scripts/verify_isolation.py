@@ -2,10 +2,9 @@ import asyncio
 import logging
 
 from src.amber_platform.composition_root import platform
+from src.core.security.graph_acl import graph_acl
 
 neo4j_client = platform.neo4j_client
-
-from src.core.security.graph_acl import graph_acl
 
 logging.basicConfig(level=logging.ERROR)
 

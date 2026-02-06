@@ -9,10 +9,6 @@ Phase 10 - Admin/Engineer UI Backend
 
 from fastapi import APIRouter
 
-# Create main admin router
-router = APIRouter(prefix="/admin", tags=["admin"])
-
-# Import and include sub-routers
 from src.api.routes.admin import (
     backup,
     chat_history,
@@ -30,6 +26,9 @@ from src.api.routes.admin import (
     rules,
     tenants,
 )
+
+# Create main admin router
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 router.include_router(jobs.router)
 router.include_router(config.router)

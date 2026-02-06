@@ -261,7 +261,7 @@ async def upload_dataset(file: UploadFile = File(...)):
             except json.JSONDecodeError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {str(e)}"
-                )
+                ) from e
 
             if isinstance(parsed, list):
                 data = parsed
@@ -333,12 +333,12 @@ async def upload_dataset(file: UploadFile = File(...)):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid CSV encoding. Please use UTF-8. Error: {str(e)}",
-                )
+                ) from e
             except Exception as e:
                 logger.error(f"CSV Parse Error: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to parse CSV: {str(e)}"
-                )
+                ) from e
 
         if not data:
             logger.warning("Dataset empty after parsing")
@@ -381,7 +381,7 @@ async def upload_dataset(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
-        )
+        ) from e
 
 
 @router.delete("/datasets/{filename}")
@@ -405,7 +405,7 @@ async def delete_dataset(filename: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete dataset: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/run-benchmark", response_model=RunBenchmarkResponse)

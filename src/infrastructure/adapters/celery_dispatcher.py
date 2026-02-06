@@ -47,7 +47,7 @@ class CeleryTaskDispatcher(TaskDispatcher):
             return str(result.id)
         except Exception as e:
             logger.error(f"Failed to dispatch task {task_name}: {e}")
-            raise RuntimeError(f"Task dispatch failed: {e}")
+            raise RuntimeError(f"Task dispatch failed: {e}") from e
 
     async def cancel_task(self, task_id: str, terminate: bool = False) -> None:
         try:

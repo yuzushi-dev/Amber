@@ -12,8 +12,11 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
+from src.core.retrieval.domain.ports.vector_store_admin_port import VectorStoreAdminPort
 from src.core.state.machine import DocumentStatus
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.model_registry import (
@@ -23,11 +26,6 @@ from src.shared.model_registry import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-from src.core.graph.domain.ports.graph_client import GraphClientPort
-from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
-from src.core.retrieval.domain.ports.vector_store_admin_port import VectorStoreAdminPort
 
 
 class EmbeddingMigrationService:

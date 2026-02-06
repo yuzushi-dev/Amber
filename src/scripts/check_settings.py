@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import yaml
+
 from src.api.config import get_settings
 
 settings = get_settings()
@@ -8,10 +12,6 @@ print(f"Default Embedding Provider: {settings.default_embedding_provider}")
 print(f"Default Embedding Model: {settings.default_embedding_model}")
 
 # Check if setting manually works
-from pathlib import Path
-
-import yaml
-
 config_path = Path("config/settings.yaml")
 if config_path.exists():
     with open(config_path) as f:

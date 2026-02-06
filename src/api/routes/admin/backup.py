@@ -111,8 +111,8 @@ async def create_backup(request: CreateBackupRequest, tenant_id: str = "default"
     # Validate scope
     try:
         scope = BackupScope(request.scope)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid scope: {request.scope}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid scope: {request.scope}") from e
 
     job_id = str(uuid4())
 
@@ -189,8 +189,8 @@ async def download_backup(job_id: str, tenant_id: str = "default"):
                 "Content-Length": str(len(file_bytes)),
             },
         )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Backup file not found in storage")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Backup file not found in storage") from e
 
 
 @router.delete("/job/{job_id}")
@@ -274,8 +274,8 @@ async def start_restore(request: RestoreRequest, tenant_id: str = "default"):
     # Validate mode
     try:
         mode = RestoreMode(request.mode)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}") from e
 
     if not request.backup_id:
         raise HTTPException(status_code=400, detail="backup_id is required")
@@ -389,8 +389,8 @@ async def set_schedule(request: ScheduleRequest, tenant_id: str = "default"):
     # Validate scope
     try:
         scope = BackupScope(request.scope)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid scope: {request.scope}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid scope: {request.scope}") from e
 
     async with get_session_maker()() as session:
         result = await session.execute(
