@@ -32,3 +32,14 @@ configuration.
 - **Default Context Budget**: 8k tokens (generation service); model max varies
   by provider
 - **Max Graph Depth**: 2 hops (configurable per query)
+
+## Storage Migration Limits
+
+- **Cutover Precondition**: Final MinIO->SeaweedFS manifest compare must report
+  `missing_in_dst=0` and `mismatched=0`.
+- **Write Freeze Window**: Stop `api`, `worker`, and `milvus` during final sync
+  to avoid object drift.
+- **Rollback Retention**: Keep MinIO available for at least 7 days (recommended
+  14) after production cutover.
+- **Daily Reconciliation**: Run manifest comparison once per day during rollback
+  window, preferably via `scripts/seaweed_reconcile_tidy.sh`.
