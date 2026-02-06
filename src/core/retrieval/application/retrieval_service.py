@@ -261,9 +261,7 @@ class RetrievalService:
         8. Caching & Return
         """
         start_time = time.perf_counter()
-        logger.info(
-            f"DEBUG_TRACE: Retrieval/retrieve called for query: {query}, tenant: {tenant_id}"
-        )
+        logger.debug("Retrieval started for tenant=%s query=%s", tenant_id, query[:120])
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
@@ -300,11 +298,6 @@ class RetrievalService:
         # Step 4 & 5: Search Execution based on Mode
         # For now, most modes fall back to vector search with optional HyDE/Decomposition
         # Phase 6 will implement specialized Global and DRIFT strategies.
-
-        time.perf_counter()
-
-        # Step 4: Search Execution based on Mode
-        time.perf_counter()
 
         try:
             if search_mode == SearchMode.GLOBAL:
@@ -456,15 +449,13 @@ class RetrievalService:
         reranked_flag = False
 
         if self.reranker and fused and not self.circuit_breaker.should_degrade:
-            print(f"DEBUG: Entering Reranker. Fused Count: {len(fused)}")
+            logger.debug("Hybrid reranking %d fused candidates", len(fused))
             try:
                 rerank_start = time.perf_counter()
                 texts = [c.content for c in fused[:20]]  # Rerank top 20
-                print(f"DEBUG: Reranking {len(texts)} texts: {texts}")
                 rerank_res = await self.reranker.rerank(
                     query=query_text, documents=texts, top_k=top_k
                 )
-                print(f"DEBUG: Reranker returned: {rerank_res}")
 
                 # Map back to Candidates
                 for item in rerank_res.results:
@@ -472,13 +463,12 @@ class RetrievalService:
                     cand.score = item.score
                     reranked_chunks.append(cand.to_dict())
 
-                print(f"DEBUG: Reranked chunks count: {len(reranked_chunks)}")
+                logger.debug("Hybrid reranking completed with %d chunks", len(reranked_chunks))
                 reranked_flag = True
                 trace.append(
                     {"step": "rerank", "duration_ms": (time.perf_counter() - rerank_start) * 1000}
                 )
             except Exception as e:
-                print(f"DEBUG: Reranking FAILED: {e}")
                 logger.warning(f"Reranking failed in hybrid mode: {e}")
                 reranked_chunks = [c.to_dict() for c in fused[:top_k]]
         else:
@@ -526,13 +516,13 @@ class RetrievalService:
                 tenant_config=tenant_config,
             )
 
-        logger.warning(f"DEBUG_TRACE: Starting vector search. Queries: {queries_to_run}")
+        logger.debug("Vector search running %d query variant(s)", len(queries_to_run))
 
         all_chunks = []
         seen_chunk_ids = set()
 
         for q in queries_to_run:
-            logger.warning(f"DEBUG_TRACE: Processing query: {q}")
+            logger.debug("Vector search processing query variant: %s", q[:120])
             # Handle HyDE
             search_query = q
             if options.use_hyde:
@@ -556,11 +546,11 @@ class RetrievalService:
             cache_filters = {"document_ids": document_ids, **(filters or {})}
             cached_result = await self.result_cache.get(search_query, tenant_id, cache_filters)
 
-            logger.info(f"DEBUG_TRACE: Cache check for '{search_query}'. Result: {cached_result}")
+            logger.debug("Result cache lookup for '%s' hit=%s", search_query, bool(cached_result))
 
             # Force bypass for debugging
             # if cached_result:
-            #     logger.info(f"DEBUG_TRACE: Utilizing cached result for: {search_query}")
+            #     logger.info("Using cached result for '%s'", search_query)
             #     # ... (skipped cache use code) ...
             #     continue
             cached_result = None  # FORCE MISS
@@ -580,14 +570,12 @@ class RetrievalService:
             # continue
 
             # Get embedding
-            logger.info(f"DEBUG_TRACE: Generating embedding for query: {search_query}")
+            logger.debug("Generating embedding for query variant '%s'", search_query[:120])
             query_embedding = await self.embedding_service.embed_single(search_query)
             if not query_embedding:
                 logger.warning(f"Embedding failed for query: {search_query}. Skipping search.")
                 continue
-            logger.info(
-                f"DEBUG_TRACE: Embedding generated. vector[:5]={query_embedding[:5] if query_embedding else 'None'}"
-            )
+            logger.debug("Embedding generated for query variant '%s'", search_query[:120])
 
             # Vector search (Dense or Hybrid)
             search_results = None
@@ -602,8 +590,10 @@ class RetrievalService:
                 target_collection = collection_name or resolve_active_vector_collection(
                     tenant_id, {}
                 )
-                logger.info(
-                    f"DEBUG_TRACE: Searching collection: {target_collection} with tenant_id: {tenant_id}"
+                logger.debug(
+                    "Searching vector store collection=%s tenant=%s",
+                    target_collection,
+                    tenant_id,
                 )
 
                 search_results = await self.vector_searcher.search(
@@ -615,7 +605,7 @@ class RetrievalService:
                     filters=filters,
                     collection_name=target_collection,
                 )
-                logger.info(f"DEBUG_TRACE: Search returned {len(search_results)} results")
+                logger.debug("Vector search returned %d results", len(search_results))
                 trace.append(
                     {
                         "step": "vector_search",

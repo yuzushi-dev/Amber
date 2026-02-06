@@ -33,25 +33,28 @@ def run_async(coro):
     if loop and loop.is_running():
         # Prevent "Cannot run the event loop while another loop is running"
         # by offloading the async execution to a separate thread with its own loop.
-        print(f"DEBUG: Detected running loop {loop}, offloading to thread for coro: {coro}")
+        logger.debug(
+            "Detected active event loop %s, offloading coroutine execution to a worker thread",
+            loop,
+        )
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
 
             def runner():
-                print("DEBUG: Thread started, running asyncio.run")
+                logger.debug("Worker thread started for asyncio.run")
                 try:
                     res = asyncio.run(coro)
-                    print("DEBUG: asyncio.run completed")
+                    logger.debug("Worker thread completed asyncio.run")
                     return res
                 except Exception as e:
-                    print(f"DEBUG: Thread failed: {e}")
+                    logger.debug("Worker thread failed while running coroutine: %s", e)
                     raise
 
             future = executor.submit(runner)
-            print("DEBUG: Waiting for thread result...")
+            logger.debug("Waiting for worker thread result")
             res = future.result()
-            print("DEBUG: Thread result received")
+            logger.debug("Worker thread result received")
             return res
     else:
         loop = asyncio.new_event_loop()

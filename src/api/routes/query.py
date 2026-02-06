@@ -480,23 +480,6 @@ async def _query_stream_impl(
                     timeout=60.0,
                 )
             except Exception as e:
-                # Re-raise to let the outer exception handler (the one we added for generation) catch it
-                # But wait, the outer handler is inside the stream generator loop?
-                # No, we are currently in _query_stream_impl, which calls generation_service.generate_stream
-                # The error handling we added previously is INSIDE generation_service.generate_stream (or around it in the loop)
-                # We need to make sure THIS error is also caught and emitted as a proper SSE event
-
-                # Actually, looking at the code structure:
-                # _query_stream_impl is an async generator.
-                # It has a big try...except block (lines 200..something)? No, let me check view_file 280 output.
-                # The view output shows lines 500-600.
-                # The retrieval is separate.
-
-                # We should re-raise this in a way that our main exception handler catches it?
-                # OR we just handle it here similar to the generic handler we built.
-
-                logger.error(f"Retrieval failed: {e}")
-
                 logger.error(f"Retrieval failed: {e}")
 
                 from src.shared.error_handling import map_exception_to_error_data

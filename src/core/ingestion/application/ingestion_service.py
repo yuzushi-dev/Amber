@@ -9,7 +9,6 @@ import asyncio
 import hashlib
 import io
 import logging
-import sys
 import time
 from collections.abc import Callable
 from typing import Any
@@ -178,8 +177,7 @@ class IngestionService:
         """
         Orchestrate the document ingestion pipeline.
         """
-        sys.stdout.write(f"DEBUG: START process_document for {document_id}\n")
-        sys.stdout.flush()
+        logger.debug("Starting process_document for %s", document_id)
 
         start_time = time.time()
 
