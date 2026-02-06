@@ -1,3 +1,4 @@
+import os
 import sys
 from unittest.mock import MagicMock
 
@@ -5,6 +6,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database.session import get_session_maker
+
+# Prevent joblib from attempting multiprocessing in restricted environments.
+os.environ.setdefault("JOBLIB_MULTIPROCESSING", "0")
 
 # Mock dependencies that might be missing in the host environment
 # NOTE: Do NOT mock packages that are actually installed (pydantic, fastapi, etc.)
