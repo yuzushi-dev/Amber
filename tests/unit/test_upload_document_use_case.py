@@ -1,5 +1,6 @@
 import pytest
 
+from src.core.cache import decorators as cache_decorators
 from src.core.ingestion.application import ingestion_service as service_module
 from src.core.ingestion.application.use_cases_documents import (
     UploadDocumentRequest,
@@ -69,6 +70,13 @@ class StubDocument:
             setattr(self, key, value)
 
 
+def _stub_cache_delete(monkeypatch):
+    async def _delete_cache(_key: str):
+        return True
+
+    monkeypatch.setattr(cache_decorators, "delete_cache", _delete_cache)
+
+
 @pytest.mark.asyncio
 async def test_upload_use_case_accepts_ports_only(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
@@ -76,6 +84,7 @@ async def test_upload_use_case_accepts_ports_only(monkeypatch):
     monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
     monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
     monkeypatch.setattr(service_module, "Document", StubDocument)
+    _stub_cache_delete(monkeypatch)
 
     async def _direct_to_thread(func, *args, **kwargs):
         return func(*args, **kwargs)
@@ -106,3 +115,52 @@ async def test_upload_use_case_accepts_ports_only(monkeypatch):
 
     assert result.document_id
     assert uow.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_use_case_invalidates_tenant_stats_cache(monkeypatch):
+    monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
+    monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
+    monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
+    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
+    monkeypatch.setattr(service_module, "Document", StubDocument)
+
+    async def _direct_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(service_module.asyncio, "to_thread", _direct_to_thread)
+
+    deleted_keys: list[str] = []
+
+    async def _delete_cache(key: str):
+        deleted_keys.append(key)
+
+    monkeypatch.setattr(cache_decorators, "delete_cache", _delete_cache)
+
+    uow = FakeUoW()
+    use_case = UploadDocumentUseCase(
+        document_repository=FakeRepo(),
+        tenant_repository=FakeRepo(),
+        unit_of_work=uow,
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=None,
+        event_dispatcher=None,
+    )
+
+    result = await use_case.execute(
+        UploadDocumentRequest(
+            tenant_id="tenant-cache",
+            filename="cache.txt",
+            content=b"hello",
+            content_type="text/plain",
+        )
+    )
+
+    assert result.status == "ingested"
+    assert deleted_keys == [
+        "admin:stats:database:tenant-cache",
+        "admin:stats:vectors:tenant-cache",
+    ]
