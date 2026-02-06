@@ -161,15 +161,6 @@ class UploadDocumentUseCase:
                     "No TaskDispatcher available, document not queued for async processing"
                 )
 
-        return UploadDocumentResult(
-            document_id=document.id,
-            status=document.status.value,
-            is_duplicate=is_duplicate,
-            message="Document accepted for processing"
-            if not is_duplicate
-            else "Document deduplicated",
-        )
-
         # Invalidate stats cache so numbers update immediately on frontend
         try:
             from src.core.cache.decorators import delete_cache
@@ -180,7 +171,14 @@ class UploadDocumentUseCase:
         except Exception as e:
             logger.warning(f"Failed to invalidate stats cache: {e}")
 
-        return result
+        return UploadDocumentResult(
+            document_id=document.id,
+            status=document.status.value,
+            is_duplicate=is_duplicate,
+            message="Document accepted for processing"
+            if not is_duplicate
+            else "Document deduplicated",
+        )
 
 
 @dataclass

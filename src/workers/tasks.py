@@ -687,11 +687,6 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             for i, sample in enumerate(dataset):
                 query = sample.get("query", sample.get("question", ""))
 
-                # Check mapping for standard Ragas keys
-                ground_truth = sample.get(
-                    "ground_truth", sample.get("ideal_answer", sample.get("answer", ""))
-                )
-
                 # 1. Execute Retrieval
                 retrieval_result = await retrieval_service.retrieve(
                     query=query, tenant_id=tenant_id, top_k=5

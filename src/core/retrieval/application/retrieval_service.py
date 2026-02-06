@@ -383,6 +383,7 @@ class RetrievalService:
         options: QueryOptions,
         trace: list[dict],
         collection_name: str | None,
+        tenant_config: dict[str, Any] | None = None,
     ) -> RetrievalResult:
         """Executes Hybrid (Vector + Graph) retrieval with RRF fusion."""
         step_start = time.perf_counter()

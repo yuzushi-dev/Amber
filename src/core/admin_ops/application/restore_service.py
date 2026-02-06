@@ -165,12 +165,9 @@ class RestoreService:
                     if progress_callback:
                         progress_callback(int(current_step / total_steps * 100))
 
-                dump_restored = False
-
                 # 1. Postgres Dump (Priority)
                 if has_dump:
                     await self._restore_postgres_dump(zf)
-                    dump_restored = True
                     update_progress()
                 else:
                     # Standard Granular SQL Restore

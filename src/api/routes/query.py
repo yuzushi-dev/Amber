@@ -273,8 +273,12 @@ async def _query_stream_impl(
                 yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
 
                 try:
-                    # Determine ID upfront
                     import uuid
+
+                    from src.core.generation.application.agent.orchestrator import AgentOrchestrator
+                    from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
+                    from src.core.tools.filesystem import create_filesystem_tools
+                    from src.core.tools.retrieval import create_retrieval_tool
 
                     agent_conversation_id = request.conversation_id or str(uuid.uuid4())
                     # Emit availability immediately
@@ -285,6 +289,35 @@ async def _query_stream_impl(
 
                     # Emit Routing Info
                     yield f"event: routing\ndata: {json.dumps({'categories': ['Agent Tools'], 'confidence': 1.0})}\n\n"
+
+                    # Prepare tools and run orchestrator
+                    retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
+                    tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
+                    tool_schemas = [retrieval_tool_def["schema"]]
+
+                    agent_role = request.options.agent_role if request.options else "knowledge"
+                    if agent_role == "maintainer":
+                        fs_tools = create_filesystem_tools(base_path=".")
+                        for tool in fs_tools:
+                            tool_map[tool["name"]] = tool["func"]
+                            tool_schemas.append(tool["schema"])
+                    else:
+                        from src.core.tools.graph import GRAPH_TOOLS, query_graph
+
+                        tool_map["query_graph"] = query_graph
+                        tool_schemas.extend(GRAPH_TOOLS)
+
+                    agent = AgentOrchestrator(
+                        generation_service=generation_service,
+                        tools=tool_map,
+                        tool_schemas=tool_schemas,
+                        system_prompt=AGENT_SYSTEM_PROMPT,
+                    )
+                    agent_response = await agent.run(
+                        query=request.query,
+                        conversation_id=agent_conversation_id,
+                    )
+                    agent_sources = getattr(agent_response, "sources", []) or []
 
                     full_answer = agent_response.answer
                     summary_text = (
@@ -315,9 +348,7 @@ async def _query_stream_impl(
                                 {
                                     "query": request.query,
                                     "answer": full_answer,
-                                    "sources": agent_response.sources
-                                    if hasattr(agent_response, "sources")
-                                    else [],
+                                    "sources": agent_sources,
                                     "timestamp": datetime.utcnow().isoformat(),
                                 }
                             )
@@ -326,9 +357,7 @@ async def _query_stream_impl(
                             # 2. Update top-level metadata to reflect LATEST turn
                             existing_summary.metadata_["query"] = request.query
                             existing_summary.metadata_["answer"] = full_answer
-                            existing_summary.metadata_["sources"] = (
-                                agent_response.sources if hasattr(agent_response, "sources") else []
-                            )
+                            existing_summary.metadata_["sources"] = agent_sources
                             existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
 
                             # 3. Flag as modified for SQLAlchemy
@@ -362,9 +391,7 @@ async def _query_stream_impl(
                                         {
                                             "query": request.query,
                                             "answer": full_answer,
-                                            "sources": agent_response.sources
-                                            if hasattr(agent_response, "sources")
-                                            else [],
+                                            "sources": agent_sources,
                                             "routing_info": {
                                                 "categories": ["Agent Tools"],
                                                 "confidence": 1.0,

@@ -17,7 +17,7 @@ from src.core.tenants.application.active_vector_collection import (
 )
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
-from src.shared.security import generate_api_key, hash_api_key, mask_api_key
+from src.shared.security import generate_api_key, hash_api_key
 
 
 def _default_tenant_config() -> dict[str, Any]:
@@ -57,7 +57,6 @@ class ApiKeyService:
         """
         raw_key = generate_api_key(prefix)
         hashed = hash_api_key(raw_key)
-        masked = mask_api_key(raw_key)
         last_chars = raw_key[-4:]
 
         normalized_prefix = prefix  # generate_api_key handles prefix format
