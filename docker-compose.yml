@@ -75,6 +75,12 @@ services:
       - MINIO_PORT=9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-minio}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-9000}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
+      - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
+      - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - AMBER_RUNTIME=docker
@@ -143,6 +149,12 @@ services:
       - MINIO_PORT=9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-minio}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-9000}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
+      - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
+      - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
       - AMBER_RUNTIME=docker
       - HF_HOME=/home/appuser/.cache/huggingface
     command: celery -A src.workers.celery_app worker --loglevel=info -Q celery,ingestion,extraction,evaluation
@@ -289,6 +301,84 @@ services:
       - graphrag-network
 
   # ---------------------------------------------------------------------------
+  # SeaweedFS (Parallel S3-Compatible Storage for Migration)
+  # ---------------------------------------------------------------------------
+  seaweed-master:
+    image: chrislusf/seaweedfs:3.74
+    command: master -ip=seaweed-master -port=9333 -mdir=/data -volumeSizeLimitMB=32
+    ports:
+      - "9333:9333"
+    volumes:
+      - graphrag-seaweed:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null || exit 1" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  seaweed-volume:
+    image: chrislusf/seaweedfs:3.74
+    command: volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume -dir=/data -max=200 -minFreeSpace=2GiB
+    ports:
+      - "8080:8080"
+    volumes:
+      - graphrag-seaweed:/data
+    depends_on:
+      seaweed-master:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://seaweed-volume:8080/status >/dev/null || exit 1" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  seaweed-filer:
+    image: chrislusf/seaweedfs:3.74
+    command: filer -master=seaweed-master:9333 -port=8888
+    ports:
+      - "8888:8888"
+    volumes:
+      - graphrag-seaweed:/data
+    depends_on:
+      seaweed-master:
+        condition: service_healthy
+      seaweed-volume:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://seaweed-filer:8888/ >/dev/null || exit 1" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  seaweed-s3:
+    image: chrislusf/seaweedfs:3.74
+    command: s3 -filer=seaweed-filer:8888 -ip.bind=0.0.0.0 -port=8333 -config=/etc/seaweedfs/s3.conf
+    ports:
+      - "8333:8333"
+    volumes:
+      - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
+    depends_on:
+      seaweed-filer:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:8333/ 2>&1 | grep -q \"HTTP/1.1\" || exit 1" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  # ---------------------------------------------------------------------------
   # Milvus - Vector Database
   # ---------------------------------------------------------------------------
   milvus:
@@ -299,7 +389,7 @@ services:
       - seccomp:unconfined
     environment:
       - ETCD_ENDPOINTS=etcd:2379
-      - MINIO_ADDRESS=minio:9000
+      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
@@ -336,6 +426,7 @@ volumes:
   graphrag-neo4j:
   graphrag-etcd:
   graphrag-minio:
+  graphrag-seaweed:
   graphrag-milvus:
   graphrag-uploads:
   pip-packages:
