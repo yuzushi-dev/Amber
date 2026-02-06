@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from docling.document_converter import DocumentConverter
+
     HAS_DOCLING = True
 except ImportError:
     HAS_DOCLING = False
@@ -65,10 +66,12 @@ class DoclingExtractor(BaseExtractor):
             # Extract tables separately
             tables = []
             for item in result.document.tables:
-                tables.append({
-                    "content": item.export_to_markdown(),
-                    "page": getattr(item, "page", None),
-                })
+                tables.append(
+                    {
+                        "content": item.export_to_markdown(),
+                        "page": getattr(item, "page", None),
+                    }
+                )
 
             elapsed = (time.time() - start_time) * 1000
 
@@ -81,7 +84,7 @@ class DoclingExtractor(BaseExtractor):
                 },
                 extractor_used=self.name,
                 confidence=0.9,  # Docling is generally high quality
-                extraction_time_ms=elapsed
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

@@ -1,4 +1,4 @@
-from typing import Protocol, Any
+from typing import Any, Protocol
 
 
 class VectorStorePort(Protocol):
@@ -29,6 +29,5 @@ class VectorStorePort(Protocol):
 
 class VectorStoreFactory(Protocol):
     """Factory for creating vector store instances."""
-    
-    def __call__(self, dimensions: int, collection_name: str | None = None) -> VectorStorePort:
-        ...
+
+    def __call__(self, dimensions: int, collection_name: str | None = None) -> VectorStorePort: ...

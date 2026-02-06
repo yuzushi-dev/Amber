@@ -12,11 +12,11 @@ import time
 logger = logging.getLogger(__name__)
 
 
-
 # Ideally we import these, but for safety in case not installed, we can handle import error?
 # For now assume implementation plan requirement is met (packages installed or will be).
 try:
     import pymupdf4llm
+
     HAS_PYMUPDF = True
 except ImportError:
     HAS_PYMUPDF = False
@@ -25,6 +25,7 @@ except ImportError:
 if HAS_PYMUPDF:
     try:
         import pymupdf_layout
+
         logger.info("pymupdf_layout is available and activated.")
     except ImportError:
         logger.debug("pymupdf_layout not found, using standard pymupdf4llm.")
@@ -36,25 +37,25 @@ def _extract_title_from_content(content: str) -> str | None:
     """Extract title from the first heading in markdown content."""
     if not content:
         return None
-    
+
     # Try to find the first markdown heading (# Title or ## Title)
-    heading_match = re.search(r'^#{1,2}\s+(.+?)$', content, re.MULTILINE)
+    heading_match = re.search(r"^#{1,2}\s+(.+?)$", content, re.MULTILINE)
     if heading_match:
         title = heading_match.group(1).strip()
         # Clean up common artifacts
-        title = re.sub(r'\*+', '', title)  # Remove bold markers
+        title = re.sub(r"\*+", "", title)  # Remove bold markers
         title = title.strip()
         if title and len(title) > 2:
             return title[:200]  # Limit length
-    
+
     # Fallback: use first non-empty line if it looks like a title
-    for line in content.split('\n')[:10]:
+    for line in content.split("\n")[:10]:
         line = line.strip()
-        if line and len(line) > 3 and len(line) < 150 and not line.startswith('|'):
+        if line and len(line) > 3 and len(line) < 150 and not line.startswith("|"):
             # Skip lines that look like metadata or table rows
-            if not re.match(r'^[\d\-/.]+$', line):
+            if not re.match(r"^[\d\-/.]+$", line):
                 return line
-    
+
     return None
 
 
@@ -75,9 +76,9 @@ class PyMuPDFExtractor(BaseExtractor):
             raise ImportError("pymupdf4llm is not installed.")
 
         if not file_type.lower().endswith("pdf") and "pdf" not in file_type.lower():
-             # PyMuPDF4LLM basically only does PDF.
-             # We might support generic file types if supported by lib, but mostly PDF.
-             pass
+            # PyMuPDF4LLM basically only does PDF.
+            # We might support generic file types if supported by lib, but mostly PDF.
+            pass
 
         start_time = time.time()
 
@@ -106,10 +107,10 @@ class PyMuPDFExtractor(BaseExtractor):
 
             # Clean up metadata: filter out empty string values
             metadata = {k: v for k, v in raw_metadata.items() if v and str(v).strip()}
-            
+
             # Always add page count
             metadata["page_count"] = page_count
-            
+
             # If title is missing, try to extract from content
             if not metadata.get("title"):
                 extracted_title = _extract_title_from_content(md_text)
@@ -121,14 +122,13 @@ class PyMuPDFExtractor(BaseExtractor):
 
             return ExtractionResult(
                 content=md_text,
-                tables=[], # PyMuPDF4LLM integrates tables into markdown text usually
+                tables=[],  # PyMuPDF4LLM integrates tables into markdown text usually
                 metadata=metadata,
                 extractor_used=self.name,
-                confidence=0.95, # High confidence for clean text
-                extraction_time_ms=elapsed
+                confidence=0.95,  # High confidence for clean text
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:
             logger.error(f"PyMuPDF extraction failed: {e}")
             raise RuntimeError(f"PyMuPDF extraction failed: {e}") from e
-

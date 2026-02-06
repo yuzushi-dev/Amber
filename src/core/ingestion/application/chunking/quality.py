@@ -14,6 +14,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 class ChunkQualityScorer:
     """
     Heuristic scorer to assess text quality.
@@ -44,7 +45,7 @@ class ChunkQualityScorer:
                 "quality_score": 0.0,
                 "is_readable": False,
                 "reason": "Empty or too short",
-                "metrics": {"total_chars": len(text) if text else 0}
+                "metrics": {"total_chars": len(text) if text else 0},
             }
 
         # 1. Calculate base metrics
@@ -70,7 +71,7 @@ class ChunkQualityScorer:
 
         # Fragmented words (e.g. "t h i s i s") - definition: 1-2 char words > 10%
         short_words = len(re.findall(r"\b\w{1,2}\b", text))
-        has_fragmented_words = (short_words > total_chars * 0.1)
+        has_fragmented_words = short_words > total_chars * 0.1
 
         # Excessive spacing
         has_excessive_spaces = "   " in text
@@ -80,9 +81,7 @@ class ChunkQualityScorer:
         # avg_words_per_line normalized: 5 words/line is considered "good" (1.0)
 
         score = (
-            text_ratio * 0.4
-            + (1 - whitespace_ratio) * 0.3
-            + min(avg_words_per_line / 5, 1.0) * 0.3
+            text_ratio * 0.4 + (1 - whitespace_ratio) * 0.3 + min(avg_words_per_line / 5, 1.0) * 0.3
         )
 
         # 4. Apply Penalties
@@ -135,6 +134,6 @@ class ChunkQualityScorer:
                 "whitespace_ratio": round(whitespace_ratio, 2),
                 "avg_words_per_line": round(avg_words_per_line, 1),
                 "has_artifacts": has_ocr_artifacts,
-                "is_fragmented": has_fragmented_words
-            }
+                "is_fragmented": has_fragmented_words,
+            },
         }

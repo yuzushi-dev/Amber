@@ -1,5 +1,5 @@
-from src.core.retrieval.domain.candidate import Candidate
 from src.core.retrieval.application.search.fusion import fuse_results
+from src.core.retrieval.domain.candidate import Candidate
 
 
 def test_rrf_fusion_basic():
@@ -25,6 +25,7 @@ def test_rrf_fusion_basic():
     assert results[1].chunk_id == "1"
     assert results[2].chunk_id == "3"
 
+
 def test_rrf_fusion_weights():
     """Verify RRF respects source weights."""
     group_a = [Candidate(chunk_id="vec", content="V", score=1.0, source="vector")]
@@ -32,9 +33,7 @@ def test_rrf_fusion_weights():
 
     # Boost graph
     results = fuse_results(
-        {"vector": group_a, "graph": group_b},
-        k=1,
-        weights={"vector": 1.0, "graph": 2.0}
+        {"vector": group_a, "graph": group_b}, k=1, weights={"vector": 1.0, "graph": 2.0}
     )
 
     assert results[0].chunk_id == "graph"

@@ -5,31 +5,27 @@ Observability Admin Routes
 Endpoints for monitoring system health and business metrics.
 """
 
-from typing import List, Optional
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from src.core.admin_ops.application.metrics.collector import AggregatedMetrics, QueryMetrics
 from src.amber_platform.composition_root import build_metrics_collector
+from src.core.admin_ops.application.metrics.collector import AggregatedMetrics
 
 router = APIRouter(prefix="/observability", tags=["observability"])
 
+
 class MetricsResponse(BaseModel):
     aggregated: AggregatedMetrics
-    recent_queries: List[dict]
+    recent_queries: list[dict]
+
 
 @router.get(
     "/metrics/aggregated",
     response_model=AggregatedMetrics,
     summary="Get Aggregated Metrics",
-    description="Get system performance metrics aggregated over a time period."
+    description="Get system performance metrics aggregated over a time period.",
 )
-async def get_aggregated_metrics(
-    tenant_id: Optional[str] = None,
-    period_hours: int = 24
-):
+async def get_aggregated_metrics(tenant_id: str | None = None, period_hours: int = 24):
     collector = build_metrics_collector()
     try:
         data = await collector.get_aggregated(tenant_id=tenant_id, period_hours=period_hours)
@@ -37,15 +33,13 @@ async def get_aggregated_metrics(
     finally:
         await collector.close()
 
+
 @router.get(
     "/metrics/recent",
     summary="Get Recent Queries",
-    description="Get details of recent RAG queries."
+    description="Get details of recent RAG queries.",
 )
-async def get_recent_queries(
-    tenant_id: Optional[str] = None,
-    limit: int = 50
-):
+async def get_recent_queries(tenant_id: str | None = None, limit: int = 50):
     collector = build_metrics_collector()
     try:
         queries = await collector.get_recent(tenant_id=tenant_id, limit=limit)
@@ -54,25 +48,28 @@ async def get_recent_queries(
     finally:
         await collector.close()
 
+
 @router.get(
     "/health/deep",
     summary="Deep Health Check",
-    description="Check connectivity to all infrastructure components."
+    description="Check connectivity to all infrastructure components.",
 )
 async def deep_health_check():
-    from src.amber_platform.composition_root import platform, build_milvus_config
-    
+    from src.amber_platform.composition_root import platform
+
     status_report = {
         "database": "unknown",
         "redis": "unknown",
         "neo4j": "unknown",
-        "milvus": "unknown"
+        "milvus": "unknown",
     }
-    
+
     # 1. Check Redis
     try:
         import redis.asyncio as redis
+
         from src.api.config import settings
+
         r = redis.from_url(settings.db.redis_url)
         await r.ping()
         await r.close()
@@ -87,5 +84,5 @@ async def deep_health_check():
         status_report["neo4j"] = "ok"
     except Exception as e:
         status_report["neo4j"] = f"error: {str(e)}"
-        
+
     return status_report

@@ -22,7 +22,7 @@ class QueryMetrics:
     tenant_id: str
     query: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    
+
     # Operation type: rag_query, chat_query, summarization, extraction
     operation: str = "rag_query"
     # Response text (for display)
@@ -205,7 +205,7 @@ class MetricsCollector:
         # Add to buffer
         self._buffer.append(metrics)
         if len(self._buffer) > self._buffer_size:
-            self._buffer = self._buffer[-self._buffer_size:]
+            self._buffer = self._buffer[-self._buffer_size :]
 
         # Persist to Redis if enabled
         if self.enable_persistence:
@@ -253,7 +253,8 @@ class MetricsCollector:
 
         # Filter buffer for time period
         relevant = [
-            m for m in self._buffer
+            m
+            for m in self._buffer
             if m.timestamp >= start and (tenant_id is None or m.tenant_id == tenant_id)
         ]
 
@@ -288,38 +289,36 @@ class MetricsCollector:
         if not self.enable_persistence:
             # Fallback to buffer if persistence disabled
             relevant = [
-                m for m in reversed(self._buffer)
-                if tenant_id is None or m.tenant_id == tenant_id
+                m for m in reversed(self._buffer) if tenant_id is None or m.tenant_id == tenant_id
             ]
             return relevant[:limit]
 
         # Fetch from Redis
         client = await self._get_client()
         if not client:
-             # Fallback if Redis fails
+            # Fallback if Redis fails
             relevant = [
-                m for m in reversed(self._buffer)
-                if tenant_id is None or m.tenant_id == tenant_id
+                m for m in reversed(self._buffer) if tenant_id is None or m.tenant_id == tenant_id
             ]
             return relevant[:limit]
 
         try:
             # Use tenant-specific list if provided
             list_key = f"metrics:queries:{tenant_id}" if tenant_id else "metrics:queries:default"
-            
+
             # Fetch most recent query IDs
             query_ids = await client.lrange(list_key, 0, limit - 1)
-            
+
             if not query_ids:
                 return []
 
             # Fetch details for each query
             metrics_keys = [f"metrics:query:{qid}" for qid in query_ids]
             raw_data = await client.mget(metrics_keys)
-            
+
             results = []
             import json
-            
+
             for data in raw_data:
                 if data:
                     try:
@@ -328,7 +327,7 @@ class MetricsCollector:
                         # We need to parse nested dicts manually or update constructor
                         # For simplicity, we assume robust parsing or simple reconstruction here
                         # Ideally, QueryMetrics should have a `from_dict` method.
-                        
+
                         m = QueryMetrics(
                             query_id=d["query_id"],
                             tenant_id=d["tenant_id"],
@@ -360,15 +359,14 @@ class MetricsCollector:
                     except Exception as e:
                         logger.warning(f"Failed to parse metric: {e}")
                         continue
-            
+
             return results
 
         except Exception as e:
             logger.error(f"Failed to get recent metrics from Redis: {e}")
             # Fallback to buffer
             relevant = [
-                m for m in reversed(self._buffer)
-                if tenant_id is None or m.tenant_id == tenant_id
+                m for m in reversed(self._buffer) if tenant_id is None or m.tenant_id == tenant_id
             ]
             return relevant[:limit]
 

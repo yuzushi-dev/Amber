@@ -21,7 +21,9 @@ def _get_redis():
 
         return redis
     except ImportError as e:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
+        raise ImportError(
+            "redis package is required. Install with: pip install redis>=5.0.0"
+        ) from e
 
 
 @dataclass

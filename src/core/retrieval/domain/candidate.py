@@ -8,6 +8,7 @@ class Candidate:
     Unified retrieval candidate from any source (Vector, Graph, Community).
     Useful for fusion and reranking steps.
     """
+
     chunk_id: str
     content: str
     score: float = 0.0
@@ -24,5 +25,5 @@ class Candidate:
             "content": self.content,
             "score": self.score,
             "source": self.source,
-            "metadata": self.metadata
+            "metadata": self.metadata,
         }

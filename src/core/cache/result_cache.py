@@ -21,7 +21,9 @@ def _get_redis():
 
         return redis
     except ImportError as e:
-        raise ImportError("redis package is required. Install with: pip install redis>=5.0.0") from e
+        raise ImportError(
+            "redis package is required. Install with: pip install redis>=5.0.0"
+        ) from e
 
 
 @dataclass
@@ -193,12 +195,14 @@ class ResultCache:
             key = self._make_key(request_hash)
             ttl = ttl or self.config.ttl_seconds
 
-            data = json.dumps({
-                "chunk_ids": chunk_ids,
-                "scores": scores,
-                "cached_at": datetime.utcnow().isoformat(),
-                "query_hash": request_hash,
-            })
+            data = json.dumps(
+                {
+                    "chunk_ids": chunk_ids,
+                    "scores": scores,
+                    "cached_at": datetime.utcnow().isoformat(),
+                    "query_hash": request_hash,
+                }
+            )
 
             await client.setex(key, ttl, data)
             logger.debug(f"Cached results for query: {query[:50]}...")
@@ -249,7 +253,6 @@ class ResultCache:
                         pass
                     except Exception:
                         pass
-
 
             # Update the tenant timestamp
             await self.invalidate_tenant(tenant_id)

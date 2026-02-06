@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ParseResult:
     """Result of parsing operations."""
+
     entities: list[Entity]
     relationships: list[Relationship]
     parse_errors: list[str]
@@ -41,7 +42,7 @@ class TupleParser:
         parse_errors: list[str] = []
 
         # Split into lines and filter empty ones
-        lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
+        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
         self._stats["total_lines"] = len(lines)
 
         for line_num, line in enumerate(lines, 1):
@@ -52,9 +53,9 @@ class TupleParser:
                     err = f"Line {line_num}: Invalid tuple format - {line[:50]}..."
                     # Only log strictly invalid lines if they look like they attempted to be tuples
                     if line.startswith("(") or "<|>" in line:
-                         parse_errors.append(err)
-                         self._stats["parse_errors"] += 1
-                         logger.debug(err)
+                        parse_errors.append(err)
+                        self._stats["parse_errors"] += 1
+                        logger.debug(err)
                     continue
 
                 tuple_type, fields = parsed
@@ -101,7 +102,7 @@ class TupleParser:
             relationships=relationships,
             parse_errors=parse_errors,
             valid_count=valid_count,
-            invalid_count=invalid_count
+            invalid_count=invalid_count,
         )
 
     def _parse_tuple_line(self, line: str) -> tuple[str, list[str]] | None:
@@ -112,7 +113,7 @@ class TupleParser:
             (tuple_type, fields) or None if not a valid tuple
         """
         # Check if line looks like a tuple
-        if not (line.startswith('("') and line.endswith(')')):
+        if not (line.startswith('("') and line.endswith(")")):
             return None
 
         # Remove outer parentheses
@@ -131,17 +132,17 @@ class TupleParser:
         tuple_type = inner[1:type_end].strip().lower()
 
         # Get remaining content after type
-        remaining = inner[type_end + 1:]
+        remaining = inner[type_end + 1 :]
 
         # Check for delimiter after type
-        if not remaining.startswith('<|>'):
+        if not remaining.startswith("<|>"):
             return None
 
         # Remove leading delimiter
         remaining = remaining[3:]  # Remove <|>
 
         # Split by delimiter to get fields
-        fields = remaining.split('<|>')
+        fields = remaining.split("<|>")
 
         # Trim whitespace from all fields
         fields = [f.strip() for f in fields]
@@ -173,9 +174,7 @@ class TupleParser:
 
         # Validate importance range
         if importance < 0.0 or importance > 1.0:
-            logger.warning(
-                f"Line {line_num}: Invalid importance {importance}, using 0.5"
-            )
+            logger.warning(f"Line {line_num}: Invalid importance {importance}, using 0.5")
             importance = 0.5
 
         # Create Entity object
@@ -190,11 +189,7 @@ class TupleParser:
 
         return entity
 
-    def _parse_relationship_tuple(
-        self,
-        fields: list[str],
-        line_num: int
-    ) -> Relationship | None:
+    def _parse_relationship_tuple(self, fields: list[str], line_num: int) -> Relationship | None:
         """Parse relationship tuple fields into Relationship object."""
         if len(fields) < 3:
             logger.warning(
@@ -212,19 +207,15 @@ class TupleParser:
 
         # Validate required fields
         if not source or not target:
-            logger.warning(
-                f"Line {line_num}: Relationship tuple has empty source or target"
-            )
+            logger.warning(f"Line {line_num}: Relationship tuple has empty source or target")
             return None
 
         # Normalize relationship type (uppercase, underscores)
-        rel_type = rel_type.upper().replace(' ', '_')
+        rel_type = rel_type.upper().replace(" ", "_")
 
         # Validate strength range
         if strength < 0.0 or strength > 1.0:
-            logger.warning(
-                f"Line {line_num}: Invalid strength {strength}, using 0.5"
-            )
+            logger.warning(f"Line {line_num}: Invalid strength {strength}, using 0.5")
             strength = 0.5
 
         # Create Relationship object

@@ -18,11 +18,11 @@ Run with: pytest tests/integration/test_ingestion_pipeline.py -v
 import asyncio
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
+from src.amber_platform.composition_root import build_session_factory, platform
 from src.api.config import settings
 from src.api.main import app
-from src.amber_platform.composition_root import platform, build_session_factory
 from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
 
 # Test PDF content as bytes
@@ -126,8 +126,9 @@ def api_key() -> str:
 @pytest.fixture
 def test_pdf_file() -> tuple[str, bytes, str]:
     """Create test PDF file."""
-    import uuid
     import time
+    import uuid
+
     random_id = uuid.uuid4().hex[:8]
     # Add random comment to PDF content to ensure unique hash
     unique_content = TEST_PDF_CONTENT + f"\n% Random: {random_id} {time.time()}".encode()
@@ -136,37 +137,34 @@ def test_pdf_file() -> tuple[str, bytes, str]:
 
 import pytest_asyncio
 
+
 class TestIngestionPipeline:
     @pytest_asyncio.fixture(autouse=True)
     async def setup_api_key(self, api_key: str):
         """Ensure API key exists in DB."""
         from src.core.admin_ops.application.api_key_service import ApiKeyService
-        from src.amber_platform.composition_root import build_session_factory
 
         session_maker = build_session_factory()
         async with session_maker() as session:
             service = ApiKeyService(session)
             await service.ensure_bootstrap_key(api_key, name="Test Integration Key")
-        
+
         # Reset global dependencies to prevent loop leakage across tests
         import src.api.middleware.rate_limit as rate_limit_module
+
         rate_limit_module._rate_limiter = None
 
         import src.api.deps as deps_module
+
         deps_module._async_session_maker = None
 
         # NOTE: Do NOT close database here as it is managed by LifespanManager in conftest.py
         # from src.core.database.session import close_database
         # await close_database()
 
-
-
     @pytest.mark.asyncio
     async def test_complete_pipeline(
-        self,
-        client: AsyncClient,
-        api_key: str,
-        test_pdf_file: tuple[str, bytes, str]
+        self, client: AsyncClient, api_key: str, test_pdf_file: tuple[str, bytes, str]
     ):
         """
         Test the complete ingestion pipeline from upload to graph sync.
@@ -184,34 +182,32 @@ class TestIngestionPipeline:
 
         # Force eager execution to run tasks synchronously in the test process
         from src.workers.celery_app import celery_app
-        import src.workers.tasks # Register tasks for eager execution
+
         celery_app.conf.task_always_eager = True
         celery_app.conf.task_eager_propagates = True
 
         # Step 0: Verify Tenant Isolation
         # We rely on the client injection of X-Tenant-ID
         # The API key service mock/fixture should have set this up.
-        
+
         # Verify that we are NOT touching the default collection manually
-        print(f"\n0. Pipeline running under tenant isolation.")
-        
+        print("\n0. Pipeline running under tenant isolation.")
+
         # REMOVED: Manual drop_collection on custom names.
         # We rely on the 'cleanup_test_tenant' fixture in conftest.py matches this.
         # The API will use "amber_{tenant_id}" automatically.
 
-
         # Step 1: Upload document
         print("\n1. Uploading document...")
         files = {"file": (filename, content, content_type)}
-        
+
         # Mock process_communities to avoid blocking on it during eager execution
         # We will trigger it manually later if needed
         from unittest.mock import patch
+
         with patch("src.workers.tasks.process_communities") as mock_pc:
             response = await client.post(
-                "/v1/documents",
-                headers={"X-API-Key": api_key},
-                files=files
+                "/v1/documents", headers={"X-API-Key": api_key}, files=files
             )
 
         assert response.status_code == 202, f"Upload failed: {response.text}"
@@ -230,8 +226,7 @@ class TestIngestionPipeline:
         for i in range(max_wait):
             await asyncio.sleep(1)
             response = await client.get(
-                f"/v1/documents/{document_id}",
-                headers={"X-API-Key": api_key}
+                f"/v1/documents/{document_id}", headers={"X-API-Key": api_key}
             )
             assert response.status_code == 200
 
@@ -250,8 +245,7 @@ class TestIngestionPipeline:
         # Step 3: Verify chunks
         print("3. Verifying chunks...")
         response = await client.get(
-            f"/v1/documents/{document_id}/chunks",
-            headers={"X-API-Key": api_key}
+            f"/v1/documents/{document_id}/chunks", headers={"X-API-Key": api_key}
         )
         assert response.status_code == 200
         chunks = response.json()
@@ -264,8 +258,7 @@ class TestIngestionPipeline:
         # Step 4: Verify entities
         print("4. Verifying entities...")
         response = await client.get(
-            f"/v1/documents/{document_id}/entities",
-            headers={"X-API-Key": api_key}
+            f"/v1/documents/{document_id}/entities", headers={"X-API-Key": api_key}
         )
         assert response.status_code == 200
         entities = response.json()
@@ -278,8 +271,7 @@ class TestIngestionPipeline:
         # Step 5: Verify relationships
         print("5. Verifying relationships...")
         response = await client.get(
-            f"/v1/documents/{document_id}/relationships",
-            headers={"X-API-Key": api_key}
+            f"/v1/documents/{document_id}/relationships", headers={"X-API-Key": api_key}
         )
         assert response.status_code == 200
         relationships = response.json()
@@ -299,7 +291,7 @@ class TestIngestionPipeline:
         # httpx AsyncClient blocks startup?
         # If not, we should manually initialize platform or assume app did it.
         # Let's assume app did it or we do it.
-        
+
         # Accessing platform.neo4j_client property will lazy init if not explicit.
         neo4j_client = platform.neo4j_client
         await neo4j_client.connect()
@@ -323,7 +315,9 @@ class TestIngestionPipeline:
             # Filter chunks that are expected to be processed (>= 50 chars)
             # GraphProcessor skips chunks shorter than 50 characters
             expected_neo4j_count = sum(1 for c in chunks if len(c["content"]) >= 50)
-            assert neo4j_chunks == expected_neo4j_count, f"Chunk mismatch: {neo4j_chunks} vs {expected_neo4j_count} (Total chunks: {len(chunks)})"
+            assert neo4j_chunks == expected_neo4j_count, (
+                f"Chunk mismatch: {neo4j_chunks} vs {expected_neo4j_count} (Total chunks: {len(chunks)})"
+            )
 
             # Check entities
             entity_query = """
@@ -332,7 +326,9 @@ class TestIngestionPipeline:
             """
             result = await neo4j_client.execute_read(entity_query, {"doc_id": document_id})
             neo4j_entities = result[0]["count"]
-            assert neo4j_entities == len(entities), f"Entity mismatch: {neo4j_entities} vs {len(entities)}"
+            assert neo4j_entities == len(entities), (
+                f"Entity mismatch: {neo4j_entities} vs {len(entities)}"
+            )
 
             print(f"   ✓ Neo4j verified: 1 doc, {neo4j_chunks} chunks, {neo4j_entities} entities")
 
@@ -344,7 +340,7 @@ class TestIngestionPipeline:
         config = MilvusConfig(
             host=settings.db.milvus_host,
             port=settings.db.milvus_port,
-            collection_name=f"amber_{doc_data['tenant_id']}"
+            collection_name=f"amber_{doc_data['tenant_id']}",
         )
 
         vector_store = MilvusVectorStore(config)
@@ -355,10 +351,12 @@ class TestIngestionPipeline:
                 expr=f'document_id == "{document_id}"',
                 output_fields=["chunk_id", "document_id", "tenant_id"],
                 limit=100,
-                consistency_level="Strong"
+                consistency_level="Strong",
             )
 
-            assert len(milvus_results) == len(chunks), f"Milvus mismatch: {len(milvus_results)} vs {len(chunks)}"
+            assert len(milvus_results) == len(chunks), (
+                f"Milvus mismatch: {len(milvus_results)} vs {len(chunks)}"
+            )
             print(f"   ✓ {len(milvus_results)} vectors in Milvus")
 
         finally:
@@ -375,63 +373,64 @@ class TestIngestionPipeline:
         MATCH (c1:Chunk {document_id: $doc_id})-[r:SIMILAR_TO]->(c2:Chunk)
         RETURN count(r) as count
         """
-        # We need to reconnect or use existing connection? 
+        # We need to reconnect or use existing connection?
         # The previous block closed it?
         # Block 6 closed it in `finally`.
         await neo4j_client.connect()
         try:
-             result = await neo4j_client.execute_read(similarity_query, {"doc_id": document_id})
-             similarity_count = result[0]["count"]
-             # Note: Similarity might be 0 if chunks are not similar enough, but usually with test data repeated loops there is something?
-             # Or if there is only 1 chunk? PDF has multiple lines, should be > 1 chunk.
-             # We assume > 0 for this test or just log it. 
-             # Let's assert >= 0. But to verify it works, ideally > 0.
-             print(f"   ✓ Similarity edges found: {similarity_count}")
+            result = await neo4j_client.execute_read(similarity_query, {"doc_id": document_id})
+            similarity_count = result[0]["count"]
+            # Note: Similarity might be 0 if chunks are not similar enough, but usually with test data repeated loops there is something?
+            # Or if there is only 1 chunk? PDF has multiple lines, should be > 1 chunk.
+            # We assume > 0 for this test or just log it.
+            # Let's assert >= 0. But to verify it works, ideally > 0.
+            print(f"   ✓ Similarity edges found: {similarity_count}")
         finally:
-             pass
+            pass
 
         # Step 9: Verify Communities (Background Task)
         print("9. Verifying Communities...")
         # Community detection is triggered as a separate Celery task: process_communities.delay()
         # We need to wait for it.
-        
+
         community_bg_task_needed = False
-        
+
         # Check if communities exist (polling)
         found_communities = False
         tenant_id = doc_data["tenant_id"]
-        
+
         await neo4j_client.connect()
         try:
-            for i in range(30): # Wait up to 30 seconds
+            for i in range(30):  # Wait up to 30 seconds
                 comm_query = """
                 MATCH (c:Community {tenant_id: $tenant_id})
                 RETURN count(c) as count
                 """
                 result = await neo4j_client.execute_read(comm_query, {"tenant_id": tenant_id})
                 comm_count = result[0]["count"]
-                
+
                 if comm_count > 0:
                     print(f"   ✓ Communities created: {comm_count}")
                     found_communities = True
                     break
-                
+
                 # If checking too fast, maybe task hasn't started.
                 # In a real integration env without eager celery, we might need to TRIGGER it manually if it doesn't run.
                 if i == 5 and comm_count == 0:
-                     print("   (Triggering community detection manually for test...)")
-                     # We can import the service logic or just wait. 
-                     # Let's try to trigger it via the function directly if we can import it, 
-                     # but we can't easily import the celery task to run it inline here without imports.
-                     # But we are in the same code base.
-                     try:
-                         from src.workers.tasks import _process_communities_async
-                         await _process_communities_async(tenant_id)
-                     except Exception as e:
-                         print(f"    Warning: Could not manual trigger: {e}")
+                    print("   (Triggering community detection manually for test...)")
+                    # We can import the service logic or just wait.
+                    # Let's try to trigger it via the function directly if we can import it,
+                    # but we can't easily import the celery task to run it inline here without imports.
+                    # But we are in the same code base.
+                    try:
+                        from src.workers.tasks import _process_communities_async
+
+                        await _process_communities_async(tenant_id)
+                    except Exception as e:
+                        print(f"    Warning: Could not manual trigger: {e}")
 
                 await asyncio.sleep(1)
-            
+
             if not found_communities:
                 print("   ⚠️ No communities found after waiting. Task might not have run.")
                 # Don't fail the test yet if strictly ingestion pipeline, but user asked "are communities created?"
@@ -446,7 +445,7 @@ class TestIngestionPipeline:
             "chunks": len(chunks),
             "entities": len(entities),
             "relationships": len(relationships),
-            "status": "passed"
+            "status": "passed",
         }
 
 
@@ -461,16 +460,14 @@ if __name__ == "__main__":
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             test = TestIngestionPipeline()
             result = await test.test_complete_pipeline(
-                client,
-                api_key,
-                ("test_integration.pdf", TEST_PDF_CONTENT, "application/pdf")
+                client, api_key, ("test_integration.pdf", TEST_PDF_CONTENT, "application/pdf")
             )
 
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("TEST RESULTS:")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             for key, value in result.items():
                 print(f"  {key}: {value}")
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
     asyncio.run(run_test())

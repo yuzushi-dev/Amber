@@ -44,7 +44,9 @@ def _is_public_path(path: str) -> bool:
     return False
 
 
-def _cors_error_response(status_code: int, code: str, message: str, origin: str = "*") -> JSONResponse:
+def _cors_error_response(
+    status_code: int, code: str, message: str, origin: str = "*"
+) -> JSONResponse:
     """Create a JSONResponse with CORS headers for error responses."""
     response = JSONResponse(
         status_code=status_code,
@@ -89,16 +91,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # 1. Try Ticket Auth (Secure SSE)
         ticket = request.query_params.get("ticket")
         is_sse_path = any(p in path for p in ["/stream", "/events"])
-        
+
         if ticket and is_sse_path:
             from src.core.auth.application.ticket_service import TicketService
+
             ticket_service = TicketService()
             try:
                 # Redeem ticket (consume it)
                 api_key = await ticket_service.redeem_ticket(ticket)
                 if not api_key:
                     logger.warning(f"Invalid or expired ticket used for {path}")
-                    return _cors_error_response(401, "UNAUTHORIZED", "Invalid or expired ticket.", origin)
+                    return _cors_error_response(
+                        401, "UNAUTHORIZED", "Invalid or expired ticket.", origin
+                    )
             except Exception as e:
                 logger.error(f"Ticket redemption error: {e}")
                 return _cors_error_response(500, "INTERNAL_ERROR", "Auth error", origin)
@@ -109,12 +114,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if not api_key:
             api_key = request.headers.get("X-API-Key")
 
-        # 3. Fallback: Legacy Query Param for SSE (Deprecated but kept for compat if needed, 
+        # 3. Fallback: Legacy Query Param for SSE (Deprecated but kept for compat if needed,
         #    but we prefer Ticket now. We can log a warning if used.)
         if not api_key and is_sse_path:
             api_key = request.query_params.get("api_key")
             if api_key:
-                 logger.warning(f"Legacy query param auth used for {path}. migrate to ticket auth.")
+                logger.warning(f"Legacy query param auth used for {path}. migrate to ticket auth.")
 
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
@@ -122,7 +127,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 401,
                 "UNAUTHORIZED",
                 "Missing API key. Provide X-API-Key header or valid ticket.",
-                origin
+                origin,
             )
 
         # Validate API key via Service
@@ -140,12 +145,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         if not valid_key:
             logger.warning(f"Invalid API key {mask_api_key(api_key)} for {request.method} {path}")
-            return _cors_error_response(
-                401,
-                "UNAUTHORIZED",
-                "Invalid API key.",
-                origin
-            )
+            return _cors_error_response(401, "UNAUTHORIZED", "Invalid API key.", origin)
 
         # Resolve Tenant Context
         header_tenant_id = request.headers.get("X-Tenant-ID")
@@ -156,18 +156,24 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             # Client requested specific tenant
             if header_tenant_id in allowed_tenants:
                 tenant_id = TenantId(header_tenant_id)
-            elif "super_admin" in (valid_key.scopes or []) or "root" in (valid_key.scopes or []): # Allow Super Admin to impersonate any tenant
-                 tenant_id = TenantId(header_tenant_id)
+            elif "super_admin" in (valid_key.scopes or []) or "root" in (
+                valid_key.scopes or []
+            ):  # Allow Super Admin to impersonate any tenant
+                tenant_id = TenantId(header_tenant_id)
             elif not allowed_tenants:
-                 # Legacy/Bootstrap: If key has no specific links, allow 'default' if requested
-                 # This ensures unmigrated keys still work for default tenant
-                 if header_tenant_id == "default":
-                     tenant_id = TenantId("default")
-                 else:
-                     logger.warning(f"Access denied for key {valid_key.name} to tenant {header_tenant_id} (No links)")
-                     return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
+                # Legacy/Bootstrap: If key has no specific links, allow 'default' if requested
+                # This ensures unmigrated keys still work for default tenant
+                if header_tenant_id == "default":
+                    tenant_id = TenantId("default")
+                else:
+                    logger.warning(
+                        f"Access denied for key {valid_key.name} to tenant {header_tenant_id} (No links)"
+                    )
+                    return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
             else:
-                logger.warning(f"Access denied for key {valid_key.name} to tenant {header_tenant_id}")
+                logger.warning(
+                    f"Access denied for key {valid_key.name} to tenant {header_tenant_id}"
+                )
                 return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
         else:
             # No tenant specified
@@ -183,7 +189,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     400,
                     "BAD_REQUEST",
                     "Multiple tenants available. Specify X-Tenant-ID header.",
-                    origin
+                    origin,
                 )
 
         permissions = valid_key.scopes or []
@@ -196,12 +202,14 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if str(tenant_id) in allowed_tenants:
             # Find the specific association to get the role
             from src.core.admin_ops.domain.api_key import ApiKeyTenant
+
             async with _get_async_session_maker()() as session:
                 from sqlalchemy import select
+
                 result = await session.execute(
                     select(ApiKeyTenant.role).where(
                         ApiKeyTenant.api_key_id == valid_key.id,
-                        ApiKeyTenant.tenant_id == str(tenant_id)
+                        ApiKeyTenant.tenant_id == str(tenant_id),
                     )
                 )
                 role_row = result.scalar_one_or_none()

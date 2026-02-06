@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import redis.asyncio as redis
+
     HAS_REDIS = True
 except ImportError:
     HAS_REDIS = False
@@ -32,24 +33,22 @@ class DomainClassifier:
     def __init__(self, redis_url: str | None = None):
         """
         Initialize classifier.
-        
+
         Args:
             redis_url: Redis URL. If None, reads from composition root.
         """
         # Initialize Redis connection if available
         self.redis: redis.Redis | None = None
-        
+
         if HAS_REDIS:
             if redis_url is None:
                 from src.shared.kernel.runtime import get_settings
+
                 settings = get_settings()
                 redis_url = settings.db.redis_url
-            
+
             if redis_url:
-                self.redis = redis.Redis.from_url(
-                    redis_url,
-                    decode_responses=True
-                )
+                self.redis = redis.Redis.from_url(redis_url, decode_responses=True)
 
     async def classify(self, content: str) -> DocumentDomain:
         """
@@ -88,7 +87,7 @@ class DomainClassifier:
         # 4. Cache Result
         if self.redis:
             try:
-                await self.redis.set(cache_key, domain.value, ex=86400 * 7) # 7 days
+                await self.redis.set(cache_key, domain.value, ex=86400 * 7)  # 7 days
             except Exception as e:
                 logger.warning(f"Redis set failed: {e}")
 
@@ -108,7 +107,7 @@ class DomainClassifier:
         elif "contract" in txt or "agreement" in txt or "law" in txt:
             return DocumentDomain.LEGAL
         elif "financial" in txt or "statement" in txt or "balance" in txt:
-             return DocumentDomain.FINANCIAL
+            return DocumentDomain.FINANCIAL
         elif "abstract" in txt and "introduction" in txt and "conclusion" in txt:
             return DocumentDomain.SCIENTIFIC
 

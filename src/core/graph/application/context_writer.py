@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 class ContextGraphWriter:
     """
     Writes conversation traces ("Decision Traces") to Neo4j.
-    
+
     Creates:
     - Conversation nodes: Groups of related turns
     - Turn nodes: Individual query/answer pairs with metadata
     - RETRIEVED relationships: Links turns to the chunks that were used
     - UserFeedback nodes: User ratings linked to turns
     """
-    
+
     async def log_turn(
         self,
         conversation_id: str,
@@ -40,7 +40,7 @@ class ContextGraphWriter:
     ) -> str | None:
         """
         Log a conversation turn to the Context Graph.
-        
+
         Args:
             conversation_id: Unique ID for the conversation thread
             tenant_id: Tenant isolation
@@ -50,18 +50,19 @@ class ContextGraphWriter:
             trace_steps: Optional trace data from retrieval/generation
             model: LLM model used
             latency_ms: Total latency
-            
+
         Returns:
             Turn node ID if successful, None otherwise
         """
         import uuid
+
         turn_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat()
-        
+
         try:
             graph_client = get_graph_client()
             await graph_client.connect()
-            
+
             # 1. Create or merge Conversation node
             await graph_client.execute_write(
                 f"""
@@ -69,9 +70,9 @@ class ContextGraphWriter:
                 ON CREATE SET c.tenant_id = $tenant_id, c.created_at = $ts
                 ON MATCH SET c.updated_at = $ts
                 """,
-                {"conv_id": conversation_id, "tenant_id": tenant_id, "ts": timestamp}
+                {"conv_id": conversation_id, "tenant_id": tenant_id, "ts": timestamp},
             )
-            
+
             # 2. Create Turn node
             await graph_client.execute_write(
                 f"""
@@ -94,10 +95,10 @@ class ContextGraphWriter:
                     "answer": answer[:1000],
                     "model": model or "unknown",
                     "latency": latency_ms or 0,
-                    "ts": timestamp
-                }
+                    "ts": timestamp,
+                },
             )
-            
+
             # 3. Link Conversation -> Turn
             await graph_client.execute_write(
                 f"""
@@ -105,9 +106,9 @@ class ContextGraphWriter:
                 MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
                 MERGE (c)-[:{RelationshipType.HAS_TURN.value}]->(t)
                 """,
-                {"conv_id": conversation_id, "turn_id": turn_id}
+                {"conv_id": conversation_id, "turn_id": turn_id},
             )
-            
+
             # 4. Link Turn -> Retrieved Chunks (Decision Trace)
             if sources:
                 for source in sources:
@@ -120,16 +121,20 @@ class ContextGraphWriter:
                             MERGE (t)-[r:{RelationshipType.RETRIEVED.value}]->(c)
                             SET r.score = $score
                             """,
-                            {"turn_id": turn_id, "chunk_id": chunk_id, "score": source.get("score", 0.0)}
+                            {
+                                "turn_id": turn_id,
+                                "chunk_id": chunk_id,
+                                "score": source.get("score", 0.0),
+                            },
                         )
-            
+
             logger.debug(f"Logged turn {turn_id} to Context Graph")
             return turn_id
-            
+
         except Exception as e:
             logger.warning(f"Failed to log turn to Context Graph: {e}")
             return None
-    
+
     async def log_feedback(
         self,
         conversation_id: str,
@@ -141,10 +146,10 @@ class ContextGraphWriter:
     ) -> str | None:
         """
         Log user feedback to the Context Graph.
-        
+
         Links feedback to the specific turn if turn_id is provided,
         otherwise links to the most recent turn in the conversation.
-        
+
         Args:
             conversation_id: Conversation thread ID
             turn_id: Specific turn to rate (optional)
@@ -152,18 +157,19 @@ class ContextGraphWriter:
             is_positive: True for positive feedback
             comment: Optional user comment
             feedback_id: Optional existing feedback ID from Postgres
-            
+
         Returns:
             Feedback node ID if successful, None otherwise
         """
         import uuid
+
         fb_id = feedback_id or str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat()
-        
+
         try:
             graph_client = get_graph_client()
             await graph_client.connect()
-            
+
             # Create UserFeedback node
             await graph_client.execute_write(
                 f"""
@@ -180,10 +186,10 @@ class ContextGraphWriter:
                     "tenant_id": tenant_id,
                     "is_positive": is_positive,
                     "comment": comment or "",
-                    "ts": timestamp
-                }
+                    "ts": timestamp,
+                },
             )
-            
+
             # Link Feedback -> Turn
             if turn_id:
                 await graph_client.execute_write(
@@ -192,7 +198,7 @@ class ContextGraphWriter:
                     MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    {"fb_id": fb_id, "turn_id": turn_id}
+                    {"fb_id": fb_id, "turn_id": turn_id},
                 )
             else:
                 # Find most recent turn in conversation and link
@@ -203,29 +209,29 @@ class ContextGraphWriter:
                     WITH f, t ORDER BY t.created_at DESC LIMIT 1
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    {"fb_id": fb_id, "conv_id": conversation_id}
+                    {"fb_id": fb_id, "conv_id": conversation_id},
                 )
-            
+
             logger.debug(f"Logged feedback {fb_id} to Context Graph")
             return fb_id
-            
+
         except Exception as e:
             logger.warning(f"Failed to log feedback to Context Graph: {e}")
             return None
-    
+
     async def get_chunk_feedback_stats(self, chunk_id: str) -> dict[str, Any]:
         """
         Get feedback statistics for a specific chunk.
-        
+
         This enables the "demote negatively-rated chunks" feature.
-        
+
         Returns:
             Dict with positive_count, negative_count, and net_score
         """
         try:
             graph_client = get_graph_client()
             await graph_client.connect()
-            
+
             result = await graph_client.execute_read(
                 f"""
                 MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
@@ -233,9 +239,9 @@ class ContextGraphWriter:
                     sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
                     sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count
                 """,
-                {"chunk_id": chunk_id}
+                {"chunk_id": chunk_id},
             )
-            
+
             if result:
                 record = result[0]
                 positive = record.get("positive_count", 0) or 0
@@ -243,11 +249,11 @@ class ContextGraphWriter:
                 return {
                     "positive_count": positive,
                     "negative_count": negative,
-                    "net_score": positive - negative
+                    "net_score": positive - negative,
                 }
-            
+
             return {"positive_count": 0, "negative_count": 0, "net_score": 0}
-            
+
         except Exception as e:
             logger.warning(f"Failed to get chunk feedback stats: {e}")
             return {"positive_count": 0, "negative_count": 0, "net_score": 0}

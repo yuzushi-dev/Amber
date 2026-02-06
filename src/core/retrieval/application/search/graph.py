@@ -6,6 +6,7 @@ from src.core.security.graph_traversal_guard import GraphTraversalGuard
 
 logger = logging.getLogger(__name__)
 
+
 class GraphSearcher:
     """
     Handles retrieval of chunks from the graph store based on entity relationships.
@@ -19,7 +20,7 @@ class GraphSearcher:
         entity_ids: list[str],
         tenant_id: str,
         limit: int = 10,
-        allowed_doc_ids: list[str] | None = None
+        allowed_doc_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Find chunks that mention the given entities.
@@ -28,11 +29,7 @@ class GraphSearcher:
             return []
 
         acl_clause = ""
-        params = {
-            "entity_ids": entity_ids,
-            "tenant_id": tenant_id,
-            "limit": limit
-        }
+        params = {"entity_ids": entity_ids, "tenant_id": tenant_id, "limit": limit}
 
         if allowed_doc_ids is not None:
             # Enforce ACLs
@@ -56,8 +53,8 @@ class GraphSearcher:
                     document_id=r["document_id"],
                     tenant_id=tenant_id,
                     content=r["content"],
-                    score=1.0, # Initial score for graph hits
-                    source="graph"
+                    score=1.0,  # Initial score for graph hits
+                    source="graph",
                 )
                 for r in results
             ]
@@ -71,7 +68,7 @@ class GraphSearcher:
         chunk_ids: list[str],
         tenant_id: str,
         limit: int = 10,
-        allowed_doc_ids: list[str] | None = None
+        allowed_doc_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Find chunks that are neighbors of the given chunks in the graph
@@ -81,15 +78,13 @@ class GraphSearcher:
             return []
 
         acl_clause = ""
-        params = {
-            "chunk_ids": chunk_ids,
-            "tenant_id": tenant_id,
-            "limit": limit
-        }
+        params = {"chunk_ids": chunk_ids, "tenant_id": tenant_id, "limit": limit}
 
         if allowed_doc_ids is not None:
-             # Enforce ACLs on the neighbor chunk
-            acl_clause = f"AND {GraphTraversalGuard.get_acl_fragment('neighbor', 'allowed_doc_ids')}"
+            # Enforce ACLs on the neighbor chunk
+            acl_clause = (
+                f"AND {GraphTraversalGuard.get_acl_fragment('neighbor', 'allowed_doc_ids')}"
+            )
             params["allowed_doc_ids"] = allowed_doc_ids
 
         query = f"""
@@ -110,8 +105,8 @@ class GraphSearcher:
                     document_id=r["document_id"],
                     tenant_id=tenant_id,
                     content=r["content"],
-                    score=0.8, # Neighbor hits have slightly lower confidence
-                    source="graph"
+                    score=0.8,  # Neighbor hits have slightly lower confidence
+                    source="graph",
                 )
                 for r in results
             ]

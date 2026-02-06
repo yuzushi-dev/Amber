@@ -14,9 +14,9 @@ from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
 from src.api.schemas.errors import ErrorDetail, ErrorResponse
+from src.core.generation.domain.provider_models import RateLimitError
 from src.shared.context import get_request_id
 from src.shared.exceptions import AppException, ErrorCode
-from src.core.generation.domain.provider_models import RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,13 @@ async def validation_exception_handler(
     errors = []
     for error in exc.errors():
         field = ".".join(str(loc) for loc in error["loc"])
-        errors.append({
-            "field": field,
-            "message": error["msg"],
-            "type": error["type"],
-        })
+        errors.append(
+            {
+                "field": field,
+                "message": error["msg"],
+                "type": error["type"],
+            }
+        )
 
     logger.warning(
         f"Validation error: {len(errors)} errors",
@@ -140,7 +142,7 @@ async def rate_limit_exception_handler(
 ) -> JSONResponse:
     """
     Handle provider rate limit errors.
-    
+
     Converts provider RateLimitError to HTTP 429.
     """
     logger.warning(

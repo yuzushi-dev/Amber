@@ -17,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db_session
 from src.api.schemas.base import ResponseSchema
-from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
-from src.core.ingestion.infrastructure.connectors.confluence import ConfluenceConnector
-from src.core.ingestion.infrastructure.connectors.carbonio import CarbonioConnector
-from src.core.ingestion.infrastructure.connectors.jira import JiraConnector
-from src.core.ingestion.domain.connector_state import ConnectorState
 from src.core.ingestion.application.ingestion_service import IngestionService
+from src.core.ingestion.domain.connector_state import ConnectorState
+from src.core.ingestion.infrastructure.connectors.carbonio import CarbonioConnector
+from src.core.ingestion.infrastructure.connectors.confluence import ConfluenceConnector
+from src.core.ingestion.infrastructure.connectors.jira import JiraConnector
+from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -31,18 +31,22 @@ logger = logging.getLogger(__name__)
 
 # --- Request/Response Models ---
 
+
 class ConnectorAuthRequest(BaseModel):
     """Authentication credentials for a connector."""
+
     credentials: dict[str, Any]
 
 
 class ConnectorSyncRequest(BaseModel):
     """Options for triggering a sync."""
+
     full_sync: bool = False  # If True, ignore last_sync_at
 
 
 class ConnectorStatusResponse(BaseModel):
     """Status of a connector."""
+
     connector_type: str
     status: str
     is_authenticated: bool
@@ -53,6 +57,7 @@ class ConnectorStatusResponse(BaseModel):
 
 class SyncJobResponse(BaseModel):
     """Response when a sync job is started."""
+
     job_id: str
     status: str
     message: str
@@ -69,15 +74,12 @@ CONNECTOR_REGISTRY = {
 
 
 async def get_or_create_connector_state(
-    db: AsyncSession,
-    tenant_id: str,
-    connector_type: str
+    db: AsyncSession, tenant_id: str, connector_type: str
 ) -> ConnectorState:
     """Get existing connector state or create a new one."""
     result = await db.execute(
         select(ConnectorState).where(
-            ConnectorState.tenant_id == tenant_id,
-            ConnectorState.connector_type == connector_type
+            ConnectorState.tenant_id == tenant_id, ConnectorState.connector_type == connector_type
         )
     )
     state = result.scalar_one_or_none()
@@ -87,7 +89,7 @@ async def get_or_create_connector_state(
             id=f"conn_{uuid4().hex[:16]}",
             tenant_id=tenant_id,
             connector_type=connector_type,
-            status="idle"
+            status="idle",
         )
         db.add(state)
         await db.commit()
@@ -98,25 +100,20 @@ async def get_or_create_connector_state(
 
 # --- Endpoints ---
 
+
 @router.get("/", response_model=ResponseSchema[list[str]])
 async def list_available_connectors():
     """List all available connector types."""
-    return ResponseSchema(
-        data=list(CONNECTOR_REGISTRY.keys()),
-        message="Available connectors"
-    )
+    return ResponseSchema(data=list(CONNECTOR_REGISTRY.keys()), message="Available connectors")
 
 
 @router.get("/{connector_type}/status", response_model=ResponseSchema[ConnectorStatusResponse])
-async def get_connector_status(
-    connector_type: str,
-    db: AsyncSession = Depends(get_db_session)
-):
+async def get_connector_status(connector_type: str, db: AsyncSession = Depends(get_db_session)):
     """Get the status of a specific connector."""
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Connector type '{connector_type}' not found"
+            detail=f"Connector type '{connector_type}' not found",
         )
 
     tenant_id = get_current_tenant() or "default"
@@ -129,16 +126,14 @@ async def get_connector_status(
             is_authenticated=bool(state.sync_cursor),  # Connected if we have credentials
             last_sync_at=state.last_sync_at,
             items_synced=0,  # Would need to count from documents
-            error_message=state.error_message
+            error_message=state.error_message,
         )
     )
 
 
 @router.post("/{connector_type}/auth", response_model=ResponseSchema[ConnectorStatusResponse])
 async def authenticate_connector(
-    connector_type: str,
-    request: ConnectorAuthRequest,
-    db: AsyncSession = Depends(get_db_session)
+    connector_type: str, request: ConnectorAuthRequest, db: AsyncSession = Depends(get_db_session)
 ):
     """
     Authenticate a connector with external service.
@@ -150,7 +145,7 @@ async def authenticate_connector(
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Connector type '{connector_type}' not found"
+            detail=f"Connector type '{connector_type}' not found",
         )
 
     tenant_id = get_current_tenant() or "default"
@@ -164,33 +159,33 @@ async def authenticate_connector(
             if not subdomain:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Zendesk requires 'subdomain' in credentials"
+                    detail="Zendesk requires 'subdomain' in credentials",
                 )
             connector = ConnectorClass(subdomain=subdomain)
         elif connector_type == "confluence":
-             base_url = request.credentials.get("base_url")
-             if not base_url:
-                 raise HTTPException(
-                     status_code=status.HTTP_400_BAD_REQUEST,
-                     detail="Confluence requires 'base_url' in credentials"
-                 )
-             connector = ConnectorClass(base_url=base_url)
+            base_url = request.credentials.get("base_url")
+            if not base_url:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Confluence requires 'base_url' in credentials",
+                )
+            connector = ConnectorClass(base_url=base_url)
         elif connector_type == "carbonio":
-             host = request.credentials.get("host")
-             if not host:
-                  raise HTTPException(
-                      status_code=status.HTTP_400_BAD_REQUEST,
-                      detail="Carbonio requires 'host' in credentials"
-                  )
-             connector = ConnectorClass(host=host)
+            host = request.credentials.get("host")
+            if not host:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Carbonio requires 'host' in credentials",
+                )
+            connector = ConnectorClass(host=host)
         elif connector_type == "jira":
-             base_url = request.credentials.get("base_url")
-             if not base_url:
-                 raise HTTPException(
-                     status_code=status.HTTP_400_BAD_REQUEST,
-                     detail="Jira requires 'base_url' in credentials"
-                 )
-             connector = ConnectorClass(base_url=base_url)
+            base_url = request.credentials.get("base_url")
+            if not base_url:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Jira requires 'base_url' in credentials",
+                )
+            connector = ConnectorClass(base_url=base_url)
         else:
             connector = ConnectorClass()
 
@@ -200,7 +195,7 @@ async def authenticate_connector(
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed. Check credentials."
+                detail="Authentication failed. Check credentials.",
             )
 
         # Update state
@@ -208,8 +203,7 @@ async def authenticate_connector(
         state.status = "idle"
         state.error_message = None
 
-
-# ... (inside authenticate_connector)
+        # ... (inside authenticate_connector)
         state.status = "idle"
         state.error_message = None
         # Store config (Store credentials for MVP to enable background sync)
@@ -227,9 +221,9 @@ async def authenticate_connector(
                 is_authenticated=True,
                 last_sync_at=state.last_sync_at,
                 items_synced=0,
-                error_message=None
+                error_message=None,
             ),
-            message="Authentication successful"
+            message="Authentication successful",
         )
 
     except HTTPException:
@@ -238,7 +232,7 @@ async def authenticate_connector(
         logger.error(f"Connector authentication failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Authentication error: {str(e)}"
+            detail=f"Authentication error: {str(e)}",
         ) from e
 
 
@@ -247,7 +241,7 @@ async def trigger_sync(
     connector_type: str,
     request: ConnectorSyncRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Trigger a sync operation for a connector.
@@ -257,17 +251,14 @@ async def trigger_sync(
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Connector type '{connector_type}' not found"
+            detail=f"Connector type '{connector_type}' not found",
         )
 
     tenant_id = get_current_tenant() or "default"
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
 
     if state.status == "syncing":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Sync already in progress"
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sync already in progress")
 
     # Update state to syncing
     state.status = "syncing"
@@ -286,14 +277,15 @@ async def trigger_sync(
         data=SyncJobResponse(
             job_id=job_id,
             status="started",
-            message=f"Sync job started. Use GET /connectors/{connector_type}/status to check progress."
+            message=f"Sync job started. Use GET /connectors/{connector_type}/status to check progress.",
         ),
-        message="Sync started"
+        message="Sync started",
     )
 
 
 class ConnectorItemResponse(BaseModel):
     """Response model for a connector item."""
+
     id: str
     title: str
     url: str
@@ -304,6 +296,7 @@ class ConnectorItemResponse(BaseModel):
 
 class IngestItemsRequest(BaseModel):
     """Request to ingest specific items."""
+
     item_ids: list[str]
 
 
@@ -313,7 +306,7 @@ async def list_connector_items(
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     List items from a connector (browse content).
@@ -321,19 +314,19 @@ async def list_connector_items(
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Connector type '{connector_type}' not found"
+            detail=f"Connector type '{connector_type}' not found",
         )
 
     tenant_id = get_current_tenant() or "default"
-    
+
     # 1. Get Connector State & Config
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
-    
+
     # 2. Instantiate Connector
     ConnectorClass = CONNECTOR_REGISTRY[connector_type]
-    
+
     # We need credentials to browse. Ideally these are encrypted in state.
-    # For MVP/Phase 1, we might rely on the user re-authenticating or 
+    # For MVP/Phase 1, we might rely on the user re-authenticating or
     # (unsafe) storing tokens in state.sync_cursor or similar.
     # The current `authenticate_connector` stores `sync_cursor` with subdomain but NO tokens.
     # So we essentially CANNOT browse unless we have the token.
@@ -343,85 +336,85 @@ async def list_connector_items(
     # WORKAROUND for this session: We will assume the connector is configured if state exists,
     # but we actually need the token.
     # The `ZendeskConnector` implementation requires `otp` or `api_token` in `authenticate`.
-    
-    # Check if we have what we need. 
+
+    # Check if we have what we need.
     # Note: connect_state.sync_cursor is a dict.
-    
+
     # If this were a real production app, we'd fetch secrets here.
-    # Since we don't have secrets storage, we might have to ask the user to provide 
+    # Since we don't have secrets storage, we might have to ask the user to provide
     # credentials in the header OR we are stuck.
     # However, `ConnectorState` has `is_authenticated` implicitly by `last_sync_at`.
-    
+
     # Let's check how `authenticate` works. It sets `_authenticated`.
     # But `authenticate` endpoint takes credentials in the request.
-    
-    # To browse, we probably need to know the credentials. 
+
+    # To browse, we probably need to know the credentials.
     # If we can't persist them, we can't background sync either!
     # So the current architecture assumes we ARE persisting them somewhere?
     # `state.sync_cursor` usage in `authenticated` endpoint:
     # `state.sync_cursor = {"subdomain": request.credentials.get("subdomain")} `
     # It drops the token!
-    
+
     # This is a BLOCKER for background syncs too.
-    # I will update `ConnectorState` to strictly store the token in `sync_cursor` (UNSAFE) 
+    # I will update `ConnectorState` to strictly store the token in `sync_cursor` (UNSAFE)
     # just to make it work for this demo/MVP, as per "Amber 2.0" likely locally hosted.
     # Or I'll update the `authenticate` logic to store it.
-    
+
     # RE-READ `authenticate_connector`:
     # `state.sync_cursor = {"subdomain": ...}`.
-    
-    # I will update `authenticate_connector` first? No, I'll update it here in `connectors.py` 
+
+    # I will update `authenticate_connector` first? No, I'll update it here in `connectors.py`
     # to actually store the credentials so we can use them.
-    
+
     pass
 
     # ... Continuing assuming credentials will be available in sync_cursor ...
-    
+
     config = state.sync_cursor
     if not config or ("api_token" not in config and "password" not in config):
-         raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-            detail="Connector not configured or credentials missing. Please re-authenticate."
+            detail="Connector not configured or credentials missing. Please re-authenticate.",
         )
 
     auth_params = {}
     if connector_type == "zendesk":
-         connector = ConnectorClass(subdomain=config.get("subdomain", ""))
-         auth_params = {
+        connector = ConnectorClass(subdomain=config.get("subdomain", ""))
+        auth_params = {
             "email": config.get("email"),
-            "api_token": config.get("api_token")
+            "api_token": config.get("api_token"),
             # "subdomain" is in init
-         }
+        }
     elif connector_type == "confluence":
-         connector = ConnectorClass(base_url=config.get("base_url", ""))
-         auth_params = {
+        connector = ConnectorClass(base_url=config.get("base_url", ""))
+        auth_params = {
             "email": config.get("email"),
             "api_token": config.get("api_token"),
             "api_token": config.get("api_token"),
-            "base_url": config.get("base_url") 
-         }
+            "base_url": config.get("base_url"),
+        }
     elif connector_type == "carbonio":
-         connector = ConnectorClass(host=config.get("host", ""))
-         auth_params = {
+        connector = ConnectorClass(host=config.get("host", ""))
+        auth_params = {
             "email": config.get("email"),
             "password": config.get("password"),
-            "host": config.get("host")
-         }
+            "host": config.get("host"),
+        }
     elif connector_type == "jira":
-         connector = ConnectorClass(base_url=config.get("base_url", ""))
-         auth_params = {
+        connector = ConnectorClass(base_url=config.get("base_url", ""))
+        auth_params = {
             "email": config.get("email"),
             "api_token": config.get("api_token"),
-            "base_url": config.get("base_url")
-         }
-    
+            "base_url": config.get("base_url"),
+        }
+
     auth_success = await connector.authenticate(auth_params)
-    
+
     if not auth_success:
         raise HTTPException(status_code=401, detail="Stored credentials invalid.")
 
     items, has_more = await connector.list_items(page=page, page_size=page_size, search=search)
-    
+
     return ResponseSchema(
         data={
             "items": [
@@ -431,87 +424,86 @@ async def list_connector_items(
                     "url": item.url,
                     "updated_at": item.updated_at,
                     "content_type": item.content_type,
-                    "metadata": item.metadata
-                } for item in items
+                    "metadata": item.metadata,
+                }
+                for item in items
             ],
             "has_more": has_more,
-            "page": page
+            "page": page,
         },
-        message="Items retrieved"
+        message="Items retrieved",
     )
 
 
 async def run_selective_ingestion(
-    connector_type: str,
-    tenant_id: str,
-    item_ids: list[str],
-    state_id: str
+    connector_type: str, tenant_id: str, item_ids: list[str], state_id: str
 ):
     """Background task for selective ingestion."""
     # Create new session
     # We need to manually manage the session here
     from src.api.deps import _get_async_session_maker
-    from src.api.config import settings
-    
+
     logger.info(f"Starting selective ingestion for {connector_type} items: {item_ids}")
-    
+
     async with _get_async_session_maker()() as session:
         # 1. Setup Connector
-        result = await session.execute(
-            select(ConnectorState).where(ConnectorState.id == state_id)
-        )
+        result = await session.execute(select(ConnectorState).where(ConnectorState.id == state_id))
         state = result.scalar_one_or_none()
-        
+
         if not state:
             logger.error(f"Connector state {state_id} not found in background task")
             return
-            
+
         config = state.sync_cursor
         ConnectorClass = CONNECTOR_REGISTRY[connector_type]
-        
+
         if connector_type == "zendesk":
-             connector = ConnectorClass(subdomain=config.get("subdomain", ""))
+            connector = ConnectorClass(subdomain=config.get("subdomain", ""))
         elif connector_type == "confluence":
-             connector = ConnectorClass(base_url=config.get("base_url", ""))
+            connector = ConnectorClass(base_url=config.get("base_url", ""))
         elif connector_type == "carbonio":
-             connector = ConnectorClass(host=config.get("host", ""))
-        
+            connector = ConnectorClass(host=config.get("host", ""))
+
         await connector.authenticate(config)
-        
+
         # 2. Setup Ingestion Service
         # 2. Setup Ingestion Service
-        from src.amber_platform.composition_root import platform, build_vector_store_factory
-        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
-        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import PostgresTenantRepository
-        from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+        from src.amber_platform.composition_root import build_vector_store_factory, platform
         from src.core.events.dispatcher import EventDispatcher
+        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+            PostgresDocumentRepository,
+        )
+        from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
+        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+            PostgresTenantRepository,
+        )
         from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
 
         vector_store_factory = build_vector_store_factory()
         event_dispatcher = EventDispatcher(RedisStatePublisher())
-        
+
         ingestion_service = IngestionService(
             document_repository=PostgresDocumentRepository(session),
             tenant_repository=PostgresTenantRepository(session),
-            unit_of_work=PostgresUnitOfWork(session), 
-            storage_client=platform.minio_client, 
+            unit_of_work=PostgresUnitOfWork(session),
+            storage_client=platform.minio_client,
             neo4j_client=platform.neo4j_client,
             vector_store=None,
             event_dispatcher=event_dispatcher,
             vector_store_factory=vector_store_factory,
         )
-        
+
         # 3. Process Items
         success_count = 0
         state.status = "syncing"
         await session.commit()
-        
+
         try:
             for item_id in item_ids:
                 try:
                     # Fetch content
                     content = await connector.get_item_content(item_id)
-                    
+
                     # We need a filename. Let's try to get title if possible, or just ID.
                     # Ideally we would have cached the list_items info, but we don't have it here.
                     # We'll use ID.html
@@ -522,28 +514,28 @@ async def run_selective_ingestion(
                     elif connector_type == "carbonio":
                         filename = f"carbonio_{item_id}.html"
                     else:
-                         filename = f"doc_{item_id}.html"
-                    
+                        filename = f"doc_{item_id}.html"
+
                     # Register
                     doc = await ingestion_service.register_document(
                         tenant_id=tenant_id,
                         filename=filename,
                         file_content=content,
-                        content_type="text/html"
+                        content_type="text/html",
                     )
-                    
+
                     # Trigger Processing
                     await ingestion_service.process_document(doc.id)
                     success_count += 1
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to ingest item {item_id}: {e}")
-            
+
             state.status = "idle"
             # Maybe update last_sync_at?
             state.last_sync_at = datetime.now()
             logger.info(f"Ingested {success_count}/{len(item_ids)} items")
-            
+
         except Exception as e:
             state.status = "error"
             state.error_message = str(e)
@@ -557,44 +549,40 @@ async def ingest_selected_items(
     connector_type: str,
     request: IngestItemsRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Ingest specific items by ID.
     """
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(status_code=404, detail="Connector not found")
-        
+
     tenant_id = get_current_tenant() or "default"
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
-    
+
     if state.status == "syncing":
         raise HTTPException(status_code=409, detail="Sync in progress")
-        
+
     job_id = f"ingest_{uuid4().hex[:12]}"
-    
+
     # Store credentials check
     config = state.sync_cursor
     if not config or ("api_token" not in config and "password" not in config):
-         raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-            detail="Connector not configured. Please re-authenticate."
+            detail="Connector not configured. Please re-authenticate.",
         )
 
     # Dispatch
     background_tasks.add_task(
-        run_selective_ingestion, 
-        connector_type, 
-        tenant_id, 
-        request.item_ids,
-        state.id
+        run_selective_ingestion, connector_type, tenant_id, request.item_ids, state.id
     )
-    
+
     return ResponseSchema(
         data=SyncJobResponse(
             job_id=job_id,
             status="started",
-            message=f"Ingestion started for {len(request.item_ids)} items."
+            message=f"Ingestion started for {len(request.item_ids)} items.",
         ),
-        message="Ingestion started"
+        message="Ingestion started",
     )

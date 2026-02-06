@@ -1,6 +1,6 @@
-from src.shared.kernel.runtime import configure_settings, _reset_for_tests
 from src.core.graph.infrastructure.neo4j_client import Neo4jClient
 from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
+from src.shared.kernel.runtime import _reset_for_tests, configure_settings
 
 
 class FakeDb:

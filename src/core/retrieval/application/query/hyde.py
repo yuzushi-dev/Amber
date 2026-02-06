@@ -10,9 +10,13 @@ import logging
 import numpy as np
 
 from src.core.generation.application.prompts.query_analysis import HYDE_PROMPT
-from src.core.generation.domain.provider_models import ProviderTier
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory, ProviderFactoryPort
+from src.core.generation.domain.ports.provider_factory import (
+    ProviderFactoryPort,
+    build_provider_factory,
+    get_provider_factory,
+)
 from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.core.generation.domain.provider_models import ProviderTier
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,7 @@ class HyDEService:
             self.factory = provider_factory
         else:
             from src.api.config import settings
+
             if openai_api_key or anthropic_api_key or settings.ollama_base_url:
                 self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,
@@ -59,8 +64,8 @@ class HyDEService:
         prompt = HYDE_PROMPT.format(query=query)
 
         try:
-            from src.shared.kernel.runtime import get_settings
             from src.core.generation.application.llm_steps import resolve_llm_step_config
+            from src.shared.kernel.runtime import get_settings
 
             settings = get_settings()
             tenant_config = tenant_config or {}

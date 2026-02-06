@@ -8,8 +8,9 @@ print(f"Default Embedding Provider: {settings.default_embedding_provider}")
 print(f"Default Embedding Model: {settings.default_embedding_model}")
 
 # Check if setting manually works
-import yaml
 from pathlib import Path
+
+import yaml
 
 config_path = Path("config/settings.yaml")
 if config_path.exists():

@@ -11,14 +11,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.shared.kernel.models.query import QueryOptions, SearchMode
+from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.cache.result_cache import ResultCache, ResultCacheConfig
 from src.core.cache.semantic_cache import CacheConfig, SemanticCache
-from src.core.ingestion.domain.chunk import Chunk
-from sqlalchemy import select
-from src.shared.kernel.observability import trace_span
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
+from src.core.generation.domain.ports.provider_factory import (
+    build_provider_factory,
+    get_provider_factory,
+)
 from src.core.generation.domain.ports.providers import RerankerProviderPort
+from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.query.decomposer import QueryDecomposer
 from src.core.retrieval.application.query.hyde import HyDEService
 from src.core.retrieval.application.query.models import StructuredQuery
@@ -26,21 +28,20 @@ from src.core.retrieval.application.query.parser import QueryParser
 from src.core.retrieval.application.query.rewriter import QueryRewriter
 from src.core.retrieval.application.query.router import QueryRouter
 from src.core.retrieval.application.search.drift_search import DriftSearchService
+from src.core.retrieval.application.search.entity import EntitySearcher
 from src.core.retrieval.application.search.fusion import fuse_results
 from src.core.retrieval.application.search.global_search import GlobalSearchService
-from src.core.retrieval.application.search.entity import EntitySearcher
 from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.retrieval.application.search.graph_traversal import GraphTraversalService
 from src.core.retrieval.application.search.vector import VectorSearcher
 from src.core.retrieval.application.search.weights import get_adaptive_weights
-from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-from src.core.admin_ops.application.tuning_service import TuningService
-from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
-from src.core.system.circuit_breaker import CircuitBreaker
-from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort, SearchResult
 from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
+from src.core.retrieval.domain.ports.vector_store_port import SearchResult, VectorStorePort
+from src.core.system.circuit_breaker import CircuitBreaker
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+from src.shared.kernel.models.query import QueryOptions, SearchMode
+from src.shared.kernel.observability import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -105,10 +106,9 @@ class RetrievalService:
         document_repository: DocumentRepository,
         # Injected clients via Ports
         vector_store: VectorStorePort,
-        neo4j_client: GraphStorePort, # Using GraphStorePort protocol, keeping name for compatibility if possible, or rename?
+        neo4j_client: GraphStorePort,  # Using GraphStorePort protocol, keeping name for compatibility if possible, or rename?
         # neo4j_client is used by GraphSearcher etc. They expect a client like object.
         # If GraphStorePort matches Neo4jClient signature, we are good.
-        
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
         ollama_base_url: str | None = None,
@@ -119,7 +119,7 @@ class RetrievalService:
         tuning_service: TuningService | None = None,
     ):
         self.config = config or RetrievalConfig()
-        
+
         self.document_repository = document_repository
         self.neo4j_client = neo4j_client
         self.vector_store = vector_store
@@ -191,14 +191,16 @@ class RetrievalService:
 
         # Phase 6 & Graph Searchers
         self.vector_searcher = VectorSearcher(self.vector_store)
-        
+
         # Use injected neo4j_client (already set in __init__ start)
         self.graph_searcher = GraphSearcher(self.neo4j_client)
         self.entity_searcher = EntitySearcher(self.vector_store)
         self.graph_traversal = GraphTraversalService(self.neo4j_client)
 
         # Advanced Search Modes
-        llm = factory.get_llm_provider(tier=self.config.llm_tier if hasattr(self.config, "llm_tier") else None)
+        llm = factory.get_llm_provider(
+            tier=self.config.llm_tier if hasattr(self.config, "llm_tier") else None
+        )
         self.global_search = GlobalSearchService(
             self.vector_store,
             llm,
@@ -233,7 +235,6 @@ class RetrievalService:
         logger.warning("TuningService not provided; falling back to default active collection")
         return resolve_active_vector_collection(tenant_id, {})
 
-
     @trace_span("RetrievalService.retrieve")
     async def retrieve(
         self,
@@ -260,7 +261,9 @@ class RetrievalService:
         8. Caching & Return
         """
         start_time = time.perf_counter()
-        logger.info(f"DEBUG_TRACE: Retrieval/retrieve called for query: {query}, tenant: {tenant_id}")
+        logger.info(
+            f"DEBUG_TRACE: Retrieval/retrieve called for query: {query}, tenant: {tenant_id}"
+        )
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
@@ -302,7 +305,7 @@ class RetrievalService:
 
         # Step 4: Search Execution based on Mode
         time.perf_counter()
-        
+
         try:
             if search_mode == SearchMode.GLOBAL:
                 res = await self.global_search.search(
@@ -315,7 +318,7 @@ class RetrievalService:
                     query=query,
                     tenant_id=tenant_id,
                     latency_ms=0,
-                    trace=trace + [{"step": "global_search", "sources": res["sources"]}]
+                    trace=trace + [{"step": "global_search", "sources": res["sources"]}],
                 )
             elif search_mode == SearchMode.DRIFT:
                 res = await self.drift_search.search(
@@ -401,16 +404,13 @@ class RetrievalService:
 
         # 2. Entity + Graph Search
         entity_task = self.entity_searcher.search(
-            query_vector=embedding,
-            tenant_id=tenant_id,
-            limit=5
+            query_vector=embedding, tenant_id=tenant_id, limit=5
         )
 
         # Run vector and entity search in parallel with timeout
         try:
             vector_results, entity_results = await asyncio.wait_for(
-                asyncio.gather(vector_task, entity_task, return_exceptions=True),
-                timeout=10.0
+                asyncio.gather(vector_task, entity_task, return_exceptions=True), timeout=10.0
             )
             # Handle individual task failures
             if isinstance(vector_results, Exception):
@@ -428,9 +428,7 @@ class RetrievalService:
         if entity_results:
             entity_ids = [e["entity_id"] for e in entity_results]
             graph_results = await self.graph_searcher.search_by_entities(
-                entity_ids=entity_ids,
-                tenant_id=tenant_id,
-                limit=self.config.initial_k
+                entity_ids=entity_ids, tenant_id=tenant_id, limit=self.config.initial_k
             )
 
             # 3. Optional Multi-hop Traversal (if not degraded)
@@ -438,21 +436,17 @@ class RetrievalService:
                 traversal_results = await self.graph_traversal.beam_search(
                     seed_entity_ids=entity_ids,
                     tenant_id=tenant_id,
-                    depth=1, # Keep it shallow for performance
-                    beam_width=3
+                    depth=1,  # Keep it shallow for performance
+                    beam_width=3,
                 )
                 graph_results.extend(traversal_results)
 
         # 4. Fusion
-        groups = {
-            "vector": vector_results,
-            "graph": graph_results
-        }
+        groups = {"vector": vector_results, "graph": graph_results}
 
         # Adaptive weights with tenant overrides
         weights = get_adaptive_weights(
-            query_type=options.search_mode,
-            tenant_config=(tenant_config or {}).get("weights", {})
+            query_type=options.search_mode, tenant_config=(tenant_config or {}).get("weights", {})
         )
         fused = fuse_results(groups, weights=weights)
 
@@ -464,12 +458,10 @@ class RetrievalService:
             print(f"DEBUG: Entering Reranker. Fused Count: {len(fused)}")
             try:
                 rerank_start = time.perf_counter()
-                texts = [c.content for c in fused[:20]] # Rerank top 20
+                texts = [c.content for c in fused[:20]]  # Rerank top 20
                 print(f"DEBUG: Reranking {len(texts)} texts: {texts}")
                 rerank_res = await self.reranker.rerank(
-                    query=query_text,
-                    documents=texts,
-                    top_k=top_k
+                    query=query_text, documents=texts, top_k=top_k
                 )
                 print(f"DEBUG: Reranker returned: {rerank_res}")
 
@@ -481,10 +473,9 @@ class RetrievalService:
 
                 print(f"DEBUG: Reranked chunks count: {len(reranked_chunks)}")
                 reranked_flag = True
-                trace.append({
-                    "step": "rerank",
-                    "duration_ms": (time.perf_counter() - rerank_start) * 1000
-                })
+                trace.append(
+                    {"step": "rerank", "duration_ms": (time.perf_counter() - rerank_start) * 1000}
+                )
             except Exception as e:
                 print(f"DEBUG: Reranking FAILED: {e}")
                 logger.warning(f"Reranking failed in hybrid mode: {e}")
@@ -492,13 +483,15 @@ class RetrievalService:
         else:
             reranked_chunks = [c.to_dict() for c in fused[:top_k]]
 
-        trace.append({
-            "step": "hybrid_retrieval",
-            "duration_ms": (time.perf_counter() - step_start) * 1000,
-            "vector_count": len(vector_results),
-            "graph_count": len(graph_results),
-            "fused_count": len(fused)
-        })
+        trace.append(
+            {
+                "step": "hybrid_retrieval",
+                "duration_ms": (time.perf_counter() - step_start) * 1000,
+                "vector_count": len(vector_results),
+                "graph_count": len(graph_results),
+                "fused_count": len(fused),
+            }
+        )
 
         return RetrievalResult(
             chunks=reranked_chunks,
@@ -506,7 +499,7 @@ class RetrievalService:
             tenant_id=tenant_id,
             latency_ms=0,
             reranked=reranked_flag,
-            trace=trace
+            trace=trace,
         )
 
     @trace_span("RetrievalService.vector_search")
@@ -549,17 +542,19 @@ class RetrievalService:
                 )
                 if hypotheses:
                     search_query = hypotheses[0]  # Use first hypothesis
-                    trace.append({
-                        "step": "hyde",
-                        "duration_ms": (time.perf_counter() - step_start) * 1000,
-                        "hypothesis_preview": search_query[:50] + "...",
-                    })
+                    trace.append(
+                        {
+                            "step": "hyde",
+                            "duration_ms": (time.perf_counter() - step_start) * 1000,
+                            "hypothesis_preview": search_query[:50] + "...",
+                        }
+                    )
 
             # Check result cache for this specific sub-query
             step_start = time.perf_counter()
             cache_filters = {"document_ids": document_ids, **(filters or {})}
             cached_result = await self.result_cache.get(search_query, tenant_id, cache_filters)
-            
+
             logger.info(f"DEBUG_TRACE: Cache check for '{search_query}'. Result: {cached_result}")
 
             # Force bypass for debugging
@@ -567,21 +562,21 @@ class RetrievalService:
             #     logger.info(f"DEBUG_TRACE: Utilizing cached result for: {search_query}")
             #     # ... (skipped cache use code) ...
             #     continue
-            cached_result = None # FORCE MISS
-            
+            cached_result = None  # FORCE MISS
+
             if cached_result:
-                 # Original logic code blocked by force miss
-                 pass
-                # The original code block was:
-                # sub_chunks = await self._fetch_chunks_by_ids(
-                #     cached_result.chunk_ids[:top_k],
-                #     cached_result.scores[:top_k],
-                # )
-                # for c in sub_chunks:
-                #     if c["chunk_id"] not in seen_chunk_ids:
-                #         all_chunks.append(c)
-                #         seen_chunk_ids.add(c["chunk_id"])
-                # continue
+                # Original logic code blocked by force miss
+                pass
+            # The original code block was:
+            # sub_chunks = await self._fetch_chunks_by_ids(
+            #     cached_result.chunk_ids[:top_k],
+            #     cached_result.scores[:top_k],
+            # )
+            # for c in sub_chunks:
+            #     if c["chunk_id"] not in seen_chunk_ids:
+            #         all_chunks.append(c)
+            #         seen_chunk_ids.add(c["chunk_id"])
+            # continue
 
             # Get embedding
             logger.info(f"DEBUG_TRACE: Generating embedding for query: {search_query}")
@@ -589,7 +584,9 @@ class RetrievalService:
             if not query_embedding:
                 logger.warning(f"Embedding failed for query: {search_query}. Skipping search.")
                 continue
-            logger.info(f"DEBUG_TRACE: Embedding generated. vector[:5]={query_embedding[:5] if query_embedding else 'None'}")
+            logger.info(
+                f"DEBUG_TRACE: Embedding generated. vector[:5]={query_embedding[:5] if query_embedding else 'None'}"
+            )
 
             # Vector search (Dense or Hybrid)
             search_results = None
@@ -600,10 +597,14 @@ class RetrievalService:
 
             if search_results is None:
                 step_start = time.perf_counter()
-                
-                target_collection = collection_name or resolve_active_vector_collection(tenant_id, {})
-                logger.info(f"DEBUG_TRACE: Searching collection: {target_collection} with tenant_id: {tenant_id}")
-                
+
+                target_collection = collection_name or resolve_active_vector_collection(
+                    tenant_id, {}
+                )
+                logger.info(
+                    f"DEBUG_TRACE: Searching collection: {target_collection} with tenant_id: {tenant_id}"
+                )
+
                 search_results = await self.vector_searcher.search(
                     query_vector=query_embedding,
                     tenant_id=tenant_id,
@@ -614,21 +615,25 @@ class RetrievalService:
                     collection_name=target_collection,
                 )
                 logger.info(f"DEBUG_TRACE: Search returned {len(search_results)} results")
-                trace.append({
-                    "step": "vector_search",
-                    "duration_ms": (time.perf_counter() - step_start) * 1000,
-                    "results_count": len(search_results),
-                    "mode": "dense",
-                    "collection": target_collection,
-                })
+                trace.append(
+                    {
+                        "step": "vector_search",
+                        "duration_ms": (time.perf_counter() - step_start) * 1000,
+                        "results_count": len(search_results),
+                        "mode": "dense",
+                        "collection": target_collection,
+                    }
+                )
             else:
-                trace.append({
-                    "step": "vector_search",
-                    "duration_ms": (time.perf_counter() - step_start) * 1000,
-                    "results_count": len(search_results),
-                    "mode": "hybrid"
-                })
-            
+                trace.append(
+                    {
+                        "step": "vector_search",
+                        "duration_ms": (time.perf_counter() - step_start) * 1000,
+                        "results_count": len(search_results),
+                        "mode": "hybrid",
+                    }
+                )
+
             # Rerank
             if self.reranker and len(search_results) > 0:
                 step_start = time.perf_counter()
@@ -659,11 +664,13 @@ class RetrievalService:
 
                     search_results = reranked_results
 
-                    trace.append({
-                        "step": "rerank",
-                        "duration_ms": (time.perf_counter() - step_start) * 1000,
-                        "model": self.config.rerank_model,
-                    })
+                    trace.append(
+                        {
+                            "step": "rerank",
+                            "duration_ms": (time.perf_counter() - step_start) * 1000,
+                            "model": self.config.rerank_model,
+                        }
+                    )
 
                 except Exception as e:
                     logger.warning(f"Reranking failed, using vector scores: {e}")
@@ -676,14 +683,20 @@ class RetrievalService:
             missing_content_ids = []
             for r in search_results:
                 if not r.metadata.get("content"):
-                        missing_content_ids.append(r.chunk_id)
+                    missing_content_ids.append(r.chunk_id)
 
             if missing_content_ids:
-                logger.info(f"METRIC: Resilient Content Fallback Triggered for {len(missing_content_ids)} chunks")
+                logger.info(
+                    f"METRIC: Resilient Content Fallback Triggered for {len(missing_content_ids)} chunks"
+                )
                 try:
                     from opentelemetry import trace
+
                     span = trace.get_current_span()
-                    span.add_event("resilient_fallback_triggered", attributes={"chunk_count": len(missing_content_ids)})
+                    span.add_event(
+                        "resilient_fallback_triggered",
+                        attributes={"chunk_count": len(missing_content_ids)},
+                    )
                     span.set_attribute("retrieval.fallback_count", len(missing_content_ids))
                 except ImportError:
                     pass
@@ -691,7 +704,7 @@ class RetrievalService:
                 try:
                     db_chunks_list = await self.document_repository.get_chunks(missing_content_ids)
                     db_chunks = {c.id: c.content for c in db_chunks_list}
-                    
+
                     for r in search_results:
                         if r.chunk_id in db_chunks:
                             r.metadata["content"] = db_chunks[r.chunk_id]
@@ -745,18 +758,20 @@ class RetrievalService:
         try:
             db_chunks = await self.document_repository.get_chunks(chunk_ids)
             chunk_map = {c.id: c for c in db_chunks}
-            
+
             results = []
             for cid, score in zip(chunk_ids, scores, strict=False):
                 if cid in chunk_map:
                     chunk = chunk_map[cid]
-                    results.append({
-                        "chunk_id": chunk.id,
-                        # metadata...
-                        "content": chunk.content,
-                        "metadata": chunk.metadata_,
-                        "score": score
-                    })
+                    results.append(
+                        {
+                            "chunk_id": chunk.id,
+                            # metadata...
+                            "content": chunk.content,
+                            "metadata": chunk.metadata_,
+                            "score": score,
+                        }
+                    )
             return results
         except Exception as e:
             logger.error(f"Failed to fetch chunks from repository: {e}")
@@ -773,13 +788,15 @@ class RetrievalService:
             chunk = chunk_map.get(cid)
             if chunk:
                 # Add score and ensure standardized format
-                results.append({
-                    "chunk_id": cid,
-                    "document_id": chunk.get("document_id"),
-                    "score": score,  # Use cached score
-                    "content": chunk.get("content", ""),
-                    "metadata": chunk.get("metadata", {}),
-                })
+                results.append(
+                    {
+                        "chunk_id": cid,
+                        "document_id": chunk.get("document_id"),
+                        "score": score,  # Use cached score
+                        "content": chunk.get("content", ""),
+                        "metadata": chunk.get("metadata", {}),
+                    }
+                )
 
         return results
 

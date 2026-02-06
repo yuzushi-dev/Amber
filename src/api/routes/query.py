@@ -7,29 +7,21 @@ Phase 2: Baseline RAG implementation with vector retrieval and LLM generation.
 """
 
 import json
-import re
 import logging
+import re
 import time
-from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.api.deps import get_db_session
 
 from src.api.config import settings
+from src.api.deps import get_db_session
 from src.api.schemas.query import (
     QueryRequest,
     QueryResponse,
-    Source,
     StructuredQueryResponse,
     TimingInfo,
-    TraceStep,
-)
-from src.core.generation.domain.provider_models import (
-    ProviderError,
-    QuotaExceededError,
-    RateLimitError
 )
 
 logger = logging.getLogger(__name__)
@@ -39,8 +31,6 @@ router = APIRouter(prefix="/query", tags=["query"])
 # =============================================================================
 # Service Dependencies
 # =============================================================================
-
-
 
 
 def _get_tenant_id(request: Request) -> str:
@@ -80,22 +70,20 @@ def _get_tenant_id(request: Request) -> str:
                     "examples": {
                         "rag_response": {
                             "summary": "RAG Response",
-                            "value": {"answer": "...", "sources": [], "timing": {}}
+                            "value": {"answer": "...", "sources": [], "timing": {}},
                         },
                         "structured_response": {
                             "summary": "Structured Query Response",
-                            "value": {"query_type": "list_documents", "data": [], "count": 0}
-                        }
+                            "value": {"query_type": "list_documents", "data": [], "count": 0},
+                        },
                     }
                 }
-            }
+            },
         }
     },
 )
 async def query(
-    request: QueryRequest, 
-    http_request: Request,
-    session: AsyncSession = Depends(get_db_session)
+    request: QueryRequest, http_request: Request, session: AsyncSession = Depends(get_db_session)
 ) -> QueryResponse | StructuredQueryResponse:
     """
     Query the knowledge base.
@@ -114,15 +102,15 @@ async def query(
     Returns:
         QueryResponse: Answer with sources and timing
     """
-    from src.core.retrieval.application.use_cases_query import QueryUseCase
     from src.amber_platform.composition_root import (
-        build_retrieval_service,
         build_generation_service,
         build_metrics_collector,
+        build_retrieval_service,
     )
+    from src.core.retrieval.application.use_cases_query import QueryUseCase
 
     tenant_id = _get_tenant_id(http_request)
-    
+
     # Instantiate Use Case using Composition Root factories
     try:
         use_case = QueryUseCase(
@@ -130,7 +118,7 @@ async def query(
             generation_service=build_generation_service(session),
             metrics_collector=build_metrics_collector(),
         )
-        
+
         # Determine User ID (extract logic from previous implementation)
         user_id = http_request.headers.get("X-User-ID", "default_user")
 
@@ -142,7 +130,7 @@ async def query(
         )
 
     except Exception as e:
-        start_time = time.perf_counter() # Fallback Start Time
+        start_time = time.perf_counter()  # Fallback Start Time
         logger.error(f"Query execution failed: {e}")
         return _fallback_response(request, start_time, str(e))
 
@@ -159,7 +147,7 @@ def _fallback_response(
         answer=(
             f"I'm unable to process your query at the moment. "
             f"Error: {error}\n\n"
-            f"Your query: \"{request.query[:100]}{'...' if len(request.query) > 100 else ''}\""
+            f'Your query: "{request.query[:100]}{"..." if len(request.query) > 100 else ""}"'
         ),
         sources=[],
         trace=None,
@@ -203,31 +191,36 @@ async def _query_stream_impl(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Query parameter 'query' is required for GET requests",
             )
-        
+
         from src.api.schemas.query import QueryOptions
+
         request = QueryRequest(
             query=query,
             options=QueryOptions(agent_mode=agent_mode, model=model),
-            conversation_id=conversation_id  # Pass through for threading
+            conversation_id=conversation_id,  # Pass through for threading
         )
 
     # Handle POST request body (FastAPI dependency injection)
     if request is None and http_request.method == "POST":
-         # This case should be handled by FastAPI if signature is correct,
-         # but since we made request optional for GET, we might need to validate.
-         # Actually, mixing Body and Query params in one function can be tricky in FastAPI.
-         # Better approach is to separate into two functions or use logic below.
-         pass
+        # This case should be handled by FastAPI if signature is correct,
+        # but since we made request optional for GET, we might need to validate.
+        # Actually, mixing Body and Query params in one function can be tricky in FastAPI.
+        # Better approach is to separate into two functions or use logic below.
+        pass
 
     if request is None:
-         # If dependency failed or wasn't provided (shouldn't happen for POST if validated)
-         raise HTTPException(status_code=400, detail="Invalid request")
+        # If dependency failed or wasn't provided (shouldn't happen for POST if validated)
+        raise HTTPException(status_code=400, detail="Invalid request")
 
     tenant_id = _get_tenant_id(http_request)
     logger.info(f"SSE stream request: query={request.query[:50]}..., tenant={tenant_id}")
 
     try:
-        from src.amber_platform.composition_root import build_retrieval_service, build_generation_service
+        from src.amber_platform.composition_root import (
+            build_generation_service,
+            build_retrieval_service,
+        )
+
         retrieval_service = build_retrieval_service(session)
         generation_service = build_generation_service(session)
         logger.info("SSE: Services loaded successfully")
@@ -252,17 +245,20 @@ async def _query_stream_impl(
         # Check if this is a continuation of an AGENT conversation
         if request.conversation_id and not (request.options and request.options.agent_mode):
             try:
-                from src.core.generation.domain.memory_models import ConversationSummary
                 from src.api.deps import _get_async_session_maker
-                
+                from src.core.generation.domain.memory_models import ConversationSummary
+
                 async with _get_async_session_maker()() as session:
                     existing_conv = await session.get(ConversationSummary, request.conversation_id)
                     if existing_conv and existing_conv.metadata_:
                         mode = existing_conv.metadata_.get("mode")
                         if mode == "agent":
-                            logger.info(f"Auto-switching conversation {request.conversation_id} to Agent Mode (Sticky)")
+                            logger.info(
+                                f"Auto-switching conversation {request.conversation_id} to Agent Mode (Sticky)"
+                            )
                             if not request.options:
                                 from src.api.schemas.query import QueryOptions
+
                                 request.options = QueryOptions(agent_mode=True)
                             else:
                                 request.options.agent_mode = True
@@ -275,68 +271,82 @@ async def _query_stream_impl(
             # =========================================================================
             if request.options and request.options.agent_mode:
                 yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
-                
+
                 try:
                     # Determine ID upfront
                     import uuid
+
                     agent_conversation_id = request.conversation_id or str(uuid.uuid4())
                     # Emit availability immediately
-                    logger.info(f"EMITTING Agent conversation_id SSE event upfront: {agent_conversation_id}")
+                    logger.info(
+                        f"EMITTING Agent conversation_id SSE event upfront: {agent_conversation_id}"
+                    )
                     yield f"event: conversation_id\ndata: {json.dumps(agent_conversation_id)}\n\n"
 
                     # Emit Routing Info
                     yield f"event: routing\ndata: {json.dumps({'categories': ['Agent Tools'], 'confidence': 1.0})}\n\n"
 
-                    from src.core.generation.application.agent.orchestrator import AgentOrchestrator
-                    from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
-                    from src.core.tools.retrieval import create_retrieval_tool
-                    from src.core.tools.filesystem import create_filesystem_tools
-                    from src.core.tools.graph import GRAPH_TOOLS, query_graph
                     full_answer = agent_response.answer
-                    summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
-                    title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
-                    
+                    summary_text = (
+                        full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                    )
+                    title_text = (
+                        request.query[:50] + "..." if len(request.query) > 50 else request.query
+                    )
+
                     from datetime import datetime
-                    from src.core.generation.domain.memory_models import ConversationSummary
+
                     from src.api.deps import _get_async_session_maker
-                    
+                    from src.core.generation.domain.memory_models import ConversationSummary
+
                     async with _get_async_session_maker()() as session:
                         # Try to find existing conversation
                         existing_summary = None
                         if request.conversation_id:
-                            existing_summary = await session.get(ConversationSummary, agent_conversation_id)
+                            existing_summary = await session.get(
+                                ConversationSummary, agent_conversation_id
+                            )
 
                         if existing_summary:
                             # UPDATE existing conversation
                             # 1. Append to history in metadata
                             history = existing_summary.metadata_.get("history", [])
-                            history.append({
-                                "query": request.query, 
-                                "answer": full_answer,
-                                "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
-                                "timestamp": datetime.utcnow().isoformat()
-                            })
+                            history.append(
+                                {
+                                    "query": request.query,
+                                    "answer": full_answer,
+                                    "sources": agent_response.sources
+                                    if hasattr(agent_response, "sources")
+                                    else [],
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
                             existing_summary.metadata_["history"] = history
-                            
+
                             # 2. Update top-level metadata to reflect LATEST turn
                             existing_summary.metadata_["query"] = request.query
                             existing_summary.metadata_["answer"] = full_answer
-                            existing_summary.metadata_["sources"] = agent_response.sources if hasattr(agent_response, "sources") else []
+                            existing_summary.metadata_["sources"] = (
+                                agent_response.sources if hasattr(agent_response, "sources") else []
+                            )
                             existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
-                            
+
                             # 3. Flag as modified for SQLAlchemy
                             from sqlalchemy.orm.attributes import flag_modified
+
                             flag_modified(existing_summary, "metadata_")
-                            
+
                             session.add(existing_summary)
                             await session.commit()
-                            logger.info(f"Updated AGENT conversation history: {existing_summary.id}")
+                            logger.info(
+                                f"Updated AGENT conversation history: {existing_summary.id}"
+                            )
                         else:
                             # INSERT new conversation
                             new_summary = ConversationSummary(
                                 id=agent_conversation_id,
                                 tenant_id=tenant_id,
-                                user_id="user", # Default user
+                                user_id="user",  # Default user
                                 title=title_text,
                                 summary=summary_text,
                                 metadata_={
@@ -345,23 +355,28 @@ async def _query_stream_impl(
                                     "model": "agent-default",
                                     "mode": "agent",
                                     "tools_used": [
-                                        t.get("function", {}).get("name", t.get("name", "unknown")) 
+                                        t.get("function", {}).get("name", t.get("name", "unknown"))
                                         for t in tool_schemas
                                     ],
-                                    "history": [{
-                                        "query": request.query, 
-                                        "answer": full_answer,
-                                        "sources": agent_response.sources if hasattr(agent_response, "sources") else [],
-                                        "routing_info": {"categories": ["Agent Tools"], "confidence": 1.0},
-                                        "timestamp": datetime.utcnow().isoformat()
-                                    }]
-                                }
+                                    "history": [
+                                        {
+                                            "query": request.query,
+                                            "answer": full_answer,
+                                            "sources": agent_response.sources
+                                            if hasattr(agent_response, "sources")
+                                            else [],
+                                            "routing_info": {
+                                                "categories": ["Agent Tools"],
+                                                "confidence": 1.0,
+                                            },
+                                            "timestamp": datetime.utcnow().isoformat(),
+                                        }
+                                    ],
+                                },
                             )
                             session.add(new_summary)
                             await session.commit()
                             logger.info(f"Saved AGENT conversation history: {new_summary.id}")
-                            
-
 
                     # Stream the result as tokens (AgentOrchestrator returns full answer currently)
                     # Preserve whitespace to keep formatting intact.
@@ -385,18 +400,18 @@ async def _query_stream_impl(
             # First, retrieve relevant chunks
             document_ids = request.filters.document_ids if request.filters else None
             max_chunks = request.options.max_chunks if request.options else 10
-            
+
             # Rate Limit Protection
-            from src.core.admin_ops.application.tuning_service import TuningService
             from src.api.deps import _get_async_session_maker
-            from src.shared.kernel.runtime import get_settings
+            from src.core.admin_ops.application.tuning_service import TuningService
             from src.core.generation.application.llm_model_resolver import resolve_tenant_llm_model
             from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
-            
+            from src.shared.kernel.runtime import get_settings
+
             try:
                 # 1. Check explicit override
                 effective_model = request.options.model if request.options else None
-                
+
                 # 2. If no override, fetch Tenant Config
                 if not effective_model:
                     settings = get_settings()
@@ -408,14 +423,16 @@ async def _query_stream_impl(
                         context="query.rate_limit_clamp",
                         tenant_id=tenant_id,
                     )
-                    
+
                 # Apply Clamp
                 if effective_model:
                     model_cfg = OpenAILLMProvider.models.get(effective_model)
                     if model_cfg:
                         model_limit = model_cfg.get("max_top_k")
                         if model_limit and max_chunks > model_limit:
-                            logger.warning(f"Clamping max_chunks from {max_chunks} to {model_limit} for model {effective_model}")
+                            logger.warning(
+                                f"Clamping max_chunks from {max_chunks} to {model_limit} for model {effective_model}"
+                            )
                             max_chunks = model_limit
 
             except Exception as e:
@@ -423,7 +440,7 @@ async def _query_stream_impl(
 
             # Add timeout to prevent hangs
             import asyncio
-            import asyncio
+
             # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
                 retrieval_result = await asyncio.wait_for(
@@ -433,33 +450,34 @@ async def _query_stream_impl(
                         document_ids=document_ids,
                         top_k=max_chunks,
                     ),
-                    timeout=60.0
+                    timeout=60.0,
                 )
             except Exception as e:
-                 # Re-raise to let the outer exception handler (the one we added for generation) catch it
-                 # But wait, the outer handler is inside the stream generator loop? 
-                 # No, we are currently in _query_stream_impl, which calls generation_service.generate_stream
-                 # The error handling we added previously is INSIDE generation_service.generate_stream (or around it in the loop)
-                 # We need to make sure THIS error is also caught and emitted as a proper SSE event
-                 
-                 # Actually, looking at the code structure:
-                 # _query_stream_impl is an async generator.
-                 # It has a big try...except block (lines 200..something)? No, let me check view_file 280 output.
-                 # The view output shows lines 500-600.
-                 # The retrieval is separate.
-                 
-                 # We should re-raise this in a way that our main exception handler catches it?
-                 # OR we just handle it here similar to the generic handler we built.
-                 
-                 logger.error(f"Retrieval failed: {e}")
-                 
-                 logger.error(f"Retrieval failed: {e}")
-                 
-                 from src.shared.error_handling import map_exception_to_error_data
-                 error_data = map_exception_to_error_data(e)
+                # Re-raise to let the outer exception handler (the one we added for generation) catch it
+                # But wait, the outer handler is inside the stream generator loop?
+                # No, we are currently in _query_stream_impl, which calls generation_service.generate_stream
+                # The error handling we added previously is INSIDE generation_service.generate_stream (or around it in the loop)
+                # We need to make sure THIS error is also caught and emitted as a proper SSE event
 
-                 yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
-                 return
+                # Actually, looking at the code structure:
+                # _query_stream_impl is an async generator.
+                # It has a big try...except block (lines 200..something)? No, let me check view_file 280 output.
+                # The view output shows lines 500-600.
+                # The retrieval is separate.
+
+                # We should re-raise this in a way that our main exception handler catches it?
+                # OR we just handle it here similar to the generic handler we built.
+
+                logger.error(f"Retrieval failed: {e}")
+
+                logger.error(f"Retrieval failed: {e}")
+
+                from src.shared.error_handling import map_exception_to_error_data
+
+                error_data = map_exception_to_error_data(e)
+
+                yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
+                return
 
             if not retrieval_result.chunks:
                 yield f"data: {json.dumps('No relevant documents found.')}\n\n"
@@ -477,18 +495,18 @@ async def _query_stream_impl(
                         scores.append(float(c.get("score", 0)))
                     else:
                         scores.append(float(getattr(c, "score", 0)))
-                
+
                 max_score = max(scores) if scores else 0
                 quality_data = {
                     "total": round(max_score * 100, 1),
                     "retrieval": round(max_score * 100, 1),
-                    "generation": 0
+                    "generation": 0,
                 }
                 yield f"event: quality\ndata: {json.dumps(quality_data)}\n\n"
 
-
             # Emit conversation_id IMMEDIATELY for threading (to match Agent behavior)
             import uuid
+
             final_conversation_id = request.conversation_id or str(uuid.uuid4())
             logger.info(f"EMITTING conversation_id SSE event upfront: {final_conversation_id}")
             yield f"event: conversation_id\ndata: {json.dumps(final_conversation_id)}\n\n"
@@ -499,7 +517,7 @@ async def _query_stream_impl(
             stream_model = ""
             stream_provider = ""
             stream_start_time = time.perf_counter()  # Track generation latency
-            
+
             # Extract User ID (Phase 3 Memory)
             user_id = http_request.headers.get("X-User-ID", "default_user")
 
@@ -510,12 +528,12 @@ async def _query_stream_impl(
                 options={
                     "user_id": user_id,
                     "tenant_id": tenant_id,
-                    "model": request.options.model if request.options else None
+                    "model": request.options.model if request.options else None,
                 },
             ):
                 event = event_dict.get("event", "message")
                 data = event_dict.get("data", "")
-                
+
                 # Accumulate answer for history
                 if event == "token":
                     full_answer += str(data)
@@ -529,7 +547,7 @@ async def _query_stream_impl(
                 data_str = json.dumps(data)
 
                 yield f"event: {event}\ndata: {data_str}\n\n"
-            
+
             # Normalize citation variants for storage/metrics.
             full_answer = generation_service._normalize_citations(full_answer)
             stream_latency_ms = (time.perf_counter() - stream_start_time) * 1000
@@ -538,17 +556,22 @@ async def _query_stream_impl(
             try:
                 # Truncate for summary
                 summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
-                title_text = request.query[:50] + "..." if len(request.query) > 50 else request.query
-                
+                title_text = (
+                    request.query[:50] + "..." if len(request.query) > 50 else request.query
+                )
+
                 from datetime import datetime
-                from src.core.generation.domain.memory_models import ConversationSummary
+
                 from src.api.deps import _get_async_session_maker
-                
+                from src.core.generation.domain.memory_models import ConversationSummary
+
                 async with _get_async_session_maker()() as session:
                     # Try to find existing conversation (for threading)
                     existing_summary = None
                     if request.conversation_id:
-                        existing_summary = await session.get(ConversationSummary, final_conversation_id)
+                        existing_summary = await session.get(
+                            ConversationSummary, final_conversation_id
+                        )
 
                     # Prepare stats for persistence
                     persistence_quality = None
@@ -563,34 +586,37 @@ async def _query_stream_impl(
                         persistence_quality = {
                             "total": round(p_max * 100, 1),
                             "retrieval": round(p_max * 100, 1),
-                            "generation": 0
+                            "generation": 0,
                         }
-                    
+
                     persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
 
                     if existing_summary:
                         # UPDATE existing conversation
                         # 1. Append to history
                         history = existing_summary.metadata_.get("history", [])
-                        history.append({
-                            "query": request.query, 
-                            "answer": full_answer,
-                            "sources": collected_sources,
-                            "quality_score": persistence_quality,
-                            "routing_info": persistence_routing,
-                            "timestamp": datetime.utcnow().isoformat()
-                        })
+                        history.append(
+                            {
+                                "query": request.query,
+                                "answer": full_answer,
+                                "sources": collected_sources,
+                                "quality_score": persistence_quality,
+                                "routing_info": persistence_routing,
+                                "timestamp": datetime.utcnow().isoformat(),
+                            }
+                        )
                         existing_summary.metadata_["history"] = history
-                        
+
                         # 2. Update top-level metadata
                         existing_summary.metadata_["query"] = request.query
                         existing_summary.metadata_["answer"] = full_answer
                         existing_summary.metadata_["timestamp"] = datetime.utcnow().isoformat()
-                        
+
                         # 3. Flag as modified for SQLAlchemy
                         from sqlalchemy.orm.attributes import flag_modified
+
                         flag_modified(existing_summary, "metadata_")
-                        
+
                         session.add(existing_summary)
                         await session.commit()
                         logger.info(f"Updated RAG conversation history: {existing_summary.id}")
@@ -609,34 +635,44 @@ async def _query_stream_impl(
                                 "sources": collected_sources,
                                 "model": "rag-default",
                                 "mode": "rag",
-                                "history": [{
-                                    "query": request.query, 
-                                    "answer": full_answer,
-                                    "sources": collected_sources,
-                                    "quality_score": persistence_quality,
-                                    "routing_info": persistence_routing,
-                                    "timestamp": datetime.utcnow().isoformat()
-                                }]
-                            }
+                                "history": [
+                                    {
+                                        "query": request.query,
+                                        "answer": full_answer,
+                                        "sources": collected_sources,
+                                        "quality_score": persistence_quality,
+                                        "routing_info": persistence_routing,
+                                        "timestamp": datetime.utcnow().isoformat(),
+                                    }
+                                ],
+                            },
                         )
                         session.add(new_summary)
                         await session.commit()
                         logger.info(f"Saved RAG conversation history: {new_summary.id}")
-                    
+
             except Exception as e:
                 logger.error(f"Failed to save RAG conversation history: {e}")
 
             # LOG TO CONTEXT GRAPH (Async - Fire and forget)
             try:
                 from src.core.graph.application.context_writer import context_graph_writer
-                
+
                 # Transform collected sources to graph format
                 # collected_sources is list of dicts from 'sources' event
-                graph_sources = [
-                    {"chunk_id": s.get("chunk_id"), "document_id": s.get("document_id"), "score": s.get("score")}
-                    for s in collected_sources
-                ] if collected_sources else []
-                
+                graph_sources = (
+                    [
+                        {
+                            "chunk_id": s.get("chunk_id"),
+                            "document_id": s.get("document_id"),
+                            "score": s.get("score"),
+                        }
+                        for s in collected_sources
+                    ]
+                    if collected_sources
+                    else []
+                )
+
                 # Call log_turn asynchronously
                 asyncio.create_task(
                     context_graph_writer.log_turn(
@@ -646,32 +682,41 @@ async def _query_stream_impl(
                         answer=full_answer,
                         sources=graph_sources,
                         model=stream_model,
-                        latency_ms=stream_latency_ms
+                        latency_ms=stream_latency_ms,
                     )
                 )
-                logger.debug(f"Scheduled context graph logging for stream query {final_conversation_id}")
+                logger.debug(
+                    f"Scheduled context graph logging for stream query {final_conversation_id}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to schedule context graph logging for stream: {e}")
 
             # RECORD METRICS for streaming queries
             try:
                 from src.api.config import settings
-                from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
-                from src.shared.identifiers import generate_query_id
+                from src.core.admin_ops.application.metrics.collector import (
+                    MetricsCollector,
+                    QueryMetrics,
+                )
                 from src.core.utils.tokenizer import Tokenizer
+                from src.shared.identifiers import generate_query_id
                 from src.shared.model_registry import LLM_MODELS
-                
+
                 query_id = generate_query_id()
-                
+
                 # 1. Count Output Tokens
                 output_tokens = Tokenizer.count_tokens(full_answer, stream_model)
-                
+
                 # 2. Count Input Tokens (Query + Chunks)
                 # Reconstruct rough context string to estimate input tokens
-                chunk_text = "\n".join([getattr(c, "content", "") for c in retrieval_result.chunks]) if retrieval_result.chunks else ""
+                chunk_text = (
+                    "\n".join([getattr(c, "content", "") for c in retrieval_result.chunks])
+                    if retrieval_result.chunks
+                    else ""
+                )
                 input_text = f"{request.query}\n{chunk_text}"
                 input_tokens = Tokenizer.count_tokens(input_text, stream_model)
-                
+
                 # 3. Calculate Cost
                 pricing = {"input": 0.00015, "output": 0.0006}
                 model_cfg = LLM_MODELS.get(stream_provider, {}).get(stream_model)
@@ -680,14 +725,13 @@ async def _query_stream_impl(
                         "input": model_cfg.get("input_cost_per_1k", pricing["input"]),
                         "output": model_cfg.get("output_cost_per_1k", pricing["output"]),
                     }
-                        
-                cost_estimate = (
-                    (input_tokens * pricing["input"] / 1000) + 
-                    (output_tokens * pricing["output"] / 1000)
+
+                cost_estimate = (input_tokens * pricing["input"] / 1000) + (
+                    output_tokens * pricing["output"] / 1000
                 )
-                
+
                 provider = stream_provider or "unknown"
-                
+
                 metrics_obj = QueryMetrics(
                     query_id=query_id,
                     tenant_id=tenant_id,
@@ -709,7 +753,7 @@ async def _query_stream_impl(
                     sources_cited=len(collected_sources),
                     answer_length=len(full_answer),
                 )
-                
+
                 collector = MetricsCollector(redis_url=settings.db.redis_url)
                 await collector.record(metrics_obj)
                 await collector.close()
@@ -722,12 +766,12 @@ async def _query_stream_impl(
         except Exception as e:
             # Generic Provider Error Handling
             # We assume core provider exceptions are available or recognizable by name
-            
+
             error_code = "error"
             provider = "System"
             message = str(e)
             is_handled_error = False
-            
+
             # Helper to safely get provider from exception or text
             def get_provider(exc):
                 if hasattr(exc, "provider") and exc.provider:
@@ -737,18 +781,18 @@ async def _query_stream_impl(
             # 1. Try to match specific known provider errors classes
             try:
                 from src.core.generation.domain.provider_models import (
-                    RateLimitError, 
-                    AuthenticationError, 
+                    AuthenticationError,
                     InvalidRequestError,
-                    ProviderUnavailableError
+                    ProviderUnavailableError,
+                    RateLimitError,
                 )
-                
+
                 if isinstance(e, RateLimitError):
                     error_code = "rate_limit"
                     provider = get_provider(e)
                     message = "Rate limit exceeded"
                     is_handled_error = True
-                
+
                 elif isinstance(e, AuthenticationError):
                     error_code = "auth_error"
                     provider = get_provider(e)
@@ -757,7 +801,9 @@ async def _query_stream_impl(
 
                 elif isinstance(e, InvalidRequestError):
                     # Could be context length or other invalid params
-                    error_code = "context_length" if "context" in str(e).lower() else "invalid_request"
+                    error_code = (
+                        "context_length" if "context" in str(e).lower() else "invalid_request"
+                    )
                     provider = get_provider(e)
                     message = "Invalid request"
                     is_handled_error = True
@@ -767,7 +813,7 @@ async def _query_stream_impl(
                     provider = get_provider(e)
                     message = "Service unavailable"
                     is_handled_error = True
-                    
+
             except ImportError:
                 # Fallback to string matching if imports fail/circular dep
                 name = type(e).__name__
@@ -778,24 +824,22 @@ async def _query_stream_impl(
                     error_code = "auth_error"
                     is_handled_error = True
                 elif "InvalidRequestError" in name:
-                    error_code = "context_length" if "context" in str(e).lower() else "invalid_request"
+                    error_code = (
+                        "context_length" if "context" in str(e).lower() else "invalid_request"
+                    )
                     is_handled_error = True
                 elif "ProviderUnavailableError" in name:
                     error_code = "provider_error"
                     is_handled_error = True
-                
+
                 if is_handled_error and hasattr(e, "provider"):
-                     provider = e.provider.title()
-            
+                    provider = e.provider.title()
+
             if is_handled_error:
-                 logger.warning(f"Handled Provider Error: {error_code} from {provider} - {e}")
-                 error_data = {
-                     "code": error_code, 
-                     "message": message,
-                     "provider": provider
-                 }
-                 yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
-                 return
+                logger.warning(f"Handled Provider Error: {error_code} from {provider} - {e}")
+                error_data = {"code": error_code, "message": message, "provider": provider}
+                yield f"event: processing_error\ndata: {json.dumps(error_data)}\n\n"
+                return
 
             logger.exception(f"Stream generation failed: {e}")
             yield f"event: processing_error\ndata: {json.dumps(str(e))}\n\n"
@@ -831,7 +875,7 @@ async def query_stream_get(
         request=None,
         query=query,
         agent_mode=agent_mode,
-        model=model,        # Pass model param
+        model=model,  # Pass model param
         conversation_id=conversation_id,
         session=session,
     )

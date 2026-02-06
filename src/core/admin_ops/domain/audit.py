@@ -17,6 +17,7 @@ class AuditLog(Base):
     """
     Audit log entry for system and configuration changes.
     """
+
     __tablename__ = "audit_logs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))

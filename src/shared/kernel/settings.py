@@ -37,7 +37,7 @@ class MinIOSettingsProtocol(Protocol):
 class SettingsProtocol(Protocol):
     """
     Protocol defining the settings interface used by core/application layers.
-    
+
     This allows core to depend on an abstraction rather than src.api.config directly.
     """
 

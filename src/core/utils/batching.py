@@ -36,7 +36,9 @@ def get_token_counter(model: str | None = None) -> Callable[[str], int]:
         return lambda text: len(encoding.encode(text))
 
     except (ImportError, Exception) as e:
-        logger.warning(f"tiktoken not available or failed to initialize ({e}). Using word-based approximation.")
+        logger.warning(
+            f"tiktoken not available or failed to initialize ({e}). Using word-based approximation."
+        )
         # Rough approximation: ~4 chars per token on average
         return lambda text: len(text) // 4
 
@@ -102,9 +104,7 @@ def batch_by_tokens(
     for idx, text, tokens in indexed_texts:
         # Check if adding this text would exceed limits
         would_exceed_tokens = current_tokens + tokens > max_tokens_per_batch
-        would_exceed_items = (
-            max_items_per_batch and len(current_batch) >= max_items_per_batch
-        )
+        would_exceed_items = max_items_per_batch and len(current_batch) >= max_items_per_batch
 
         # Start new batch if needed
         if current_batch and (would_exceed_tokens or would_exceed_items):
@@ -154,7 +154,9 @@ def batch_texts_for_embedding(
         Batches with (index, text) tuples
     """
     if not model:
-        model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
+        model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(
+            iter(DEFAULT_EMBEDDING_MODEL.values()), ""
+        )
     counter = get_token_counter(model)
     return batch_by_tokens(
         texts=texts,

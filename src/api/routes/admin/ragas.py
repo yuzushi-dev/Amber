@@ -26,11 +26,7 @@ logger = logging.getLogger(__name__)
 DATASETS_UPLOAD_DIR = "/app/uploads/datasets"
 
 # Fix: Protect all ragas routes with admin check
-router = APIRouter(
-    prefix="/ragas",
-    tags=["admin", "ragas"],
-    dependencies=[Depends(verify_admin)]
-)
+router = APIRouter(prefix="/ragas", tags=["admin", "ragas"], dependencies=[Depends(verify_admin)])
 
 
 # =============================================================================
@@ -42,12 +38,13 @@ router = APIRouter(
 # Helpers
 # =============================================================================
 
+
 def validate_safe_filename(filename: str) -> str:
     """Ensure filename is safe and has no path traversal components."""
     if not filename or ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid filename: Path traversal characters detected"
+            detail="Invalid filename: Path traversal characters detected",
         )
     return filename
 
@@ -57,10 +54,9 @@ def validate_safe_filename(filename: str) -> str:
 # =============================================================================
 
 
-
-
 class BenchmarkRunSummary(BaseModel):
     """Summary of a benchmark run."""
+
     id: str
     tenant_id: str
     dataset_name: str
@@ -73,6 +69,7 @@ class BenchmarkRunSummary(BaseModel):
 
 class BenchmarkRunDetail(BenchmarkRunSummary):
     """Detailed benchmark run with per-sample results."""
+
     details: list | None
     config: dict | None
     error_message: str | None
@@ -80,6 +77,7 @@ class BenchmarkRunDetail(BenchmarkRunSummary):
 
 class BenchmarkStatsResponse(BaseModel):
     """Aggregate statistics for benchmarks."""
+
     total_runs: int
     completed_runs: int
     failed_runs: int
@@ -89,6 +87,7 @@ class BenchmarkStatsResponse(BaseModel):
 
 class DatasetInfo(BaseModel):
     """Information about a golden dataset."""
+
     name: str
     sample_count: int
     path: str
@@ -96,12 +95,14 @@ class DatasetInfo(BaseModel):
 
 class RunBenchmarkRequest(BaseModel):
     """Request to trigger a benchmark run."""
+
     dataset_name: str
     metrics: list[str] = ["faithfulness", "response_relevancy"]
 
 
 class RunBenchmarkResponse(BaseModel):
     """Response after triggering a benchmark."""
+
     benchmark_run_id: str
     task_id: str
     status: str
@@ -112,10 +113,9 @@ class RunBenchmarkResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
+
 @router.get("/stats", response_model=BenchmarkStatsResponse)
-async def get_ragas_stats(
-    session: AsyncSession = Depends(get_db_session)
-):
+async def get_ragas_stats(session: AsyncSession = Depends(get_db_session)):
     """
     Get overall Ragas benchmark statistics.
     """
@@ -142,9 +142,7 @@ async def get_ragas_stats(
 
         # Average metrics from completed runs
         completed_runs_result = await session.execute(
-            select(BenchmarkRun).where(
-                BenchmarkRun.status == BenchmarkStatus.COMPLETED.value
-            )
+            select(BenchmarkRun).where(BenchmarkRun.status == BenchmarkStatus.COMPLETED.value)
         )
         completed_benchmarks = completed_runs_result.scalars().all()
 
@@ -174,18 +172,14 @@ async def get_ragas_stats(
             completed_runs=completed_runs,
             failed_runs=failed_runs,
             avg_faithfulness=avg_faithfulness,
-            avg_relevancy=avg_relevancy
+            avg_relevancy=avg_relevancy,
         )
 
     except Exception as e:
         logger.error(f"Failed to get Ragas stats: {e}")
         # Return zero stats instead of 500
         return BenchmarkStatsResponse(
-            total_runs=0,
-            completed_runs=0,
-            failed_runs=0,
-            avg_faithfulness=0.0,
-            avg_relevancy=0.0
+            total_runs=0, completed_runs=0, failed_runs=0, avg_faithfulness=0.0, avg_relevancy=0.0
         )
 
 
@@ -197,11 +191,7 @@ async def list_datasets():
     datasets = []
 
     # Check known dataset locations
-    paths_to_check = [
-        "src/core/evaluation",
-        "tests/data",
-        DATASETS_UPLOAD_DIR
-    ]
+    paths_to_check = ["src/core/evaluation", "tests/data", DATASETS_UPLOAD_DIR]
 
     for base_path in paths_to_check:
         if os.path.exists(base_path):
@@ -209,8 +199,10 @@ async def list_datasets():
                 is_valid_ext = filename.endswith(".json") or filename.endswith(".csv")
                 # For uploads, we don't enforce "golden" or "dataset" in name
                 is_upload_dir = base_path == DATASETS_UPLOAD_DIR
-                is_dataset = is_upload_dir or "golden" in filename.lower() or "dataset" in filename.lower()
-                
+                is_dataset = (
+                    is_upload_dir or "golden" in filename.lower() or "dataset" in filename.lower()
+                )
+
                 if is_valid_ext and is_dataset:
                     full_path = os.path.join(base_path, filename)
                     try:
@@ -225,22 +217,18 @@ async def list_datasets():
                     except Exception:
                         sample_count = 0
 
-                    datasets.append(DatasetInfo(
-                        name=filename,
-                        sample_count=sample_count,
-                        path=full_path
-                    ))
+                    datasets.append(
+                        DatasetInfo(name=filename, sample_count=sample_count, path=full_path)
+                    )
 
     return datasets
 
 
 @router.post("/datasets")
-async def upload_dataset(
-    file: UploadFile = File(...)
-):
+async def upload_dataset(file: UploadFile = File(...)):
     """
     Upload a new golden dataset (JSON or CSV file).
-    
+
     Expected columns/fields:
     - query/question: The input question
     - ground_truth/ground_truths: Expected correct answer(s)
@@ -251,24 +239,20 @@ async def upload_dataset(
         filename = file.filename or "dataset"
         lower_filename = filename.lower()
         if ".." in filename or "/" in filename or "\\" in filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid filename"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+
         is_json = lower_filename.endswith(".json")
         is_csv = lower_filename.endswith(".csv")
-        
+
         if not is_json and not is_csv:
             logger.warning(f"Invalid dataset file extension: {filename}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Dataset must be a JSON or CSV file"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Dataset must be a JSON or CSV file"
             )
 
         # Read file content
         content = await file.read()
-        
+
         data = []
         if is_json:
             # Parse JSON
@@ -276,16 +260,14 @@ async def upload_dataset(
                 parsed = json.loads(content)
             except json.JSONDecodeError as e:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid JSON: {str(e)}"
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {str(e)}"
                 )
-                
+
             if isinstance(parsed, list):
                 data = parsed
             else:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Dataset must be a JSON array"
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Dataset must be a JSON array"
                 )
         else:
             # Parse CSV
@@ -295,15 +277,15 @@ async def upload_dataset(
                 # Actually, standard library imports are safe.
                 import csv
                 import io
-                
+
                 text_content = content.decode("utf-8")
                 # Skip empty lines
                 text_content = text_content.strip()
-                
+
                 reader = csv.DictReader(io.StringIO(text_content))
-                
+
                 logger.info(f"CSV Headers: {reader.fieldnames}")
-                
+
                 for row in reader:
                     sample = {}
                     # Map query
@@ -313,7 +295,7 @@ async def upload_dataset(
                         sample["query"] = row["question"]
                     elif row.get("user_input"):
                         sample["query"] = row["user_input"]
-                    
+
                     # Map ground truth
                     if row.get("ground_truth"):
                         sample["ground_truth"] = row["ground_truth"]
@@ -325,7 +307,7 @@ async def upload_dataset(
                         sample["ground_truth"] = row["answer"]
                     elif row.get("reference"):
                         sample["ground_truth"] = row["reference"]
-                    
+
                     # Map contexts
                     ctx = None
                     if row.get("contexts"):
@@ -343,46 +325,38 @@ async def upload_dataset(
                         else:
                             sample["contexts"] = ctx.split(";") if ctx else []
                     else:
-                         sample["contexts"] = []
-                    
+                        sample["contexts"] = []
+
                     data.append(sample)
-                    
+
             except UnicodeDecodeError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid CSV encoding. Please use UTF-8. Error: {str(e)}"
+                    detail=f"Invalid CSV encoding. Please use UTF-8. Error: {str(e)}",
                 )
             except Exception as e:
                 logger.error(f"CSV Parse Error: {e}")
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Failed to parse CSV: {str(e)}"
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to parse CSV: {str(e)}"
                 )
 
         if not data:
-             logger.warning("Dataset empty after parsing")
-             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Dataset is empty"
-            )
+            logger.warning("Dataset empty after parsing")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dataset is empty")
 
         # Validate structure
         for i, sample in enumerate(data):
             if not isinstance(sample, dict):
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Sample {i} must be an object"
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Sample {i} must be an object"
                 )
             if "query" not in sample and "question" not in sample:
                 logger.warning(f"Sample {i} missing query. Found: {list(sample.keys())}")
                 msg = f"Sample {i} must have 'query' or 'question' field"
                 # Check for is_json variable availability or infer
                 if filename.endswith(".csv"):
-                     msg += ". Check CSV headers."
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=msg
-                )
+                    msg += ". Check CSV headers."
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
         # Save as JSON
         save_filename = filename if is_json else filename.replace(".csv", ".json")
@@ -397,7 +371,7 @@ async def upload_dataset(
             "original_format": "json" if is_json else "csv",
             "samples": len(data),
             "path": save_path,
-            "message": "Dataset uploaded successfully"
+            "message": "Dataset uploaded successfully",
         }
 
     except HTTPException:
@@ -406,7 +380,7 @@ async def upload_dataset(
         logger.exception("Unexpected error during dataset upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+            detail=f"Internal server error: {str(e)}",
         )
 
 
@@ -416,14 +390,13 @@ async def delete_dataset(filename: str):
     Delete an uploaded dataset.
     """
     validate_safe_filename(filename)
-    
+
     file_path = f"{DATASETS_UPLOAD_DIR}/{filename}"
     if not os.path.exists(file_path):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Dataset {filename} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Dataset {filename} not found"
         )
-        
+
     try:
         os.remove(file_path)
         return {"message": f"Dataset {filename} deleted"}
@@ -431,24 +404,20 @@ async def delete_dataset(filename: str):
         logger.error(f"Failed to delete dataset {filename}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete dataset: {str(e)}"
+            detail=f"Failed to delete dataset: {str(e)}",
         )
 
 
 @router.post("/run-benchmark", response_model=RunBenchmarkResponse)
 async def run_benchmark(
-    request: RunBenchmarkRequest,
-    session: AsyncSession = Depends(get_db_session)
+    request: RunBenchmarkRequest, session: AsyncSession = Depends(get_db_session)
 ):
     """
     Trigger a new Ragas benchmark run.
     """
     # Fix: Validate dataset_name to prevent path traversal
     if ".." in request.dataset_name or "/" in request.dataset_name or "\\" in request.dataset_name:
-         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid dataset name"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid dataset name")
 
     # Create benchmark run record
     benchmark_id = str(uuid4())
@@ -458,7 +427,7 @@ async def run_benchmark(
         tenant_id="default",  # TODO: Get from auth context
         dataset_name=request.dataset_name,
         status=BenchmarkStatus.PENDING,
-        config={"metrics": request.metrics}
+        config={"metrics": request.metrics},
     )
 
     session.add(benchmark)
@@ -471,27 +440,21 @@ async def run_benchmark(
         benchmark_run_id=benchmark_id,
         task_id=task.id,
         status="pending",
-        message=f"Benchmark run started for dataset '{request.dataset_name}'"
+        message=f"Benchmark run started for dataset '{request.dataset_name}'",
     )
 
 
 @router.delete("/runs/{run_id}")
-async def delete_benchmark_run(
-    run_id: str,
-    session: AsyncSession = Depends(get_db_session)
-):
+async def delete_benchmark_run(run_id: str, session: AsyncSession = Depends(get_db_session)):
     """
     Delete a benchmark run.
     """
-    result = await session.execute(
-        select(BenchmarkRun).where(BenchmarkRun.id == run_id)
-    )
+    result = await session.execute(select(BenchmarkRun).where(BenchmarkRun.id == run_id))
     benchmark = result.scalars().first()
 
     if not benchmark:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Benchmark run {run_id} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Benchmark run {run_id} not found"
         )
 
     await session.delete(benchmark)
@@ -501,22 +464,16 @@ async def delete_benchmark_run(
 
 
 @router.get("/job/{job_id}", response_model=BenchmarkRunDetail)
-async def get_benchmark_job(
-    job_id: str,
-    session: AsyncSession = Depends(get_db_session)
-):
+async def get_benchmark_job(job_id: str, session: AsyncSession = Depends(get_db_session)):
     """
     Get status and results of a benchmark run.
     """
-    result = await session.execute(
-        select(BenchmarkRun).where(BenchmarkRun.id == job_id)
-    )
+    result = await session.execute(select(BenchmarkRun).where(BenchmarkRun.id == job_id))
     benchmark = result.scalars().first()
 
     if not benchmark:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Benchmark run {job_id} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Benchmark run {job_id} not found"
         )
 
     return BenchmarkRunDetail(
@@ -530,40 +487,39 @@ async def get_benchmark_job(
         error_message=benchmark.error_message,
         started_at=benchmark.started_at,
         completed_at=benchmark.completed_at,
-        created_at=benchmark.created_at
+        created_at=benchmark.created_at,
     )
 
 
 @router.get("/comparison")
 async def compare_runs(
     run_ids: str,  # Comma-separated list of run IDs
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
 ):
     """
     Compare results across multiple benchmark runs.
     """
     ids = [r.strip() for r in run_ids.split(",")]
 
-    result = await session.execute(
-        select(BenchmarkRun).where(BenchmarkRun.id.in_(ids))
-    )
+    result = await session.execute(select(BenchmarkRun).where(BenchmarkRun.id.in_(ids)))
     benchmarks = result.scalars().all()
 
     if not benchmarks:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No benchmark runs found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No benchmark runs found")
 
     comparison = []
     for benchmark in benchmarks:
-        comparison.append({
-            "id": benchmark.id,
-            "dataset_name": benchmark.dataset_name,
-            "status": benchmark.status.value,
-            "metrics": benchmark.metrics,
-            "completed_at": benchmark.completed_at.isoformat() if benchmark.completed_at else None
-        })
+        comparison.append(
+            {
+                "id": benchmark.id,
+                "dataset_name": benchmark.dataset_name,
+                "status": benchmark.status.value,
+                "metrics": benchmark.metrics,
+                "completed_at": benchmark.completed_at.isoformat()
+                if benchmark.completed_at
+                else None,
+            }
+        )
 
     return {"runs": comparison, "count": len(comparison)}
 
@@ -573,7 +529,7 @@ async def list_benchmark_runs(
     limit: int = 20,
     offset: int = 0,
     status_filter: str | None = None,
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
 ):
     """
     List benchmark runs with optional filtering.
@@ -600,7 +556,7 @@ async def list_benchmark_runs(
             metrics=b.metrics,
             started_at=b.started_at,
             completed_at=b.completed_at,
-            created_at=b.created_at
+            created_at=b.created_at,
         )
         for b in benchmarks
     ]

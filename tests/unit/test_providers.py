@@ -5,7 +5,6 @@ Provider Unit Tests
 Tests for the model provider abstraction layer.
 """
 
-
 import pytest
 
 from src.core.generation.infrastructure.providers.base import (

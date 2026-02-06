@@ -70,31 +70,51 @@ class StructuredKGDetector:
     # Format: (pattern, query_type, optional_filter_extraction)
     PATTERNS: list[tuple[str, StructuredQueryType]] = [
         # Document queries
-        (r"^(list|show|get|display)\s+(all\s+)?(the\s+)?documents?$", StructuredQueryType.LIST_DOCUMENTS),
-        (r"^(list|show|get)\s+(all\s+)?(the\s+)?documents?\s+(in|from)\s+", StructuredQueryType.LIST_DOCUMENTS),
-        (r"^what\s+(documents?|files?)\s+(do\s+)?(we\s+|i\s+)?have", StructuredQueryType.LIST_DOCUMENTS),
+        (
+            r"^(list|show|get|display)\s+(all\s+)?(the\s+)?documents?$",
+            StructuredQueryType.LIST_DOCUMENTS,
+        ),
+        (
+            r"^(list|show|get)\s+(all\s+)?(the\s+)?documents?\s+(in|from)\s+",
+            StructuredQueryType.LIST_DOCUMENTS,
+        ),
+        (
+            r"^what\s+(documents?|files?)\s+(do\s+)?(we\s+|i\s+)?have",
+            StructuredQueryType.LIST_DOCUMENTS,
+        ),
         (r"^how many\s+(documents?|files?)", StructuredQueryType.COUNT_DOCUMENTS),
         (r"^count\s+(all\s+)?(documents?|files?)", StructuredQueryType.COUNT_DOCUMENTS),
-        (r"^(what\'?s|what is)\s+the\s+(document|file)\s+count", StructuredQueryType.COUNT_DOCUMENTS),
-
+        (
+            r"^(what\'?s|what is)\s+the\s+(document|file)\s+count",
+            StructuredQueryType.COUNT_DOCUMENTS,
+        ),
         # Entity queries
-        (r"^(list|show|get|display)\s+(all\s+)?(the\s+)?entities", StructuredQueryType.LIST_ENTITIES),
+        (
+            r"^(list|show|get|display)\s+(all\s+)?(the\s+)?entities",
+            StructuredQueryType.LIST_ENTITIES,
+        ),
         (r"^what\s+entities\s+(do\s+)?(we\s+|i\s+)?have", StructuredQueryType.LIST_ENTITIES),
         (r"^how many\s+entities", StructuredQueryType.COUNT_ENTITIES),
         (r"^count\s+(all\s+)?entities", StructuredQueryType.COUNT_ENTITIES),
         (r"^(list|show)\s+(all\s+)?entity\s+types?", StructuredQueryType.LIST_ENTITY_TYPES),
         (r"^what\s+(types?\s+of\s+)?entities\s+exist", StructuredQueryType.LIST_ENTITY_TYPES),
-
         # Relationship queries
-        (r"^(list|show|get)\s+(all\s+)?(the\s+)?relationships?", StructuredQueryType.LIST_RELATIONSHIPS),
-        (r"^what\s+relationships?\s+(do\s+)?(we\s+|i\s+)?have", StructuredQueryType.LIST_RELATIONSHIPS),
-
+        (
+            r"^(list|show|get)\s+(all\s+)?(the\s+)?relationships?",
+            StructuredQueryType.LIST_RELATIONSHIPS,
+        ),
+        (
+            r"^what\s+relationships?\s+(do\s+)?(we\s+|i\s+)?have",
+            StructuredQueryType.LIST_RELATIONSHIPS,
+        ),
         # Chunk queries
         (r"^how many\s+chunks?", StructuredQueryType.COUNT_CHUNKS),
         (r"^count\s+(all\s+)?chunks?", StructuredQueryType.COUNT_CHUNKS),
-
         # Stats queries
-        (r"^(show|get|display)\s+(database|db|knowledge\s+base)?\s*stats?", StructuredQueryType.DOCUMENT_STATS),
+        (
+            r"^(show|get|display)\s+(database|db|knowledge\s+base)?\s*stats?",
+            StructuredQueryType.DOCUMENT_STATS,
+        ),
         (r"^(what\'?s|what is)\s+the\s+(database|db)\s+status", StructuredQueryType.DOCUMENT_STATS),
     ]
 
@@ -143,13 +163,11 @@ class CypherGenerator:
             ORDER BY d.created_at DESC
             LIMIT $limit
         """,
-
         StructuredQueryType.COUNT_DOCUMENTS: """
             MATCH (d:Document)
             WHERE d.tenant_id = $tenant_id
             RETURN count(d) as count
         """,
-
         StructuredQueryType.LIST_ENTITIES: """
             MATCH (e:Entity)
             WHERE e.tenant_id = $tenant_id
@@ -158,20 +176,17 @@ class CypherGenerator:
             ORDER BY e.name
             LIMIT $limit
         """,
-
         StructuredQueryType.COUNT_ENTITIES: """
             MATCH (e:Entity)
             WHERE e.tenant_id = $tenant_id
             RETURN count(e) as count
         """,
-
         StructuredQueryType.LIST_ENTITY_TYPES: """
             MATCH (e:Entity)
             WHERE e.tenant_id = $tenant_id
             RETURN DISTINCT e.type as type, count(e) as count
             ORDER BY count DESC
         """,
-
         StructuredQueryType.LIST_RELATIONSHIPS: """
             MATCH (e1:Entity)-[r]->(e2:Entity)
             WHERE e1.tenant_id = $tenant_id
@@ -180,13 +195,11 @@ class CypherGenerator:
                    r.description as description
             LIMIT $limit
         """,
-
         StructuredQueryType.COUNT_CHUNKS: """
             MATCH (c:Chunk)
             WHERE c.tenant_id = $tenant_id
             RETURN count(c) as count
         """,
-
         StructuredQueryType.DOCUMENT_STATS: """
             MATCH (d:Document {tenant_id: $tenant_id})
             WITH count(d) as docs
@@ -233,11 +246,7 @@ class StructuredQueryExecutor:
         self.detector = StructuredKGDetector()
         self.generator = CypherGenerator()
 
-    async def try_execute(
-        self,
-        query: str,
-        tenant_id: str
-    ) -> StructuredResult | None:
+    async def try_execute(self, query: str, tenant_id: str) -> StructuredResult | None:
         """
         Attempt to execute a query as a structured query.
 

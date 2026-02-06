@@ -1,12 +1,10 @@
-from typing import Protocol, Any
+from typing import Any, Protocol
 
 
 class StoragePort(Protocol):
     """Port for object storage operations."""
 
-    def upload_file(
-        self, object_name: str, data: Any, length: int, content_type: str
-    ) -> None:
+    def upload_file(self, object_name: str, data: Any, length: int, content_type: str) -> None:
         """Upload a file to storage."""
         ...
 

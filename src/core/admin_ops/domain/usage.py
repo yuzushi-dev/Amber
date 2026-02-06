@@ -16,6 +16,7 @@ class UsageLog(Base, TimestampMixin):
     """
     Tracks LLM and Embedding usage across the system.
     """
+
     __tablename__ = "usage_logs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))

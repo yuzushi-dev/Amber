@@ -10,14 +10,15 @@ from uuid import uuid4
 from sqlalchemy import JSON, Boolean, Column, String
 from sqlalchemy.orm import relationship
 
+from src.core.admin_ops.domain.api_key import ApiKeyTenant
 from src.shared.kernel.models.base import Base, TimestampMixin
-from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 
 
 class Tenant(Base, TimestampMixin):
     """
     Represents a tenant in the system with associated configuration.
     """
+
     __tablename__ = "tenants"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -33,7 +34,9 @@ class Tenant(Base, TimestampMixin):
     metadata_json = Column(JSON, default=dict)
 
     # Many-to-Many relationship with ApiKey
-    api_keys = relationship("ApiKey", secondary=ApiKeyTenant.__table__, back_populates="tenants", lazy="selectin")
+    api_keys = relationship(
+        "ApiKey", secondary=ApiKeyTenant.__table__, back_populates="tenants", lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<Tenant(id={self.id}, name={self.name})>"

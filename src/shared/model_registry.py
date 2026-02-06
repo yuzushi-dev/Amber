@@ -269,10 +269,14 @@ LLM_MODEL_TO_PROVIDERS = _build_model_to_providers(LLM_MODELS)
 EMBEDDING_MODEL_TO_PROVIDERS = _build_model_to_providers(EMBEDDING_MODELS)
 
 
-def resolve_provider_for_model(model: str, model_to_providers: dict[str, set[str]], *, kind: str) -> str:
+def resolve_provider_for_model(
+    model: str, model_to_providers: dict[str, set[str]], *, kind: str
+) -> str:
     providers = model_to_providers.get(model, set())
     if not providers:
-        raise ConfigurationError(f"{kind}_model", f"Model '{model}' is not registered for {kind} providers.")
+        raise ConfigurationError(
+            f"{kind}_model", f"Model '{model}' is not registered for {kind} providers."
+        )
     if len(providers) > 1:
         choices = ", ".join(sorted(providers))
         raise ConfigurationError(

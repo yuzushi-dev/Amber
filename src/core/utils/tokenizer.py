@@ -18,6 +18,7 @@ DEFAULT_ENCODING = "cl100k_base"
 # Try importing tiktoken
 try:
     import tiktoken
+
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
@@ -45,7 +46,9 @@ class Tokenizer:
                 try:
                     return tiktoken.encoding_for_model(model)
                 except Exception:
-                    logger.warning(f"Unknown model {model}, using default encoding {DEFAULT_ENCODING}")
+                    logger.warning(
+                        f"Unknown model {model}, using default encoding {DEFAULT_ENCODING}"
+                    )
 
         try:
             return tiktoken.get_encoding(encoding_name)
@@ -71,11 +74,7 @@ class Tokenizer:
 
     @classmethod
     def truncate_to_budget(
-        cls,
-        text: str,
-        max_tokens: int,
-        model: str | None = None,
-        from_start: bool = True
+        cls, text: str, max_tokens: int, model: str | None = None, from_start: bool = True
     ) -> str:
         """Truncate text to fit within a token budget."""
         if not text or max_tokens <= 0:

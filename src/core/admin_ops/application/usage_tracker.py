@@ -13,6 +13,7 @@ from src.core.generation.domain.provider_models import TokenUsage
 
 logger = logging.getLogger(__name__)
 
+
 class UsageTracker:
     """
     Asynchronous service to record model usage events.
@@ -53,7 +54,7 @@ class UsageTracker:
                     cost=cost,
                     request_id=request_id,
                     trace_id=trace_id,
-                    metadata_json=metadata or {}
+                    metadata_json=metadata or {},
                 )
                 session.add(log_entry)
                 await session.commit()
@@ -61,5 +62,6 @@ class UsageTracker:
         except Exception as e:
             logger.error(f"Failed to record usage log: {e}")
             return None
+
 
 # Global helper or factory could be added here

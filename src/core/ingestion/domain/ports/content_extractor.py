@@ -18,8 +18,9 @@ class ExtractionResult:
 class ContentExtractorPort(Protocol):
     """Port for extracting content from files."""
 
-    async def extract(self, file_content: bytes, mime_type: str, filename: str) -> ExtractionResult:
-        ...
+    async def extract(
+        self, file_content: bytes, mime_type: str, filename: str
+    ) -> ExtractionResult: ...
 
 
 _content_extractor: ContentExtractorPort | None = None
@@ -32,5 +33,7 @@ def set_content_extractor(extractor: ContentExtractorPort | None) -> None:
 
 def get_content_extractor() -> ContentExtractorPort:
     if _content_extractor is None:
-        raise RuntimeError("Content extractor not configured. Call set_content_extractor() at startup.")
+        raise RuntimeError(
+            "Content extractor not configured. Call set_content_extractor() at startup."
+        )
     return _content_extractor

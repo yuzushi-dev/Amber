@@ -36,9 +36,11 @@ class QueryTrace(BaseModel):
 
     def add_step(self, name: str, duration_ms: float, details: dict[str, Any] | None = None):
         """Add a step to the trace."""
-        self.steps.append({
-            "step": name,
-            "duration_ms": round(duration_ms, 2),
-            "details": details or {},
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        self.steps.append(
+            {
+                "step": name,
+                "duration_ms": round(duration_ms, 2),
+                "details": details or {},
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )

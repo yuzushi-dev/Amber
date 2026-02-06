@@ -109,10 +109,7 @@ async def recover_stale_documents() -> dict[str, Any]:
                             )
 
                         # Publish status update via Redis
-                        _publish_recovery_status(
-                            document.id,
-                            document.status.value
-                        )
+                        _publish_recovery_status(document.id, document.status.value)
 
                     except Exception as e:
                         logger.error(f"Error processing stale document {document.id}: {e}")
@@ -140,6 +137,7 @@ async def recover_stale_documents() -> dict[str, Any]:
 def _publish_recovery_status(document_id: str, status: str) -> None:
     """Publish recovery status update to Redis Pub/Sub."""
     import json
+
     try:
         import redis
 
@@ -152,7 +150,7 @@ def _publish_recovery_status(document_id: str, status: str) -> None:
             "status": status,
             "progress": 100,
             "recovered": True,
-            "message": f"Document status updated by recovery process to: {status}"
+            "message": f"Document status updated by recovery process to: {status}",
         }
         r.publish(channel, json.dumps(message))
         r.close()

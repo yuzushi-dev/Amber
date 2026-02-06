@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 try:
     import redis.asyncio as redis
+
     HAS_REDIS = True
 except ImportError:
     HAS_REDIS = False
@@ -50,7 +51,7 @@ async def stream_document_events(document_id: str) -> StreamingResponse:
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -80,8 +81,7 @@ async def event_generator(document_id: str) -> AsyncGenerator[str, None]:
 
         while timeout_count < max_timeouts:
             message = await asyncio.wait_for(
-                pubsub.get_message(ignore_subscribe_messages=True),
-                timeout=5.0
+                pubsub.get_message(ignore_subscribe_messages=True), timeout=5.0
             )
 
             if message and message.get("type") == "message":

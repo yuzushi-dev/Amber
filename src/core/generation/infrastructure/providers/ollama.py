@@ -17,19 +17,18 @@ from src.core.generation.infrastructure.providers.base import (
     GenerationResult,
     InvalidRequestError,
     ProviderConfig,
-    ProviderTier,
     ProviderUnavailableError,
     RateLimitError,
     TokenUsage,
 )
+from src.shared.context import get_current_tenant, get_request_id
+from src.shared.kernel.observability import trace_span
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_LLM_MODEL,
     EMBEDDING_MODELS,
     LLM_MODELS,
 )
-from src.shared.kernel.observability import trace_span
-from src.shared.context import get_current_tenant, get_request_id
 
 try:
     from opentelemetry import trace
@@ -73,7 +72,9 @@ def _get_openai_client(api_key: str, base_url: str):
         # API key is required by client but ignored by Ollama
         return AsyncOpenAI(api_key=api_key or "ollama", base_url=base_url)
     except ImportError as e:
-        raise ImportError("openai package is required. Install with: pip install openai>=1.10.0") from e
+        raise ImportError(
+            "openai package is required. Install with: pip install openai>=1.10.0"
+        ) from e
 
 
 class OllamaLLMProvider(BaseLLMProvider):
@@ -88,6 +89,7 @@ class OllamaLLMProvider(BaseLLMProvider):
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)
         import os
+
         # Allow overriding default model via env
         self.default_model = os.getenv("OLLAMA_MODEL", self.default_model)
         self._client = None
@@ -171,7 +173,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
+                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
@@ -182,7 +184,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                     cost=result.cost_estimate,
                     request_id=get_request_id(),
                     trace_id=trace_id,
-                    metadata=result.metadata
+                    metadata=result.metadata,
                 )
 
             return result
@@ -202,7 +204,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         Direct chat completion with tool support.
         """
         model = self.default_model
-        
+
         try:
             response = await self.client.chat.completions.create(
                 model=model,
@@ -212,7 +214,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 **kwargs,
             )
             return response
-            
+
         except Exception as e:
             self._handle_error(e, model)
 
@@ -242,7 +244,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 max_tokens=max_tokens,
                 seed=seed,
                 stream=True,
-                **{k: v for k, v in kwargs.items() if k != 'history'},
+                **{k: v for k, v in kwargs.items() if k != "history"},
             )
 
             async for chunk in stream:
@@ -346,9 +348,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             # Extract embeddings in order
-            embeddings = [
-                item.embedding for item in sorted(response.data, key=lambda x: x.index)
-            ]
+            embeddings = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
 
             # Get dimensions from first embedding
             actual_dimensions = len(embeddings[0]) if embeddings else 0
@@ -366,14 +366,14 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 dimensions=actual_dimensions,
                 latency_ms=elapsed_ms,
                 cost_estimate=0.0,  # Local is free
-                metadata={"response_id": None}, # Ollama embed response might not have ID
+                metadata={"response_id": None},  # Ollama embed response might not have ID
             )
 
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
-                
+                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
+
                 # Merge metadata from kwargs (e.g. document_id) with result metadata
                 usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
 

@@ -2,8 +2,10 @@
 Unit tests for SparseEmbeddingService with GPU batching.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 
 # Test without actual model loading
 class TestSparseEmbeddingServiceBatch:
@@ -12,8 +14,8 @@ class TestSparseEmbeddingServiceBatch:
     def test_embed_batch_empty_input(self):
         """Empty input should return empty list."""
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-        
-        with patch.object(SparseEmbeddingService, '_load_model'):
+
+        with patch.object(SparseEmbeddingService, "_load_model"):
             service = SparseEmbeddingService()
             result = service.embed_batch([])
             assert result == []
@@ -21,11 +23,11 @@ class TestSparseEmbeddingServiceBatch:
     def test_embed_sparse_delegates_to_batch(self):
         """Single text should delegate to embed_batch."""
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-        
+
         service = SparseEmbeddingService()
-        
+
         # Mock embed_batch to verify it's called
-        with patch.object(service, 'embed_batch', return_value=[{1: 0.5}]) as mock_batch:
+        with patch.object(service, "embed_batch", return_value=[{1: 0.5}]) as mock_batch:
             result = service.embed_sparse("test text")
             mock_batch.assert_called_once_with(["test text"])
             assert result == {1: 0.5}
@@ -33,10 +35,10 @@ class TestSparseEmbeddingServiceBatch:
     def test_embed_sparse_returns_empty_on_empty_batch(self):
         """When batch returns empty list, embed_sparse returns empty dict."""
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-        
+
         service = SparseEmbeddingService()
-        
-        with patch.object(service, 'embed_batch', return_value=[]):
+
+        with patch.object(service, "embed_batch", return_value=[]):
             result = service.embed_sparse("test text")
             assert result == {}
 
@@ -53,15 +55,16 @@ class TestSparseEmbeddingServiceIntegration:
             from transformers import AutoModelForMaskedLM
         except ImportError:
             pytest.skip("torch/transformers not available")
-        
+
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
+
         return SparseEmbeddingService()
 
     def test_embed_batch_produces_results(self, service):
         """Batch should produce results for each input text."""
         texts = ["Hello world", "This is a test", "GPU acceleration"]
         results = service.embed_batch(texts)
-        
+
         assert len(results) == 3
         for result in results:
             assert isinstance(result, dict)
@@ -71,10 +74,10 @@ class TestSparseEmbeddingServiceIntegration:
     def test_embed_batch_consistency(self, service):
         """Results should be consistent between batch and single."""
         text = "Consistency test"
-        
+
         single_result = service.embed_sparse(text)
         batch_result = service.embed_batch([text])[0]
-        
+
         # Should be identical
         assert single_result == batch_result
 
@@ -83,7 +86,7 @@ class TestSparseEmbeddingServiceIntegration:
         # Create 40 texts (batch_size is 32)
         texts = [f"Text number {i}" for i in range(40)]
         results = service.embed_batch(texts, batch_size=8)
-        
+
         assert len(results) == 40
         for result in results:
             assert isinstance(result, dict)

@@ -15,9 +15,7 @@ from src.core.generation.infrastructure.providers.base import (
     BaseLLMProvider,
     EmbeddingResult,
     GenerationResult,
-    InvalidRequestError,
     ProviderConfig,
-    ProviderTier,
     ProviderUnavailableError,
     QuotaExceededError,
     RateLimitError,
@@ -31,24 +29,26 @@ from src.shared.model_registry import (
     embedding_supports_dimensions,
     get_openai_chat_overrides,
 )
-from src.shared.kernel.observability import trace_span
-from src.shared.context import get_current_tenant, get_request_id
 
 try:
     from opentelemetry import trace
 except ImportError:
+
     class MockTrace:
         def get_tracer(self, name):
             return MockTracer()
-    
+
     class MockTracer:
         def start_as_current_span(self, name):
             return MockSpan()
-            
+
     class MockSpan:
-        def __enter__(self): return self
-        def __exit__(self, exc_type, exc_val, exc_tb): pass
-        
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
     trace = MockTrace()
 
 tracer = trace.get_tracer(__name__)
@@ -63,28 +63,27 @@ def _get_openai_client(api_key: str, base_url: str | None = None):
     global _openai_client
     try:
         from openai import AsyncOpenAI
-        
+
         # Check if we need to recreate (e.g. key change or not initialized)
         if _openai_client is None or _openai_client.api_key != api_key:
-            _openai_client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=base_url
-            )
-            
+            _openai_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
         return _openai_client
     except ImportError as e:
-        raise ImportError("openai package is required. Install with: pip install openai>=1.10.0") from e
+        raise ImportError(
+            "openai package is required. Install with: pip install openai>=1.10.0"
+        ) from e
 
 
 class OpenAILLMProvider(BaseLLMProvider):
     """OpenAI LLM provider for GPT models."""
-    
+
     provider_name = "openai"
-    
+
     # Models supported by this provider for validation
     models = LLM_MODELS["openai"]
     default_model = DEFAULT_LLM_MODEL["openai"]
-    
+
     @property
     def model_name(self) -> str:
         """Return the current/default model name."""
@@ -128,9 +127,8 @@ class OpenAILLMProvider(BaseLLMProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
-        messages.append({"role": "user", "content": prompt})
 
+        messages.append({"role": "user", "content": prompt})
 
         try:
             params = {
@@ -152,14 +150,14 @@ class OpenAILLMProvider(BaseLLMProvider):
                 params["seed"] = seed
             if stop:
                 params["stop"] = stop
-                
+
             response = await self.client.chat.completions.create(**params)
-            
+
             content = response.choices[0].message.content or ""
             usage = response.usage
-            
+
             latency = (time.perf_counter() - start_time) * 1000
-            
+
             input_tokens = usage.prompt_tokens
             output_tokens = usage.completion_tokens
 
@@ -167,11 +165,8 @@ class OpenAILLMProvider(BaseLLMProvider):
             finish_reason = response.choices[0].finish_reason if response.choices else None
 
             # Convert usage to domain object
-            usage_obj = TokenUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens
-            )
-            
+            usage_obj = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+
             cost = self.estimate_cost(usage_obj, model)
 
             return GenerationResult(
@@ -182,12 +177,12 @@ class OpenAILLMProvider(BaseLLMProvider):
                 cost_estimate=cost,
                 latency_ms=latency,
                 finish_reason=finish_reason,
-                metadata={"response_id": response.id}
+                metadata={"response_id": response.id},
             )
 
         except Exception as e:
             self._handle_error(e, model)
-            
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -199,7 +194,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         Direct chat completion with tool support.
         """
         model = self.default_model
-        
+
         try:
             response = await self.client.chat.completions.create(
                 model=model,
@@ -209,7 +204,7 @@ class OpenAILLMProvider(BaseLLMProvider):
                 **kwargs,
             )
             return response
-            
+
         except Exception as e:
             self._handle_error(e, model)
 
@@ -231,12 +226,12 @@ class OpenAILLMProvider(BaseLLMProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
+
         if history:
             messages.extend(history)
-            
+
         messages.append({"role": "user", "content": prompt})
-        
+
         try:
             params = {
                 "model": model,
@@ -244,7 +239,7 @@ class OpenAILLMProvider(BaseLLMProvider):
                 "temperature": temperature,
                 "stream": True,
             }
-            
+
             # Handle model-specific parameter differences
             overrides = get_openai_chat_overrides(model)
             if overrides["use_max_completion_tokens"]:
@@ -258,31 +253,37 @@ class OpenAILLMProvider(BaseLLMProvider):
                     params["temperature"] = overrides["fixed_temperature"]
             elif max_tokens:
                 params["max_tokens"] = max_tokens
-                    
+
             if seed is not None:
                 params["seed"] = seed
             if stop:
                 params["stop"] = stop
 
             # DIAGNOSTIC: Log the exact request being sent
-            logger.warning(f"[DIAG] Calling OpenAI with: model={model}, msg_count={len(messages)}, temp={params.get('temperature')}, max_tokens={params.get('max_completion_tokens') or params.get('max_tokens')}")
+            logger.warning(
+                f"[DIAG] Calling OpenAI with: model={model}, msg_count={len(messages)}, temp={params.get('temperature')}, max_tokens={params.get('max_completion_tokens') or params.get('max_tokens')}"
+            )
             if messages:
-                logger.warning(f"[DIAG] Last message role={messages[-1].get('role')}, content_len={len(str(messages[-1].get('content', '')))}")
+                logger.warning(
+                    f"[DIAG] Last message role={messages[-1].get('role')}, content_len={len(str(messages[-1].get('content', '')))}"
+                )
 
             stream = await self.client.chat.completions.create(**params)
-            
+
             chunk_count = 0
             content_count = 0
             async for chunk in stream:
                 chunk_count += 1
                 if chunk.choices:
                     delta = chunk.choices[0].delta
-                    
+
                     # DIAGNOSTIC: Log first few chunks to understand structure
                     finish_reason = chunk.choices[0].finish_reason
                     if chunk_count <= 3 or finish_reason:
-                        logger.warning(f"[DIAG] Chunk {chunk_count}: delta={delta}, finish_reason={finish_reason}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}")
-                    
+                        logger.warning(
+                            f"[DIAG] Chunk {chunk_count}: delta={delta}, finish_reason={finish_reason}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}"
+                        )
+
                     if delta.content:
                         content_count += 1
                         yield delta.content
@@ -296,8 +297,10 @@ class OpenAILLMProvider(BaseLLMProvider):
                     # Keepalive or empty chunk
                     if chunk_count <= 3:
                         logger.warning(f"[DIAG] Empty chunk {chunk_count}: {chunk}")
-            
-            logger.warning(f"[DIAG] Stream finished: total_chunks={chunk_count}, content_chunks={content_count}")
+
+            logger.warning(
+                f"[DIAG] Stream finished: total_chunks={chunk_count}, content_chunks={content_count}"
+            )
 
         except Exception as e:
             logger.error(f"[DIAG] Stream error for model {model}: {e}", exc_info=True)
@@ -316,7 +319,7 @@ class OpenAILLMProvider(BaseLLMProvider):
                     provider=self.provider_name,
                     model=model,
                 )
-            
+
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,
@@ -330,8 +333,8 @@ class OpenAILLMProvider(BaseLLMProvider):
                 model=model,
             )
         else:
-             # Map other errors
-             raise ProviderUnavailableError(
+            # Map other errors
+            raise ProviderUnavailableError(
                 f"OpenAI error: {e}",
                 provider=self.provider_name,
                 model=model,
@@ -410,7 +413,9 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 usage=usage,
                 dimensions=actual_dimensions,
                 latency_ms=elapsed_ms,
-                cost_estimate=usage.input_tokens * self.models.get(model, {}).get("cost_per_1k", 0) / 1000,
+                cost_estimate=usage.input_tokens
+                * self.models.get(model, {}).get("cost_per_1k", 0)
+                / 1000,
             )
 
             return result
@@ -422,7 +427,6 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
 
-
         if "RateLimitError" in error_type:
             # Check for hard quota limits vs transient rate limits
             error_str = str(e).lower()
@@ -432,7 +436,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                     provider=self.provider_name,
                     model=model,
                 )
-            
+
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,

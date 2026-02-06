@@ -12,6 +12,7 @@ from typing import Any
 
 from src.core.admin_ops.infrastructure.observability.tracer import get_current_request_id
 
+
 class JSONFormatter(logging.Formatter):
     """
     Formatter that outputs JSON strings including context.
@@ -47,7 +48,7 @@ class JSONFormatter(logging.Formatter):
 def configure_logging(log_level: str = "INFO", json_format: bool = True) -> None:
     """
     Configure root logger.
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, etc.)
         json_format: Whether to output JSON or human-readable text.
@@ -60,18 +61,16 @@ def configure_logging(log_level: str = "INFO", json_format: bool = True) -> None
         root_logger.removeHandler(handler)
 
     stream_handler = logging.StreamHandler(sys.stdout)
-    
+
     if json_format:
         formatter = JSONFormatter()
     else:
         # Fallback for local dev if preferred
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
-        )
-    
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
+
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
 
     # Silence some noisy libraries
-    logging.getLogger("uvicorn.access").disabled = True # We handle access logs via middleware
+    logging.getLogger("uvicorn.access").disabled = True  # We handle access logs via middleware
     logging.getLogger("multipart").setLevel(logging.WARNING)

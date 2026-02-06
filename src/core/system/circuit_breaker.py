@@ -3,6 +3,7 @@ from collections import deque
 
 logger = logging.getLogger(__name__)
 
+
 class CircuitBreaker:
     """
     Monitors system latency and determines if the system should enter 'Degraded Mode'.
@@ -13,7 +14,7 @@ class CircuitBreaker:
         self,
         window_size: int = 50,
         latency_threshold_ms: float = 800.0,
-        degradation_ratio: float = 0.5
+        degradation_ratio: float = 0.5,
     ):
         self.window_size = window_size
         self.latency_threshold_ms = latency_threshold_ms
@@ -54,5 +55,5 @@ class CircuitBreaker:
         return {
             "avg_latency_ms": avg_latency,
             "window_count": len(self.latencies),
-            "is_degraded": self._is_degraded
+            "is_degraded": self._is_degraded,
         }

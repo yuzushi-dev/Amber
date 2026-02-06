@@ -19,6 +19,19 @@ from src.shared.kernel.models.query import (
     TraceStep,
 )
 
+__all__ = [
+    "QueryRequest",
+    "QueryFilters",
+    "QueryOptions",
+    "QueryResponse",
+    "StructuredQueryResponse",
+    "TimingInfo",
+    "TraceStep",
+    "Source",
+    "SearchMode",
+    "DateRange",
+]
+
 
 class QueryRequest(BaseModel):
     """Query request payload."""
@@ -42,8 +55,11 @@ class QueryRequest(BaseModel):
         description="Conversation ID for multi-turn context",
     )
 
-    model_config = {"json_schema_extra": {"example": {
-        "query": "What are the main features of the GraphRAG system?",
-        "options": {"include_trace": True, "max_chunks": 5},
-    }}}
-
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "query": "What are the main features of the GraphRAG system?",
+                "options": {"include_trace": True, "max_chunks": 5},
+            }
+        }
+    }

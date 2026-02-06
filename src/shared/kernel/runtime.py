@@ -1,8 +1,6 @@
-from typing import Optional
-
 from src.shared.kernel.settings import SettingsProtocol
 
-_settings: Optional[SettingsProtocol] = None
+_settings: SettingsProtocol | None = None
 
 
 def configure_settings(settings: SettingsProtocol) -> None:

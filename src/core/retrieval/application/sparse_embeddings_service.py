@@ -11,11 +11,13 @@ import logging
 try:
     import torch
     from transformers import AutoModelForMaskedLM, AutoTokenizer
+
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
 
 logger = logging.getLogger(__name__)
+
 
 class SparseEmbeddingService:
     """
@@ -33,7 +35,9 @@ class SparseEmbeddingService:
         self._device = "cpu"
 
         if not HAS_DEPS:
-            logger.warning("SparseEmbeddingService initialized without torch/transformers. Usage will fail.")
+            logger.warning(
+                "SparseEmbeddingService initialized without torch/transformers. Usage will fail."
+            )
         else:
             self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -58,14 +62,14 @@ class SparseEmbeddingService:
     def prewarm(self) -> bool:
         """
         Pre-load the SPLADE model to avoid cold-start delays on first query.
-        
+
         Returns:
             bool: True if model was loaded successfully, False otherwise.
         """
         if not HAS_DEPS:
             logger.warning("Cannot prewarm SPLADE: torch/transformers not available")
             return False
-        
+
         try:
             self._load_model()
             logger.info(f"SPLADE model prewarmed successfully on {self._device}")
@@ -93,48 +97,44 @@ class SparseEmbeddingService:
 
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i : i + batch_size]
-            
+
             try:
                 # Tokenize
                 tokens = self._tokenizer(
-                    batch_texts,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=512
+                    batch_texts, return_tensors="pt", padding=True, truncation=True, max_length=512
                 ).to(self._device)
 
                 with torch.no_grad():
                     # Inference
-                    logits = self._model(**tokens).logits # [batch, seq_len, vocab_size]
+                    logits = self._model(**tokens).logits  # [batch, seq_len, vocab_size]
 
                     # SPLADE Formula: max(log(1 + relu(logits))) over sequence
                     # 1. ReLU
                     relu_log = torch.log(1 + torch.relu(logits))
 
                     # 2. Mask attention (ignore padding)
-                    attention_mask = tokens.attention_mask.unsqueeze(-1) # [batch, seq_len, 1]
+                    attention_mask = tokens.attention_mask.unsqueeze(-1)  # [batch, seq_len, 1]
                     weighted_log = relu_log * attention_mask
 
                     # 3. Max pooling over sequence dimension
-                    max_val, _ = torch.max(weighted_log, dim=1) # [batch, vocab_size]
+                    max_val, _ = torch.max(weighted_log, dim=1)  # [batch, vocab_size]
 
                     # 4. Filter zero weights and format
                     for vector in max_val:
                         # Get non-zero indices
-                        indices = torch.nonzero(vector).squeeze() # [num_nonzero] or []
+                        indices = torch.nonzero(vector).squeeze()  # [num_nonzero] or []
 
                         if indices.dim() == 0:
-                             # Handle scalar case (1 non-zero element) or empty
-                             if indices.numel() == 1:
-                                 indices = indices.unsqueeze(0)
-                             else:
-                                 # All zeros or empty
-                                 results.append({})
-                                 continue
+                            # Handle scalar case (1 non-zero element) or empty
+                            if indices.numel() == 1:
+                                indices = indices.unsqueeze(0)
+                            else:
+                                # All zeros or empty
+                                results.append({})
+                                continue
 
                         values = vector[indices]
-                        
+
                         # Handle case where values might be scalar
                         if values.dim() == 0:
                             values = values.unsqueeze(0)
@@ -151,7 +151,7 @@ class SparseEmbeddingService:
                 logger.error(f"Error generating sparse embedding batch: {e}")
                 # Append empty dicts for the failed batch to maintain alignment
                 results.extend([{}] * len(batch_texts))
-        
+
         return results
 
     def get_token_map(self, sparse_vector: dict[int, float]) -> dict[str, float]:
@@ -159,7 +159,4 @@ class SparseEmbeddingService:
         if not self._tokenizer:
             return {}
 
-        return {
-            self._tokenizer.decode([k]): v
-            for k, v in sparse_vector.items()
-        }
+        return {self._tokenizer.decode([k]): v for k, v in sparse_vector.items()}

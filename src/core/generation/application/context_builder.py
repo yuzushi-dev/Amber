@@ -16,13 +16,16 @@ from src.core.utils.tokenizer import Tokenizer
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class ContextResult:
     """Result of context building."""
+
     content: str
     tokens: int
     used_candidates: list[Candidate]
     dropped_candidates: list[Candidate]
+
 
 class ContextBuilder:
     """
@@ -30,10 +33,7 @@ class ContextBuilder:
     """
 
     def __init__(
-        self,
-        max_tokens: int = 4000,
-        model: str | None = None,
-        include_metadata: bool = True
+        self, max_tokens: int = 4000, model: str | None = None, include_metadata: bool = True
     ):
         self.max_tokens = max_tokens
         self.model = model
@@ -80,7 +80,7 @@ class ContextBuilder:
             part_tokens = Tokenizer.count_tokens(formatted_part, self.model)
 
             # Check budget
-            if current_tokens + part_tokens + 2 <= self.max_tokens: # +2 for newlines
+            if current_tokens + part_tokens + 2 <= self.max_tokens:  # +2 for newlines
                 context_parts.append(formatted_part)
                 current_tokens += part_tokens + 2
                 used_candidates.append(candidate)
@@ -88,7 +88,7 @@ class ContextBuilder:
                 # If we're at the limit, we might want to partially include the last one
                 # but for simplicity in RAG we usually drop it or truncate at sentence boundary
                 remaining_budget = self.max_tokens - current_tokens
-                if remaining_budget > 20: # Lowered from 200 to 20 for better small-budget handling
+                if remaining_budget > 20:  # Lowered from 200 to 20 for better small-budget handling
                     truncated_content = self._truncate_at_sentence(content, remaining_budget - 10)
                     if truncated_content:
                         final_part = f"{header}\n{truncated_content}..."
@@ -103,7 +103,7 @@ class ContextBuilder:
             content="\n\n".join(context_parts),
             tokens=current_tokens,
             used_candidates=used_candidates,
-            dropped_candidates=dropped_candidates
+            dropped_candidates=dropped_candidates,
         )
 
     def _truncate_at_sentence(self, text: str, max_tokens: int) -> str:
@@ -116,7 +116,7 @@ class ContextBuilder:
 
         # Refine to sentence boundary (., !, ?)
         # Look for the last end-of-sentence punctuation in the truncated text
-        sentence_end_match = list(re.finditer(r'[.!?](?:\s|$)', rough_truncated))
+        sentence_end_match = list(re.finditer(r"[.!?](?:\s|$)", rough_truncated))
 
         if sentence_end_match:
             last_end = sentence_end_match[-1].end()

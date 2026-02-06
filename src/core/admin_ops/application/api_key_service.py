@@ -5,22 +5,28 @@ ApiKey Service
 Service for managing API keys with database persistence.
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
+from src.core.tenants.application.active_vector_collection import (
+    ensure_active_vector_collection_config,
+)
 from src.core.tenants.domain.tenant import Tenant
-from src.core.tenants.application.active_vector_collection import ensure_active_vector_collection_config
-from src.shared.security import generate_api_key, hash_api_key, mask_api_key
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
+from src.shared.security import generate_api_key, hash_api_key, mask_api_key
 
 
-def _default_tenant_config() -> Dict[str, Any]:
-    default_llm_model = DEFAULT_LLM_MODEL.get("openai") or next(iter(DEFAULT_LLM_MODEL.values()), "")
-    default_embedding_model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(iter(DEFAULT_EMBEDDING_MODEL.values()), "")
+def _default_tenant_config() -> dict[str, Any]:
+    default_llm_model = DEFAULT_LLM_MODEL.get("openai") or next(
+        iter(DEFAULT_LLM_MODEL.values()), ""
+    )
+    default_embedding_model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(
+        iter(DEFAULT_EMBEDDING_MODEL.values()), ""
+    )
     return {
         "embedding_model": default_embedding_model,
         "llm_model": default_llm_model,
@@ -43,11 +49,8 @@ class ApiKeyService:
         self.session = session
 
     async def create_key(
-        self,
-        name: str,
-        prefix: str = "amber",
-        scopes: List[str] = None
-    ) -> Dict[str, Any]:
+        self, name: str, prefix: str = "amber", scopes: list[str] = None
+    ) -> dict[str, Any]:
         """
         Generate and persist a new API key.
         Returns the raw key (only once).
@@ -56,9 +59,9 @@ class ApiKeyService:
         hashed = hash_api_key(raw_key)
         masked = mask_api_key(raw_key)
         last_chars = raw_key[-4:]
-        
+
         normalized_prefix = prefix  # generate_api_key handles prefix format
-        
+
         key_record = ApiKey(
             name=name,
             prefix=normalized_prefix,
@@ -66,23 +69,23 @@ class ApiKeyService:
             last_chars=last_chars,
             is_active=True,
             scopes=scopes or ["active_user"],
-            last_used_at=None
+            last_used_at=None,
         )
-        
+
         self.session.add(key_record)
         await self.session.commit()
         await self.session.refresh(key_record)
-        
+
         return {
             "id": key_record.id,
-            "key": raw_key,             # THIS IS THE ONLY TIME RAW KEY IS SHOWN
+            "key": raw_key,  # THIS IS THE ONLY TIME RAW KEY IS SHOWN
             "name": key_record.name,
             "prefix": key_record.prefix,
             "scopes": key_record.scopes,
-            "created_at": key_record.created_at
+            "created_at": key_record.created_at,
         }
 
-    async def validate_key(self, key: str) -> Optional[ApiKey]:
+    async def validate_key(self, key: str) -> ApiKey | None:
         """
         Validate a raw API key against the database.
         Returns the ApiKey record if valid and active, else None.
@@ -90,31 +93,36 @@ class ApiKeyService:
         """
         if not key:
             return None
-            
+
         hashed = hash_api_key(key)
-        
+
         from sqlalchemy.orm import selectinload
-        query = select(ApiKey).where(
-            ApiKey.hashed_key == hashed,
-            ApiKey.is_active == True # noqa
-        ).options(selectinload(ApiKey.tenants))
+
+        query = (
+            select(ApiKey)
+            .where(
+                ApiKey.hashed_key == hashed,
+                ApiKey.is_active == True,  # noqa
+            )
+            .options(selectinload(ApiKey.tenants))
+        )
         result = await self.session.execute(query)
         key_record = result.scalars().first()
-        
+
         if key_record:
             # Update last used asynchronously?
             # For now, we update synchronously in the transaction
-            key_record.last_used_at = datetime.now(timezone.utc)
+            key_record.last_used_at = datetime.now(UTC)
             await self.session.commit()
             return key_record
-            
+
         return None
 
-    async def list_keys(self) -> List[ApiKey]:
+    async def list_keys(self) -> list[ApiKey]:
         """
         List all active API keys.
         """
-        query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc()) # noqa
+        query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc())  # noqa
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
@@ -122,36 +130,29 @@ class ApiKeyService:
         """
         Revoke an API key by setting is_active to False.
         """
-        query = (
-            update(ApiKey)
-            .where(ApiKey.id == key_id)
-            .values(is_active=False)
-        )
+        query = update(ApiKey).where(ApiKey.id == key_id).values(is_active=False)
         result = await self.session.execute(query)
         await self.session.commit()
         return result.rowcount > 0
 
     async def update_key(
-        self,
-        key_id: str,
-        name: Optional[str] = None,
-        scopes: Optional[List[str]] = None
-    ) -> Optional[ApiKey]:
+        self, key_id: str, name: str | None = None, scopes: list[str] | None = None
+    ) -> ApiKey | None:
         """
         Update an existing API key's name or scopes.
         """
         query = select(ApiKey).where(ApiKey.id == key_id)
         result = await self.session.execute(query)
         key_record = result.scalars().first()
-        
+
         if not key_record:
             return None
-            
+
         if name is not None:
             key_record.name = name
         if scopes is not None:
             key_record.scopes = scopes
-            
+
         await self.session.commit()
         await self.session.refresh(key_record)
         return key_record
@@ -162,47 +163,42 @@ class ApiKeyService:
         Also ensures the 'default' (Global Admin) tenant exists and is linked.
         """
         hashed = hash_api_key(raw_key)
-        
+
         # 1. Ensure Key Exists
         query = select(ApiKey).where(ApiKey.hashed_key == hashed)
         result = await self.session.execute(query)
         key_record = result.scalars().first()
-        
+
         if not key_record:
             key_record = await self.create_key_from_raw(raw_key, name)
-            
+
         # 2. Ensure 'default' Tenant Exists (Global Admin)
-        tenant_query = select(Tenant).where(Tenant.id == 'default')
+        tenant_query = select(Tenant).where(Tenant.id == "default")
         result = await self.session.execute(tenant_query)
         tenant = result.scalar_one_or_none()
-        
+
         if not tenant:
             default_config = _default_tenant_config()
             default_config = ensure_active_vector_collection_config("default", default_config)
             tenant = Tenant(
-                id='default',
-                name='Global Admin',
-                api_key_prefix='amber_',
+                id="default",
+                name="Global Admin",
+                api_key_prefix="amber_",
                 is_active=True,
                 config=default_config,
             )
             self.session.add(tenant)
             await self.session.commit()
-            
+
         # 3. Ensure Linkage
         link_query = select(ApiKeyTenant).where(
-            ApiKeyTenant.api_key_id == key_record.id,
-            ApiKeyTenant.tenant_id == tenant.id
+            ApiKeyTenant.api_key_id == key_record.id, ApiKeyTenant.tenant_id == tenant.id
         )
         result = await self.session.execute(link_query)
         link = result.scalar_one_or_none()
-        
+
         if not link:
-            link = ApiKeyTenant(
-                api_key_id=key_record.id,
-                tenant_id=tenant.id,
-                role='admin'
-            )
+            link = ApiKeyTenant(api_key_id=key_record.id, tenant_id=tenant.id, role="admin")
             self.session.add(link)
             await self.session.commit()
 
@@ -211,7 +207,7 @@ class ApiKeyService:
         Manually insert a known key (e.g. from Env).
         """
         hashed = hash_api_key(raw_key)
-        
+
         key_record = ApiKey(
             name=name,
             prefix="env",

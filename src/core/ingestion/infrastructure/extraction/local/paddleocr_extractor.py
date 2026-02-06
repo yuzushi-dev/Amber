@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from paddleocr import PaddleOCR
+
     HAS_PADDLEOCR = True
 except ImportError:
     HAS_PADDLEOCR = False
@@ -71,6 +72,7 @@ class PaddleOCRExtractor(BaseExtractor):
                 # For PDFs, use pdf2image
                 try:
                     import pdf2image
+
                     images = pdf2image.convert_from_path(tmp_path)
                     texts = []
                     confidences = []
@@ -101,7 +103,9 @@ class PaddleOCRExtractor(BaseExtractor):
                     page_count = len(images)
 
                 except ImportError as e:
-                    raise ImportError("pdf2image is required for PDF processing with PaddleOCR") from e
+                    raise ImportError(
+                        "pdf2image is required for PDF processing with PaddleOCR"
+                    ) from e
             else:
                 # For images, direct OCR
                 result = ocr.ocr(tmp_path, cls=True)
@@ -130,7 +134,7 @@ class PaddleOCRExtractor(BaseExtractor):
                 },
                 extractor_used=self.name,
                 confidence=avg_confidence,
-                extraction_time_ms=elapsed
+                extraction_time_ms=elapsed,
             )
 
         except Exception as e:

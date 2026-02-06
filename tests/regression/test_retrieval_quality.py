@@ -7,13 +7,15 @@ import pytest
 # For regression, we might want to hit the API or use the service directly if environment is set up
 # Using API client for end-to-end regression is safer/more realistic
 
+
 @pytest.fixture
 def golden_corpus():
-    path = os.path.join(os.path.dirname(__file__), '../../data/golden_corpus.json')
+    path = os.path.join(os.path.dirname(__file__), "../../data/golden_corpus.json")
     if not os.path.exists(path):
         return []
     with open(path) as f:
         return json.load(f)
+
 
 @pytest.mark.asyncio
 async def test_retrieval_recall(golden_corpus):

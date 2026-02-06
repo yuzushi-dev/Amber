@@ -5,18 +5,10 @@ Integration Tests for Export API Endpoints
 Tests for conversation export functionality including single and bulk exports.
 """
 
-import os
-from unittest.mock import patch
-
 import pytest
-from fastapi.testclient import TestClient
-
-from src.api.main import app
-
 
 # NOTE: client and api_key fixtures come from conftest.py
 # The conftest.py api_key fixture properly registers the key in the database
-
 
 
 @pytest.mark.asyncio
@@ -82,10 +74,10 @@ class TestExportEndpointRegistration:
         """Export routes should be in OpenAPI schema."""
         response = await client.get("/openapi.json")
         assert response.status_code == 200
-        
+
         data = response.json()
         paths = data.get("paths", {})
-        
+
         # Check export endpoints are registered
         export_paths = [p for p in paths.keys() if "/export" in p]
         assert len(export_paths) > 0, "Export routes should be registered"
@@ -95,7 +87,7 @@ class TestExportEndpointRegistration:
         response = await client.get("/openapi.json")
         data = response.json()
         paths = data.get("paths", {})
-        
+
         # Check specific endpoint pattern exists
         assert any("/export/conversation/" in p for p in paths.keys())
 
@@ -104,7 +96,7 @@ class TestExportEndpointRegistration:
         response = await client.get("/openapi.json")
         data = response.json()
         paths = data.get("paths", {})
-        
+
         assert "/v1/export/all" in paths
 
     async def test_job_status_endpoint_exists(self, client):
@@ -112,6 +104,5 @@ class TestExportEndpointRegistration:
         response = await client.get("/openapi.json")
         data = response.json()
         paths = data.get("paths", {})
-        
-        assert any("/export/job/{job_id}" in p for p in paths.keys())
 
+        assert any("/export/job/{job_id}" in p for p in paths.keys())

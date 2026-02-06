@@ -12,6 +12,7 @@ def test_count_tokens():
     assert Tokenizer.count_tokens("") == 0
     assert Tokenizer.count_tokens(None) == 0
 
+
 def test_truncate_to_budget():
     text = "This is a longer sentence that we want to truncate."
     # Truncate to very few tokens
@@ -20,7 +21,8 @@ def test_truncate_to_budget():
     assert len(truncated) < len(text)
     # The token count might be exact or fallback estimate
     count = Tokenizer.count_tokens(truncated)
-    assert count <= 8 # Allow some buffer for fallback estimation
+    assert count <= 8  # Allow some buffer for fallback estimation
+
 
 def test_model_specific_encoding():
     text = "Special tokens and model specific behavior."

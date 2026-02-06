@@ -6,6 +6,7 @@ from src.core.graph.domain.schema import NodeLabel, RelationshipType
 
 logger = logging.getLogger(__name__)
 
+
 class DeduplicationService:
     """
     Service to find and resolve duplicate entities in the Knowledge Graph.
@@ -56,15 +57,19 @@ class DeduplicationService:
                 sim = SequenceMatcher(None, e1["name"].lower(), e2["name"].lower()).ratio()
 
                 if sim >= threshold:
-                    candidates.append({
-                        "entity1": {"id": e1["id"], "name": e1["name"]},
-                        "entity2": {"id": e2["id"], "name": e2["name"]},
-                        "similarity": sim
-                    })
+                    candidates.append(
+                        {
+                            "entity1": {"id": e1["id"], "name": e1["name"]},
+                            "entity2": {"id": e2["id"], "name": e2["name"]},
+                            "similarity": sim,
+                        }
+                    )
 
         return candidates
 
-    async def resolve_entities(self, entity_id_keep: str, entity_id_merge: str, strategy: str = "soft_link"):
+    async def resolve_entities(
+        self, entity_id_keep: str, entity_id_merge: str, strategy: str = "soft_link"
+    ):
         """
         Resolve a pair of entities.
 
@@ -92,7 +97,9 @@ class DeduplicationService:
             ON CREATE SET r.strategy = 'soft_link', r.timestamp = timestamp()
             """
 
-            await get_graph_client().execute_write(query, {"id1": entity_id_keep, "id2": entity_id_merge})
+            await get_graph_client().execute_write(
+                query, {"id1": entity_id_keep, "id2": entity_id_merge}
+            )
             logger.info(f"Soft linked entities {entity_id_keep} and {entity_id_merge}")
 
         elif strategy == "hard_merge":
@@ -102,5 +109,6 @@ class DeduplicationService:
             # We could implement a simple logic here if required:
             # COPY RELS -> DELETE OLD
             pass
+
 
 deduplication_service = DeduplicationService()

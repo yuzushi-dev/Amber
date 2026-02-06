@@ -14,7 +14,9 @@ def set_trace_span(trace_span: TraceSpanFunc | None) -> None:
 
 def trace_span(name: str | None = None) -> TraceDecorator:
     if _trace_span is None:
+
         def _noop(func: Callable[..., Any]) -> Callable[..., Any]:
             return func
+
         return _noop
     return _trace_span(name)

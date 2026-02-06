@@ -19,6 +19,7 @@ class UserFact(Base, TimestampMixin):
     Represents a persistent fact learned about a user.
     Used for long-term memory retrieval.
     """
+
     __tablename__ = "user_facts"
 
     # Composite Primary Key: (tenant_id, user_id, fact_id) to ensure uniqueness per user context
@@ -33,12 +34,12 @@ class UserFact(Base, TimestampMixin):
     importance: Mapped[float] = mapped_column(Float, default=0.5)
 
     # Flexible metadata (e.g. source_message_id, category, tags)
-    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, server_default="{}", nullable=False
+    )
 
     # Index for retrieval by user within a tenant
-    __table_args__ = (
-        Index("ix_user_facts_tenant_user", "tenant_id", "user_id"),
-    )
+    __table_args__ = (Index("ix_user_facts_tenant_user", "tenant_id", "user_id"),)
 
     def __repr__(self) -> str:
         return f"<UserFact(id={self.id}, user={self.user_id}, content={self.content[:20]}...)>"
@@ -49,9 +50,12 @@ class ConversationSummary(Base, TimestampMixin):
     Represents a summarized past conversation.
     Used for mid-term memory to recall previous context.
     """
+
     __tablename__ = "conversation_summaries"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True) # Usually the session_id / conversation_id
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True
+    )  # Usually the session_id / conversation_id
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
@@ -59,7 +63,9 @@ class ConversationSummary(Base, TimestampMixin):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Metadata (e.g. valid_from, valid_to, message_count)
-    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, server_default="{}", nullable=False
+    )
 
     __table_args__ = (
         Index("ix_conv_summaries_tenant_user_date", "tenant_id", "user_id", "created_at"),

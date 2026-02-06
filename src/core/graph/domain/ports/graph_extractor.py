@@ -10,8 +10,7 @@ class GraphExtractorPort(Protocol):
         chunk_id: str = "UNKNOWN",
         track_usage: bool = True,
         tenant_config: dict | None = None,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 _graph_extractor: GraphExtractorPort | None = None

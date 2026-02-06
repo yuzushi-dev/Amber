@@ -3,15 +3,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.amber_platform.composition_root import platform
+
 neo4j_client = platform.neo4j_client
 
-from src.core.graph.domain.schema import NodeLabel, RelationshipType
-from src.core.graph.application.writer import graph_writer
 from src.core.generation.application.prompts.entity_extraction import (
     ExtractedEntity,
     ExtractedRelationship,
     ExtractionResult,
 )
+from src.core.graph.application.writer import graph_writer
+from src.core.graph.domain.schema import NodeLabel, RelationshipType
 
 
 @pytest.mark.asyncio
@@ -23,17 +24,17 @@ async def test_graph_writer_integration():
     tenant_id = "test_tenant_integration"
     doc_id = "doc_integration_1"
     chunk_id = "chunk_integration_1"
-    
+
     # Configure global graph client for Writer
     from src.core.graph.domain.ports.graph_client import set_graph_client
+
     set_graph_client(neo4j_client)
 
     # Cleanup before test
     await neo4j_client.connect()
     try:
         await neo4j_client.execute_write(
-            "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
-            {"tenant_id": tenant_id}
+            "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
         )
     except Exception as e:
         pytest.fail(f"Failed to cleanup Neo4j: {e}")
@@ -42,7 +43,7 @@ async def test_graph_writer_integration():
     extraction_result = ExtractionResult(
         entities=[
             ExtractedEntity(name="Neo4j", type="TECHNOLOGY", description="Graph Database"),
-            ExtractedEntity(name="Python", type="TECHNOLOGY", description="Programming Language")
+            ExtractedEntity(name="Python", type="TECHNOLOGY", description="Programming Language"),
         ],
         relationships=[
             ExtractedRelationship(
@@ -50,9 +51,9 @@ async def test_graph_writer_integration():
                 target="Neo4j",
                 type="CONNECTS_TO",
                 description="Python driver connects to Neo4j",
-                weight=9
+                weight=9,
             )
-        ]
+        ],
     )
 
     # 3. Write to Graph
@@ -80,13 +81,18 @@ async def test_graph_writer_integration():
         if "MATCH (e:Entity)" in query_str:
             return [
                 {"name": "Neo4j", "type": "TECHNOLOGY"},
-                {"name": "Python", "type": "TECHNOLOGY"}
+                {"name": "Python", "type": "TECHNOLOGY"},
             ]
         elif "MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)" in query_str:
-            return [{
-                "source": "Python", "target": "Neo4j", "type": "CONNECTS_TO", "weight": 9,
-                "description": "Python driver connects to Neo4j"
-            }]
+            return [
+                {
+                    "source": "Python",
+                    "target": "Neo4j",
+                    "type": "CONNECTS_TO",
+                    "weight": 9,
+                    "description": "Python driver connects to Neo4j",
+                }
+            ]
         elif "MATCH (c:Chunk)-[r:MENTIONS]->(e:Entity)" in query_str:
             return [{"count": 2}]
         return []
@@ -125,6 +131,5 @@ async def test_graph_writer_integration():
 
     # Cleanup
     await neo4j_client.execute_write(
-        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
-        {"tenant_id": tenant_id}
+        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
     )

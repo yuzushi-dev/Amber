@@ -5,6 +5,7 @@ from src.core.graph.domain.ports.graph_client import GraphClientPort
 
 logger = logging.getLogger(__name__)
 
+
 class CommunityLifecycleManager:
     """
     Manages the lifecycle of communities: staleness, versioning, and cleanup.
@@ -44,10 +45,14 @@ class CommunityLifecycleManager:
         SET c.is_stale = true, c.updated_at = datetime()
         RETURN count(DISTINCT c) as count
         """
-        result = await self.graph.execute_write(query, {"names": entity_names, "tenant_id": tenant_id})
+        result = await self.graph.execute_write(
+            query, {"names": entity_names, "tenant_id": tenant_id}
+        )
         count = result[0]["count"] if result else 0
         if count > 0:
-            logger.info(f"Marked {count} communities for tenant {tenant_id} as stale due to entity changes")
+            logger.info(
+                f"Marked {count} communities for tenant {tenant_id} as stale due to entity changes"
+            )
 
     async def mark_stale_by_tenant(self, tenant_id: str):
         """
@@ -95,7 +100,9 @@ class CommunityLifecycleManager:
         WHERE e.id IN $entity_ids
         MERGE (e)-[:BELONGS_TO]->(c)
         """
-        await self.graph.execute_write(link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids})
+        await self.graph.execute_write(
+            link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids}
+        )
         logger.info(f"Assigned {len(entity_ids)} entities to 'Misc' community")
 
     async def get_community_stats(self, tenant_id: str) -> dict[str, Any]:

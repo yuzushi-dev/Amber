@@ -1,21 +1,22 @@
-
-import pytest
+import json
 import unittest.mock
 from unittest.mock import AsyncMock, MagicMock
-from src.core.ingestion.application.ingestion_service import IngestionService
+
+import pytest
+
 from src.core.generation.domain.provider_models import QuotaExceededError
-from src.core.state.machine import DocumentStatus
+from src.core.ingestion.application.ingestion_service import IngestionService
+
 # Import models to ensure SQLAlchemy registry is populated
-from src.core.ingestion.domain.document import Document
-from src.core.ingestion.domain.folder import Folder
-import json
+from src.core.state.machine import DocumentStatus
+
 
 @pytest.mark.asyncio
 async def test_process_document_handles_quota_exceeded():
     # Setup
     document_repo = AsyncMock()
     uow = AsyncMock()
-    
+
     # Mock Document
     mock_doc = MagicMock()
     mock_doc.id = "doc_123"
@@ -24,27 +25,40 @@ async def test_process_document_handles_quota_exceeded():
 
     # Patch dependencies
     # Patch global import (used in __init__)
-    with unittest.mock.patch('src.core.ingestion.application.ingestion_service.EmbeddingService') as MockGlobalEmbeddingService, \
-         unittest.mock.patch('src.core.retrieval.application.embeddings_service.EmbeddingService') as MockLocalEmbeddingService, \
-         unittest.mock.patch('src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService') as MockSparse, \
-         unittest.mock.patch('src.core.generation.application.intelligence.classifier.DomainClassifier') as MockClassifier, \
-         unittest.mock.patch('src.core.generation.domain.ports.provider_factory.build_provider_factory') as MockBuildFactory:
-        
+    with (
+        unittest.mock.patch(
+            "src.core.ingestion.application.ingestion_service.EmbeddingService"
+        ) as MockGlobalEmbeddingService,
+        unittest.mock.patch(
+            "src.core.retrieval.application.embeddings_service.EmbeddingService"
+        ) as MockLocalEmbeddingService,
+        unittest.mock.patch(
+            "src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService"
+        ) as MockSparse,
+        unittest.mock.patch(
+            "src.core.generation.application.intelligence.classifier.DomainClassifier"
+        ) as MockClassifier,
+        unittest.mock.patch(
+            "src.core.generation.domain.ports.provider_factory.build_provider_factory"
+        ) as MockBuildFactory,
+    ):
         # Setup Factory
         mock_factory = MagicMock()
         mock_provider = AsyncMock()  # Provider needs to be an object, not a string
-        mock_factory.get_embedding_provider.return_value = mock_provider 
+        mock_factory.get_embedding_provider.return_value = mock_provider
         MockBuildFactory.return_value = mock_factory
-        
+
         # Setup Embedding Mock (Local one is used in process_document)
         embedding_instance = MockLocalEmbeddingService.return_value
-        embedding_instance.embed_texts.side_effect = QuotaExceededError("Quota exceeded", provider="openai")
-        
+        embedding_instance.embed_texts.side_effect = QuotaExceededError(
+            "Quota exceeded", provider="openai"
+        )
+
         # Setup Classifier Mock (so it doesn't crash on init)
         mock_classifier_instance = MagicMock()
         mock_classifier_instance.classify = AsyncMock()
         mock_classifier_instance.classify.return_value.value = "test_domain"
-        mock_classifier_instance.close = AsyncMock() 
+        mock_classifier_instance.close = AsyncMock()
         MockClassifier.return_value = mock_classifier_instance
 
         # Setup Content Extractor Mock
@@ -80,20 +94,19 @@ async def test_process_document_handles_quota_exceeded():
             content_extractor=mock_extractor,
             settings=mock_settings,
         )
-        
+
         # Execution
         with pytest.raises(QuotaExceededError):
             await service.process_document("doc_123")
-            
+
         # Verification
         document_repo.save.assert_called_with(mock_doc)
         uow.commit.assert_called()
-        
+
         assert mock_doc.status == DocumentStatus.FAILED
         assert mock_doc.error_message is not None
-        
+
         # Parse error
         error_data = json.loads(mock_doc.error_message)
         assert error_data["code"] == "quota_exceeded"
         assert error_data["provider"] == "Openai"
-

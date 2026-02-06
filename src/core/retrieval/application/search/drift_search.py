@@ -2,12 +2,14 @@ import asyncio
 import logging
 from typing import Any
 
-# from src.core.services.retrieval import RetrievalService # Removed to avoid circular import
-from src.core.generation.domain.provider_models import ProviderTier
 from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
 from src.core.generation.domain.ports.providers import LLMProviderPort
 
+# from src.core.services.retrieval import RetrievalService # Removed to avoid circular import
+from src.core.generation.domain.provider_models import ProviderTier
+
 logger = logging.getLogger(__name__)
+
 
 class DriftSearchService:
     """
@@ -17,7 +19,7 @@ class DriftSearchService:
 
     def __init__(
         self,
-        retrieval_service: Any, # Avoid circular import with RetrievalService
+        retrieval_service: Any,  # Avoid circular import with RetrievalService
         llm_provider: LLMProviderPort,
         max_iterations: int = 3,
         max_follow_ups: int = 3,
@@ -48,16 +50,14 @@ class DriftSearchService:
         # 1. Primer Phase
         logger.info(f"DRIFT Primer for query: {query}")
         primer_results = await self.retrieval_service.retrieve(
-            query=query,
-            tenant_id=tenant_id,
-            top_k=5
+            query=query, tenant_id=tenant_id, top_k=5
         )
         all_candidates.extend(primer_results.chunks)
 
         current_context = "\n".join([c["content"] for c in primer_results.chunks])
 
-        from src.shared.kernel.runtime import get_settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
         tenant_config = tenant_config or {}
@@ -95,7 +95,9 @@ class DriftSearchService:
             if "DONE" in response.upper():
                 break
 
-            questions = [q.strip() for q in response.split("\n") if q.strip()][:self.max_follow_ups]
+            questions = [q.strip() for q in response.split("\n") if q.strip()][
+                : self.max_follow_ups
+            ]
             follow_ups_history.append({"iteration": iteration, "questions": questions})
 
             # 2. Expansion Phase: Execute sub-queries
@@ -139,7 +141,7 @@ class DriftSearchService:
         return {
             "answer": final_answer,
             "candidates": all_candidates,
-            "follow_ups": follow_ups_history
+            "follow_ups": follow_ups_history,
         }
 
     def _get_provider(self, llm_cfg: Any) -> LLMProviderPort:

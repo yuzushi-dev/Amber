@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Initialize rate limiter with settings (lazy singleton via factory)
 _rate_limiter = None
 
+
 def _get_rate_limiter():
     """Get rate limiter instance, initializing if needed."""
     global _rate_limiter
@@ -32,6 +33,7 @@ def _get_rate_limiter():
             uploads_per_hour=settings.rate_limits.uploads_per_hour,
         )
     return _rate_limiter
+
 
 # Path patterns for different rate limit categories
 QUERY_PATHS = {"/v1/query", "/v1/chat"}
@@ -183,4 +185,3 @@ class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
                 pass  # Invalid content-length, let FastAPI handle it
 
         return await call_next(request)
-

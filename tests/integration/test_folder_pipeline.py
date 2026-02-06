@@ -1,4 +1,5 @@
 import pytest
+
 """
 Integration Tests for Folder Pipeline
 ======================================
@@ -11,6 +12,7 @@ Tests for folder CRUD operations and document-folder associations:
 """
 
 import uuid
+
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 
@@ -27,7 +29,9 @@ class TestFolderCRUD:
             json={"name": folder_name},
             headers={"X-API-Key": api_key},
         )
-        assert response.status_code == 201, f"Expected 201, got {response.status_code}: {response.text}"
+        assert response.status_code == 201, (
+            f"Expected 201, got {response.status_code}: {response.text}"
+        )
         data = response.json()
         assert data["name"] == folder_name
         assert "id" in data
@@ -50,7 +54,9 @@ class TestFolderCRUD:
             "/v1/folders",
             headers={"X-API-Key": api_key},
         )
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         data = response.json()
         assert isinstance(data, list)
         # Check that our folder is in the list
@@ -74,7 +80,9 @@ class TestFolderCRUD:
             f"/v1/folders/{folder_id}",
             headers={"X-API-Key": api_key},
         )
-        assert delete_response.status_code == 204, f"Expected 204, got {delete_response.status_code}: {delete_response.text}"
+        assert delete_response.status_code == 204, (
+            f"Expected 204, got {delete_response.status_code}: {delete_response.text}"
+        )
 
         # Verify folder no longer exists in list
         list_response = await client.get(
@@ -127,7 +135,7 @@ class TestDocumentFolderAssignment:
             filename="test_move.txt",
             status=DocumentStatus.READY,
             content_hash=uuid.uuid4().hex,
-            storage_path="test/path/move.txt"
+            storage_path="test/path/move.txt",
         )
         db_session.add(doc)
         await db_session.commit()
@@ -151,7 +159,7 @@ class TestDocumentFolderAssignment:
 
         if not documents:
             pytest.fail("Document seeding failed - list is empty")
-        
+
         doc_id = documents[0]["id"]
 
         # Move document to folder
@@ -160,8 +168,10 @@ class TestDocumentFolderAssignment:
             json={"folder_id": folder_id},
             headers={"X-API-Key": api_key},
         )
-        assert update_response.status_code == 200, f"Expected 200, got {update_response.status_code}: {update_response.text}"
-        
+        assert update_response.status_code == 200, (
+            f"Expected 200, got {update_response.status_code}: {update_response.text}"
+        )
+
         # Verify document has folder assigned
         doc_response = await client.get(
             f"/v1/documents/{doc_id}",
@@ -181,7 +191,7 @@ class TestDocumentFolderAssignment:
             filename="test_unfile.txt",
             status=DocumentStatus.READY,
             content_hash=uuid.uuid4().hex,
-            storage_path="test/path/unfile.txt"
+            storage_path="test/path/unfile.txt",
         )
         db_session.add(doc)
         await db_session.commit()
@@ -232,7 +242,9 @@ class TestDocumentFolderAssignment:
         doc_data = doc_response.json()
         assert doc_data.get("folder_id") is None
 
-    async def test_delete_folder_unfiles_documents(self, client, api_key, db_session, test_tenant_id):
+    async def test_delete_folder_unfiles_documents(
+        self, client, api_key, db_session, test_tenant_id
+    ):
         """Deleting a folder should unfile its documents."""
         # Seed a document
         doc_id = f"doc_{uuid.uuid4().hex[:16]}"
@@ -242,7 +254,7 @@ class TestDocumentFolderAssignment:
             filename="test_cascade.txt",
             status=DocumentStatus.READY,
             content_hash=uuid.uuid4().hex,
-            storage_path="test/path/cascade.txt"
+            storage_path="test/path/cascade.txt",
         )
         db_session.add(doc)
         await db_session.commit()
@@ -292,7 +304,9 @@ class TestDocumentFolderAssignment:
         doc_data = doc_response.json()
         assert doc_data.get("folder_id") is None
 
-    async def test_move_document_to_nonexistent_folder(self, client, api_key, db_session, test_tenant_id):
+    async def test_move_document_to_nonexistent_folder(
+        self, client, api_key, db_session, test_tenant_id
+    ):
         """Should return 404 when moving to non-existent folder."""
         # Seed a document
         doc_id = f"doc_{uuid.uuid4().hex[:16]}"
@@ -302,7 +316,7 @@ class TestDocumentFolderAssignment:
             filename="test_404.txt",
             status=DocumentStatus.READY,
             content_hash=uuid.uuid4().hex,
-            storage_path="test/path/404.txt"
+            storage_path="test/path/404.txt",
         )
         db_session.add(doc)
         await db_session.commit()
@@ -338,7 +352,7 @@ class TestDocumentFolderAssignment:
             filename="test_recursive.txt",
             status=DocumentStatus.READY,
             content_hash=uuid.uuid4().hex,
-            storage_path="test/path/recursive.txt"
+            storage_path="test/path/recursive.txt",
         )
         db_session.add(doc)
         await db_session.commit()

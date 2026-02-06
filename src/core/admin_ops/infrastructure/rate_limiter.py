@@ -43,11 +43,11 @@ class RateLimiter:
     """
 
     def __init__(
-        self, 
+        self,
         redis_url: str,
         requests_per_minute: int = 60,
         queries_per_minute: int = 30,
-        uploads_per_hour: int = 100
+        uploads_per_hour: int = 100,
     ):
         """
         Initialize the rate limiter.
@@ -230,9 +230,17 @@ class RateLimiter:
 # Factory function for creating rate limiter (called by API middleware with settings)
 _rate_limiter: RateLimiter | None = None
 
-def get_rate_limiter(redis_url: str, requests_per_minute: int = 60, queries_per_minute: int = 30, uploads_per_hour: int = 100) -> RateLimiter:
+
+def get_rate_limiter(
+    redis_url: str,
+    requests_per_minute: int = 60,
+    queries_per_minute: int = 30,
+    uploads_per_hour: int = 100,
+) -> RateLimiter:
     """Get or create rate limiter singleton."""
     global _rate_limiter
     if _rate_limiter is None:
-        _rate_limiter = RateLimiter(redis_url, requests_per_minute, queries_per_minute, uploads_per_hour)
+        _rate_limiter = RateLimiter(
+            redis_url, requests_per_minute, queries_per_minute, uploads_per_hour
+        )
     return _rate_limiter

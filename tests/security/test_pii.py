@@ -35,6 +35,7 @@ class TestPIIScrubber:
         scrubbed = scrubber.scrub_text(text)
         assert "[CREDIT CARD REDACTED]" in scrubbed
 
+
 class TestSourceVerifier:
     def test_verify_citation_exact(self):
         verifier = SourceVerifier()

@@ -20,6 +20,7 @@ try:
     import ragas
     from ragas.llms import llm_factory
     from ragas.metrics import Faithfulness, ResponseRelevancy
+
     RAGAS_AVAILABLE = True
     logger.info(f"Ragas library loaded (version {ragas.__version__})")
 except ImportError:
@@ -30,6 +31,7 @@ except ImportError:
 @dataclass
 class RagasEvaluationResult:
     """Result from a Ragas evaluation."""
+
     faithfulness: float | None = None
     response_relevancy: float | None = None
     context_precision: float | None = None
@@ -49,9 +51,7 @@ class RagasService:
     """
 
     def __init__(
-        self,
-        llm_client: Any | None = None,
-        model_name: str = DEFAULT_LLM_MODEL.get("openai", "")
+        self, llm_client: Any | None = None, model_name: str = DEFAULT_LLM_MODEL.get("openai", "")
     ):
         """
         Initialize the RagasService.
@@ -68,35 +68,34 @@ class RagasService:
         if RAGAS_AVAILABLE and llm_client:
             try:
                 from langchain_openai import OpenAIEmbeddings
-                
+
                 # Increase max_tokens to prevent truncation errors during evaluation
                 self._llm = llm_factory(model_name, client=llm_client, max_tokens=4096)
-                
+
                 # Create LangChain-compatible embeddings wrapper using the client's API key
-                api_key = llm_client.api_key if hasattr(llm_client, 'api_key') else None
+                api_key = llm_client.api_key if hasattr(llm_client, "api_key") else None
                 self._embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-                
+
                 self._faithfulness = Faithfulness(llm=self._llm)
-                self._response_relevancy = ResponseRelevancy(llm=self._llm, embeddings=self._embeddings)
+                self._response_relevancy = ResponseRelevancy(
+                    llm=self._llm, embeddings=self._embeddings
+                )
                 self._metrics_initialized = True
                 logger.info("RagasService initialized with official Ragas metrics")
             except Exception as e:
                 logger.error(f"Failed to initialize Ragas metrics: {e}", exc_info=True)
                 self._metrics_initialized = False
         else:
-             logger.warning(f"Ragas Init Skipped - Available: {RAGAS_AVAILABLE}, Client: {bool(llm_client)}")
+            logger.warning(
+                f"Ragas Init Skipped - Available: {RAGAS_AVAILABLE}, Client: {bool(llm_client)}"
+            )
 
     @property
     def is_available(self) -> bool:
         """Check if Ragas is available and initialized."""
         return RAGAS_AVAILABLE and self._metrics_initialized
 
-    async def evaluate_faithfulness(
-        self,
-        query: str,
-        context: str,
-        response: str
-    ) -> float:
+    async def evaluate_faithfulness(self, query: str, context: str, response: str) -> float:
         """
         Evaluate the faithfulness of a response to the context.
 
@@ -113,15 +112,16 @@ class RagasService:
 
         try:
             from ragas.dataset_schema import SingleTurnSample
+
             # Ragas expects contexts as a list
             contexts = [context] if isinstance(context, str) else context
-            
-            logger.info(f"Evaluating Faithfulness - Query: {query[:50]}..., Context Len: {len(context)}, Response Len: {len(response)}")
-            
+
+            logger.info(
+                f"Evaluating Faithfulness - Query: {query[:50]}..., Context Len: {len(context)}, Response Len: {len(response)}"
+            )
+
             sample = SingleTurnSample(
-                user_input=query,
-                response=response,
-                retrieved_contexts=contexts
+                user_input=query, response=response, retrieved_contexts=contexts
             )
 
             result = await self._faithfulness.single_turn_ascore(sample)
@@ -131,11 +131,7 @@ class RagasService:
             logger.error(f"Ragas faithfulness evaluation failed: {e}", exc_info=True)
             raise
 
-    async def evaluate_response_relevancy(
-        self,
-        query: str,
-        response: str
-    ) -> float:
+    async def evaluate_response_relevancy(self, query: str, response: str) -> float:
         """
         Evaluate how relevant the response is to the query.
 
@@ -151,11 +147,8 @@ class RagasService:
 
         try:
             from ragas.dataset_schema import SingleTurnSample
-            
-            sample = SingleTurnSample(
-                user_input=query,
-                response=response
-            )
+
+            sample = SingleTurnSample(user_input=query, response=response)
 
             result = await self._response_relevancy.single_turn_ascore(sample)
             logger.info(f"Relevancy Score: {result}")
@@ -165,11 +158,7 @@ class RagasService:
             raise
 
     async def evaluate_sample(
-        self,
-        query: str,
-        context: str,
-        response: str,
-        reference: str | None = None
+        self, query: str, context: str, response: str, reference: str | None = None
     ) -> RagasEvaluationResult:
         """
         Run full evaluation on a single sample.
@@ -189,16 +178,10 @@ class RagasService:
         return RagasEvaluationResult(
             faithfulness=faithfulness,
             response_relevancy=relevancy,
-            metadata={
-                "ragas_available": self.is_available,
-                "model": self.model_name
-            }
+            metadata={"ragas_available": self.is_available, "model": self.model_name},
         )
 
-    async def evaluate_batch(
-        self,
-        samples: list[dict[str, str]]
-    ) -> list[RagasEvaluationResult]:
+    async def evaluate_batch(self, samples: list[dict[str, str]]) -> list[RagasEvaluationResult]:
         """
         Evaluate a batch of samples.
 
@@ -213,27 +196,26 @@ class RagasService:
             result = await self.evaluate_sample(
                 query=sample["query"],
                 context=sample.get("context", ""),
-                response=sample.get("response", "")
+                response=sample.get("response", ""),
             )
             results.append(result)
         return results
 
-    async def _fallback_faithfulness(
-        self,
-        query: str,
-        context: str,
-        response: str
-    ) -> float:
+    async def _fallback_faithfulness(self, query: str, context: str, response: str) -> float:
         """Use JudgeService as fallback for faithfulness."""
         try:
             from src.shared.kernel.runtime import get_settings
+
             settings = get_settings()
             from src.core.admin_ops.application.evaluation.judge import JudgeService
-            from src.core.generation.application.registry import PromptRegistry
-            from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
-            from src.shared.context import get_current_tenant
             from src.core.admin_ops.application.tuning_service import TuningService
             from src.core.database.session import async_session_maker
+            from src.core.generation.application.registry import PromptRegistry
+            from src.core.generation.domain.ports.provider_factory import (
+                build_provider_factory,
+                get_provider_factory,
+            )
+            from src.shared.context import get_current_tenant
 
             try:
                 factory = build_provider_factory(
@@ -250,7 +232,9 @@ class RagasService:
             tenant_id = get_current_tenant()
             if tenant_id:
                 try:
-                    tenant_config = await TuningService(async_session_maker).get_tenant_config(str(tenant_id))
+                    tenant_config = await TuningService(async_session_maker).get_tenant_config(
+                        str(tenant_id)
+                    )
                 except Exception as e:
                     logger.debug(f"Failed to load tenant config for RAGAS fallback: {e}")
 
@@ -265,21 +249,21 @@ class RagasService:
             logger.error(f"Fallback faithfulness evaluation failed: {e}")
             return 0.0
 
-    async def _fallback_relevance(
-        self,
-        query: str,
-        response: str
-    ) -> float:
+    async def _fallback_relevance(self, query: str, response: str) -> float:
         """Use JudgeService as fallback for relevance."""
         try:
             from src.shared.kernel.runtime import get_settings
+
             settings = get_settings()
             from src.core.admin_ops.application.evaluation.judge import JudgeService
-            from src.core.generation.application.registry import PromptRegistry
-            from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory
-            from src.shared.context import get_current_tenant
             from src.core.admin_ops.application.tuning_service import TuningService
             from src.core.database.session import async_session_maker
+            from src.core.generation.application.registry import PromptRegistry
+            from src.core.generation.domain.ports.provider_factory import (
+                build_provider_factory,
+                get_provider_factory,
+            )
+            from src.shared.context import get_current_tenant
 
             try:
                 factory = build_provider_factory(
@@ -296,7 +280,9 @@ class RagasService:
             tenant_id = get_current_tenant()
             if tenant_id:
                 try:
-                    tenant_config = await TuningService(async_session_maker).get_tenant_config(str(tenant_id))
+                    tenant_config = await TuningService(async_session_maker).get_tenant_config(
+                        str(tenant_id)
+                    )
                 except Exception as e:
                     logger.debug(f"Failed to load tenant config for RAGAS fallback: {e}")
 

@@ -7,8 +7,12 @@ Verifies the SemanticChunker and its integration with IngestionService.
 
 import pytest
 
+from src.core.generation.application.intelligence.strategies import (
+    STRATEGIES,
+    ChunkingStrategy,
+    DocumentDomain,
+)
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
-from src.core.generation.application.intelligence.strategies import STRATEGIES, ChunkingStrategy, DocumentDomain
 
 
 @pytest.mark.asyncio

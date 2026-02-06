@@ -8,8 +8,12 @@ Factory pattern for provider instantiation with failover support.
 import logging
 from dataclasses import dataclass, field
 
+from src.core.admin_ops.application.usage_tracker import UsageTracker
 from src.core.database.session import async_session_maker
-from src.core.generation.domain.ports.provider_factory import set_provider_factory, set_provider_factory_builder
+from src.core.generation.domain.ports.provider_factory import (
+    set_provider_factory,
+    set_provider_factory_builder,
+)
 from src.core.generation.infrastructure.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
@@ -18,8 +22,10 @@ from src.core.generation.infrastructure.providers.base import (
     ProviderTier,
     ProviderUnavailableError,
 )
-from src.core.generation.infrastructure.providers.failover import FailoverEmbeddingProvider, FailoverLLMProvider
-from src.core.admin_ops.application.usage_tracker import UsageTracker
+from src.core.generation.infrastructure.providers.failover import (
+    FailoverEmbeddingProvider,
+    FailoverLLMProvider,
+)
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_FALLBACK,
     DEFAULT_LLM_FALLBACKS,
@@ -102,7 +108,10 @@ def _auto_register():
         pass
 
     try:
-        from src.core.generation.infrastructure.providers.ollama import OllamaLLMProvider, OllamaEmbeddingProvider
+        from src.core.generation.infrastructure.providers.ollama import (
+            OllamaEmbeddingProvider,
+            OllamaLLMProvider,
+        )
 
         register_llm_provider("ollama", OllamaLLMProvider)
         register_embedding_provider("ollama", OllamaEmbeddingProvider)
@@ -169,7 +178,7 @@ class ProviderFactory:
         tier: ProviderTier | None = None,
         model: str | None = None,
         with_failover: bool = True,
-        model_tier: ProviderTier | None = None, # Alias for backward compatibility
+        model_tier: ProviderTier | None = None,  # Alias for backward compatibility
     ) -> BaseLLMProvider:
         """
         Get an LLM provider.
@@ -195,8 +204,7 @@ class ProviderFactory:
         # Check for explicit default provider
         if self.default_llm_provider:
             return self._create_llm_provider(
-                self.default_llm_provider,
-                model=self.default_llm_model
+                self.default_llm_provider, model=self.default_llm_model
             )
 
         fallback_value = {
@@ -236,7 +244,9 @@ class ProviderFactory:
     ) -> BaseEmbeddingProvider:
         """Get an embedding provider."""
         if model and not provider_name:
-            provider_name = resolve_provider_for_model(model, EMBEDDING_MODEL_TO_PROVIDERS, kind="embedding")
+            provider_name = resolve_provider_for_model(
+                model, EMBEDDING_MODEL_TO_PROVIDERS, kind="embedding"
+            )
 
         if provider_name:
             return self._create_embedding_provider(provider_name, model=model)
@@ -245,8 +255,7 @@ class ProviderFactory:
         if self.default_embedding_provider:
             logger.info(f"Using configured embedding provider: {self.default_embedding_provider}")
             return self._create_embedding_provider(
-                self.default_embedding_provider,
-                model=model or self.default_embedding_model
+                self.default_embedding_provider, model=model or self.default_embedding_model
             )
 
         chain = parse_fallback_chain(
@@ -309,9 +318,7 @@ class ProviderFactory:
             base_url = self.ollama_base_url
 
         config = ProviderConfig(
-            api_key=api_key,
-            base_url=base_url,
-            usage_tracker=self.usage_tracker
+            api_key=api_key, base_url=base_url, usage_tracker=self.usage_tracker
         )
         provider = provider_class(config)
 
@@ -323,9 +330,7 @@ class ProviderFactory:
         return provider
 
     def _create_embedding_provider(
-        self, 
-        name: str,
-        model: str | None = None
+        self, name: str, model: str | None = None
     ) -> BaseEmbeddingProvider:
         """Create an embedding provider instance."""
         # Use composite cache key to support different models per provider
@@ -348,15 +353,13 @@ class ProviderFactory:
             base_url = self.ollama_base_url
 
         config = ProviderConfig(
-            api_key=api_key,
-            base_url=base_url,
-            usage_tracker=self.usage_tracker
+            api_key=api_key, base_url=base_url, usage_tracker=self.usage_tracker
         )
         provider = provider_class(config)
 
         # Override default model if configured
         if model:
-             provider.default_model = model
+            provider.default_model = model
         elif self.default_embedding_model:
             provider.default_model = self.default_embedding_model
 

@@ -19,6 +19,7 @@ router = APIRouter(prefix="/health", tags=["health"])
 # Factory function to create HealthChecker with settings
 _health_checker = None
 
+
 def _get_health_checker() -> HealthChecker:
     """Get health checker instance, initializing if needed."""
     global _health_checker
@@ -120,7 +121,7 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
     """
     try:
         system_health = await _get_health_checker().check_all()
-        
+
         # Convert to response model
         dependencies: dict[str, DependencyStatus] = {}
         for name, dep in system_health.dependencies.items():
@@ -137,25 +138,21 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
         )
     except Exception as e:
         # Fallback if health checker itself fails (e.g. startup race conditions)
-        from src.core.admin_ops.application.health_service import HealthStatus # Import locally to avoid circulars if needed
-        
+
         response = ReadinessResponse(
             status="unhealthy",
             timestamp=datetime.now(UTC).isoformat(),
             dependencies={
-                "system": DependencyStatus(
-                    status="down",
-                    error=f"Health check failed: {str(e)}"
-                )
-            }
+                "system": DependencyStatus(status="down", error=f"Health check failed: {str(e)}")
+            },
         )
-        system_health = None # Marker that it failed
+        system_health = None  # Marker that it failed
 
     # Note: We return the response with appropriate status code
     # The actual status code is set by the route decorator's responses
     # FastAPI will use 200 by default, we need to raise for 503
     is_healthy = system_health.is_healthy if system_health else False
-    
+
     if not is_healthy and not silent:
         from fastapi.responses import JSONResponse
 

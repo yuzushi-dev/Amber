@@ -13,6 +13,7 @@ def test_citation_verifier_grounding():
     assert 1 in result.verified_citations
     assert result.score > 0.8
 
+
 def test_citation_verifier_hallucination():
     verifier = CitationVerifier(threshold=0.7)
 
@@ -24,6 +25,7 @@ def test_citation_verifier_hallucination():
     assert result.is_grounded is False
     assert len(result.unsupported_claims) == 1
     assert "moon is made of green cheese" in result.unsupported_claims[0]
+
 
 def test_no_citations():
     verifier = CitationVerifier()

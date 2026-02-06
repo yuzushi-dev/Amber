@@ -5,15 +5,17 @@ Extraction Integration Test
 Verifies the extraction pipeline components (Registry, Extractors).
 """
 
-
 import pytest
 
-from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import UnstructuredExtractor
+from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
+    UnstructuredExtractor,
+)
 from src.core.ingestion.infrastructure.extraction.registry import ExtractorRegistry
 
 # Mock data
-SAMPLE_PDF_CONTENT = b"%PDF-1.4..." # Not a real PDF, would fail actual extraction but good for registry test if we mock method
+SAMPLE_PDF_CONTENT = b"%PDF-1.4..."  # Not a real PDF, would fail actual extraction but good for registry test if we mock method
 SAMPLE_TEXT_CONTENT = b"Hello world"
+
 
 @pytest.mark.asyncio
 async def test_extractor_registry():
@@ -37,18 +39,19 @@ async def test_extractor_registry():
     extractor = ExtractorRegistry.get_extractor("application/octet-stream")
     assert isinstance(extractor, BaseExtractor)
 
+
 @pytest.mark.asyncio
 async def test_unstructured_extractor_basic():
     # Test simple text extraction with unstructured
     extractor = UnstructuredExtractor()
     result = await extractor.extract(
-        file_content=b"This is a test document.",
-        file_type="text/plain"
+        file_content=b"This is a test document.", file_type="text/plain"
     )
 
     assert result.content.strip() == "This is a test document."
     assert result.extractor_used == "unstructured"
     assert result.confidence > 0.0
+
 
 # Note: Testing PyMuPDF requires a real valid PDF bytes sequence or it raises error.
 # We will skip deep functional test of PyMuPDF in this lightweight integration test

@@ -5,23 +5,22 @@ Chunk Retrieval Endpoint
 API routes for retrieving document chunks.
 """
 
+import logging
 from typing import Any
 
+import tiktoken
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.amber_platform.composition_root import build_vector_store_factory, platform
+from src.api.config import settings
+from src.api.schemas.chunks import ChunkUpdate
 from src.core.database.session import get_db
 from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
 from src.core.ingestion.domain.document import Document
-from src.shared.context import get_current_tenant
-from src.api.schemas.chunks import ChunkUpdate
-from src.api.config import settings
 from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.amber_platform.composition_root import platform, build_vector_store_factory
-
-import tiktoken
-import logging
+from src.shared.context import get_current_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +53,12 @@ async def get_document_chunks(
         Dict with chunks, total count, limit, and offset
     """
     # 1. Verify document exists and belongs to tenant
-    stmt = select(Document).where(
-        Document.id == document_id,
-        Document.tenant_id == tenant_id
-    )
+    stmt = select(Document).where(Document.id == document_id, Document.tenant_id == tenant_id)
     result = await session.execute(stmt)
     document = result.scalars().first()
 
     if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     # 2. Get total count
     count_stmt = select(func.count(Chunk.id)).where(Chunk.document_id == document_id)
@@ -91,13 +84,13 @@ async def get_document_chunks(
                 "content": c.content,
                 "tokens": c.tokens,
                 "metadata": c.metadata_,
-                "embedding_status": c.embedding_status
+                "embedding_status": c.embedding_status,
             }
             for c in chunks
         ],
         "total": total or 0,
         "limit": limit,
-        "offset": offset
+        "offset": offset,
     }
 
 
@@ -113,22 +106,16 @@ async def update_chunk(
     Update a chunk's content and regenerate its embedding.
     """
     # 1. Verify chunk exists
-    stmt = select(Chunk).where(
-        Chunk.id == chunk_id,
-        Chunk.document_id == document_id
-    )
+    stmt = select(Chunk).where(Chunk.id == chunk_id, Chunk.document_id == document_id)
     result = await session.execute(stmt)
     chunk = result.scalars().first()
 
     if not chunk:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chunk not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found")
 
     # 2. Update content and tokens
     chunk.content = update_data.content
-    
+
     # Calculate tokens
     try:
         encoding = tiktoken.get_encoding("cl100k_base")
@@ -147,7 +134,7 @@ async def update_chunk(
         embedding_service = EmbeddingService(
             openai_api_key=settings.openai_api_key or None,
         )
-        
+
         vector_store_factory = build_vector_store_factory()
         dimensions = settings.embedding_dimensions or 1536
         vector_store = vector_store_factory(dimensions, collection_name=f"amber_{tenant_id}")
@@ -163,7 +150,7 @@ async def update_chunk(
             "tenant_id": tenant_id,
             "content": chunk.content[:65530],
             "embedding": embedding,
-            **chunk.metadata_
+            **chunk.metadata_,
         }
         await vector_store.upsert_chunks([chunk_data])
         # disconnect is now safe close()
@@ -177,14 +164,14 @@ async def update_chunk(
         logger.error(f"Failed to update chunk embedding: {e}")
         chunk.embedding_status = EmbeddingStatus.FAILED
         await session.commit()
-        # Return success but indicate partial failure? 
+        # Return success but indicate partial failure?
         # Or just let the UI see "failed".
 
     return {
         "id": chunk.id,
         "content": chunk.content,
         "tokens": chunk.tokens,
-        "embedding_status": chunk.embedding_status
+        "embedding_status": chunk.embedding_status,
     }
 
 
@@ -199,18 +186,12 @@ async def delete_chunk(
     Delete a chunk from Postgres, Milvus, and Neo4j.
     """
     # 1. Get Chunk
-    stmt = select(Chunk).where(
-        Chunk.id == chunk_id,
-        Chunk.document_id == document_id
-    )
+    stmt = select(Chunk).where(Chunk.id == chunk_id, Chunk.document_id == document_id)
     result = await session.execute(stmt)
     chunk = result.scalars().first()
 
     if not chunk:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chunk not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found")
 
     # 2. Delete from Milvus
     try:
@@ -226,8 +207,7 @@ async def delete_chunk(
     # 3. Delete from Neo4j
     try:
         await platform.neo4j_client.execute_write(
-            "MATCH (c:Chunk {id: $chunk_id}) DETACH DELETE c",
-            {"chunk_id": chunk_id}
+            "MATCH (c:Chunk {id: $chunk_id}) DETACH DELETE c", {"chunk_id": chunk_id}
         )
     except Exception as e:
         logger.error(f"Failed to delete from Neo4j: {e}")

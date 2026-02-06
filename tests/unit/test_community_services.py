@@ -12,17 +12,20 @@ from src.core.graph.application.communities.summarizer import CommunitySummarize
 def mock_neo4j():
     return AsyncMock()
 
+
 @pytest.fixture
 def mock_factory():
     factory = MagicMock()
     factory.get_llm_provider.return_value = AsyncMock()
     return factory
 
+
 @pytest.fixture
 def mock_embedding_service():
     service = AsyncMock()
     service.embed_single.return_value = [0.1] * 1536
     return service
+
 
 class TestCommunitySummarizer:
     @pytest.mark.asyncio
@@ -32,21 +35,30 @@ class TestCommunitySummarizer:
 
         # Mock data fetch
         mock_neo4j.execute_read.side_effect = [
-            [{"name": "Entity A", "type": "Person", "description": "Desc A"}], # entities
-            [{"source": "Entity A", "target": "Entity B", "type": "WORKS_WITH", "description": "Rel Desc"}], # relationships
+            [{"name": "Entity A", "type": "Person", "description": "Desc A"}],  # entities
+            [
+                {
+                    "source": "Entity A",
+                    "target": "Entity B",
+                    "type": "WORKS_WITH",
+                    "description": "Rel Desc",
+                }
+            ],  # relationships
             [],  # child summaries
-            [{"id": "chunk_1", "content": "Sample text unit content"}]  # text_units
+            [{"id": "chunk_1", "content": "Sample text unit content"}],  # text_units
         ]
 
         # Mock LLM response
         llm_result = MagicMock()
-        llm_result.text = json.dumps({
-            "title": "Test Community",
-            "summary": "This is a test summary.",
-            "rating": 8,
-            "key_entities": ["Entity A"],
-            "findings": ["Finding 1"]
-        })
+        llm_result.text = json.dumps(
+            {
+                "title": "Test Community",
+                "summary": "This is a test summary.",
+                "rating": 8,
+                "key_entities": ["Entity A"],
+                "findings": ["Finding 1"],
+            }
+        )
         mock_factory.get_llm_provider.return_value.generate.return_value = llm_result
 
         # Execute
@@ -67,6 +79,7 @@ class TestCommunitySummarizer:
             result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
         assert result == {}
 
+
 class TestCommunityEmbeddingService:
     @pytest.mark.asyncio
     @pytest.mark.asyncio
@@ -79,19 +92,20 @@ class TestCommunityEmbeddingService:
             "tenant_id": "tenant_1",
             "level": 0,
             "title": "Test",
-            "summary": "Summary"
+            "summary": "Summary",
         }
 
         await service.embed_and_store_community(data)
 
         assert mock_embedding_service.embed_single.called
         assert mock_vector_store.upsert_chunks.called
-        
+
         # Verify call args for upsert
         call_args = mock_vector_store.upsert_chunks.call_args[0][0]
         assert len(call_args) == 1
         assert call_args[0]["chunk_id"] == "comm_0_123"
         assert call_args[0]["content"] == "Summary"
+
 
 class TestCommunityLifecycle:
     @pytest.mark.asyncio

@@ -91,7 +91,6 @@ celery_app.conf.task_routes = {
 }
 
 
-
 @worker_process_init.connect
 def init_worker_process(**kwargs):
     """Initialize providers and other dependencies when worker process starts.
@@ -106,8 +105,10 @@ def init_worker_process(**kwargs):
 
         configure_settings(settings)
         from src.core.database.session import configure_database
+
         configure_database(settings.db.database_url)
         from src.amber_platform.composition_root import platform
+
         asyncio.run(platform.initialize())
 
         providers = getattr(settings, "providers", None)

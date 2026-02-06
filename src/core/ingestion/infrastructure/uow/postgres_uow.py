@@ -1,5 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
+
 
 class PostgresUnitOfWork(UnitOfWork):
     """

@@ -1,4 +1,4 @@
-from src.shared.model_registry import DEFAULT_LLM_MODEL, DEFAULT_EMBEDDING_MODEL
+from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
 
 
 def test_registry_defaults_exist():

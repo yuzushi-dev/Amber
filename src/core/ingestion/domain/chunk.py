@@ -34,11 +34,13 @@ class Chunk(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     tenant_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
-    index: Mapped[int] = mapped_column(Integer, nullable=False) # 0-based index in the document
+    document_id: Mapped[str] = mapped_column(
+        String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-based index in the document
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    tokens: Mapped[int] = mapped_column(Integer, nullable=False) # Token count from tiktoken
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False)  # Token count from tiktoken
 
     # Metadata includes: start_char, end_char, page_numbers, section_title
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
@@ -48,7 +50,9 @@ class Chunk(Base):
     )
 
     # Relationship to parent document
-    document: Mapped["Document"] = relationship("src.core.ingestion.domain.document.Document", back_populates="chunks")
+    document: Mapped["Document"] = relationship(
+        "src.core.ingestion.domain.document.Document", back_populates="chunks"
+    )
 
     def __repr__(self):
         return f"<Chunk(id={self.id}, doc={self.document_id}, index={self.index})>"

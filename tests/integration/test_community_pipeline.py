@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.amber_platform.composition_root import platform
 from src.core.graph.application.communities.leiden import CommunityDetector
 from src.core.graph.application.communities.summarizer import CommunitySummarizer
-from src.amber_platform.composition_root import platform
-neo4j_client = platform.neo4j_client
 
+neo4j_client = platform.neo4j_client
 
 
 @pytest.mark.asyncio
@@ -25,40 +25,49 @@ async def test_full_community_pipeline():
         query_str = query.strip()
         if "RETURN count(c)" in query_str:
             return [{"count": 2}]
-        
+
         # Handle "find stale communities" query (Summarizer)
         if "RETURN c.id as id" in query_str:
             return [{"id": "comm_1"}, {"id": "comm_2"}]
-            
+
         # Handle "fetch graph" query (Leiden)
         # Matches: properties(r) as props
         if "properties(r) as props" in query_str:
-             return [
-                 {"source": "e1", "target": "e2", "rel_type": "RELATED_TO", "props": {"weight": 1.0}},
-                 {"source": "e3", "target": "e4", "rel_type": "RELATED_TO", "props": {"weight": 1.0}}
-             ]
+            return [
+                {
+                    "source": "e1",
+                    "target": "e2",
+                    "rel_type": "RELATED_TO",
+                    "props": {"weight": 1.0},
+                },
+                {
+                    "source": "e3",
+                    "target": "e4",
+                    "rel_type": "RELATED_TO",
+                    "props": {"weight": 1.0},
+                },
+            ]
 
         # Handle "fetch community relationships" query (Summarizer)
         # Matches: type(r) as type, r.description as description
         if "type(r) as type" in query_str:
-             return [
-                 {"source": "e1", "target": "e2", "type": "RELATED_TO", "description": "Rel Desc"},
-                 {"source": "e3", "target": "e4", "type": "RELATED_TO", "description": "Rel Desc"}
-             ]
-             
+            return [
+                {"source": "e1", "target": "e2", "type": "RELATED_TO", "description": "Rel Desc"},
+                {"source": "e3", "target": "e4", "type": "RELATED_TO", "description": "Rel Desc"},
+            ]
+
         # Handle entity/relationship fetching in Summarizer
         # Matches: RETURN e.name as name
         if "RETURN e.name as name" in query_str:
             return [{"name": "Entity A", "type": "Org", "description": "Desc"}]
-            
+
         return []
 
     neo4j_client.execute_read = AsyncMock(side_effect=mock_read)
 
     await neo4j_client.connect()
     await neo4j_client.execute_write(
-        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
-        {"tenant_id": tenant_id}
+        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
     )
 
     # 2. Setup Entities and Relationships
@@ -92,13 +101,15 @@ async def test_full_community_pipeline():
 
     # Fix: Create a MagicMock for the response object that has a .text attribute/property
     mock_response = MagicMock()
-    mock_response.text = json.dumps({
-        "title": "Tech Cluster",
-        "summary": "Detailed summary about tech products.",
-        "rating": 7,
-        "key_entities": ["Apple", "iPhone"],
-        "findings": ["Insight 1", "Insight 2"]
-    })
+    mock_response.text = json.dumps(
+        {
+            "title": "Tech Cluster",
+            "summary": "Detailed summary about tech products.",
+            "rating": 7,
+            "key_entities": ["Apple", "iPhone"],
+            "findings": ["Insight 1", "Insight 2"],
+        }
+    )
 
     # When await mock_llm.generate(...) is called, it returns this mock_response
     mock_llm.generate.return_value = mock_response
@@ -117,6 +128,5 @@ async def test_full_community_pipeline():
 
     # 6. Cleanup
     await neo4j_client.execute_write(
-        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n",
-        {"tenant_id": tenant_id}
+        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
     )

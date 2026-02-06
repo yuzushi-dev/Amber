@@ -9,6 +9,7 @@ from src.shared.identifiers import generate_community_id
 
 logger = logging.getLogger(__name__)
 
+
 class CommunityDetector:
     """
     Implements Hierarchical Leiden Community Detection.
@@ -18,7 +19,9 @@ class CommunityDetector:
     def __init__(self, graph_client: GraphClientPort):
         self.graph = graph_client
 
-    async def detect_communities(self, tenant_id: str, resolution: float = 1.0, max_levels: int = 2, seed: int = 42) -> dict[str, Any]:
+    async def detect_communities(
+        self, tenant_id: str, resolution: float = 1.0, max_levels: int = 2, seed: int = 42
+    ) -> dict[str, Any]:
         """
         Main entry point for detection and persistence.
 
@@ -47,10 +50,14 @@ class CommunityDetector:
         await self._persist_communities(tenant_id, hierarchy)
 
         count = len(hierarchy)
-        logger.info(f"Detected and persisted {count} communities across levels for tenant {tenant_id}")
+        logger.info(
+            f"Detected and persisted {count} communities across levels for tenant {tenant_id}"
+        )
         return {"status": "success", "community_count": count}
 
-    async def _fetch_l0_graph(self, tenant_id: str) -> tuple[list[str], list[tuple[str, str, float]]]:
+    async def _fetch_l0_graph(
+        self, tenant_id: str
+    ) -> tuple[list[str], list[tuple[str, str, float]]]:
         """
         Fetches all Entity nodes and their relationships.
         Returns:
@@ -92,7 +99,14 @@ class CommunityDetector:
         # If no relationships, we still have nodes. Leiden handles disconnected graphs.
         return sorted(list(nodes)), edges
 
-    def _run_hierarchical_leiden(self, nodes: list[str], edges: list[tuple[str, str, float]], resolution: float, max_levels: int, seed: int) -> list[dict[str, Any]]:
+    def _run_hierarchical_leiden(
+        self,
+        nodes: list[str],
+        edges: list[tuple[str, str, float]],
+        resolution: float,
+        max_levels: int,
+        seed: int,
+    ) -> list[dict[str, Any]]:
         """
         Runs Leiden recursively.
         Returns list of community dicts to persist.
@@ -114,7 +128,7 @@ class CommunityDetector:
 
         g.add_edges(ig_edges)
         if ig_weights:
-            g.es['weight'] = ig_weights
+            g.es["weight"] = ig_weights
 
         results = []
 
@@ -126,11 +140,11 @@ class CommunityDetector:
             leidenalg.RBConfigurationVertexPartition,
             weights=ig_weights if ig_weights else None,
             resolution_parameter=resolution,
-            seed=seed
+            seed=seed,
         )
 
         # Group members by community index
-        l0_comms = {} # comm_idx -> [node_ids]
+        l0_comms = {}  # comm_idx -> [node_ids]
         for node_idx, comm_idx in enumerate(partition.membership):
             if comm_idx not in l0_comms:
                 l0_comms[comm_idx] = []
@@ -144,16 +158,20 @@ class CommunityDetector:
             c_uuid = generate_community_id(level=0)
             l0_idx_to_uuid[c_idx] = c_uuid
 
-            results.append({
-                "id": c_uuid,
-                "level": 0,
-                "title": f"Community 0.{c_idx}",
-                "members": members, # Entity IDs
-                "child_communities": [] # L0 has no child communities
-            })
+            results.append(
+                {
+                    "id": c_uuid,
+                    "level": 0,
+                    "title": f"Community 0.{c_idx}",
+                    "members": members,  # Entity IDs
+                    "child_communities": [],  # L0 has no child communities
+                }
+            )
 
-        if max_levels <= 0: # max_levels=0 usually means just Entities? No, usually L0 is 1st level of communities.
-            pass # We return L0.
+        if (
+            max_levels <= 0
+        ):  # max_levels=0 usually means just Entities? No, usually L0 is 1st level of communities.
+            pass  # We return L0.
 
         if max_levels <= 1:
             return results
@@ -163,7 +181,7 @@ class CommunityDetector:
         # leidenalg partition.aggregate_graph() creates a new graph where nodes represent the clusters.
 
         current_partition = partition
-        current_level_uuids = l0_idx_to_uuid # int (cluster idx in current partition) -> uuid
+        current_level_uuids = l0_idx_to_uuid  # int (cluster idx in current partition) -> uuid
 
         for level in range(1, max_levels):
             # Aggregate
@@ -179,9 +197,11 @@ class CommunityDetector:
             next_partition = leidenalg.find_partition(
                 induced_graph,
                 leidenalg.RBConfigurationVertexPartition,
-                weights=induced_graph.es['weight'] if 'weight' in induced_graph.es.attribute_names() else None,
+                weights=induced_graph.es["weight"]
+                if "weight" in induced_graph.es.attribute_names()
+                else None,
                 resolution_parameter=resolution,
-                seed=seed
+                seed=seed,
             )
 
             # Map new clusters to old clusters (uuids)
@@ -189,8 +209,7 @@ class CommunityDetector:
 
             # next_partition.membership maps: node_idx (which is old_comm_idx) -> new_comm_idx
 
-            level_comms = {} # new_comm_idx -> [old_comm_uuids]
-
+            level_comms = {}  # new_comm_idx -> [old_comm_uuids]
 
             for old_comm_idx, new_comm_idx in enumerate(next_partition.membership):
                 if new_comm_idx not in level_comms:
@@ -206,19 +225,21 @@ class CommunityDetector:
                 logger.info(f"Community structure converged at level {level}. Stopping.")
                 break
 
-            new_level_uuids = {} # new_comm_idx -> new_uuid
+            new_level_uuids = {}  # new_comm_idx -> new_uuid
 
             for c_idx, child_uuids in level_comms.items():
                 c_uuid = generate_community_id(level=level)
                 new_level_uuids[c_idx] = c_uuid
 
-                results.append({
-                    "id": c_uuid,
-                    "level": level,
-                    "title": f"Community {level}.{c_idx}",
-                    "members": [],
-                    "child_communities": child_uuids # List of CommunityIds from level-1
-                })
+                results.append(
+                    {
+                        "id": c_uuid,
+                        "level": level,
+                        "title": f"Community {level}.{c_idx}",
+                        "members": [],
+                        "child_communities": child_uuids,  # List of CommunityIds from level-1
+                    }
+                )
 
             current_partition = next_partition
             current_level_uuids = new_level_uuids
@@ -265,5 +286,5 @@ class CommunityDetector:
         # Simple batching to avoid query size limits if many communities
         batch_size = 100
         for i in range(0, len(communities), batch_size):
-            batch = communities[i:i+batch_size]
+            batch = communities[i : i + batch_size]
             await self.graph.execute_write(query, {"communities": batch, "tenant_id": tenant_id})

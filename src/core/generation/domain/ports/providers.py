@@ -17,8 +17,7 @@ class LLMProviderPort(Protocol):
         max_tokens: int | None = None,
         stop: list[str] | None = None,
         **kwargs: Any,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     async def generate_stream(
         self,
@@ -29,8 +28,7 @@ class LLMProviderPort(Protocol):
         max_tokens: int | None = None,
         stop: list[str] | None = None,
         **kwargs: Any,
-    ) -> AsyncIterator[str]:
-        ...
+    ) -> AsyncIterator[str]: ...
 
     async def chat(
         self,
@@ -38,8 +36,7 @@ class LLMProviderPort(Protocol):
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = "auto",
         **kwargs: Any,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 class EmbeddingProviderPort(Protocol):
@@ -51,11 +48,9 @@ class EmbeddingProviderPort(Protocol):
         model: str | None = None,
         dimensions: int | None = None,
         **kwargs: Any,
-    ) -> EmbeddingResult:
-        ...
+    ) -> EmbeddingResult: ...
 
-    def get_dimensions(self, model: str) -> int:
-        ...
+    def get_dimensions(self, model: str) -> int: ...
 
 
 class RerankerProviderPort(Protocol):
@@ -68,5 +63,4 @@ class RerankerProviderPort(Protocol):
         model: str | None = None,
         top_k: int | None = None,
         **kwargs: Any,
-    ) -> RerankResult:
-        ...
+    ) -> RerankResult: ...

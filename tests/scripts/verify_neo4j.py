@@ -2,11 +2,13 @@ import asyncio
 import logging
 
 from src.amber_platform.composition_root import platform
+
 neo4j_client = platform.neo4j_client
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 async def verify_constraints():
     """Verify Neo4j constraints and indexes exist."""
@@ -18,12 +20,12 @@ async def verify_constraints():
         # Determine query based on Neo4j version (4.x SHOW CONSTRAINTS vs older call db.constraints)
         # We assume 4.4+ or 5.x
         try:
-             constraints = await neo4j_client.execute_read("SHOW CONSTRAINTS")
+            constraints = await neo4j_client.execute_read("SHOW CONSTRAINTS")
         except Exception:
-             # Fallback for older versions if needed, but we target modern Neo4j
-             constraints = []
+            # Fallback for older versions if needed, but we target modern Neo4j
+            constraints = []
 
-        found_constraints = [c['name'] for c in constraints]
+        found_constraints = [c["name"] for c in constraints]
         print(f"Constraints found: {found_constraints}")
 
         # Check for our specific constraints by name if auto-generated names match,
@@ -41,21 +43,22 @@ async def verify_constraints():
         # Check Indexes
         # Indexes created: entity_lookup, document_tenant, chunk_document
         indexes = await neo4j_client.execute_read("SHOW INDEXES")
-        found_indexes = [i['name'] for i in indexes]
+        found_indexes = [i["name"] for i in indexes]
         print(f"Indexes found: {found_indexes}")
 
         required_indexes = ["entity_lookup", "document_tenant", "chunk_document"]
         missing_indexes = [req for req in required_indexes if req not in found_indexes]
 
         if missing_indexes:
-             print(f"❌ Missing indexes: {missing_indexes}")
+            print(f"❌ Missing indexes: {missing_indexes}")
         else:
-             print("✅ All required indexes found.")
+            print("✅ All required indexes found.")
 
     except Exception as e:
         logger.error(f"Verification failed: {e}")
     finally:
         await neo4j_client.close()
+
 
 if __name__ == "__main__":
     asyncio.run(verify_constraints())

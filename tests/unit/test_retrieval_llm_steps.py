@@ -1,7 +1,8 @@
-import pytest
 from types import SimpleNamespace
 
-from src.shared.kernel.runtime import configure_settings, _reset_for_tests
+import pytest
+
+from src.shared.kernel.runtime import _reset_for_tests, configure_settings
 from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 
 

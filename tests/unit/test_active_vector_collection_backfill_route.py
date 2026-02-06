@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from src.api.routes.admin import config as config_module
 
@@ -44,8 +45,10 @@ async def test_backfill_route_updates_missing(monkeypatch):
             class CM:
                 async def __aenter__(self):
                     return fake_session
+
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
+
             return CM()
 
     monkeypatch.setattr(config_module, "async_session_maker", FakeSessionMaker())

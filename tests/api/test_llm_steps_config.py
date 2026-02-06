@@ -14,7 +14,7 @@ async def test_llm_steps_schema():
 
 @pytest.mark.asyncio
 async def test_llm_settings_update_requires_super_admin(monkeypatch):
-    from src.api.routes.admin.config import update_tenant_config, TenantConfigUpdate
+    from src.api.routes.admin.config import TenantConfigUpdate, update_tenant_config
 
     class DummyState:
         is_super_admin = False

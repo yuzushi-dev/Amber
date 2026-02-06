@@ -23,7 +23,7 @@ class FailbackManager:
         # Rely on circuit breaker's state
         if circuit.state == CircuitState.OPEN:
             # Check if enough time passed to try half-open (managed by circuit logic usually)
-             return time.time() - circuit.last_failure_time > circuit.recovery_timeout
+            return time.time() - circuit.last_failure_time > circuit.recovery_timeout
 
         return circuit.state == CircuitState.CLOSED or circuit.state == CircuitState.HALF_OPEN
 

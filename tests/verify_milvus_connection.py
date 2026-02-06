@@ -16,5 +16,6 @@ def check_version():
         print(f"Failed to connect to Milvus: {e}")
         sys.exit(1)
 
+
 if __name__ == "__main__":
     check_version()

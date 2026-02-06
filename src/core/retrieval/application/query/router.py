@@ -7,11 +7,15 @@ Dynamically selects the best SearchMode for a given query.
 
 import logging
 
-from src.shared.kernel.models.query import SearchMode
 from src.core.generation.application.prompts.query_analysis import QUERY_MODE_PROMPT
-from src.core.generation.domain.provider_models import ProviderTier
-from src.core.generation.domain.ports.provider_factory import build_provider_factory, get_provider_factory, ProviderFactoryPort
+from src.core.generation.domain.ports.provider_factory import (
+    ProviderFactoryPort,
+    build_provider_factory,
+    get_provider_factory,
+)
 from src.core.generation.domain.ports.providers import LLMProviderPort
+from src.core.generation.domain.provider_models import ProviderTier
+from src.shared.kernel.models.query import SearchMode
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +26,41 @@ class QueryRouter:
     """
 
     # Heuristic keywords
-    GLOBAL_KEYWORDS = {"all", "main", "themes", "summarize", "trends", "overall", "summary", "everything"}
-    DRIFT_KEYWORDS = {"compare", "relation", "differences", "between", "how does", "impact", "influence"}
+    GLOBAL_KEYWORDS = {
+        "all",
+        "main",
+        "themes",
+        "summarize",
+        "trends",
+        "overall",
+        "summary",
+        "everything",
+    }
+    DRIFT_KEYWORDS = {
+        "compare",
+        "relation",
+        "differences",
+        "between",
+        "how does",
+        "impact",
+        "influence",
+    }
 
     # Structured query patterns (for list/count operations)
-    STRUCTURED_STARTERS = {
-        "list", "show", "get", "display", "count", "how many"
-    }
+    STRUCTURED_STARTERS = {"list", "show", "get", "display", "count", "how many"}
     STRUCTURED_TARGETS = {
-        "documents", "document", "files", "file",
-        "entities", "entity", "relationships", "relationship",
-        "chunks", "chunk", "stats", "statistics"
+        "documents",
+        "document",
+        "files",
+        "file",
+        "entities",
+        "entity",
+        "relationships",
+        "relationship",
+        "chunks",
+        "chunk",
+        "stats",
+        "statistics",
     }
 
     def __init__(
@@ -46,6 +74,7 @@ class QueryRouter:
             self.factory = provider_factory
         else:
             from src.api.config import settings
+
             if openai_api_key or anthropic_api_key or settings.ollama_base_url:
                 self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,
@@ -101,8 +130,8 @@ class QueryRouter:
         # 2. LLM classification
         if use_llm:
             try:
-                from src.shared.kernel.runtime import get_settings
                 from src.core.generation.application.llm_steps import resolve_llm_step_config
+                from src.shared.kernel.runtime import get_settings
 
                 settings = get_settings()
                 tenant_config = tenant_config or {}
@@ -128,7 +157,11 @@ class QueryRouter:
 
                 if mode_str in [m.value for m in SearchMode]:
                     logger.debug(f"Routing to {mode_str} mode via LLM")
-                    return SearchMode.from_str(mode_str) if hasattr(SearchMode, 'from_str') else SearchMode(mode_str)
+                    return (
+                        SearchMode.from_str(mode_str)
+                        if hasattr(SearchMode, "from_str")
+                        else SearchMode(mode_str)
+                    )
 
                 logger.warning(f"LLM returned invalid mode: {mode_str}")
             except Exception as e:
@@ -154,11 +187,7 @@ class QueryRouter:
         starts_with_starter = first_word in self.STRUCTURED_STARTERS
 
         # Special case: "how many" is two words
-        starts_with_how_many = (
-            len(words) >= 2 and
-            words[0] == "how" and
-            words[1] == "many"
-        )
+        starts_with_how_many = len(words) >= 2 and words[0] == "how" and words[1] == "many"
 
         if not (starts_with_starter or starts_with_how_many):
             return False

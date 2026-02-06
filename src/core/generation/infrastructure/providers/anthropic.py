@@ -15,13 +15,12 @@ from src.core.generation.infrastructure.providers.base import (
     GenerationResult,
     InvalidRequestError,
     ProviderConfig,
-    ProviderTier,
     ProviderUnavailableError,
     RateLimitError,
     TokenUsage,
 )
-from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 from src.shared.context import get_current_tenant, get_request_id
+from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 
 try:
     from opentelemetry import trace
@@ -51,7 +50,9 @@ def _get_anthropic_client(api_key: str):
 
         return AsyncAnthropic(api_key=api_key)
     except ImportError as e:
-        raise ImportError("anthropic package is required. Install with: pip install anthropic>=0.18.0") from e
+        raise ImportError(
+            "anthropic package is required. Install with: pip install anthropic>=0.18.0"
+        ) from e
 
 
 class AnthropicLLMProvider(BaseLLMProvider):
@@ -141,7 +142,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, '032x') if span_context.is_valid else None
+                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
@@ -152,7 +153,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
                     cost=result.cost_estimate,
                     request_id=get_request_id(),
                     trace_id=trace_id,
-                    metadata=result.metadata
+                    metadata=result.metadata,
                 )
 
             return result

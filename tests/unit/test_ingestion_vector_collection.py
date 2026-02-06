@@ -1,6 +1,7 @@
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
+
+import pytest
 
 from src.core.ingestion.application import ingestion_service as service_module
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
@@ -121,7 +122,7 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         hashtags=[],
         keywords=[],
         chunks=[],
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     class TenantRepo:
@@ -134,12 +135,24 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
     monkeypatch.setattr(service_module, "GraphProcessor", lambda *a, **k: SimpleNamespace())
     monkeypatch.setattr(service_module, "GraphEnricher", lambda *a, **k: SimpleNamespace())
-    monkeypatch.setattr("src.core.ingestion.application.chunking.semantic.SemanticChunker", StubChunker)
+    monkeypatch.setattr(
+        "src.core.ingestion.application.chunking.semantic.SemanticChunker", StubChunker
+    )
     monkeypatch.setattr("src.core.ingestion.domain.chunk.Chunk", StubChunk)
-    monkeypatch.setattr("src.core.generation.application.intelligence.classifier.DomainClassifier", StubClassifier)
-    monkeypatch.setattr("src.core.generation.application.intelligence.strategies.get_strategy", lambda *_: StubStrategy())
-    monkeypatch.setattr("src.core.retrieval.application.embeddings_service.EmbeddingService", StubEmbeddingService)
-    monkeypatch.setattr("src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService", StubSparseService)
+    monkeypatch.setattr(
+        "src.core.generation.application.intelligence.classifier.DomainClassifier", StubClassifier
+    )
+    monkeypatch.setattr(
+        "src.core.generation.application.intelligence.strategies.get_strategy",
+        lambda *_: StubStrategy(),
+    )
+    monkeypatch.setattr(
+        "src.core.retrieval.application.embeddings_service.EmbeddingService", StubEmbeddingService
+    )
+    monkeypatch.setattr(
+        "src.core.retrieval.application.sparse_embeddings_service.SparseEmbeddingService",
+        StubSparseService,
+    )
     monkeypatch.setattr(
         "src.core.generation.domain.ports.provider_factory.build_provider_factory",
         lambda *a, **k: SimpleNamespace(get_embedding_provider=lambda *a, **k: None),
@@ -160,7 +173,9 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         settings=SimpleNamespace(
             default_embedding_provider="openai",
             default_embedding_model=DEFAULT_EMBEDDING_MODEL["openai"],
-            embedding_dimensions=EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]]["dimensions"],
+            embedding_dimensions=EMBEDDING_MODELS["openai"][DEFAULT_EMBEDDING_MODEL["openai"]][
+                "dimensions"
+            ],
             openai_api_key="sk-test",
             ollama_base_url=None,
         ),

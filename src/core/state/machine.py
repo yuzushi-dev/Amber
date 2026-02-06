@@ -28,9 +28,7 @@ class InvalidTransitionError(Exception):
     def __init__(self, current_status: DocumentStatus, new_status: DocumentStatus):
         self.current_status = current_status
         self.new_status = new_status
-        super().__init__(
-            f"Invalid transition from {current_status.value} to {new_status.value}"
-        )
+        super().__init__(f"Invalid transition from {current_status.value} to {new_status.value}")
 
 
 class TransitionManager:
@@ -60,7 +58,7 @@ class TransitionManager:
         DocumentStatus.EMBEDDING: {
             DocumentStatus.GRAPH_SYNC,
             DocumentStatus.FAILED,
-            DocumentStatus.READY, # Allow skipping graph sync if disabled
+            DocumentStatus.READY,  # Allow skipping graph sync if disabled
         },
         DocumentStatus.GRAPH_SYNC: {
             DocumentStatus.READY,
@@ -68,11 +66,11 @@ class TransitionManager:
         },
         DocumentStatus.READY: {
             DocumentStatus.INGESTED,  # Allow re-ingestion/reset
-            DocumentStatus.EXTRACTING, # Allow re-processing
+            DocumentStatus.EXTRACTING,  # Allow re-processing
         },
         DocumentStatus.FAILED: {
             DocumentStatus.INGESTED,  # Retry from scratch
-            DocumentStatus.EXTRACTING, # Retry step
+            DocumentStatus.EXTRACTING,  # Retry step
         },
     }
 

@@ -63,8 +63,7 @@ class ConfluenceConnector(BaseConnector):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.base_url}/rest/api/user/current",
-                    auth=(email, api_token)
+                    f"{self.base_url}/rest/api/user/current", auth=(email, api_token)
                 )
                 response.raise_for_status()
                 self._authenticated = True
@@ -82,36 +81,32 @@ class ConfluenceConnector(BaseConnector):
             raise RuntimeError("Not authenticated. Call authenticate() first.")
 
         # V2 uses cursor-based pagination
-        url = f"{self.base_url}/rest/api/content" # Fallback check, wait
+        url = f"{self.base_url}/rest/api/content"  # Fallback check, wait
         # V2 Endpoint: /api/v2/pages
-        # But we need to handle the base_url. 
+        # But we need to handle the base_url.
         # User gives: https://domain.atlassian.net/wiki
         # API: https://domain.atlassian.net/wiki/api/v2/pages
-        
+
         url = f"{self.base_url}/api/v2/pages"
-        params = {"limit": 50} # Max is usually 250 in V2? Defaults 25.
-        
+        params = {"limit": 50}  # Max is usually 250 in V2? Defaults 25.
+
         # Note: V2 Pages doesn't support 'cql' or simple date filtering directly in parameters easily
-        # without searching. 
-        # For 'since' support, we might need to iterate or use search. 
+        # without searching.
+        # For 'since' support, we might need to iterate or use search.
         # Given 'fetch_items' is for full sync, iterating is okay, but inefficient if we can't filter.
         # However, for this MVP refactor, we will stick to V2 pages iteration.
-        
+
         # If 'since' is provided, we might be better off using search (V1/V2 shared).
         # But let's try to be V2 compliant for the 'pure' fetch.
-        # Actually, let's use the V2 endpoint and client-side filter if needed, 
+        # Actually, let's use the V2 endpoint and client-side filter if needed,
         # OR just acknowledge that 'since' might be hard with pure /pages.
-        
+
         async with httpx.AsyncClient() as client:
             while url:
-                response = await client.get(
-                    url,
-                    params=params, 
-                    auth=(self.email, self.api_token)
-                )
+                response = await client.get(url, params=params, auth=(self.email, self.api_token))
                 response.raise_for_status()
                 data = response.json()
-                
+
                 results = data.get("results", [])
                 if not results:
                     break
@@ -128,8 +123,8 @@ class ConfluenceConnector(BaseConnector):
                 if url and not url.startswith("http"):
                     # Relative URL
                     url = f"{self.base_url}{url}"
-                
-                params = {} # Next URL usually has params
+
+                params = {}  # Next URL usually has params
 
     async def get_item_content(self, item_id: str) -> bytes:
         """
@@ -141,11 +136,9 @@ class ConfluenceConnector(BaseConnector):
         async with httpx.AsyncClient() as client:
             # V2 API: /api/v2/pages/{id}?body-format=storage
             url = f"{self.base_url}/api/v2/pages/{item_id}"
-            
+
             response = await client.get(
-                url,
-                params={"body-format": "storage"},
-                auth=(self.email, self.api_token)
+                url, params={"body-format": "storage"}, auth=(self.email, self.api_token)
             )
             response.raise_for_status()
             data = response.json()
@@ -160,7 +153,9 @@ class ConfluenceConnector(BaseConnector):
     def get_connector_type(self) -> str:
         return "confluence"
 
-    async def list_items(self, page: int = 1, page_size: int = 20, search: str = None) -> tuple[list[ConnectorItem], bool]:
+    async def list_items(
+        self, page: int = 1, page_size: int = 20, search: str = None
+    ) -> tuple[list[ConnectorItem], bool]:
         """
         List/Search pages.
         """
@@ -169,41 +164,32 @@ class ConfluenceConnector(BaseConnector):
 
         # API uses 'start' and 'limit'
         start = (page - 1) * page_size
-        
+
         cql = "type=page"
         if search:
             # Basic text search in CQL
-            cql += f" AND text ~ \"{search}\""
+            cql += f' AND text ~ "{search}"'
 
-        params = {
-            "cql": cql, 
-            "start": start, 
-            "limit": page_size,
-            "expand": "version,history"
-        }
+        params = {"cql": cql, "start": start, "limit": page_size, "expand": "version,history"}
 
         async with httpx.AsyncClient() as client:
             # Using CQL search endpoint might be better for 'text ~', but /content/search is also standard.
             # /rest/api/content/search is usually better for CQL.
             # However, /rest/api/content with `cql` param is deprecated in some versions but works in Cloud.
             # Let's try /rest/api/content/search which is safer for CQL.
-            
+
             url = f"{self.base_url}/rest/api/content/search"
-            
-            response = await client.get(
-                url,
-                params=params,
-                auth=(self.email, self.api_token)
-            )
+
+            response = await client.get(url, params=params, auth=(self.email, self.api_token))
             response.raise_for_status()
             data = response.json()
 
             results = data.get("results", [])
             items = [self._map_to_item(p) for p in results]
-            
+
             # Simple check for more
             has_more = len(items) == page_size
-            
+
             return items, has_more
 
     def _map_v2_to_item(self, page: dict) -> ConnectorItem:
@@ -211,15 +197,17 @@ class ConfluenceConnector(BaseConnector):
         # V2: createdAt, title, id, status
         updated_input = page.get("createdAt", "")
         try:
-             updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
+            updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
         except:
-             updated_at = datetime.now()
+            updated_at = datetime.now()
 
         # WebUI link usually in _links
         web_link = f"{self.base_url}/spaces/{page.get('spaceId')}/pages/{page.get('id')}"
         if "_links" in page and "webui" in page["_links"]:
-             # V2 _links might be /wiki/...
-             web_link = self.base_url + page["_links"]["webui"].replace("/wiki", "", 1) # careful mapping
+            # V2 _links might be /wiki/...
+            web_link = self.base_url + page["_links"]["webui"].replace(
+                "/wiki", "", 1
+            )  # careful mapping
 
         return ConnectorItem(
             id=str(page["id"]),
@@ -231,7 +219,7 @@ class ConfluenceConnector(BaseConnector):
                 "space_id": page.get("spaceId"),
                 "status": page.get("status"),
                 "version": page.get("version", {}).get("number"),
-            }
+            },
         )
 
     def _map_to_item(self, page: dict) -> ConnectorItem:
@@ -239,10 +227,10 @@ class ConfluenceConnector(BaseConnector):
         # version.when is update time
         updated_input = page.get("version", {}).get("when", "")
         try:
-             # Confluence dates are usually ISO8601
-             updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
+            # Confluence dates are usually ISO8601
+            updated_at = datetime.fromisoformat(updated_input.replace("Z", "+00:00"))
         except:
-             updated_at = datetime.now()
+            updated_at = datetime.now()
 
         # Generate a web link (base_url + _links.webui)
         web_link = self.base_url + page.get("_links", {}).get("webui", "")
@@ -257,7 +245,7 @@ class ConfluenceConnector(BaseConnector):
                 "space_key": page.get("space", {}).get("key"),
                 "status": page.get("status"),
                 "version": page.get("version", {}).get("number"),
-            }
+            },
         )
 
     # --- Agent Tools ---
@@ -272,35 +260,37 @@ class ConfluenceConnector(BaseConnector):
     def _tool_search_pages(self):
         async def search_pages(query: str, limit: int = 5) -> str:
             """Search Confluence pages using CQL."""
-            if not self._authenticated: return "Error: Not authenticated."
-            
+            if not self._authenticated:
+                return "Error: Not authenticated."
+
             # CQL Search
-            cql = f"text ~ \"{query}\" AND type=page"
-            
+            cql = f'text ~ "{query}" AND type=page'
+
             try:
                 # Reuse list_items logic effectively but tailored for agent output
                 params = {
-                    "cql": cql, 
+                    "cql": cql,
                     "limit": limit,
                 }
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
                         f"{self.base_url}/rest/api/content/search",
                         params=params,
-                        auth=(self.email, self.api_token)
+                        auth=(self.email, self.api_token),
                     )
                     data = response.json()
                     results = data.get("results", [])
-                    
-                    if not results: return "No pages found."
-                    
+
+                    if not results:
+                        return "No pages found."
+
                     output = []
                     for p in results:
                         pid = p.get("id")
                         title = p.get("title")
                         link = self.base_url + p.get("_links", {}).get("webui", "")
                         output.append(f"- [{pid}] {title} ({link})")
-                    
+
                     return "\n".join(output)
             except Exception as e:
                 return f"Exception: {e}"
@@ -317,27 +307,28 @@ class ConfluenceConnector(BaseConnector):
                         "type": "object",
                         "properties": {
                             "query": {"type": "string", "description": "Search terms"},
-                            "limit": {"type": "integer", "default": 5}
+                            "limit": {"type": "integer", "default": 5},
                         },
-                        "required": ["query"]
-                    }
-                }
-            }
+                        "required": ["query"],
+                    },
+                },
+            },
         }
 
     def _tool_get_page(self):
         async def get_page(page_id: str) -> str:
             """Get content of a page."""
-            if not self._authenticated: return "Error: Not authenticated."
-            
+            if not self._authenticated:
+                return "Error: Not authenticated."
+
             try:
                 # Use storage format
                 content_bytes = await self.get_item_content(page_id)
                 content = content_bytes.decode("utf-8")
-                
+
                 # It's HTML, might be verbose. Agent can handle it, or we could strip tags.
                 # For Agent reading, raw HTML is often okay if not massive.
-                return content[:10000] # Limit size
+                return content[:10000]  # Limit size
             except Exception as e:
                 return f"Exception: {e}"
 
@@ -351,43 +342,34 @@ class ConfluenceConnector(BaseConnector):
                     "description": "Read a Confluence page.",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "page_id": {"type": "string"}
-                        },
-                        "required": ["page_id"]
-                    }
-                }
-            }
+                        "properties": {"page_id": {"type": "string"}},
+                        "required": ["page_id"],
+                    },
+                },
+            },
         }
 
     def _tool_add_comment(self):
         async def add_comment(page_id: str, comment: str) -> str:
             """Add a footer comment to a page."""
-            if not self._authenticated: return "Error: Not authenticated."
-            
+            if not self._authenticated:
+                return "Error: Not authenticated."
+
             body = {
                 "type": "comment",
-                "container": {
-                    "type": "page",
-                    "id": page_id
-                },
-                "body": {
-                    "storage": {
-                        "value": f"<p>{comment}</p>",
-                        "representation": "storage"
-                    }
-                }
+                "container": {"type": "page", "id": page_id},
+                "body": {"storage": {"value": f"<p>{comment}</p>", "representation": "storage"}},
             }
-            
+
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
                         f"{self.base_url}/rest/api/content",
                         json=body,
-                        auth=(self.email, self.api_token)
+                        auth=(self.email, self.api_token),
                     )
                     if response.status_code != 200:
-                         return f"Error: {response.text}"
+                        return f"Error: {response.text}"
                     return "Comment added."
             except Exception as e:
                 return f"Exception: {e}"
@@ -404,10 +386,10 @@ class ConfluenceConnector(BaseConnector):
                         "type": "object",
                         "properties": {
                             "page_id": {"type": "string"},
-                            "comment": {"type": "string"}
+                            "comment": {"type": "string"},
                         },
-                        "required": ["page_id", "comment"]
-                    }
-                }
-            }
+                        "required": ["page_id", "comment"],
+                    },
+                },
+            },
         }

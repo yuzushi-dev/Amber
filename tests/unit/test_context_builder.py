@@ -16,9 +16,10 @@ def test_context_builder_budget():
     assert result.tokens <= 20
     assert "First chunk" in result.content
 
+
 def test_sentence_truncation():
     text = "This is sentence one. This is sentence two! And sentence three?"
-    builder = ContextBuilder(max_tokens=60) # Should fit about 1-2 sentences
+    builder = ContextBuilder(max_tokens=60)  # Should fit about 1-2 sentences
 
     # Mocking a candidate with long text
     candidates = [{"content": text * 10, "chunk_id": "long"}]
@@ -27,6 +28,7 @@ def test_sentence_truncation():
     # Check that it ends with punctuation
     assert result.content.strip()[-1] in ".!?"
     assert result.tokens <= 60
+
 
 def test_metadata_inclusion():
     candidates = [{"content": "Content", "title": "Secret Document"}]

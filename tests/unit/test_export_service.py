@@ -7,16 +7,14 @@ import io
 import json
 import zipfile
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
 from src.core.generation.domain.memory_models import ConversationSummary
+
 # Import all models to ensure SQLAlchemy relationships resolve properly
-from src.core.ingestion.domain.document import Document
-from src.core.ingestion.domain.folder import Folder
-from src.core.ingestion.domain.chunk import Chunk
 
 
 class TestExportService:
@@ -58,16 +56,18 @@ class TestExportService:
                             "document_id": "doc_1",
                             "filename": "python_guide.pdf",
                             "content": "Python is versatile...",
-                            "score": 0.95
+                            "score": 0.95,
                         }
-                    ]
+                    ],
                 }
-            ]
+            ],
         }
         return conv
 
     @pytest.mark.asyncio
-    async def test_generate_single_conversation_zip_basic(self, mock_session, mock_storage, sample_conversation):
+    async def test_generate_single_conversation_zip_basic(
+        self, mock_session, mock_storage, sample_conversation
+    ):
         """Test generating a ZIP for a single conversation."""
         # Mock the database query
         mock_result = MagicMock()
@@ -77,24 +77,24 @@ class TestExportService:
         from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
-        
+
         zip_bytes = await service.generate_single_conversation_zip("conv_123")
 
         # Verify ZIP is valid and has expected files
         assert len(zip_bytes) > 0
-        
+
         zip_buffer = io.BytesIO(zip_bytes)
-        with zipfile.ZipFile(zip_buffer, 'r') as zf:
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
             file_list = zf.namelist()
-            
+
             assert "transcript.txt" in file_list
             assert "metadata.json" in file_list
-            
+
             # Check transcript content
             transcript = zf.read("transcript.txt").decode("utf-8")
             assert "What is Python?" in transcript
             assert "Python is a programming language." in transcript
-            
+
             # Check metadata content
             metadata = json.loads(zf.read("metadata.json").decode("utf-8"))
             assert metadata["conversation_id"] == "conv_123"
@@ -116,76 +116,82 @@ class TestExportService:
             await service.generate_single_conversation_zip("nonexistent_conv")
 
     @pytest.mark.asyncio
-    async def test_generate_single_conversation_zip_with_documents(self, mock_session, mock_storage, sample_conversation):
+    async def test_generate_single_conversation_zip_with_documents(
+        self, mock_session, mock_storage, sample_conversation
+    ):
         """Test that referenced documents are included in the ZIP."""
         # Mock conversation query
         mock_conv_result = MagicMock()
         mock_conv_result.scalar_one_or_none.return_value = sample_conversation
-        
+
         # Mock document query
         mock_doc = MagicMock()
         mock_doc.id = "doc_1"
         mock_doc.filename = "python_guide.pdf"
         mock_doc.storage_path = "uploads/doc_1.pdf"
-        
+
         mock_doc_result = MagicMock()
         mock_doc_result.scalar_one_or_none.return_value = mock_doc
-        
+
         # Return conversation first, then document
         mock_session.execute = AsyncMock(side_effect=[mock_conv_result, mock_doc_result])
 
         from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
-        
+
         zip_bytes = await service.generate_single_conversation_zip("conv_123")
 
         # Verify document folder exists
         zip_buffer = io.BytesIO(zip_bytes)
-        with zipfile.ZipFile(zip_buffer, 'r') as zf:
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
             file_list = zf.namelist()
             # Check that documents folder has content
             doc_files = [f for f in file_list if f.startswith("documents/")]
             assert len(doc_files) > 0
 
     @pytest.mark.asyncio
-    async def test_generate_single_conversation_zip_handles_missing_document(self, mock_session, mock_storage, sample_conversation):
+    async def test_generate_single_conversation_zip_handles_missing_document(
+        self, mock_session, mock_storage, sample_conversation
+    ):
         """Test graceful handling when document file is not in storage."""
         mock_conv_result = MagicMock()
         mock_conv_result.scalar_one_or_none.return_value = sample_conversation
-        
+
         # Mock document exists in DB but not in storage
         mock_doc = MagicMock()
         mock_doc.id = "doc_1"
         mock_doc.filename = "missing_doc.pdf"
         mock_doc.storage_path = "uploads/missing.pdf"
-        
+
         mock_doc_result = MagicMock()
         mock_doc_result.scalar_one_or_none.return_value = mock_doc
-        
+
         mock_session.execute = AsyncMock(side_effect=[mock_conv_result, mock_doc_result])
-        
+
         # Storage raises FileNotFoundError
         mock_storage.get_file = MagicMock(side_effect=FileNotFoundError("File not found"))
 
         from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
-        
+
         # Should not raise - just logs warning and adds placeholder
         zip_bytes = await service.generate_single_conversation_zip("conv_123")
-        
+
         assert len(zip_bytes) > 0
-        
+
         zip_buffer = io.BytesIO(zip_bytes)
-        with zipfile.ZipFile(zip_buffer, 'r') as zf:
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
             # Check for .missing.txt placeholder
             file_list = zf.namelist()
             missing_files = [f for f in file_list if ".missing.txt" in f]
             assert len(missing_files) > 0
 
     @pytest.mark.asyncio
-    async def test_generate_single_conversation_zip_fallback_format(self, mock_session, mock_storage):
+    async def test_generate_single_conversation_zip_fallback_format(
+        self, mock_session, mock_storage
+    ):
         """Test fallback format when no history array exists."""
         conv = MagicMock(spec=ConversationSummary)
         conv.id = "conv_456"
@@ -194,10 +200,7 @@ class TestExportService:
         conv.title = "Simple Query"
         conv.summary = "Simple answer"
         conv.created_at = datetime(2026, 1, 14, 12, 0, 0)
-        conv.metadata_ = {
-            "query": "Hello?",
-            "answer": "Hi there!"
-        }  # No "history" array
+        conv.metadata_ = {"query": "Hello?", "answer": "Hi there!"}  # No "history" array
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = conv
@@ -206,11 +209,11 @@ class TestExportService:
         from src.core.admin_ops.application.export_service import ExportService
 
         service = ExportService(mock_session, mock_storage)
-        
+
         zip_bytes = await service.generate_single_conversation_zip("conv_456")
 
         zip_buffer = io.BytesIO(zip_bytes)
-        with zipfile.ZipFile(zip_buffer, 'r') as zf:
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
             transcript = zf.read("transcript.txt").decode("utf-8")
             assert "Hello?" in transcript
             assert "Hi there!" in transcript
@@ -221,11 +224,7 @@ class TestExportJobModel:
 
     def test_export_job_creation(self):
         """Test ExportJob model can be instantiated."""
-        job = ExportJob(
-            id="job_123",
-            tenant_id="tenant_1",
-            status=ExportStatus.PENDING
-        )
+        job = ExportJob(id="job_123", tenant_id="tenant_1", status=ExportStatus.PENDING)
 
         assert job.id == "job_123"
         assert job.tenant_id == "tenant_1"
@@ -235,11 +234,7 @@ class TestExportJobModel:
 
     def test_export_job_repr(self):
         """Test ExportJob string representation."""
-        job = ExportJob(
-            id="job_456",
-            tenant_id="tenant_1",
-            status=ExportStatus.COMPLETED
-        )
+        job = ExportJob(id="job_456", tenant_id="tenant_1", status=ExportStatus.COMPLETED)
 
         repr_str = repr(job)
         assert "job_456" in repr_str

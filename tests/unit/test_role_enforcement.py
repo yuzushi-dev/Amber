@@ -1,8 +1,10 @@
+from unittest.mock import Mock
 
 import pytest
-from fastapi import Request, HTTPException
-from unittest.mock import Mock, AsyncMock
+from fastapi import HTTPException
+
 from src.api.deps import verify_super_admin, verify_tenant_admin
+
 
 # Mock Request object
 class MockRequest:
@@ -11,11 +13,13 @@ class MockRequest:
         self.state.tenant_role = tenant_role
         self.state.is_super_admin = is_super_admin
 
+
 @pytest.mark.asyncio
 async def test_verify_super_admin_success():
     """Should pass if is_super_admin is True."""
     request = MockRequest(is_super_admin=True)
     await verify_super_admin(request)  # Should not raise
+
 
 @pytest.mark.asyncio
 async def test_verify_super_admin_failure():
@@ -25,17 +29,20 @@ async def test_verify_super_admin_failure():
         await verify_super_admin(request)
     assert exc.value.status_code == 403
 
+
 @pytest.mark.asyncio
 async def test_verify_tenant_admin_as_super_admin():
     """Super Admin should pass verify_tenant_admin implicitly."""
     request = MockRequest(is_super_admin=True, tenant_role="user")
     await verify_tenant_admin(request)  # Should not raise
 
+
 @pytest.mark.asyncio
 async def test_verify_tenant_admin_success():
     """Tenant Admin should pass verify_tenant_admin."""
     request = MockRequest(is_super_admin=False, tenant_role="admin")
     await verify_tenant_admin(request)  # Should not raise
+
 
 @pytest.mark.asyncio
 async def test_verify_tenant_admin_failure():
@@ -45,11 +52,13 @@ async def test_verify_tenant_admin_failure():
         await verify_tenant_admin(request)
     assert exc.value.status_code == 403
 
+
 def test_privacy_redaction_logic():
     """Verify the logic used in chat_history.py for redaction."""
+
     # Simulation of the logic in the router
     def redact(has_feedback: bool, title: str):
         return title if has_feedback else "[REDACTED - PRIVACY]"
-    
+
     assert redact(True, "My Secret Query") == "My Secret Query"
     assert redact(False, "My Secret Query") == "[REDACTED - PRIVACY]"

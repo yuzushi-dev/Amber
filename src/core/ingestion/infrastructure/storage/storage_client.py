@@ -32,7 +32,7 @@ class MinIOClient:
     ):
         """
         Initialize MinIO client.
-        
+
         Args:
             host: MinIO host. If None, reads from composition root.
             port: MinIO port. If None, reads from composition root.
@@ -57,7 +57,9 @@ class MinIOClient:
             secure=secure,
         )
         self.bucket_name = bucket_name
-        logger.debug(f"MinIO Client initialized. Endpoint: {host}:{port}, Bucket: {self.bucket_name}")
+        logger.debug(
+            f"MinIO Client initialized. Endpoint: {host}:{port}, Bucket: {self.bucket_name}"
+        )
 
     def ensure_bucket_exists(self) -> None:
         """Create the bucket if it doesn't exist."""
@@ -68,7 +70,13 @@ class MinIOClient:
             # Handle potential connection issues or permission errors
             raise RuntimeError(f"Failed to check/create bucket: {e}") from e
 
-    def upload_file(self, object_name: str, data: BinaryIO, length: int, content_type: str = "application/octet-stream") -> None:
+    def upload_file(
+        self,
+        object_name: str,
+        data: BinaryIO,
+        length: int,
+        content_type: str = "application/octet-stream",
+    ) -> None:
         """
         Upload a file-like object to MinIO.
 
@@ -106,7 +114,7 @@ class MinIOClient:
             # Preserve original traceback
             raise FileNotFoundError(msg) from e
         finally:
-            if 'response' in locals():
+            if "response" in locals():
                 response.close()
 
     def get_file_stream(self, object_name: str):

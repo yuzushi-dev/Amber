@@ -19,22 +19,25 @@ _tracer = None
 # Global tracer instance
 _tracer = None
 
-from typing import Any
-from src.shared.context import get_request_id, set_request_id, RequestId
+from src.shared.context import get_request_id, set_request_id
+
 
 def get_current_request_id() -> str | None:
     """Get the current request ID from context."""
     rid = get_request_id()
     return str(rid) if rid else None
 
+
 def set_current_request_id(request_id: str) -> Any:
     """Set the current request ID in context. Returns None (no token needed for shared context)."""
     set_request_id(request_id)
     return None
 
+
 def reset_current_request_id(token: Any) -> None:
     """Reset not supported/needed for shared context (request scoped)."""
     pass
+
 
 # Try importing opentelemetry
 try:
@@ -52,19 +55,30 @@ except ImportError:
 # Mocks for when OpenTelemetry is missing
 # -----------------------------------------------------------------------------
 
+
 class MockSpan:
-    def __enter__(self): return self
-    def __exit__(self, exc_type, exc_val, exc_tb): pass
-    def record_exception(self, e): pass
-    def set_status(self, status): pass
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def record_exception(self, e):
+        pass
+
+    def set_status(self, status):
+        pass
+
 
 class MockTracer:
     def start_as_current_span(self, name):
         return MockSpan()
 
+
 # -----------------------------------------------------------------------------
 # Tracer Setup
 # -----------------------------------------------------------------------------
+
 
 def setup_tracer(service_name: str = "amber-rag") -> Any:
     """
@@ -95,12 +109,14 @@ def setup_tracer(service_name: str = "amber-rag") -> Any:
     logger.info(f"OpenTelemetry tracer initialized for service: {service_name}")
     return _tracer
 
+
 def get_tracer() -> Any:
     """Returns the global tracer instance, initializing if necessary."""
     global _tracer
     if not _tracer:
         return setup_tracer()
     return _tracer
+
 
 def trace_span(name: str | None = None):
     """
@@ -109,6 +125,7 @@ def trace_span(name: str | None = None):
     Args:
         name: Override the span name. Defaults to function's name.
     """
+
     def decorator(func: Callable):
         span_name = name or func.__name__
 
@@ -129,6 +146,7 @@ def trace_span(name: str | None = None):
                     # Handle OTel status setting if available
                     if OPENTELEMETRY_AVAILABLE and hasattr(span, "set_status"):
                         from opentelemetry import trace as ot_trace
+
                         span.set_status(ot_trace.Status(ot_trace.StatusCode.ERROR, str(e)))
                     raise
 
@@ -143,6 +161,7 @@ def trace_span(name: str | None = None):
                         span.record_exception(e)
                     if OPENTELEMETRY_AVAILABLE and hasattr(span, "set_status"):
                         from opentelemetry import trace as ot_trace
+
                         span.set_status(ot_trace.Status(ot_trace.StatusCode.ERROR, str(e)))
                     raise
 

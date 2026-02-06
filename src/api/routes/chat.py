@@ -5,16 +5,17 @@ Chat History Router
 User-facing endpoints for managing chat history.
 """
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, get_current_tenant_id
+from src.api.deps import get_current_tenant_id, get_db_session
+from src.api.routes.admin.chat_history import (
+    ChatHistoryItem,
+    ChatHistoryResponse,
+    ConversationDetail,
+)
 from src.core.generation.domain.memory_models import ConversationSummary
-from src.api.routes.admin.chat_history import ChatHistoryItem, ChatHistoryResponse, ConversationDetail
 
 router = APIRouter(prefix="/chat", tags=["Chat History"])
 
@@ -33,13 +34,12 @@ async def list_history(
     # Determine User ID (match query.py logic)
     # 1. Check header
     # 2. Fallback to 'default_user'
-    user_id = request.headers.get("X-User-ID", "default_user") 
+    user_id = request.headers.get("X-User-ID", "default_user")
 
     try:
         # Build query
         stmt = select(ConversationSummary).where(
-            ConversationSummary.tenant_id == tenant_id,
-            ConversationSummary.user_id == user_id
+            ConversationSummary.tenant_id == tenant_id, ConversationSummary.user_id == user_id
         )
 
         # Order by most recent
@@ -47,8 +47,7 @@ async def list_history(
 
         # Count total
         count_stmt = select(func.count(ConversationSummary.id)).where(
-            ConversationSummary.tenant_id == tenant_id,
-            ConversationSummary.user_id == user_id
+            ConversationSummary.tenant_id == tenant_id, ConversationSummary.user_id == user_id
         )
         total = await session.scalar(count_stmt) or 0
 
@@ -60,31 +59,35 @@ async def list_history(
         conversations = []
         for conv in rows:
             metadata = conv.metadata_ or {}
-            
+
             # For the user endpoint, we DO NOT redact content because the user owns it
             query_text = metadata.get("query")
             response_text = metadata.get("answer")
-            
+
             # Create preview
             response_preview = None
             if response_text:
-                response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                response_preview = (
+                    response_text[:100] + "..." if len(response_text) > 100 else response_text
+                )
             elif conv.summary:
                 response_preview = conv.summary[:100]
 
-            conversations.append(ChatHistoryItem(
-                request_id=conv.id,
-                tenant_id=conv.tenant_id,
-                query_text=query_text or conv.title,
-                response_preview=response_preview,
-                model=metadata.get("model", "default"),
-                provider="openai", # specific provider info might need better storage if not in metadata
-                total_tokens=0, # Metrics not easily joined here without complex query
-                cost=0.0,
-                has_feedback=False, # We don't check feedback for list view speed
-                feedback_score=None,
-                created_at=conv.created_at,
-            ))
+            conversations.append(
+                ChatHistoryItem(
+                    request_id=conv.id,
+                    tenant_id=conv.tenant_id,
+                    query_text=query_text or conv.title,
+                    response_preview=response_preview,
+                    model=metadata.get("model", "default"),
+                    provider="openai",  # specific provider info might need better storage if not in metadata
+                    total_tokens=0,  # Metrics not easily joined here without complex query
+                    cost=0.0,
+                    has_feedback=False,  # We don't check feedback for list view speed
+                    feedback_score=None,
+                    created_at=conv.created_at,
+                )
+            )
 
         return ChatHistoryResponse(
             conversations=conversations,
@@ -95,13 +98,9 @@ async def list_history(
 
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Failed to list history: {e}")
-        return ChatHistoryResponse(
-            conversations=[],
-            total=0,
-            limit=limit,
-            offset=offset
-        )
+        return ChatHistoryResponse(conversations=[], total=0, limit=limit, offset=offset)
 
 
 @router.get("/history/{conversation_id}", response_model=ConversationDetail)
@@ -119,7 +118,7 @@ async def get_history_detail(
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
         ConversationSummary.tenant_id == tenant_id,
-        ConversationSummary.user_id == user_id
+        ConversationSummary.user_id == user_id,
     )
     result = await session.execute(stmt)
     conv = result.scalar_one_or_none()
@@ -128,7 +127,7 @@ async def get_history_detail(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     metadata = conv.metadata_ or {}
-    
+
     return ConversationDetail(
         request_id=conv.id,
         tenant_id=conv.tenant_id,
@@ -162,7 +161,7 @@ async def delete_history(
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
         ConversationSummary.tenant_id == tenant_id,
-        ConversationSummary.user_id == user_id
+        ConversationSummary.user_id == user_id,
     )
     result = await session.execute(stmt)
     conv = result.scalar_one_or_none()

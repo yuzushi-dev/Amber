@@ -1,5 +1,6 @@
 import logging
-from typing import Any, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, basic_auth
 
@@ -7,6 +8,7 @@ from src.shared.kernel.observability import trace_span
 from src.shared.kernel.runtime import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 class Neo4jClient:
     """
@@ -24,7 +26,7 @@ class Neo4jClient:
     ):
         """
         Initialize Neo4j client.
-        
+
         Args:
             uri: Neo4j connection URI. If None, reads from composition root.
             user: Neo4j username. If None, reads from composition root.
@@ -35,7 +37,7 @@ class Neo4jClient:
             uri = uri or settings.db.neo4j_uri
             user = user or settings.db.neo4j_user
             password = password or settings.db.neo4j_password
-        
+
         self.uri = uri
         self.user = user
         self.password = password
@@ -46,8 +48,7 @@ class Neo4jClient:
         if not self._driver:
             try:
                 self._driver = AsyncGraphDatabase.driver(
-                    self.uri,
-                    auth=basic_auth(self.user, self.password)
+                    self.uri, auth=basic_auth(self.user, self.password)
                 )
                 # Verify connection
                 await self._driver.verify_connectivity()
@@ -70,7 +71,9 @@ class Neo4jClient:
         return self._driver
 
     @trace_span("Neo4j.execute_read")
-    async def execute_read(self, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
+    async def execute_read(
+        self, query: str, parameters: dict[str, Any] = None
+    ) -> list[dict[str, Any]]:
         """
         Execute a read-only transaction.
 
@@ -92,7 +95,9 @@ class Neo4jClient:
                 raise
 
     @trace_span("Neo4j.execute_write")
-    async def execute_write(self, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
+    async def execute_write(
+        self, query: str, parameters: dict[str, Any] = None
+    ) -> list[dict[str, Any]]:
         """
         Execute a write transaction.
 
@@ -113,7 +118,9 @@ class Neo4jClient:
                 logger.error("Write transaction failed: %s", str(e))
                 raise
 
-    async def _execute_tx(self, tx, query: str, parameters: dict[str, Any] = None) -> list[dict[str, Any]]:
+    async def _execute_tx(
+        self, tx, query: str, parameters: dict[str, Any] = None
+    ) -> list[dict[str, Any]]:
         """Helper to run transaction and collect results."""
         if parameters is None:
             parameters = {}
@@ -136,7 +143,7 @@ class Neo4jClient:
         CALL apoc.refactor.to(r, target) YIELD input, output, error
         RETURN count(*)
         """
-        
+
         # 2. Move outgoing edges
         move_outgoing = """
         MATCH (target:Entity {name: $target_id, tenant_id: $tenant_id})
@@ -173,10 +180,21 @@ class Neo4jClient:
             # We assume APOC is available. If not, we need a manual Cypher reconstruction fallback.
             # Checking APOC availability could be done at startup.
             # For now, we wrap in try-except block.
-            await self.execute_write(move_incoming, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
-            await self.execute_write(move_outgoing, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
-            await self.execute_write(merge_props, {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id})
-            await self.execute_write(delete_sources, {"source_ids": source_ids, "tenant_id": tenant_id})
+            await self.execute_write(
+                move_incoming,
+                {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id},
+            )
+            await self.execute_write(
+                move_outgoing,
+                {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id},
+            )
+            await self.execute_write(
+                merge_props,
+                {"target_id": target_id, "source_ids": source_ids, "tenant_id": tenant_id},
+            )
+            await self.execute_write(
+                delete_sources, {"source_ids": source_ids, "tenant_id": tenant_id}
+            )
             return True
         except Exception as e:
             logger.error(f"Merge nodes failed (verify APOC is installed): {e}")
@@ -204,13 +222,15 @@ class Neo4jClient:
         RETURN e.name as name, e.description as description, collect(chunk.id) as chunk_ids
         """
         result = await self.execute_read(query, {"node_id": node_id, "tenant_id": tenant_id})
-        if not result or result[0]['name'] is None:
-             # If exact match fails, try ID just in case (migration compatibility)
-             # But strictly speaking we use name.
-             return None
+        if not result or result[0]["name"] is None:
+            # If exact match fails, try ID just in case (migration compatibility)
+            # But strictly speaking we use name.
+            return None
         return result[0]
 
-    async def get_entities_from_chunks(self, chunk_ids: list[str], tenant_id: str) -> list[dict[str, Any]]:
+    async def get_entities_from_chunks(
+        self, chunk_ids: list[str], tenant_id: str
+    ) -> list[dict[str, Any]]:
         """
         Find entities mentioned in specific chunks.
         Used to find candidates from 'similar' chunks during healing.
@@ -251,14 +271,16 @@ class Neo4jClient:
             logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
             raise
 
-    async def prune_orphans(self, valid_doc_ids: list[str], valid_chunk_ids: list[str]) -> dict[str, int]:
+    async def prune_orphans(
+        self, valid_doc_ids: list[str], valid_chunk_ids: list[str]
+    ) -> dict[str, int]:
         """
         Remove chunks and entities that are not valid.
-        
+
         Args:
             valid_doc_ids: List of valid Document IDs from Postgres.
             valid_chunk_ids: List of valid Chunk IDs from Postgres.
-            
+
         Returns:
             Dictionary with counts of deleted items.
         """
@@ -267,21 +289,21 @@ class Neo4jClient:
         # UNWIND creates rows, we want to filter EXISTING nodes against the list
         # Passing huge lists to Cypher can be slow, but for maintenance it's acceptable usually.
         # However, for huge datasets, logic should be inverted (find orphans via exclusion).
-        
+
         # Strategy:
         # We can't pass ALL valid IDs if millions.
         # But here we assume this usage is for maintenance/debugging or moderate scale.
         # If lists are huge, we should batch. For now, simplistic implementation as requested.
-        
+
         counts = {"documents": 0, "chunks": 0, "entities": 0}
-        
+
         try:
             # A. Prune Documents
             # Find all documents in Graph
             # Check if they are in valid_docs. If not, delete.
             # Doing this entirely in Cypher requires passing the full list of valid IDs.
             # "MATCH (d:Document) WHERE NOT d.id IN $valid_ids DETACH DELETE d"
-            
+
             # Batching is safer. But for now:
             query_docs = """
             MATCH (d:Document)
@@ -291,7 +313,7 @@ class Neo4jClient:
             """
             res_docs = await self.execute_write(query_docs, {"valid_ids": valid_doc_ids})
             counts["documents"] = res_docs[0]["deleted"] if res_docs else 0
-            
+
             # B. Prune Chunks
             query_chunks = """
             MATCH (c:Chunk)
@@ -301,12 +323,12 @@ class Neo4jClient:
             """
             res_chunks = await self.execute_write(query_chunks, {"valid_ids": valid_chunk_ids})
             counts["chunks"] = res_chunks[0]["deleted"] if res_chunks else 0
-            
+
             # C. Prune Entities (Orphans)
             # STRATEGY CHANGE: Instead of just deleting completely isolated nodes (WHERE NOT (e)--()),
             # we now delete ANY entity that is not mentioned by a valid chunk.
             # This handles "island" clusters that are connected to each other but detached from the knowledge base.
-            
+
             # Since we just deleted invalid chunks in step B, we can trust existing chunks.
             query_entities = """
             MATCH (e:Entity)
@@ -316,7 +338,7 @@ class Neo4jClient:
             """
             res_entities = await self.execute_write(query_entities)
             counts["entities"] = res_entities[0]["deleted"] if res_entities else 0
-            
+
             # D. Prune Stale Communities
             # Delete communities that are not reachable from any Entity.
             # This handles hierarchical communities (C <- C <- E) correctly.
@@ -331,13 +353,13 @@ class Neo4jClient:
             RETURN count(c) as deleted
             """
             # Note: We include HAS_MEMBER in the pattern just in case data model varies, though verification showed absent.
-            
+
             res_comm = await self.execute_write(query_communities)
             counts["communities"] = res_comm[0]["deleted"] if res_comm else 0
-            
+
             logger.info(f"Pruned orphans: {counts}")
             return counts
-            
+
         except Exception as e:
             logger.error(f"Failed to prune orphans: {e}")
             raise
@@ -356,7 +378,9 @@ class Neo4jClient:
         """
         return await self.execute_read(query, {"tenant_id": tenant_id, "limit": limit})
 
-    async def search_nodes(self, query_str: str, tenant_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    async def search_nodes(
+        self, query_str: str, tenant_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
         """
         Search for nodes by name or description.
         """
@@ -367,16 +391,22 @@ class Neo4jClient:
         RETURN n.name as id, n.name as label, n.type as type, n.community as community_id
         LIMIT $limit
         """
-        return await self.execute_read(query, {"tenant_id": tenant_id, "q": query_str, "limit": limit})
+        return await self.execute_read(
+            query, {"tenant_id": tenant_id, "q": query_str, "limit": limit}
+        )
 
-    async def get_node_neighborhood(self, node_id: str, tenant_id: str, limit: int = 50) -> dict[str, Any]:
+    async def get_node_neighborhood(
+        self, node_id: str, tenant_id: str, limit: int = 50
+    ) -> dict[str, Any]:
         """
         Get neighborhood as graph data (nodes list, edges list).
         Wrapper for get_node_neighborhood_graph to match naming convention.
         """
         return await self.get_node_neighborhood_graph(node_id, tenant_id, limit)
 
-    async def get_node_neighborhood_graph(self, node_id: str, tenant_id: str, limit: int = 50) -> dict[str, Any]:
+    async def get_node_neighborhood_graph(
+        self, node_id: str, tenant_id: str, limit: int = 50
+    ) -> dict[str, Any]:
         """
         Get neighborhood as graph data (nodes list, edges list).
         """
@@ -389,54 +419,56 @@ class Neo4jClient:
             neighbor.name as n_id, neighbor.type as n_type, neighbor.community as n_comm
         LIMIT $limit
         """
-        records = await self.execute_read(query, {"node_id": node_id, "tenant_id": tenant_id, "limit": limit})
-        
-        nodes = {} # Map to dedup
+        records = await self.execute_read(
+            query, {"node_id": node_id, "tenant_id": tenant_id, "limit": limit}
+        )
+
+        nodes = {}  # Map to dedup
         edges = []
-        
+
         for row in records:
-            if not row['c_id']: continue # Should not happen if center exists
-            
+            if not row["c_id"]:
+                continue  # Should not happen if center exists
+
             # Add center
-            if row['c_id'] not in nodes:
-                nodes[row['c_id']] = {
-                    "id": row['c_id'],
-                    "label": row['c_id'],
-                    "type": row['c_type'],
-                    "community_id": row['c_comm'],
-                    "degree": 1 # Estimate
+            if row["c_id"] not in nodes:
+                nodes[row["c_id"]] = {
+                    "id": row["c_id"],
+                    "label": row["c_id"],
+                    "type": row["c_type"],
+                    "community_id": row["c_comm"],
+                    "degree": 1,  # Estimate
                 }
-                
+
             # Add neighbor and edge
-            if row['n_id']:
-                if row['n_id'] not in nodes:
-                    nodes[row['n_id']] = {
-                        "id": row['n_id'],
-                        "label": row['n_id'],
-                        "type": row['n_type'],
-                        "community_id": row['n_comm']
+            if row["n_id"]:
+                if row["n_id"] not in nodes:
+                    nodes[row["n_id"]] = {
+                        "id": row["n_id"],
+                        "label": row["n_id"],
+                        "type": row["n_type"],
+                        "community_id": row["n_comm"],
                     }
-                
-                edges.append({
-                    "source": row['source'], # Neo4j directionality
-                    "target": row['target'],
-                    "type": row['r_type']
-                })
-        
-        return {
-            "nodes": list(nodes.values()),
-            "edges": edges
-        }
+
+                edges.append(
+                    {
+                        "source": row["source"],  # Neo4j directionality
+                        "target": row["target"],
+                        "type": row["r_type"],
+                    }
+                )
+
+        return {"nodes": list(nodes.values()), "edges": edges}
 
     async def export_graph(self, tenant_id: str) -> AsyncIterator[dict]:
         """
         Export graph nodes and relationships for a tenant.
-        
+
         Yields:
             Dict containing graph entity data.
         """
         driver = await self.get_driver()
-        
+
         # 1. Nodes
         query_nodes = """
         MATCH (n:Entity {tenant_id: $tenant_id})
@@ -451,7 +483,7 @@ class Neo4jClient:
             result = await session.run(query_nodes, {"tenant_id": tenant_id})
             async for record in result:
                 yield record["item"]
-        
+
         # 2. Relationships
         query_rels = """
         MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
@@ -474,11 +506,11 @@ class Neo4jClient:
         Import graph data.
         """
         stats = {"nodes_created": 0, "relationships_created": 0}
-        
+
         node_batch = []
         rel_batch = []
         batch_size = 500
-        
+
         for item in graph_data:
             if item["type"] == "node":
                 node_batch.append(item)
@@ -492,14 +524,14 @@ class Neo4jClient:
                     await self._import_rels_batch(rel_batch)
                     stats["relationships_created"] += len(rel_batch)
                     rel_batch = []
-        
+
         if node_batch:
             await self._import_nodes_batch(node_batch)
             stats["nodes_created"] += len(node_batch)
         if rel_batch:
             await self._import_rels_batch(rel_batch)
             stats["relationships_created"] += len(rel_batch)
-            
+
         logger.info(f"Graph import completed: {stats}")
         return stats
 
@@ -526,6 +558,3 @@ class Neo4jClient:
             await self.execute_write(query, {"batch": batch})
         except Exception as e:
             logger.warning(f"Failed to import relationship batch (APOC required?): {e}")
-
-
-

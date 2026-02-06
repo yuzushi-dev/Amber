@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from src.api.routes.admin import config as config_module
 
@@ -49,8 +50,10 @@ async def test_super_admin_llm_update_applies_to_all_tenants(monkeypatch):
             class CM:
                 async def __aenter__(self):
                     return fake_session
+
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
+
             return CM()
 
     class FakeTuningService:
@@ -90,8 +93,10 @@ async def test_llm_model_write_through_generation_model(monkeypatch):
             class CM:
                 async def __aenter__(self):
                     return fake_session
+
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
+
             return CM()
 
     class FakeTuningService:

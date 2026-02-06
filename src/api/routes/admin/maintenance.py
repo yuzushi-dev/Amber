@@ -15,15 +15,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.deps import verify_admin, get_current_tenant_id
+from src.api.deps import get_current_tenant_id, verify_admin
 
 logger = logging.getLogger(__name__)
 
 # Fix: Protect maintenance routes with admin check
 router = APIRouter(
-    prefix="/maintenance",
-    tags=["admin-maintenance"],
-    dependencies=[Depends(verify_admin)]
+    prefix="/maintenance", tags=["admin-maintenance"], dependencies=[Depends(verify_admin)]
 )
 
 
@@ -31,8 +29,10 @@ router = APIRouter(
 # Schemas
 # =============================================================================
 
+
 class DatabaseStats(BaseModel):
     """Database statistics."""
+
     documents_total: int = 0
     documents_ready: int = 0
     documents_processing: int = 0
@@ -45,6 +45,7 @@ class DatabaseStats(BaseModel):
 
 class CacheStats(BaseModel):
     """Cache statistics."""
+
     memory_used_bytes: int = 0
     memory_max_bytes: int = 0
     memory_usage_percent: float = 0
@@ -56,6 +57,7 @@ class CacheStats(BaseModel):
 
 class VectorStoreStats(BaseModel):
     """Vector store statistics."""
+
     collections_count: int = 0
     vectors_total: int = 0
     index_size_bytes: int = 0
@@ -63,6 +65,7 @@ class VectorStoreStats(BaseModel):
 
 class SystemStats(BaseModel):
     """Combined system statistics."""
+
     database: DatabaseStats
     cache: CacheStats
     vector_store: VectorStoreStats
@@ -71,6 +74,7 @@ class SystemStats(BaseModel):
 
 class ReconciliationStatus(BaseModel):
     """Dual-write reconciliation status."""
+
     sync_status: str  # "healthy", "degraded", "error"
     last_sync_at: datetime | None = None
     sync_lag_seconds: float = 0
@@ -82,6 +86,7 @@ class ReconciliationStatus(BaseModel):
 
 class MaintenanceResult(BaseModel):
     """Result of a maintenance operation."""
+
     operation: str
     status: str
     message: str
@@ -93,23 +98,22 @@ class MaintenanceResult(BaseModel):
 # Endpoints
 # =============================================================================
 
+
 @router.get("/metrics/queries", response_model=list[Any])
-async def get_query_metrics(
-    limit: int = 100,
-    tenant_id: str | None = None
-):
+async def get_query_metrics(limit: int = 100, tenant_id: str | None = None):
     """
     Get recent query metrics for debugging.
 
     Returns detailed logs of recent queries including latency, tokens, cost, and errors.
     """
     try:
+        from sqlalchemy import desc, func, select
+
         from src.api.config import settings
         from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
         from src.core.admin_ops.domain.usage import UsageLog
         from src.core.database.session import async_session_maker
-        from sqlalchemy import select, func, desc, text
-        
+
         # 1. Fetch real-time query metrics from Redis
         redis_metrics = []
         collector = MetricsCollector(redis_url=settings.db.redis_url)
@@ -121,61 +125,64 @@ async def get_query_metrics(
         # 2. Fetch aggregated ingestion logs from Postgres
         # Group by document_id (from metadata) for 'embedding' operations
         ingestion_metrics = []
-        
+
         async with async_session_maker() as session:
             # We want: document_id, sum(cost), sum(total_tokens), max(created_at)
             # metadata_json->>'document_id' syntax depends on dialect, assuming Postgres
-            
+
             # Using text() for JSON operator to ensure compatibility
-            doc_id_expr = func.json_extract_path_text(UsageLog.metadata_json, 'document_id')
-            
+            doc_id_expr = func.json_extract_path_text(UsageLog.metadata_json, "document_id")
+
             stmt = (
                 select(
-                    doc_id_expr.label('document_id'),
-                    func.sum(UsageLog.cost).label('total_cost'),
-                    func.sum(UsageLog.total_tokens).label('total_tokens'),
-                    func.max(UsageLog.created_at).label('latest_at'),
-                    func.max(UsageLog.model).label('model'),
-                    func.max(UsageLog.provider).label('provider')
+                    doc_id_expr.label("document_id"),
+                    func.sum(UsageLog.cost).label("total_cost"),
+                    func.sum(UsageLog.total_tokens).label("total_tokens"),
+                    func.max(UsageLog.created_at).label("latest_at"),
+                    func.max(UsageLog.model).label("model"),
+                    func.max(UsageLog.provider).label("provider"),
                 )
-                .where(UsageLog.operation == 'embedding')
+                .where(UsageLog.operation == "embedding")
                 .group_by(doc_id_expr)
-                .order_by(desc('latest_at'))
+                .order_by(desc("latest_at"))
                 .limit(limit)
             )
-            
+
             if tenant_id:
                 stmt = stmt.where(UsageLog.tenant_id == tenant_id)
-                
+
             result = await session.execute(stmt)
             rows = result.all()
 
             # Resolution of Document Names
             # We fetch the filenames to show "Ingestion: filename.pdf" instead of "Ingestion: doc_123"
             from src.core.ingestion.domain.document import Document
-            
+
             doc_ids = [row.document_id for row in rows if row.document_id]
             doc_map = {}
-            
+
             if doc_ids:
                 try:
-                    stmt_docs = select(Document.id, Document.filename).where(Document.id.in_(doc_ids))
+                    stmt_docs = select(Document.id, Document.filename).where(
+                        Document.id.in_(doc_ids)
+                    )
                     res_docs = await session.execute(stmt_docs)
                     doc_map = {d.id: d.filename for d in res_docs.all()}
                 except Exception as e:
                     logger.warning(f"Failed to resolve document names: {e}")
-            
+
             for row in rows:
                 if not row.document_id:
                     continue
-                
+
                 doc_name = doc_map.get(row.document_id, row.document_id)
-                    
+
                 # Create a synthetic QueryMetrics object for the ingestion event
                 metric = QueryMetrics(
                     query_id=f"ingest_{row.document_id}",
-                    tenant_id=tenant_id or "unknown", # Row doesn't have tenant_id in group by, but we filter by it or it's mixed
-                    query=f"Ingestion: {doc_name}", # improved by frontend later
+                    tenant_id=tenant_id
+                    or "unknown",  # Row doesn't have tenant_id in group by, but we filter by it or it's mixed
+                    query=f"Ingestion: {doc_name}",  # improved by frontend later
                     timestamp=row.latest_at,
                     operation="ingestion",
                     response="Document Embedding",
@@ -185,18 +192,18 @@ async def get_query_metrics(
                     provider=row.provider,
                     success=True,
                     # Store minimal metadata to help frontend display
-                    conversation_id=doc_name 
+                    conversation_id=doc_name,
                 )
                 ingestion_metrics.append(metric)
 
         # 3. Merge and Sort
-        # Convert dataclasses to dicts if needed, or keep as objects. 
+        # Convert dataclasses to dicts if needed, or keep as objects.
         # The endpoint response_model is list[Any], so Pydantic will serialize dataclasses fine.
-        
+
         all_metrics = redis_metrics + ingestion_metrics
         # Sort by timestamp descending
         all_metrics.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
-        
+
         return all_metrics[:limit]
 
     except Exception as e:
@@ -205,9 +212,7 @@ async def get_query_metrics(
 
 
 @router.get("/stats", response_model=SystemStats)
-async def get_system_stats(
-    tenant_id: str = Depends(get_current_tenant_id)
-):
+async def get_system_stats(tenant_id: str = Depends(get_current_tenant_id)):
     """
     Get comprehensive system statistics.
 
@@ -239,10 +244,12 @@ async def clear_cache(pattern: str | None = None):
     - With pattern: Clears matching keys (e.g., "query:*", "embed:*")
     """
     import time
+
     start = time.time()
 
     try:
         import redis
+
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         r = redis.from_url(redis_url)
 
@@ -288,40 +295,42 @@ async def prune_orphans():
     - Entities not connected to anything
     """
     import time
+
     from sqlalchemy.future import select
-    from src.core.database.session import async_session_maker
-    from src.core.ingestion.domain.document import Document
-    from src.core.ingestion.domain.chunk import Chunk
+
     from src.amber_platform.composition_root import platform
+    from src.core.database.session import async_session_maker
+    from src.core.ingestion.domain.chunk import Chunk
+    from src.core.ingestion.domain.document import Document
 
     start = time.time()
 
     try:
         # 1. Fetch valid IDs from Postgres
         async with async_session_maker() as session:
-            # We fetch all IDs. 
+            # We fetch all IDs.
             # NOTE: Ideally this should be batched or streamed for massive datasets.
             # But for maintenance tool it's acceptable to hold ID lists in memory for now (IDs are small).
             # If > 100k docs, we should paginate.
-            
+
             # Fetch valid Doc IDs
             result_docs = await session.execute(select(Document.id))
             valid_doc_ids = result_docs.scalars().all()
-            
+
             # Fetch valid Chunk IDs
             result_chunks = await session.execute(select(Chunk.id))
             valid_chunk_ids = result_chunks.scalars().all()
-            
+
         # 2. Call Neo4j Pruning
         # Convert UUIDs to strings just in case
         valid_doc_ids = [str(uid) for uid in valid_doc_ids]
         valid_chunk_ids = [str(uid) for uid in valid_chunk_ids]
-        
+
         counts = await platform.neo4j_client.prune_orphans(valid_doc_ids, valid_chunk_ids)
 
         orphans_removed = sum(counts.values())
         duration = time.time() - start
-        
+
         message = f"Removed orphans: {counts}"
         logger.info(f"Orphan pruning completed: {message}")
 
@@ -346,6 +355,7 @@ async def prune_stale_communities(max_age_days: int = 30):
     Removes community summaries older than the specified age that haven't been refreshed.
     """
     import time
+
     start = time.time()
 
     try:
@@ -405,7 +415,6 @@ async def trigger_reindex(collection: str | None = None):
     This is an async operation - check task status via /admin/jobs.
     """
     try:
-
         # Dispatch reindex task
         # TODO: Create actual reindex task in workers
         # task = celery_app.send_task("src.workers.tasks.reindex", args=[collection])
@@ -428,6 +437,7 @@ async def trigger_reindex(collection: str | None = None):
 
 class VectorCollectionInfo(BaseModel):
     """Information about a single vector collection."""
+
     name: str
     count: int
     dimensions: int | None = None
@@ -437,6 +447,7 @@ class VectorCollectionInfo(BaseModel):
 
 class VectorCollectionsResponse(BaseModel):
     """Response with all vector collections info."""
+
     collections: list[VectorCollectionInfo]
 
 
@@ -493,7 +504,6 @@ async def get_vector_collections():
                 except Exception:
                     pass
 
-
                 # Estimate memory usage
                 try:
                     stats = utility.get_collection_stats(name)
@@ -507,25 +517,29 @@ async def get_vector_collections():
                     else:
                         memory_mb = 0
 
-                collections_info.append(VectorCollectionInfo(
-                    name=name,
-                    count=count,
-                    dimensions=dimensions,
-                    index_type=index_type,
-                    memory_mb=round(memory_mb, 2),
-                ))
+                collections_info.append(
+                    VectorCollectionInfo(
+                        name=name,
+                        count=count,
+                        dimensions=dimensions,
+                        index_type=index_type,
+                        memory_mb=round(memory_mb, 2),
+                    )
+                )
 
             except Exception as e:
                 logger.debug(f"Failed to get info for collection {name}: {e}")
                 # Include collection with minimal info
-                collections_info.append(VectorCollectionInfo(
-                    name=name,
-                    count=0,
-                ))
+                collections_info.append(
+                    VectorCollectionInfo(
+                        name=name,
+                        count=0,
+                    )
+                )
 
         # Sort collections alphabetically for stable ordering
         collections_info.sort(key=lambda c: c.name)
-        
+
         # Filter to only tenant-specific collections (amber_*) unless show_all requested
         collections_info = [c for c in collections_info if c.name.startswith("amber_")]
 
@@ -542,38 +556,39 @@ async def get_vector_collections():
 async def delete_vector_collection(collection_name: str):
     """
     Delete a Milvus vector collection.
-    
+
     WARNING: This permanently deletes all vectors in the collection.
     """
     import time
+
     start = time.time()
-    
+
     try:
         from pymilvus import Collection, connections, utility
-        
+
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = int(os.getenv("MILVUS_PORT", "19530"))
-        
+
         try:
             connections.connect(alias="default", host=milvus_host, port=milvus_port)
         except Exception:
             pass  # May already be connected
-        
+
         # Check if collection exists
         if collection_name not in utility.list_collections():
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
-        
+
         # Get vector count before deletion
         col = Collection(collection_name)
         count = col.num_entities
-        
+
         # Drop the collection
         utility.drop_collection(collection_name)
-        
+
         duration = time.time() - start
         message = f"Deleted collection '{collection_name}' with {count} vectors"
         logger.info(message)
-        
+
         return MaintenanceResult(
             operation="delete_collection",
             status="success",
@@ -581,7 +596,7 @@ async def delete_vector_collection(collection_name: str):
             items_affected=count,
             duration_seconds=round(duration, 3),
         )
-        
+
     except HTTPException:
         raise
     except ImportError as e:
@@ -590,9 +605,11 @@ async def delete_vector_collection(collection_name: str):
         logger.error(f"Failed to delete collection: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(e)}") from e
 
+
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 async def _get_database_stats(tenant_id: str) -> DatabaseStats:
     """Get PostgreSQL/Neo4j statistics with optimized queries and caching."""
@@ -616,19 +633,30 @@ async def _get_database_stats(tenant_id: str) -> DatabaseStats:
         async with async_session_maker() as session:
             # OPTIMIZED: Single query for all document counts using CASE
             count_query = select(
-                func.count(Document.id).label('total'),
-                func.sum(case((Document.status == DocumentStatus.READY, 1), else_=0)).label('ready'),
-                func.sum(case(
-                    (Document.status.in_([
-                        DocumentStatus.EXTRACTING,
-                        DocumentStatus.CLASSIFYING,
-                        DocumentStatus.CHUNKING
-                    ]), 1),
-                    else_=0
-                )).label('processing'),
-                func.sum(case((Document.status == DocumentStatus.FAILED, 1), else_=0)).label('failed'),
+                func.count(Document.id).label("total"),
+                func.sum(case((Document.status == DocumentStatus.READY, 1), else_=0)).label(
+                    "ready"
+                ),
+                func.sum(
+                    case(
+                        (
+                            Document.status.in_(
+                                [
+                                    DocumentStatus.EXTRACTING,
+                                    DocumentStatus.CLASSIFYING,
+                                    DocumentStatus.CHUNKING,
+                                ]
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("processing"),
+                func.sum(case((Document.status == DocumentStatus.FAILED, 1), else_=0)).label(
+                    "failed"
+                ),
             ).where(Document.tenant_id == tenant_id)
-            
+
             result = await session.execute(count_query)
             row = result.one()
 
@@ -653,7 +681,7 @@ async def _get_database_stats(tenant_id: str) -> DatabaseStats:
                 documents_processing=row.processing or 0,
                 documents_failed=row.failed or 0,
                 chunks_total=chunk_count or 0,
-                **neo4j_stats
+                **neo4j_stats,
             )
 
             # Cache for 60 seconds
@@ -724,6 +752,7 @@ async def _get_cache_stats(tenant_id: str) -> CacheStats:
     """Get Redis cache statistics."""
     try:
         import redis
+
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         r = redis.from_url(redis_url)
 

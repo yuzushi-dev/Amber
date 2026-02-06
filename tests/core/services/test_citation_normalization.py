@@ -5,8 +5,9 @@ These tests verify that the citation regex correctly normalizes
 various LLM output formats into the standard [[Source:N]] format.
 """
 
-import pytest
 import re
+
+import pytest
 
 # Import the pattern directly to test in isolation
 CITATION_NORMALIZE_PATTERN = re.compile(
@@ -26,7 +27,7 @@ class TestCitationNormalization:
     """Test suite for citation regex patterns."""
 
     # === Standard formats (should all normalize to [[Source:N]]) ===
-    
+
     def test_standard_source_format(self):
         """[[Source:3]] -> [[Source:3]]"""
         result = normalize_citations("According to [[Source:3]], this is true.")
@@ -63,7 +64,7 @@ class TestCitationNormalization:
         assert "[[Source:3]]" in result
 
     # === NEW: Bare number format ===
-    
+
     def test_bare_number_double_brackets(self):
         """[[3]] -> [[Source:3]] (critical for LLM resilience)"""
         result = normalize_citations("According to [[3]], this is true.")
@@ -75,7 +76,7 @@ class TestCitationNormalization:
         assert "[[Source:3]]" in result
 
     # === Multiple citations ===
-    
+
     def test_multiple_citations(self):
         """Multiple citations in one string"""
         text = "According to [[Source:1]] and [[2]], the answer is based on [[source 3]]."
@@ -94,7 +95,7 @@ class TestCitationNormalization:
         assert "[[Source:4]]" in result
 
     # === Edge cases ===
-    
+
     def test_empty_string(self):
         """Empty string should return empty"""
         assert normalize_citations("") == ""
