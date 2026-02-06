@@ -95,10 +95,25 @@ The frontend uses `Vitest` for unit testing and `Playwright` for E2E.
 
 ## CI/CD Pipeline
 
-No CI workflows are checked into this repository. If you add one, consider:
+A repository workflow is checked in at
+`.github/workflows/quality-gate.yml`. It runs:
 
-1. **Linting**: `ruff` (Backend) + `eslint` (Frontend).
-2. **Backend Tests**: Unit and regression tests by default; integration tests
-   when services are available.
-3. **Frontend Tests**: `npm run test` and `npm run test:e2e`.
-4. **Security**: Dependency and secret scanning (optional).
+1. Backend: `ruff`, `lint-imports`, `mypy`, `pytest -q tests/unit`.
+2. Frontend: `npm run lint`, `npm run build`, `npm run test`.
+
+The workflow delegates to `bash scripts/verify.sh all` so local and CI quality
+gates stay aligned.
+
+### Pre-push Enforcement
+
+This repository includes `.pre-commit-config.yaml` with `pre-push` hooks for:
+
+1. `bash scripts/verify.sh backend`
+2. `bash scripts/verify.sh frontend`
+
+Setup:
+
+```bash
+./.venv/bin/pip install -e ".[dev]"
+./.venv/bin/pre-commit install --hook-type pre-push
+```

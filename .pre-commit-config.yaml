@@ -1,0 +1,17 @@
+default_stages: [pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: amber-verify-backend
+        name: amber verify backend
+        entry: bash scripts/verify.sh backend
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: amber-verify-frontend
+        name: amber verify frontend
+        entry: bash scripts/verify.sh frontend
+        language: system
+        pass_filenames: false
+        always_run: true
