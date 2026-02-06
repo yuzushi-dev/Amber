@@ -33,7 +33,7 @@ class TestObservability:
         caplog.set_level(logging.INFO)
 
         # Try a query endpoint (it will fail auth but should log)
-        response = await client.get("/v1/query?q=test")
+        await client.get("/v1/query?q=test")
 
         # Check logs
         found = False
@@ -48,7 +48,7 @@ class TestObservability:
                     break
 
         if not found:
-            assert False, "Structured log record not found for /v1/query"
+            raise AssertionError("Structured log record not found for /v1/query")
 
     @pytest.mark.asyncio
     async def test_metrics_endpoint(self, client):

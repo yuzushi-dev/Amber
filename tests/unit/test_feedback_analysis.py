@@ -50,9 +50,7 @@ async def test_analyze_feedback_retrieval_failure_suggestion():
         with patch("src.shared.kernel.runtime.get_settings"):
             with patch.object(service, "get_tenant_config", new_callable=AsyncMock) as mock_config:
                 mock_config.return_value = {}
-                with patch.object(
-                    service, "update_tenant_weights", new_callable=AsyncMock
-                ) as mock_update:
+                with patch.object(service, "update_tenant_weights", new_callable=AsyncMock):
                     await service.analyze_feedback_for_tuning(
                         "tenant1",
                         "req1",

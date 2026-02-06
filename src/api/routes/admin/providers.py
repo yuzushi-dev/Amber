@@ -7,6 +7,7 @@ Returns only providers with valid configuration and their available models.
 """
 
 import logging
+from importlib.util import find_spec
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -122,12 +123,9 @@ def check_anthropic_availability() -> tuple[bool, str | None]:
 
 def check_local_embeddings_availability() -> tuple[bool, str | None]:
     """Check if local embedding provider is available."""
-    try:
-        from src.core.generation.infrastructure.providers.local import LocalEmbeddingProvider
-
-        return True, None
-    except ImportError as e:
-        return False, f"Local embeddings not available: {e}"
+    if find_spec("sentence_transformers") is None:
+        return False, "Local embeddings not available: sentence_transformers package missing"
+    return True, None
 
 
 # =============================================================================

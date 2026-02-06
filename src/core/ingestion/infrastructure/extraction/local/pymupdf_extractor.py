@@ -8,6 +8,7 @@ Fast-path extractor for clean PDFs using pymupdf4llm.
 import logging
 import re
 import time
+from importlib import import_module
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ except ImportError:
 # Try to import layout engine if available (activates automatically on import)
 if HAS_PYMUPDF:
     try:
-        import pymupdf_layout
+        import_module("pymupdf_layout")
 
         logger.info("pymupdf_layout is available and activated.")
     except ImportError:

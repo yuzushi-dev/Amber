@@ -205,7 +205,7 @@ class TestIngestionPipeline:
         # We will trigger it manually later if needed
         from unittest.mock import patch
 
-        with patch("src.workers.tasks.process_communities") as mock_pc:
+        with patch("src.workers.tasks.process_communities"):
             response = await client.post(
                 "/v1/documents", headers={"X-API-Key": api_key}, files=files
             )
@@ -392,8 +392,6 @@ class TestIngestionPipeline:
         print("9. Verifying Communities...")
         # Community detection is triggered as a separate Celery task: process_communities.delay()
         # We need to wait for it.
-
-        community_bg_task_needed = False
 
         # Check if communities exist (polling)
         found_communities = False
