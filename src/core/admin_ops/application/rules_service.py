@@ -47,7 +47,7 @@ class RulesService:
             async with self.session_factory() as session:
                 result = await session.execute(
                     select(GlobalRule.content)
-                    .where(GlobalRule.is_active == True)
+                    .where(GlobalRule.is_active)
                     .order_by(GlobalRule.priority, GlobalRule.created_at)
                 )
                 rules = [row[0] for row in result.all()]

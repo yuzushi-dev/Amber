@@ -11,7 +11,6 @@ from urllib3 import Retry
 
 from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
-
 SEAWEED_ENDPOINT = "localhost:8333"
 SEAWEED_ACCESS_KEY = "minioadmin"
 SEAWEED_SECRET_KEY = "minioadmin"

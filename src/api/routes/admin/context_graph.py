@@ -76,7 +76,7 @@ async def get_context_graph_stats(
         fb_result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value})
-            RETURN 
+            RETURN
                 count(f) as total,
                 sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive,
                 sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative
@@ -118,7 +118,7 @@ async def list_graph_feedback(
             OPTIONAL MATCH (f)-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})
             OPTIONAL MATCH (t)-[r:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value})
             WITH f, t, collect({{chunk_id: c.id, score: r.score}}) as chunks
-            RETURN 
+            RETURN
                 f.id as feedback_id,
                 f.is_positive as is_positive,
                 f.comment as comment,
@@ -195,7 +195,7 @@ async def get_chunk_feedback_impact(
         result = await platform.neo4j_client.execute_read(
             f"""
             MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
-            RETURN 
+            RETURN
                 sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
                 sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count,
                 collect(DISTINCT f.id) as feedback_ids
@@ -264,13 +264,13 @@ async def list_conversations(
             MATCH (c:{NodeLabel.Conversation.value})
             OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
             WITH c, count(t) as turn_count, collect(t) as turns
-            WITH c, turn_count, 
+            WITH c, turn_count,
                  [x in turns | x.created_at] as turn_dates,
                  [x in turns | x.query] as turn_queries
             WITH c, turn_count,
                  apoc.coll.max(turn_dates) as last_active,
                  turn_queries[size(turn_queries)-1] as last_query
-            RETURN 
+            RETURN
                 c.id as conversation_id,
                 c.created_at as created_at,
                 turn_count,
@@ -289,7 +289,7 @@ async def list_conversations(
         OPTIONAL MATCH (c)-[:HAS_TURN]->(t:Turn)
         WITH c, t ORDER BY t.created_at DESC
         WITH c, count(t) as turn_count, collect(t) as turns
-        RETURN 
+        RETURN
             c.id as conversation_id,
             c.created_at as created_at,
             turn_count,
@@ -306,7 +306,7 @@ async def list_conversations(
             OPTIONAL MATCH (c)-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
             WITH c, t ORDER BY t.created_at DESC
             WITH c, count(t) as turn_count, collect(t) as turns
-            RETURN 
+            RETURN
                 c.id as conversation_id,
                 c.created_at as created_at,
                 turn_count,

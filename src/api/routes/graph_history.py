@@ -144,9 +144,9 @@ async def create_pending_edit(
         text("""
             INSERT INTO graph_edit_history (id, tenant_id, action_type, status, payload, snapshot, source_view, created_at)
             VALUES (
-                :id, :tenant_id, :action_type, 'pending', 
-                CAST(:payload AS jsonb), 
-                NULLIF(CAST(:snapshot AS jsonb), CAST('null' AS jsonb)), 
+                :id, :tenant_id, :action_type, 'pending',
+                CAST(:payload AS jsonb),
+                NULLIF(CAST(:snapshot AS jsonb), CAST('null' AS jsonb)),
                 :source_view, :created_at
             )
         """),

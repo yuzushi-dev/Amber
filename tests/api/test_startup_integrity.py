@@ -70,7 +70,7 @@ async def test_migration_service_detects_milvus_mismatch():
 
     # Assert
     assert len(statuses) == 1
-    assert statuses[0]["is_compatible"] == False
+    assert not statuses[0]["is_compatible"]
     assert "Milvus Mismatch" in statuses[0]["details"]
     assert statuses[0]["milvus_dimensions"] == 768
 
@@ -127,7 +127,7 @@ async def test_migration_service_reports_compatible_when_dimensions_match():
 
     # Assert
     assert len(statuses) == 1
-    assert statuses[0]["is_compatible"] == True
+    assert statuses[0]["is_compatible"]
 
 
 @pytest.mark.asyncio

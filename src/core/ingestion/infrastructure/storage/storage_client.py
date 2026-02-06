@@ -51,7 +51,9 @@ class MinIOClient:
             access_key = (
                 access_key
                 if access_key is not None
-                else getattr(storage_settings, "access_key", getattr(storage_settings, "root_user", ""))
+                else getattr(
+                    storage_settings, "access_key", getattr(storage_settings, "root_user", "")
+                )
             )
             secret_key = (
                 secret_key
