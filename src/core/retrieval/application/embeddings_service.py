@@ -101,8 +101,9 @@ class EmbeddingService:
                     anthropic_api_key=anthropic_api_key,
                 )
             else:
-                from src.api.config import settings
+                from src.shared.kernel.runtime import get_settings
 
+                settings = get_settings()
                 if settings.ollama_base_url:
                     factory = build_provider_factory(
                         openai_api_key=openai_api_key,

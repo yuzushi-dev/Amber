@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.core.generation.domain.provider_models import ConfigurationError, ProviderTier
+from src.shared.provider_models import ConfigurationError, ProviderTier
 
 LLM_MODELS = {
     "openai": {

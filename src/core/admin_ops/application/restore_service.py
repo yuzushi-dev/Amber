@@ -626,8 +626,9 @@ class RestoreService:
         """Restore full postgres dump using pg_restore/psql."""
         from sqlalchemy.engine.url import make_url
 
-        from src.api.config import settings
+        from src.shared.kernel.runtime import get_settings
 
+        settings = get_settings()
         try:
             tmp_path = f"/tmp/restore_dump_{datetime.now().timestamp()}.sql"
             with open(tmp_path, "wb") as f:

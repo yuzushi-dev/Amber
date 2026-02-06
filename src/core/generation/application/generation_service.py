@@ -254,9 +254,10 @@ class GenerationService:
         print(f"DEBUG: LLM User Prompt: {user_prompt}")
 
         # Step 3: LLM Call
-        from src.api.config import settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.kernel.runtime import get_settings
 
+        settings = get_settings()
         llm_cfg = resolve_llm_step_config(
             tenant_config=tenant_config,
             step_id="chat.generation",
@@ -508,9 +509,10 @@ class GenerationService:
             user_prompt = user_prompt_template.format(context=ctx.content, query=query)
 
         # Step 5: Stream tokens
-        from src.api.config import settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
+        from src.shared.kernel.runtime import get_settings
 
+        settings = get_settings()
         llm_cfg = resolve_llm_step_config(
             tenant_config=tenant_config,
             step_id="chat.generation",
@@ -602,10 +604,11 @@ class GenerationService:
         Direct chat completion with tool support (Agentic Mode).
         Exposes the raw provider response object (e.g. ChatCompletion).
         """
-        from src.api.config import settings
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.shared.context import get_current_tenant
+        from src.shared.kernel.runtime import get_settings
 
+        settings = get_settings()
         tenant_config: dict[str, Any] = {}
         tenant_id = get_current_tenant()
         if tenant_id and self.tenant_repository:
