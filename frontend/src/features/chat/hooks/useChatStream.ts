@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { useChatStore, Source } from '../store'
+import { useChatStore } from '../store'
 import { v4 as uuidv4 } from 'uuid'
 
 interface StreamState {
@@ -215,20 +215,21 @@ export function useChatStream() {
             // End of stream
             handleEvent('done', '')
 
-        } catch (err: any) {
-            if (err.name === 'AbortError') {
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name === 'AbortError') {
                 debugLog('Stream aborted by user')
                 return
             }
             console.error('Stream Fetch Error', err)
+            const errorMessage = err instanceof Error ? err.message : String(err)
             updateLastMessage({
                 thinking: null,
-                content: `[Connection Error] Stream failed: ${err.message}`
+                content: `[Connection Error] Stream failed: ${errorMessage}`
             })
             setState((prev) => ({
                 ...prev,
                 isStreaming: false,
-                error: err
+                error: err instanceof Error ? err : new Error(String(err))
             }))
         }
     }, [])
@@ -240,7 +241,7 @@ export function useChatStream() {
         }
 
         switch (type) {
-            case 'token':
+            case 'token': {
                 const token = parseJSON(data)
                 const tokenText = typeof token === 'string' ? token : String(token)
 
@@ -257,8 +258,8 @@ export function useChatStream() {
                     flushTokenBuffer()
                 }
                 break
-
-            case 'message':
+            }
+            case 'message': {
                 // Handle plain text events (like "No relevant documents found")
                 // Parsing is safe because parseJSON handles raw strings too
                 const msgText = parseJSON(data)
@@ -267,7 +268,7 @@ export function useChatStream() {
                     content: typeof msgText === 'string' ? msgText : JSON.stringify(msgText)
                 })
                 break
-
+            }
             case 'thinking':
                 updateLastMessage({ thinking: parseJSON(data) })
                 break
@@ -280,13 +281,13 @@ export function useChatStream() {
                 updateLastMessage({ sources: parseJSON(data) })
                 break
 
-            case 'conversation_id':
+            case 'conversation_id': {
                 const cid = parseJSON(data)
                 conversationIdRef.current = cid
                 setState(p => ({ ...p, conversationId: cid }))
                 updateLastMessage({ session_id: cid })
                 break
-
+            }
             case 'done':
                 flushTokenBuffer()
                 setState(p => ({ ...p, isStreaming: false }))
@@ -297,17 +298,21 @@ export function useChatStream() {
                     abortControllerRef.current = null
                 }
                 break
-
-            case 'processing_error':
+            case 'processing_error': {
                 const errData = parseJSON(data)
+                const errMessage = (
+                    typeof errData === 'object' && errData !== null && 'message' in errData
+                        ? String((errData as { message?: unknown }).message ?? 'Unknown')
+                        : String(errData)
+                )
                 updateLastMessage({
                     thinking: null,
-                    content: typeof errData === 'object' ? `[Error] ${errData.message || 'Unknown'}` : `[Error] ${errData}`
+                    content: `[Error] ${errMessage}`
                 })
                 setState(p => ({ ...p, isStreaming: false }))
                 if (abortControllerRef.current) abortControllerRef.current.abort()
                 break
-
+            }
             case 'error':
                 // Generic error
                 updateLastMessage({
