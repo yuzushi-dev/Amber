@@ -520,8 +520,9 @@ class BackupService:
         """
         from sqlalchemy.engine.url import make_url
 
-        from src.api.config import settings
+        from src.shared.kernel.runtime import get_settings
 
+        settings = get_settings()
         url = make_url(settings.db.database_url)
 
         env = os.environ.copy()

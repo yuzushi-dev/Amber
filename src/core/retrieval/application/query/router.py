@@ -73,8 +73,9 @@ class QueryRouter:
         if provider_factory:
             self.factory = provider_factory
         else:
-            from src.api.config import settings
+            from src.shared.kernel.runtime import get_settings
 
+            settings = get_settings()
             if openai_api_key or anthropic_api_key or settings.ollama_base_url:
                 self.factory = build_provider_factory(
                     openai_api_key=openai_api_key,

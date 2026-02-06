@@ -8,12 +8,12 @@ Utilities for consistent exception mapping across the application.
 import logging
 from typing import Any
 
-from src.core.generation.domain.provider_models import (
+from src.shared.messages import ERROR_MESSAGES
+from src.shared.provider_models import (
     ProviderError,
     QuotaExceededError,
     RateLimitError,
 )
-from src.shared.messages import ERROR_MESSAGES
 
 logger = logging.getLogger(__name__)
 
