@@ -202,7 +202,17 @@ async def get_query_metrics(limit: int = 100, tenant_id: str | None = None):
 
         all_metrics = redis_metrics + ingestion_metrics
         # Sort by timestamp descending
-        all_metrics.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
+        # Helper to ensure timezone-aware comparison
+        def _get_sort_key(m):
+            ts = m.timestamp
+            if ts is None:
+                return datetime.min.replace(tzinfo=UTC)
+            if ts.tzinfo is None:
+                return ts.replace(tzinfo=UTC)
+            return ts
+
+        # Sort by timestamp descending
+        all_metrics.sort(key=_get_sort_key, reverse=True)
 
         return all_metrics[:limit]
 
