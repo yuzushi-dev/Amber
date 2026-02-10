@@ -60,14 +60,50 @@ class TestChatPipelineComprehensive:
     async def setup_dependencies(self):
         """Mock all external dependencies securely with proper teardown."""
 
+        # 6. LLM
+        self.mock_llm = AsyncMock()
+        self.mock_llm.model_name = "mock-model"
+        self.mock_llm.provider_name = "mock-provider"
+        self.mock_llm.generate.return_value = LLMGenerationResult(
+            text="I am a mocked LLM response.",
+            model="mock-model",
+            provider="mock-provider",
+            usage=TokenUsage(input_tokens=5, output_tokens=5),
+            cost_estimate=0.0,
+        )
+
+        # Streaming mock
+        async def mock_stream(*args, **kwargs):
+            yield "Mocked"
+            yield " "
+            yield "Stream"
+            yield " "
+            yield "[DONE]"
+
+        self.mock_llm.generate_stream = mock_stream
+
         # Track started patches for cleanup
         patches = []
 
         # 0. Provider Factory Patch (Global)
         self.mock_factory = MagicMock()
-        self.mock_factory.get_embedding_provider.return_value = AsyncMock()
-        self.mock_factory.get_llm_provider.return_value = AsyncMock()
-        self.mock_factory.get_reranker_provider.return_value = AsyncMock()
+
+        # Helper to create a provider mock with string attributes instead of AsyncMocks
+        def create_provider_mock(name, model):
+            m = AsyncMock()
+            m.provider_name = name
+            m.model_name = model
+            m.default_model = model
+            m.get_default_model.return_value = model
+            return m
+
+        mock_embed_provider = create_provider_mock("openai", "text-embedding-3-small")
+        self.mock_factory.get_embedding_provider.return_value = mock_embed_provider
+
+        self.mock_factory.get_llm_provider.return_value = self.mock_llm
+
+        mock_rerank_provider = create_provider_mock("flashrank", "bge-reranker-v2-m3")
+        self.mock_factory.get_reranker_provider.return_value = mock_rerank_provider
 
         p = patch(
             "src.core.generation.domain.ports.provider_factory._provider_factory_builder",
@@ -153,27 +189,6 @@ class TestChatPipelineComprehensive:
         )
         self.retrieval_service.embedding_service = self.mock_embed_service
         self.retrieval_service.reranker = None
-
-        # 6. LLM
-        self.mock_llm = AsyncMock()
-        self.mock_llm.model_name = "mock-model"
-        self.mock_llm.generate.return_value = LLMGenerationResult(
-            text="I am a mocked LLM response.",
-            model="mock-model",
-            provider="mock-provider",
-            usage=TokenUsage(input_tokens=5, output_tokens=5),
-            cost_estimate=0.0,
-        )
-
-        # Streaming mock
-        async def mock_stream(*args, **kwargs):
-            yield "Mocked"
-            yield " "
-            yield "Stream"
-            yield " "
-            yield "[DONE]"
-
-        self.mock_llm.generate_stream = mock_stream
 
         # 7. Generation Service
         from src.core.generation.application.generation_service import GenerationService

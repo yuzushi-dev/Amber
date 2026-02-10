@@ -22,4 +22,4 @@ class RedisStatePublisher(StateChangePublisher):
         try:
             await client.publish(channel, json.dumps(message))
         finally:
-            await client.close()
+            await client.aclose()

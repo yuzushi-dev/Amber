@@ -1,7 +1,7 @@
 import io
 import json
 import zipfile
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -73,12 +73,12 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         storage_path="path/to/doc.pdf",
         status=DocumentStatus.INGESTED,
         metadata_={"mime_type": "application/pdf", "file_size": 1024},
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
 
     # 2. Folders
     folder = Folder(
-        id="folder_1", tenant_id="tenant_1", name="Documents", created_at=datetime.utcnow()
+        id="folder_1", tenant_id="tenant_1", name="Documents", created_at=datetime.now(UTC)
     )
 
     # 3. Conversations
@@ -88,7 +88,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         user_id="user_1",
         title="Test Chat",
         summary="Summary",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
 
     # 4. User Facts
@@ -98,7 +98,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         user_id="user_1",
         content="User likes AI",
         importance=5,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
 
     # Configure session execute side effects to return data in order of calls

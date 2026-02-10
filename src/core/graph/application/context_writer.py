@@ -7,7 +7,7 @@ This enables querying "why" an answer was given and how feedback influences futu
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from src.core.graph.domain.ports.graph_client import get_graph_client
@@ -57,7 +57,7 @@ class ContextGraphWriter:
         import uuid
 
         turn_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
         try:
             graph_client = get_graph_client()
@@ -164,7 +164,7 @@ class ContextGraphWriter:
         import uuid
 
         fb_id = feedback_id or str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
         try:
             graph_client = get_graph_client()

@@ -15,7 +15,7 @@ import os
 import subprocess
 import zipfile
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,7 +142,7 @@ class BackupService:
             # Create manifest
             manifest = {
                 "version": "1.0",
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "tenant_id": tenant_id,
                 "scope": scope.value,
                 "job_id": job_id,
@@ -471,7 +471,7 @@ class BackupService:
         vector_store = self.vector_store_factory(dims, collection_name=collection_name)
         logger.info(f"Exporting vectors for tenant {tenant_id} from collection {collection_name}")
 
-        tmp_path = f"/tmp/vectors_{tenant_id}_{datetime.now().timestamp()}.jsonl"
+        tmp_path = f"/tmp/vectors_{tenant_id}_{datetime.now(UTC).timestamp()}.jsonl"
         try:
             count = 0
             with open(tmp_path, "w") as f:
@@ -494,7 +494,7 @@ class BackupService:
     async def _add_graph(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export Neo4j graph data to JSONL."""
 
-        tmp_path = f"/tmp/graph_{tenant_id}_{datetime.now().timestamp()}.jsonl"
+        tmp_path = f"/tmp/graph_{tenant_id}_{datetime.now(UTC).timestamp()}.jsonl"
         try:
             count = 0
             with open(tmp_path, "w") as f:
@@ -529,7 +529,7 @@ class BackupService:
         if url.password:
             env["PGPASSWORD"] = url.password
 
-        tmp_path = f"/tmp/pg_dump_{datetime.now().timestamp()}.sql"
+        tmp_path = f"/tmp/pg_dump_{datetime.now(UTC).timestamp()}.sql"
         try:
             cmd = [
                 "pg_dump",

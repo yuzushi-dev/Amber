@@ -212,7 +212,7 @@ class PlatformRegistry:
 
         if self._neo4j_client:
             try:
-                await self._neo4j_client.close()
+                await self._neo4j_client.aclose()
             except Exception as e:
                 logger.warning(f"Error closing Neo4j: {e}")
             self._neo4j_client = None
@@ -244,7 +244,7 @@ class PlatformRegistry:
 
         if self._redis_client:
             try:
-                await self._redis_client.close()
+                await self._redis_client.aclose()
             except Exception as e:
                 logger.warning(f"Error closing Redis: {e}")
             self._redis_client = None
@@ -252,7 +252,7 @@ class PlatformRegistry:
         # Milvus Global Disconnect
         if self._milvus_vector_store:
             try:
-                await self._milvus_vector_store.close()
+                await self._milvus_vector_store.aclose()
             except Exception as e:
                 logger.warning(f"Error closing Milvus store: {e}")
             self._milvus_vector_store = None

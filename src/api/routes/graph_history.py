@@ -8,7 +8,7 @@ Endpoints for managing graph edit history (pending changes, undo).
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -135,7 +135,7 @@ async def create_pending_edit(
 ):
     """Create a new pending graph edit (record without applying)."""
     edit_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     # For snapshot, if None we pass 'null' as JSON which will be parsed to SQL NULL by NULLIF
     snapshot_json = json.dumps(request_body.snapshot) if request_body.snapshot else "null"
@@ -278,7 +278,7 @@ async def apply_pending_edit(
             text(
                 "UPDATE graph_edit_history SET status = 'applied', applied_at = :now WHERE id = :id"
             ),
-            {"id": edit_id, "now": datetime.utcnow()},
+            {"id": edit_id, "now": datetime.now(UTC)},
         )
 
         return {"status": "applied", "id": edit_id}

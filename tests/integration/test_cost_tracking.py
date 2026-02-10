@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -86,6 +87,7 @@ async def test_ingestion_passes_metadata(db_session: AsyncSession):
         filename="test.txt",
         status=DocumentStatus.INGESTED,
         storage_path="path/to/test.txt",
+        created_at=datetime.now(timezone.utc),
     )
     doc.status = DocumentStatus.INGESTED
 
