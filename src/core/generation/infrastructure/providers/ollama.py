@@ -95,7 +95,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         self._client = None
         # Default Ollama URL if not provided
         if not self.config.base_url:
-            self.config.base_url = "http://localhost:11434/v1"
+            self.config.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
     def _validate_config(self) -> None:
         # Ollama doesn't strictly require API key, but base_url is important

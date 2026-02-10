@@ -70,6 +70,8 @@ export interface TenantConfig {
     seed?: number | null
     temperature?: number | null
     llm_steps?: Record<string, LlmStepOverride>
+    // Ollama Connection
+    ollama_base_url?: string | null
     // Prompt overrides (per-tenant)
     rag_system_prompt: string | null
     rag_user_prompt: string | null
@@ -343,6 +345,17 @@ export const providersApi = {
             provider_type: providerType,
             provider_name: providerName
         })
+        return response.data
+    },
+
+    testOllamaConnection: async (url: string): Promise<{
+        available: boolean
+        label: string
+        error: string | null
+        llm_models: string[]
+        embedding_models: string[]
+    }> => {
+        const response = await apiClient.post('/admin/providers/ollama/test-connection', { url })
         return response.data
     }
 }

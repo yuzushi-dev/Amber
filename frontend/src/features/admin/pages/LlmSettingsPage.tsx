@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { GlobalDefaultsCard } from '../components/llm/GlobalDefaultsCard'
 import { EmbeddingCard } from '../components/llm/EmbeddingCard'
+import { OllamaConnectionCard } from '../components/llm/OllamaConnectionCard'
 import { LlmStepRow } from '../components/llm/LlmStepRow'
 import { StepConfigDialog } from '../components/llm/StepConfigDialog'
 
@@ -44,6 +45,10 @@ export default function LlmSettingsPage() {
     const [validatingEmbedding, setValidatingEmbedding] = useState(false)
     const [initialEmbeddingProvider, setInitialEmbeddingProvider] = useState('')
     const [initialEmbeddingModel, setInitialEmbeddingModel] = useState('')
+
+    // Ollama URL state
+    const [ollamaBaseUrl, setOllamaBaseUrl] = useState('')
+    const [savingOllamaUrl, setSavingOllamaUrl] = useState(false)
 
     // Embedding migration state
     const [pendingEmbeddingChange, setPendingEmbeddingChange] = useState<string | null>(null)
@@ -82,6 +87,7 @@ export default function LlmSettingsPage() {
             setEmbeddingModel(config.embedding_model ?? '')
             setInitialEmbeddingProvider(config.embedding_provider ?? '')
             setInitialEmbeddingModel(config.embedding_model ?? '')
+            setOllamaBaseUrl(config.ollama_base_url ?? '')
             setInitialState(JSON.stringify({
                 defaultProvider: config.llm_provider,
                 defaultModel: config.llm_model,
@@ -342,6 +348,52 @@ export default function LlmSettingsPage() {
                     onValidate={validateEmbeddingProvider}
                     validating={validatingEmbedding}
                     getModelsForProvider={getEmbeddingModelsForProvider}
+                />
+
+                <OllamaConnectionCard
+                    isSuperAdmin={isSuperAdmin}
+                    ollamaBaseUrl={ollamaBaseUrl}
+                    onUrlChange={setOllamaBaseUrl}
+                    onUrlSave={async (url) => {
+                        try {
+                            setSavingOllamaUrl(true)
+                            await configApi.updateTenant(DEFAULT_TENANT_ID, {
+                                ollama_base_url: url
+                            })
+                            toast.success('Ollama URL saved')
+                            // Reload providers to reflect new URL and models
+                            const providers = await providersApi.getAvailable()
+                            setAvailableProviders(providers)
+
+                            // Auto-reconcile LLM model if current provider is ollama
+                            if (defaultProvider === 'ollama') {
+                                const ollamaLlm = providers.llm_providers.find(p => p.name === 'ollama')
+                                const llmModels = ollamaLlm?.models ?? []
+                                if (llmModels.length > 0 && !llmModels.includes(defaultModel)) {
+                                    setDefaultModel(llmModels[0])
+                                }
+                            }
+
+                            // Auto-reconcile embedding model if current provider is ollama
+                            if (embeddingProvider === 'ollama') {
+                                const ollamaEmbed = providers.embedding_providers.find(p => p.name === 'ollama')
+                                const embedModels = ollamaEmbed?.models ?? []
+                                if (embedModels.length > 0 && !embedModels.includes(embeddingModel)) {
+                                    // Only update the local display — do NOT trigger migration here.
+                                    // Migration is triggered when the user explicitly saves or changes model via dropdown.
+                                    setEmbeddingModel(embedModels[0])
+                                }
+                            }
+
+                            toast.info('Provider models refreshed')
+                        } catch (err) {
+                            console.error(err)
+                            toast.error('Failed to save Ollama URL')
+                        } finally {
+                            setSavingOllamaUrl(false)
+                        }
+                    }}
+                    saving={savingOllamaUrl}
                 />
             </div>
 

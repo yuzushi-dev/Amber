@@ -64,7 +64,7 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=http://ollama-host:11434/v1
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
@@ -138,13 +138,13 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=http://ollama-host:11434/v1
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
-      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-openai}
-      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-small}
-      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
+      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
       - MINIO_HOST=minio
       - MINIO_PORT=9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
@@ -301,60 +301,78 @@ services:
       - graphrag-network
 
   # ---------------------------------------------------------------------------
-  # SeaweedFS (Parallel S3-Compatible Storage for Migration)
+  # SeaweedFS (S3-Compatible Object Storage)
   # ---------------------------------------------------------------------------
   seaweed-master:
     image: chrislusf/seaweedfs:3.74
-    command: master -ip=seaweed-master -port=9333 -mdir=/data -volumeSizeLimitMB=32
+    command: master -ip=seaweed-master -port=9333 -mdir=/data -volumeSizeLimitMB=1024
     ports:
       - "9333:9333"
     volumes:
-      - graphrag-seaweed:/data
+      - graphrag-seaweed-master:/data
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null || exit 1" ]
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
     restart: unless-stopped
     networks:
       - graphrag-network
 
   seaweed-volume:
     image: chrislusf/seaweedfs:3.74
-    command: volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume -dir=/data -max=200 -minFreeSpace=2GiB
+    command: volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume -ip.bind=0.0.0.0 -dir=/data -max=200 -minFreeSpace=2GiB
     ports:
       - "8080:8080"
     volumes:
-      - graphrag-seaweed:/data
+      - graphrag-seaweed-volume:/data
     depends_on:
       seaweed-master:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://seaweed-volume:8080/status >/dev/null || exit 1" ]
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/status >/dev/null || exit 1" ]
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
     restart: unless-stopped
     networks:
       - graphrag-network
 
   seaweed-filer:
     image: chrislusf/seaweedfs:3.74
-    command: filer -master=seaweed-master:9333 -port=8888
+    command: filer -master=seaweed-master:9333 -port=8888 -ip.bind=0.0.0.0
     ports:
       - "8888:8888"
     volumes:
-      - graphrag-seaweed:/data
+      - graphrag-seaweed-filer:/data
     depends_on:
       seaweed-master:
         condition: service_healthy
       seaweed-volume:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://seaweed-filer:8888/ >/dev/null || exit 1" ]
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8888/ >/dev/null || exit 1" ]
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -374,6 +392,12 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -426,7 +450,9 @@ volumes:
   graphrag-neo4j:
   graphrag-etcd:
   graphrag-minio:
-  graphrag-seaweed:
+  graphrag-seaweed-master:
+  graphrag-seaweed-volume:
+  graphrag-seaweed-filer:
   graphrag-milvus:
   graphrag-uploads:
   pip-packages:

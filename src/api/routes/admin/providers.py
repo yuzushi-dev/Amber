@@ -12,6 +12,7 @@ from importlib.util import find_spec
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from urllib.parse import urlparse
 
 from src.api.config import settings
 from src.core.generation.infrastructure.providers.openai import (
@@ -62,26 +63,46 @@ class ValidateProviderResponse(BaseModel):
     models: list[str] = []
 
 
+class OllamaTestRequest(BaseModel):
+    """Request to test Ollama connectivity."""
+
+    url: str  # e.g. "http://ollama-host:11434/v1"
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
 
 
-async def check_ollama_availability() -> tuple[bool, str | None, list[str], list[str]]:
+def _ollama_label(base_url: str) -> str:
+    """Generate a dynamic label for Ollama based on the configured URL."""
+    parsed = urlparse(base_url)
+    if parsed.hostname in ("localhost", "127.0.0.1", "::1"):
+        return "Ollama (Local)"
+    return f"Ollama ({parsed.hostname})"
+
+
+async def check_ollama_availability(
+    base_url: str | None = None,
+) -> tuple[bool, str, str | None, list[str], list[str]]:
     """
     Check if Ollama is available and list installed models.
 
+    Args:
+        base_url: Optional override URL. Falls back to settings.
+
     Returns:
-        (available, error_message, llm_models, embedding_models)
+        (available, label, error_message, llm_models, embedding_models)
     """
-    base_url = settings.ollama_base_url.rstrip("/v1")  # Remove /v1 for native API
+    url = (base_url or settings.ollama_base_url).rstrip("/v1")
+    label = _ollama_label(base_url or settings.ollama_base_url)
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{base_url}/api/tags")
+            response = await client.get(f"{url}/api/tags")
 
             if response.status_code != 200:
-                return False, f"Ollama returned status {response.status_code}", [], []
+                return False, label, f"Ollama returned status {response.status_code}", [], []
 
             data = response.json()
             models = data.get("models", [])
@@ -97,14 +118,14 @@ async def check_ollama_availability() -> tuple[bool, str | None, list[str], list
                 else:
                     llm_models.append(name)
 
-            return True, None, llm_models, embedding_models
+            return True, label, None, llm_models, embedding_models
 
     except httpx.ConnectError:
-        return False, f"Cannot connect to Ollama at {base_url}", [], []
+        return False, label, f"Cannot connect to Ollama at {url}", [], []
     except httpx.TimeoutException:
-        return False, "Ollama connection timed out", [], []
+        return False, label, "Ollama connection timed out", [], []
     except Exception as e:
-        return False, str(e), [], []
+        return False, label, str(e), [], []
 
 
 def check_openai_availability() -> tuple[bool, str | None]:
@@ -189,17 +210,41 @@ async def get_available_providers():
             )
         )
 
-    # Check Ollama
+    # Check Ollama - Read from DB config
+    # We prefer the DB configured URL over the runtime factory/env var
+    ollama_url = None
+    try:
+        from src.core.admin_ops.application.tuning_service import TuningService
+        from src.core.database.session import async_session_maker
+
+        tuning_service = TuningService(async_session_maker)
+        # Assuming "default" tenant for now.
+        config = await tuning_service.get_tenant_config("default")
+        ollama_url = config.get("ollama_base_url")
+    except Exception as e:
+        logger.warning(f"Failed to fetch tenant config for Ollama URL: {e}")
+
+    # Fallback to runtime factory if DB fetch fails or has no URL
+    if not ollama_url:
+        try:
+            from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+            factory = get_provider_factory()
+            ollama_url = getattr(factory, "ollama_base_url", None)
+        except Exception:
+            pass
+
     (
         ollama_available,
+        ollama_label,
         ollama_error,
         ollama_llm_models,
         ollama_embed_models,
-    ) = await check_ollama_availability()
+    ) = await check_ollama_availability(base_url=ollama_url)
     llm_providers.append(
         ProviderInfo(
             name="ollama",
-            label="Ollama (Local)",
+            label=ollama_label,
             available=ollama_available,
             error=ollama_error,
             models=ollama_llm_models if ollama_available else [],
@@ -208,7 +253,7 @@ async def get_available_providers():
     embedding_providers.append(
         ProviderInfo(
             name="ollama",
-            label="Ollama (Local)",
+            label=ollama_label,
             available=ollama_available,
             error=ollama_error,
             models=ollama_embed_models if ollama_available else [],
@@ -258,7 +303,7 @@ async def validate_provider(request: ValidateProviderRequest):
         return ValidateProviderResponse(available=available, error=error, models=models)
 
     elif provider_name == "ollama":
-        available, error, llm_models, embed_models = await check_ollama_availability()
+        available, _, error, llm_models, embed_models = await check_ollama_availability()
         models = llm_models if provider_type == "llm" else embed_models
         return ValidateProviderResponse(available=available, error=error, models=models)
 
@@ -269,3 +314,28 @@ async def validate_provider(request: ValidateProviderRequest):
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider_name}")
+
+
+@router.post("/ollama/test-connection")
+async def test_ollama_connection(request: OllamaTestRequest):
+    """
+    Test connectivity to a specific Ollama URL.
+
+    Used by the admin UI to validate a URL before saving it.
+    Returns connection status and available models.
+    """
+    url = request.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    available, label, error, llm_models, embed_models = await check_ollama_availability(
+        base_url=url
+    )
+
+    return {
+        "available": available,
+        "label": label,
+        "error": error,
+        "llm_models": llm_models,
+        "embedding_models": embed_models,
+    }
