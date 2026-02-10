@@ -42,7 +42,7 @@ async def get_from_cache(key: str) -> dict | None:
         r = await redis.from_url(redis_url, decode_responses=True)
 
         value = await r.get(key)
-        await r.close()
+        await r.aclose()
 
         if value:
             logger.debug(f"Cache HIT: {key}")
@@ -74,7 +74,7 @@ async def set_cache(key: str, value: dict, ttl: int = 60) -> bool:
         r = await redis.from_url(redis_url, decode_responses=True)
 
         await r.setex(key, ttl, json.dumps(value))
-        await r.close()
+        await r.aclose()
 
         logger.debug(f"Cache SET: {key} (TTL: {ttl}s)")
         return True
@@ -100,7 +100,7 @@ async def delete_cache(key: str) -> bool:
         r = await redis.from_url(redis_url, decode_responses=True)
 
         await r.delete(key)
-        await r.close()
+        await r.aclose()
 
         logger.debug(f"Cache DELETE: {key}")
         return True

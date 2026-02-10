@@ -5,7 +5,7 @@ Query Models
 Internal models for structured query analysis and execution tracing.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -41,6 +41,6 @@ class QueryTrace(BaseModel):
                 "step": name,
                 "duration_ms": round(duration_ms, 2),
                 "details": details or {},
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )

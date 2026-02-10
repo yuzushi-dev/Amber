@@ -8,7 +8,7 @@ Uses LLMs to process text and extract structured memory.
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from src.core.generation.application.memory.manager import memory_manager
@@ -220,7 +220,7 @@ class MemoryExtractor:
                     raw_title = first_user_msg.get("content", "")[:50]
                     final_title = self.scrubber.scrub_text(raw_title)
                 else:
-                    final_title = f"Conversation {datetime.utcnow().strftime('%Y-%m-%d')}"
+                    final_title = f"Conversation {datetime.now(UTC).strftime('%Y-%m-%d')}"
 
             # Save to DB
             await memory_manager.save_conversation_summary(

@@ -188,7 +188,7 @@ class ResultCache:
             return False
 
         try:
-            from datetime import datetime
+            from datetime import UTC, datetime
 
             client = await self._get_client()
             request_hash = self._hash_request(query, tenant_id, filters)
@@ -199,7 +199,7 @@ class ResultCache:
                 {
                     "chunk_ids": chunk_ids,
                     "scores": scores,
-                    "cached_at": datetime.utcnow().isoformat(),
+                    "cached_at": datetime.now(UTC).isoformat(),
                     "query_hash": request_hash,
                 }
             )
@@ -219,13 +219,13 @@ class ResultCache:
         Call this when documents are added/modified/deleted.
         """
         try:
-            from datetime import datetime
+            from datetime import UTC, datetime
 
             client = await self._get_client()
             tenant_key = self._make_tenant_key(tenant_id)
 
             # Set timestamp to now, making all previous cache entries stale
-            await client.set(tenant_key, datetime.utcnow().isoformat())
+            await client.set(tenant_key, datetime.now(UTC).isoformat())
 
             logger.info(f"Invalidated result cache for tenant {tenant_id}")
             return True
@@ -281,5 +281,5 @@ class ResultCache:
     async def close(self) -> None:
         """Close the Redis connection."""
         if self._client:
-            await self._client.close()
+            await self._client.aclose()
             self._client = None
