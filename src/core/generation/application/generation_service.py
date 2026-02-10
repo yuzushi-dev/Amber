@@ -132,6 +132,35 @@ class GenerationService:
 
         self.verifier = SourceVerifier()
 
+    def _resolve_provider_factory(self, tenant_config: dict[str, Any] | None):
+        """
+        Resolve a provider factory, potentially scoped to tenant configuration
+        if it overrides global settings (like ollama_base_url).
+        """
+        if not self.factory:
+            return None
+            
+        if not tenant_config:
+            return self.factory
+            
+        t_ollama_url = tenant_config.get("ollama_base_url")
+        if not t_ollama_url:
+            return self.factory
+            
+        # Tenant overrides URL - create scoped factory
+        from src.core.generation.domain.ports.provider_factory import build_provider_factory
+        from src.shared.kernel.runtime import get_settings
+        
+        settings = get_settings()
+        
+        return build_provider_factory(
+            openai_api_key=settings.openai_api_key,
+            anthropic_api_key=settings.anthropic_api_key,
+            ollama_base_url=t_ollama_url,
+            default_llm_provider=settings.default_llm_provider,
+            default_llm_model=settings.default_llm_model,
+        )
+
     def _normalize_citations(self, text: str) -> str:
         if not text:
             return text
@@ -281,14 +310,17 @@ class GenerationService:
         )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
+        # Resolve factory with tenant context
+        factory = self._resolve_provider_factory(tenant_config)
+
         provider = (
-            self.factory.get_llm_provider(
+            factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
                 with_failover=False,
             )
-            if self.factory
+            if factory
             else self.llm
         )
 
@@ -535,14 +567,17 @@ class GenerationService:
         )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
+        # Resolve factory with tenant context
+        factory = self._resolve_provider_factory(tenant_config)
+        
         provider = (
-            self.factory.get_llm_provider(
+            factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
                 with_failover=False,
             )
-            if self.factory
+            if factory
             else self.llm
         )
 
@@ -630,14 +665,17 @@ class GenerationService:
         )
         seed = self.config.seed if self.config.seed is not None else llm_cfg.seed
 
+        # Resolve factory with tenant context
+        factory = self._resolve_provider_factory(tenant_config)
+
         provider = (
-            self.factory.get_llm_provider(
+            factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
                 with_failover=False,
             )
-            if self.factory
+            if factory
             else self.llm
         )
 
@@ -658,7 +696,7 @@ class GenerationService:
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
         normalized_answer = self._normalize_citations(answer)
-        pattern = r"\[\[Source:(\d+)\]\]"  # Updated regex to match new prompt format
+        pattern = r"\[\[Source:\s*(\d+)\]\]"  # Updated regex to match new prompt format (allowing space)
         matches = re.findall(pattern, normalized_answer)
         # Fallback for old format [1] just in case
         if not matches:

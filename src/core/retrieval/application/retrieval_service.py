@@ -235,6 +235,52 @@ class RetrievalService:
         logger.warning("TuningService not provided; falling back to default active collection")
         return resolve_active_vector_collection(tenant_id, {})
 
+    def _resolve_embedding_service(self, tenant_config: dict[str, Any] | None) -> EmbeddingService:
+        """Resolve embedding service based on tenant config."""
+        if not tenant_config:
+            return self.embedding_service
+
+        # Check if tenant overrides critical embedding settings
+        t_provider = tenant_config.get("embedding_provider")
+        t_model = tenant_config.get("embedding_model")
+        t_ollama_url = tenant_config.get("ollama_base_url")
+
+        # If no overrides, return default
+        if not (t_provider or t_model or t_ollama_url):
+            return self.embedding_service
+        
+        # Build scoped factory
+        from src.core.generation.domain.ports.provider_factory import build_provider_factory
+        from src.shared.kernel.runtime import get_settings
+        
+        settings = get_settings()
+        
+        # Valid Ollama URL? 
+        effective_ollama_url = t_ollama_url or settings.ollama_base_url
+        
+        factory = build_provider_factory(
+            openai_api_key=settings.openai_api_key,
+            anthropic_api_key=settings.anthropic_api_key,
+            ollama_base_url=effective_ollama_url,
+        )
+        
+        # Determine provider name
+        # If tenant doesn't specify provider but specifies model, we might need to resolve it.
+        # If tenant specifies nothing, we shouldn't be here (checked above).
+        
+        # If t_provider is None, use default? Or resolve from model?
+        # Safe default: if ollama_url is set, likely want ollama? Not necessarily.
+        
+        provider_name = t_provider or self.config.default_embedding_provider
+        
+        return EmbeddingService(
+            provider=factory.get_embedding_provider(
+                provider_name=provider_name,
+                model=t_model or self.config.default_embedding_model,
+            ),
+            model=t_model or self.config.default_embedding_model,
+        )
+
     @trace_span("RetrievalService.retrieve")
     async def retrieve(
         self,
@@ -386,7 +432,8 @@ class RetrievalService:
 
         # 1. Vector Search
         # We need an embedding first
-        embedding = await self.embedding_service.embed_single(query_text)
+        embedding_svc = self._resolve_embedding_service(tenant_config)
+        embedding = await embedding_svc.embed_single(query_text)
 
         vector_task = self.vector_searcher.search(
             query_vector=embedding,
@@ -571,7 +618,11 @@ class RetrievalService:
 
             # Get embedding
             logger.debug("Generating embedding for query variant '%s'", search_query[:120])
-            query_embedding = await self.embedding_service.embed_single(search_query)
+            
+            # Resolve correct embedding service for this tenant
+            embedding_svc = self._resolve_embedding_service(tenant_config)
+            query_embedding = await embedding_svc.embed_single(search_query)
+            
             if not query_embedding:
                 logger.warning(f"Embedding failed for query: {search_query}. Skipping search.")
                 continue

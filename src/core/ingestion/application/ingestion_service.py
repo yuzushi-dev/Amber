@@ -383,10 +383,13 @@ class IngestionService:
                 res_model = t_config.get("embedding_model") or sys_model
                 res_dims = t_config.get("embedding_dimensions") or sys_dims
 
+                # Resolve Ollama URL from Tenant Config -> Settings
+                res_ollama_url = t_config.get("ollama_base_url") or settings.ollama_base_url
+
                 try:
                     factory = build_provider_factory(
                         openai_api_key=settings.openai_api_key,
-                        ollama_base_url=settings.ollama_base_url,
+                        ollama_base_url=res_ollama_url,
                         default_embedding_provider=res_prov,
                         default_embedding_model=res_model,
                     )

@@ -168,16 +168,25 @@ class DocumentSummarizer:
         """Initialize the document summarizer with LLM provider."""
         self._llm = None  # Lazy init
 
-    def _get_llm(self, provider_name: str | None = None, model: str | None = None):
+    def _get_llm(
+        self,
+        provider_name: str | None = None,
+        model: str | None = None,
+        ollama_base_url: str | None = None,
+    ):
         """Lazy-load LLM provider."""
         from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
-        if settings.openai_api_key or settings.anthropic_api_key or settings.ollama_base_url:
+        
+        # Use provided URL or fallback to settings
+        res_ollama_url = ollama_base_url or settings.ollama_base_url
+        
+        if settings.openai_api_key or settings.anthropic_api_key or res_ollama_url:
             factory = build_provider_factory(
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
-                ollama_base_url=settings.ollama_base_url,
+                ollama_base_url=res_ollama_url,
             )
         else:
             factory = get_provider_factory()
@@ -244,13 +253,21 @@ class DocumentSummarizer:
             from src.shared.identifiers import generate_query_id
 
             tenant_config = tenant_config or {}
+            
+            # Resolve Ollama URL from Tenant Config
+            res_ollama_url = tenant_config.get("ollama_base_url")
+
             llm_cfg = resolve_llm_step_config(
                 tenant_config=tenant_config,
                 step_id="ingestion.document_summarization",
                 settings=settings,
             )
 
-            llm = self._get_llm(provider_name=llm_cfg.provider, model=llm_cfg.model)
+            llm = self._get_llm(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                ollama_base_url=res_ollama_url,
+            )
             query_id = generate_query_id()
             collector = MetricsCollector(redis_url=settings.db.redis_url)
 

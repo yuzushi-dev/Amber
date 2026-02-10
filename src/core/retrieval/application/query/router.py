@@ -136,12 +136,25 @@ class QueryRouter:
 
                 settings = get_settings()
                 tenant_config = tenant_config or {}
+                
+                # Resolve Ollama URL from Tenant Config
+                # If tenant has custom URL, we need a scoped factory because self.factory is global
+                res_ollama_url = tenant_config.get("ollama_base_url")
+                
+                scoped_factory = self.factory
+                if res_ollama_url and res_ollama_url != settings.ollama_base_url:
+                    scoped_factory = build_provider_factory(
+                        openai_api_key=settings.openai_api_key,
+                        anthropic_api_key=settings.anthropic_api_key,
+                        ollama_base_url=res_ollama_url,
+                    )
+
                 llm_cfg = resolve_llm_step_config(
                     tenant_config=tenant_config,
                     step_id="retrieval.query_router",
                     settings=settings,
                 )
-                provider = self.factory.get_llm_provider(
+                provider = scoped_factory.get_llm_provider(
                     provider_name=llm_cfg.provider,
                     model=llm_cfg.model,
                     tier=ProviderTier.ECONOMY,
