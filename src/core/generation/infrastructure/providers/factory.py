@@ -172,6 +172,16 @@ class ProviderFactory:
         self._embedding_cache: dict[str, BaseEmbeddingProvider] = {}
         self._reranker_cache: dict[str, BaseRerankerProvider] = {}
 
+    def update_ollama_base_url(self, url: str | None) -> None:
+        """Update Ollama base URL at runtime (called on tenant config change).
+
+        Clears cached Ollama providers so they are recreated with the new URL.
+        """
+        self.ollama_base_url = url
+        # Clear cached Ollama providers so next request uses updated URL
+        self._llm_cache.pop("ollama", None)
+        self._embedding_cache.pop("ollama", None)
+
     def get_llm_provider(
         self,
         provider_name: str | None = None,

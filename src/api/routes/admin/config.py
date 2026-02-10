@@ -110,6 +110,9 @@ class TenantConfigResponse(BaseModel):
     # Vector Store Settings
     active_vector_collection: str | None = None
 
+    # Ollama Connection
+    ollama_base_url: str | None = None
+
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
@@ -153,6 +156,9 @@ class TenantConfigUpdate(BaseModel):
 
     # Vector Store Settings
     active_vector_collection: str | None = None
+
+    # Ollama Connection
+    ollama_base_url: str | None = None
 
     # Determinism Settings
     seed: int | None = None
@@ -535,6 +541,7 @@ async def get_tenant_config(tenant_id: str):
             ),
             embedding_model=config.get("embedding_model", _resolve_default_embedding_model()),
             active_vector_collection=config.get("active_vector_collection"),
+            ollama_base_url=config.get("ollama_base_url", settings.ollama_base_url),
             seed=config.get("seed"),
             temperature=config.get("temperature"),
             llm_steps=config.get("llm_steps"),
@@ -571,7 +578,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
         except Exception as e:
             raise HTTPException(status_code=403, detail=str(e)) from e
 
-        llm_keys = {"llm_provider", "llm_model", "temperature", "seed", "llm_steps"}
+        llm_keys = {"llm_provider", "llm_model", "temperature", "seed", "llm_steps", "ollama_base_url"}
         llm_update = {key: value for key, value in update_dict.items() if key in llm_keys}
         other_update = {key: value for key, value in update_dict.items() if key not in llm_keys}
         is_super_admin = getattr(request.state, "is_super_admin", False)
@@ -666,6 +673,22 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 )
 
                 logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
+
+        # Propagate ollama_base_url change to running factory
+        if "ollama_base_url" in update_dict:
+            try:
+                from src.core.generation.domain.ports.provider_factory import (
+                    get_provider_factory,
+                )
+
+                factory = get_provider_factory()
+                factory.update_ollama_base_url(update_dict["ollama_base_url"])
+                logger.info(
+                    "Updated running factory ollama_base_url to: %s",
+                    update_dict["ollama_base_url"],
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update running factory ollama_base_url: {e}")
 
         # Return updated config
         return await get_tenant_config(tenant_id)
