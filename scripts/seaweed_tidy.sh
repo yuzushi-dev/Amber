@@ -75,7 +75,15 @@ def main(argv: list[str]) -> int:
     prefixes = tuple(p.strip() for p in prefixes_csv.split(",") if p.strip())
     apply = as_bool(apply_flag)
 
-    client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=as_bool(secure_flag))
+    # Strip scheme if present — Minio SDK expects host:port only
+    secure = as_bool(secure_flag)
+    if endpoint.startswith("https://"):
+        endpoint = endpoint[len("https://"):]
+        secure = True
+    elif endpoint.startswith("http://"):
+        endpoint = endpoint[len("http://"):]
+
+    client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
 
     matched: list[str] = []
     deleted_buckets = 0
