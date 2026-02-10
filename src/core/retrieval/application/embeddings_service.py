@@ -75,6 +75,7 @@ class EmbeddingService:
         provider: EmbeddingProviderPort | None = None,
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
+        ollama_base_url: str | None = None,
         model: str | None = None,
         dimensions: int | None = None,
         max_tokens_per_batch: int | None = None,
@@ -87,6 +88,7 @@ class EmbeddingService:
             provider: Pre-configured provider (optional)
             openai_api_key: OpenAI API key
             anthropic_api_key: Anthropic API key (for future use)
+            ollama_base_url: Ollama Base URL (optional)
             model: Default embedding model (defaults to provider default)
             dimensions: Optional dimension reduction
             max_tokens_per_batch: Override default batch token limit
@@ -95,10 +97,11 @@ class EmbeddingService:
         if provider:
             self.provider = provider
         else:
-            if openai_api_key or anthropic_api_key:
+            if openai_api_key or anthropic_api_key or ollama_base_url:
                 factory = build_provider_factory(
                     openai_api_key=openai_api_key,
                     anthropic_api_key=anthropic_api_key,
+                    ollama_base_url=ollama_base_url,
                 )
             else:
                 from src.shared.kernel.runtime import get_settings

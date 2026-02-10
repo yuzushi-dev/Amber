@@ -200,11 +200,17 @@ async def _process_communities_async(tenant_id: str) -> dict:
         if detect_res["status"] == "skipped":
             return detect_res
 
+        tuning_service = TuningService(get_session_maker())
+        tenant_config = await tuning_service.get_tenant_config(tenant_id)
+        
+        # Resolve Ollama URL from Tenant Config -> Settings
+        res_ollama_url = tenant_config.get("ollama_base_url") or settings.ollama_base_url
+
         # 2. Summarization
         factory = ProviderFactory(
             openai_api_key=settings.openai_api_key,
             anthropic_api_key=settings.anthropic_api_key,
-            ollama_base_url=settings.ollama_base_url,
+            ollama_base_url=res_ollama_url,
             default_llm_provider=settings.default_llm_provider,
             default_llm_model=settings.default_llm_model,
             llm_fallback_local=settings.llm_fallback_local,
@@ -213,8 +219,6 @@ async def _process_communities_async(tenant_id: str) -> dict:
             llm_fallback_premium=settings.llm_fallback_premium,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
-        tuning_service = TuningService(get_session_maker())
-        tenant_config = await tuning_service.get_tenant_config(tenant_id)
 
         # We summarize all that are now stale or new
         await summarizer.summarize_all_stale(tenant_id, tenant_config=tenant_config)
@@ -234,6 +238,7 @@ async def _process_communities_async(tenant_id: str) -> dict:
         embedding_svc = EmbeddingService(
             openai_api_key=settings.openai_api_key,
             model=embedding_model,
+            ollama_base_url=res_ollama_url,
         )
         vector_store_factory = build_vector_store_factory()
         comm_vector_store = vector_store_factory(
@@ -359,6 +364,29 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     configure_runtime_settings(settings)
 
+    # Move DB initialization earlier to fetch tenant config
+    # ERROR FIX: Ensure domain models are imported before session usage to avoid Mapper errors
+    from src.core.ingestion.domain.chunk import Chunk  # noqa: F401
+    from src.core.ingestion.domain.document import Document  # noqa: F401
+
+    engine = create_async_engine(settings.db.database_url)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    # Fetch Tenant Config for correct Provider Init
+    from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+        PostgresTenantRepository,
+    )
+
+    resolved_ollama_url = settings.ollama_base_url
+    try:
+        async with async_session() as tmp_session:
+            t_repo = PostgresTenantRepository(tmp_session)
+            t_obj = await t_repo.get(tenant_id)
+            if t_obj and t_obj.config:
+                resolved_ollama_url = t_obj.config.get("ollama_base_url") or resolved_ollama_url
+    except Exception as e:
+        logger.warning(f"Failed to fetch tenant config for provider init: {e}")
+
     from src.core.generation.infrastructure.providers.factory import init_providers
 
     init_providers(
@@ -368,7 +396,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         default_llm_model=settings.default_llm_model,
         default_embedding_provider=settings.default_embedding_provider,
         default_embedding_model=settings.default_embedding_model,
-        ollama_base_url=settings.ollama_base_url,
+        ollama_base_url=resolved_ollama_url,
         llm_fallback_local=settings.llm_fallback_local,
         llm_fallback_economy=settings.llm_fallback_economy,
         llm_fallback_standard=settings.llm_fallback_standard,
@@ -383,12 +411,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     set_graph_extractor(GraphExtractor(use_gleaning=True))
     set_graph_client(platform.neo4j_client)
 
-    # Create async session
-    engine = create_async_engine(settings.db.database_url)
-
     try:
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
         async with async_session() as session:
             # Initialize services
             from src.core.events.dispatcher import EventDispatcher
@@ -397,9 +420,6 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
                 PostgresDocumentRepository,
             )
             from src.core.ingestion.infrastructure.uow.postgres_uow import PostgresUnitOfWork
-            from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
-                PostgresTenantRepository,
-            )
             from src.infrastructure.adapters.redis_state_publisher import RedisStatePublisher
 
             vector_store_factory = build_vector_store_factory()
@@ -420,7 +440,8 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
                 unit_of_work=uow,
                 storage_client=platform.minio_client,
                 neo4j_client=platform.neo4j_client,
-                vector_store=None,
+                vector_store=None,  # vector_store_factory used internally or passed if needed?
+                # In previous code vector_store was None but vector_store_factory passed.
                 settings=settings,
                 event_dispatcher=event_dispatcher,
                 vector_store_factory=vector_store_factory,
@@ -577,7 +598,7 @@ def run_ragas_benchmark(self, benchmark_run_id: str, tenant_id: str) -> dict:
 async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task_id: str) -> dict:
     """Async implementation of Ragas benchmark execution."""
     import json
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -607,7 +628,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
             # Update status to RUNNING
             benchmark.status = BenchmarkStatus.RUNNING
-            benchmark.started_at = datetime.utcnow()
+            benchmark.started_at = datetime.now(UTC)
             benchmark.metrics = {"progress": 5}
             await session.commit()
             _publish_benchmark_status(benchmark_run_id, "running", 5)
@@ -660,6 +681,22 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             client = AsyncOpenAI(api_key=settings.openai_api_key)
             ragas_service = RagasService(llm_client=client)
 
+            # Fetch Tenant Config for RAG Services
+            from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+                PostgresTenantRepository,
+            )
+
+            resolved_ollama_url = settings.ollama_base_url
+            try:
+                # We need a separate session or query execution to get tenant config
+                # Since we are already in an async session, we can reuse it
+                t_repo = PostgresTenantRepository(session)
+                t_obj = await t_repo.get(tenant_id)
+                if t_obj and t_obj.config:
+                    resolved_ollama_url = t_obj.config.get("ollama_base_url") or resolved_ollama_url
+            except Exception as e:
+                logger.warning(f"Failed to fetch tenant config for benchmark: {e}")
+
             # Initialize RAG Pipeline
             retrieval_config = RetrievalConfig(
                 milvus_host=settings.db.milvus_host,
@@ -668,12 +705,14 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             retrieval_service = RetrievalService(
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
+                ollama_base_url=resolved_ollama_url,
                 redis_url=settings.db.redis_url,
                 config=retrieval_config,
             )
             generation_service = GenerationService(
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
+                ollama_base_url=resolved_ollama_url,
             )
 
             # Update progress: Services initialized
@@ -757,7 +796,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
             # Update benchmark with results
             benchmark.status = BenchmarkStatus.COMPLETED
-            benchmark.completed_at = datetime.utcnow()
+            benchmark.completed_at = datetime.now(UTC)
             benchmark.metrics = metrics
             benchmark.details = details
             await session.commit()
@@ -777,7 +816,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
 async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     """Mark benchmark as failed in DB."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -799,7 +838,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
 
             if benchmark:
                 benchmark.status = BenchmarkStatus.FAILED
-                benchmark.completed_at = datetime.utcnow()
+                benchmark.completed_at = datetime.now(UTC)
                 benchmark.error_message = error
                 await session.commit()
                 _publish_benchmark_status(benchmark_run_id, "failed", 100, error=error)
