@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,15 @@ from src.core.generation.application.prompts.entity_extraction import (
 )
 from src.core.generation.infrastructure.providers.base import ProviderTier
 from src.core.generation.infrastructure.providers.factory import get_llm_provider
+from src.core.graph.application.sync_config import (
+    GraphSyncRuntimeConfig,
+    resolve_graph_sync_runtime_config,
+)
 from src.core.graph.domain.models import Entity, Relationship
+from src.core.ingestion.infrastructure.extraction.extraction_cache import (
+    ExtractionCache,
+    ExtractionCacheConfig,
+)
 from src.core.ingestion.infrastructure.extraction.tuple_parser import TupleParser
 
 logger = logging.getLogger(__name__)
@@ -27,6 +36,9 @@ class GraphExtractor:
         self.max_gleaning_steps = max_gleaning_steps
         self.entity_types, self.relationship_suggestions = self._load_config()
         self.parser = TupleParser()
+        self._cache: ExtractionCache | None = None
+        self._cache_redis_url: str | None = None
+        self._cache_ttl_seconds: int | None = None
 
     def _load_config(self) -> tuple[list[str], list[str]]:
         """Load entity and relationship types from JSON config."""
@@ -46,11 +58,67 @@ class GraphExtractor:
             logger.error(f"Failed to load classification config: {e}")
             return (["CONCEPT"], ["RELATED_TO"])
 
+    def _get_cache_client(
+        self,
+        *,
+        redis_url: str,
+        ttl_seconds: int,
+        enabled: bool,
+    ) -> ExtractionCache:
+        if (
+            self._cache is None
+            or self._cache_redis_url != redis_url
+            or self._cache_ttl_seconds != ttl_seconds
+            or self._cache.config.enabled != enabled
+        ):
+            self._cache = ExtractionCache(
+                ExtractionCacheConfig(
+                    redis_url=redis_url,
+                    ttl_seconds=ttl_seconds,
+                    enabled=enabled,
+                )
+            )
+            self._cache_redis_url = redis_url
+            self._cache_ttl_seconds = ttl_seconds
+        return self._cache
+
+    def _should_run_gleaning(
+        self,
+        *,
+        runtime_config: GraphSyncRuntimeConfig,
+        text: str,
+        entity_count: int,
+        relationship_count: int,
+    ) -> tuple[bool, str]:
+        if not (self.use_gleaning and runtime_config.use_gleaning):
+            return False, "gleaning_disabled"
+
+        if self.max_gleaning_steps <= 0 or runtime_config.max_gleaning_steps <= 0:
+            return False, "gleaning_steps_disabled"
+
+        if not runtime_config.smart_gleaning_enabled:
+            return True, "always_on"
+
+        if (
+            len(text) < runtime_config.smart_gleaning_min_chunk_chars
+            and entity_count >= runtime_config.smart_gleaning_entity_threshold
+        ):
+            return False, "short_chunk_sufficient_entities"
+
+        if entity_count < runtime_config.smart_gleaning_entity_threshold:
+            return True, "low_entity_yield"
+
+        if relationship_count < runtime_config.smart_gleaning_relationship_threshold:
+            return True, "low_relationship_yield"
+
+        return False, "sufficient_pass1_yield"
+
     async def extract(
         self,
         text: str,
         chunk_id: str = "UNKNOWN",
         track_usage: bool = True,
+        tenant_id: str | None = None,
         tenant_config: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """
@@ -60,9 +128,14 @@ class GraphExtractor:
         from src.core.generation.application.llm_steps import resolve_llm_step_config
 
         tenant_config = tenant_config or {}
+        from src.shared.context import get_current_tenant
         from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
+        runtime_config = resolve_graph_sync_runtime_config(
+            settings=settings,
+            tenant_config=tenant_config,
+        )
         llm_config = resolve_llm_step_config(
             tenant_config=tenant_config,
             step_id="ingestion.graph_extraction",
@@ -76,11 +149,9 @@ class GraphExtractor:
         )
 
         # 2. Initial Pass (Pass 1)
-        # We use a standard prompt instead of system_prompt for tuple format to avoid strict JSON mode constraints on some providers
         initial_prompt = get_tuple_extraction_prompt(
             self.entity_types, self.relationship_suggestions, text_unit_id=chunk_id
         )
-
         full_text_prompt = (
             f"{initial_prompt}\n\n**Text to analyze**:\n{text}\n\n**Output (tuple format only)**:"
         )
@@ -92,20 +163,82 @@ class GraphExtractor:
         from src.core.generation.application.prompts.entity_extraction import ExtractionUsage
 
         usage_stats = ExtractionUsage()
+        usage_stats.model = llm_config.model
+        usage_stats.provider = llm_config.provider
 
         # Metrics tracking context
-        # If track_usage is False, we use a dummy context manager or just run logic
         from src.core.admin_ops.application.metrics.collector import MetricsCollector
-        from src.shared.context import get_current_tenant
         from src.shared.identifiers import generate_query_id
 
         query_id = generate_query_id()
         collector = MetricsCollector(redis_url=settings.db.redis_url)
-        tenant_id = get_current_tenant() or "system"
+        effective_tenant_id = tenant_id or get_current_tenant() or "system"
+        response: Any = None
+        gleaning_steps_run = 0
+        gleaning_run_reason = "not_applicable"
+        gleaning_skip_reason = "not_applicable"
+
+        # Optional extraction cache
+        cache_key = None
+        if runtime_config.cache_enabled:
+            cache = self._get_cache_client(
+                redis_url=settings.db.redis_url,
+                ttl_seconds=runtime_config.cache_ttl_hours * 3600,
+                enabled=True,
+            )
+            cache_key = ExtractionCache.build_cache_key(
+                tenant_id=effective_tenant_id,
+                text=text,
+                prompt=initial_prompt,
+                ontology={
+                    "entity_types": self.entity_types,
+                    "relationship_suggestions": self.relationship_suggestions,
+                },
+                model=llm_config.model,
+                temperature=llm_config.temperature,
+                seed=llm_config.seed,
+                gleaning_mode=(
+                    f"use={self.use_gleaning and runtime_config.use_gleaning};"
+                    f"max={min(self.max_gleaning_steps, runtime_config.max_gleaning_steps)};"
+                    f"smart={runtime_config.smart_gleaning_enabled};"
+                    f"e={runtime_config.smart_gleaning_entity_threshold};"
+                    f"r={runtime_config.smart_gleaning_relationship_threshold};"
+                    f"chars={runtime_config.smart_gleaning_min_chunk_chars}"
+                ),
+            )
+
+            cached_result = await cache.get(cache_key)
+            if cached_result is not None:
+                usage_stats.cache_hit = True
+                logger.info(
+                    "graph_extractor_chunk_metrics %s",
+                    json.dumps(
+                        {
+                            "event": "graph_extractor_chunk_metrics",
+                            "chunk_id": chunk_id,
+                            "tenant_id": effective_tenant_id,
+                            "cache_hit": True,
+                            "gleaning_enabled": self.use_gleaning and runtime_config.use_gleaning,
+                            "gleaning_steps_run": 0,
+                            "gleaning_run_reason": "cache_hit",
+                            "gleaning_skip_reason": "cache_hit",
+                            "llm_calls": 0,
+                            "tokens_total": 0,
+                            "entities": len(cached_result.entities),
+                            "relationships": len(cached_result.relationships),
+                        },
+                        sort_keys=True,
+                    ),
+                )
+                return ExtractionResult(
+                    entities=cached_result.entities,
+                    relationships=cached_result.relationships,
+                    usage=usage_stats,
+                )
 
         try:
             # Helper to run generation and capture stats
-            async def run_generation(prompt: str, temp: float) -> Any:
+            async def run_generation(prompt: str, temp: float, stage: str) -> Any:
                 import hashlib
 
                 prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
@@ -113,9 +246,11 @@ class GraphExtractor:
                     f"[DET] run_generation: seed={llm_config.seed}, temp={temp}, prompt_hash={prompt_hash}"
                 )
 
+                started = time.perf_counter()
                 response = await provider.generate(
                     prompt=prompt, temperature=temp, seed=llm_config.seed
                 )
+                latency_ms = int((time.perf_counter() - started) * 1000)
 
                 # Accumulate stats
                 if hasattr(response, "usage"):
@@ -126,15 +261,35 @@ class GraphExtractor:
                 if hasattr(response, "cost_estimate"):
                     usage_stats.cost_estimate += response.cost_estimate
 
-                usage_stats.model = response.model if hasattr(response, "model") else ""
-                usage_stats.provider = response.provider if hasattr(response, "provider") else ""
+                usage_stats.llm_calls += 1
+                usage_stats.model = str(response.model) if hasattr(response, "model") else ""
+                usage_stats.provider = str(response.provider) if hasattr(response, "provider") else ""
+                logger.info(
+                    "graph_extractor_llm_call_metrics %s",
+                    json.dumps(
+                        {
+                            "event": "graph_extractor_llm_call_metrics",
+                            "chunk_id": chunk_id,
+                            "stage": stage,
+                            "latency_ms": latency_ms,
+                            "tokens_total": getattr(getattr(response, "usage", None), "total_tokens", 0),
+                            "provider": usage_stats.provider,
+                            "model": usage_stats.model,
+                        },
+                        sort_keys=True,
+                    ),
+                )
 
                 return response
 
             if track_usage:
-                async with collector.track_query(query_id, tenant_id, f"Extract: {chunk_id}") as qm:
+                async with collector.track_query(
+                    query_id, effective_tenant_id, f"Extract: {chunk_id}"
+                ) as qm:
                     qm.operation = "extraction"
-                    response = await run_generation(full_text_prompt, llm_config.temperature)
+                    response = await run_generation(
+                        full_text_prompt, llm_config.temperature, stage="extraction_pass_1"
+                    )
 
                     # Update QM with stats
                     qm.tokens_used = usage_stats.total_tokens
@@ -155,7 +310,9 @@ class GraphExtractor:
                     qm.response = f"Extracted {ent_count} entities, {rel_count} relationships"
             else:
                 # No metrics tracking (aggregated by caller)
-                response = await run_generation(full_text_prompt, llm_config.temperature)
+                response = await run_generation(
+                    full_text_prompt, llm_config.temperature, stage="extraction_pass_1"
+                )
                 parse_result = self.parser.parse(response.text)
                 all_entities.extend(parse_result.entities)
                 all_relationships.extend(parse_result.relationships)
@@ -166,48 +323,49 @@ class GraphExtractor:
                 qm.response = f"Failed: {str(e)}"
 
         # 3. Gleaning Pass (Pass 2+)
-        if self.use_gleaning and self.max_gleaning_steps > 0:
-            for step in range(self.max_gleaning_steps):
+        should_glean, decision_reason = self._should_run_gleaning(
+            runtime_config=runtime_config,
+            text=text,
+            entity_count=len(all_entities),
+            relationship_count=len(all_relationships),
+        )
+
+        max_gleaning_steps = min(self.max_gleaning_steps, runtime_config.max_gleaning_steps)
+        if should_glean:
+            gleaning_run_reason = decision_reason
+            for step in range(max_gleaning_steps):
                 try:
                     existing_names = [e.name for e in all_entities]
                     if not existing_names:
-                        break  # Nothing found, maybe empty text?
+                        gleaning_skip_reason = "no_entities_after_pass1"
+                        break
+                    if response is None:
+                        gleaning_skip_reason = "missing_pass1_response"
+                        break
 
                     glean_prompt = get_gleaning_prompt(existing_names, self.entity_types)
                     full_glean_prompt = f"{full_text_prompt}\n{response.text}\n\n{glean_prompt}"
-
-                    # For gleaning, we might skip metrics logging entirely or aggregate?
-                    # Since track_usage encompasses the whole call, if it's True, we might miss gleaning costs in the single 'track_query' above
-                    # unless we structured it differently.
-                    # Current logical limitation: The 'track_query' context above closes after Pass 1.
-                    # Use Case Check: Aggregation is the goal.
-                    # With track_usage=False, we accumulate `usage_stats` correctly across multiple calls.
-                    # With track_usage=True, we accepted single-pass logging. Let's keep it simple.
-
-                    glean_response = await provider.generate(
-                        prompt=full_glean_prompt,
-                        temperature=llm_config.temperature,
-                        seed=llm_config.seed,
+                    glean_response = await run_generation(
+                        full_glean_prompt,
+                        llm_config.temperature,
+                        stage=f"gleaning_step_{step + 1}",
                     )
-
-                    # Update stats
-                    if hasattr(glean_response, "usage"):
-                        usage_stats.total_tokens += glean_response.usage.total_tokens
-                        usage_stats.input_tokens += glean_response.usage.input_tokens
-                        usage_stats.output_tokens += glean_response.usage.output_tokens
-                    if hasattr(glean_response, "cost_estimate"):
-                        usage_stats.cost_estimate += glean_response.cost_estimate
+                    gleaning_steps_run += 1
 
                     glean_result = self.parser.parse(glean_response.text)
                     if not glean_result.entities:
-                        break  # Stop if no new entities found
+                        gleaning_skip_reason = "no_new_entities"
+                        break
 
                     all_entities.extend(glean_result.entities)
                     all_relationships.extend(glean_result.relationships)
 
                 except Exception as e:
+                    gleaning_skip_reason = "gleaning_error"
                     logger.warning(f"Gleaning step {step} failed: {e}")
                     break
+        else:
+            gleaning_skip_reason = decision_reason
 
         # 4. Quality Filtering (Intrinsic & QualityScorer)
         final_entities = []
@@ -272,9 +430,47 @@ class GraphExtractor:
             if r.source_entity in valid_names and r.target_entity in valid_names
         ]
 
-        return PydanticResult(
+        result = PydanticResult(
             entities=pydantic_entities, relationships=pydantic_rels, usage=usage_stats
         )
+
+        if runtime_config.cache_enabled and cache_key:
+            cache = self._get_cache_client(
+                redis_url=settings.db.redis_url,
+                ttl_seconds=runtime_config.cache_ttl_hours * 3600,
+                enabled=True,
+            )
+            await cache.set(
+                cache_key,
+                PydanticResult(
+                    entities=pydantic_entities,
+                    relationships=pydantic_rels,
+                    usage=None,
+                ),
+            )
+
+        logger.info(
+            "graph_extractor_chunk_metrics %s",
+            json.dumps(
+                {
+                    "event": "graph_extractor_chunk_metrics",
+                    "chunk_id": chunk_id,
+                    "tenant_id": effective_tenant_id,
+                    "cache_hit": usage_stats.cache_hit,
+                    "gleaning_enabled": self.use_gleaning and runtime_config.use_gleaning,
+                    "gleaning_steps_run": gleaning_steps_run,
+                    "gleaning_run_reason": gleaning_run_reason,
+                    "gleaning_skip_reason": gleaning_skip_reason,
+                    "llm_calls": usage_stats.llm_calls,
+                    "tokens_total": usage_stats.total_tokens,
+                    "entities": len(pydantic_entities),
+                    "relationships": len(pydantic_rels),
+                },
+                sort_keys=True,
+            ),
+        )
+
+        return result
 
     def _deduplicate_entities(self, entities: list[Entity]) -> list[Entity]:
         """Simple deduplication by name."""
