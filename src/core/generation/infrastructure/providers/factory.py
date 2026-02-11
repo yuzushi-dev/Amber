@@ -208,6 +208,12 @@ class ProviderFactory:
         if model and not provider_name:
             provider_name = resolve_provider_for_model(model, LLM_MODEL_TO_PROVIDERS, kind="llm")
 
+        if model and not provider_name:
+            # Model not in registry — use the configured default provider
+            # and pass the model through. The provider will give a clear
+            # error if the model doesn't exist.
+            provider_name = self.default_llm_provider
+
         if provider_name:
             return self._create_llm_provider(provider_name, model=model)
 
@@ -257,6 +263,10 @@ class ProviderFactory:
             provider_name = resolve_provider_for_model(
                 model, EMBEDDING_MODEL_TO_PROVIDERS, kind="embedding"
             )
+
+        if model and not provider_name:
+            # Model not in registry — use the configured default provider
+            provider_name = self.default_embedding_provider
 
         if provider_name:
             return self._create_embedding_provider(provider_name, model=model)

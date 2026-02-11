@@ -51,7 +51,7 @@ class Chunk(Base):
 
     # Relationship to parent document
     document: Mapped["Document"] = relationship(
-        "src.core.ingestion.domain.document.Document", back_populates="chunks"
+        "Document", back_populates="chunks"
     )
 
     def __repr__(self):

@@ -79,7 +79,7 @@ class Document(Base, TimestampMixin):
 
     # Relationship to chunks
     chunks: Mapped[list["Chunk"]] = relationship(
-        "src.core.ingestion.domain.chunk.Chunk",
+        "Chunk",
         back_populates="document",
         cascade="all, delete-orphan",
     )

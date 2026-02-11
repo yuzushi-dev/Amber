@@ -11,7 +11,7 @@ version: '3.8'
 #   - neo4j:    Graph database
 #   - milvus:   Vector database
 #   - etcd:     Milvus metadata store
-#   - minio:    Milvus object storage
+#   - etcd:     Milvus metadata store
 # =============================================================================
 
 services:
@@ -64,23 +64,20 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
       - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
-      - MINIO_HOST=minio
-      - MINIO_PORT=9000
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-minio}
-      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-9000}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-seaweed-s3}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-8333}
       - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
       - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
       - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
       - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
+
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - AMBER_RUNTIME=docker
@@ -138,23 +135,20 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
       - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
-      - MINIO_HOST=minio
-      - MINIO_PORT=9000
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-minio}
-      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-9000}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-seaweed-s3}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-8333}
       - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
       - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
       - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
       - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
+
       - AMBER_RUNTIME=docker
       - HF_HOME=/home/appuser/.cache/huggingface
     command: celery -A src.workers.celery_app worker --loglevel=info -Q celery,ingestion,extraction,evaluation
@@ -276,29 +270,7 @@ services:
     networks:
       - graphrag-network
 
-  # ---------------------------------------------------------------------------
-  # MinIO - Milvus Object Storage
-  # ---------------------------------------------------------------------------
-  minio:
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
 
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9001:9001" # Console
-      - "9000:9000" # API
-    volumes:
-      - graphrag-minio:/minio_data
-    command: minio server /minio_data --console-address ":9001"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - graphrag-network
 
   # ---------------------------------------------------------------------------
   # SeaweedFS (S3-Compatible Object Storage)
@@ -413,9 +385,9 @@ services:
       - seccomp:unconfined
     environment:
       - ETCD_ENDPOINTS=etcd:2379
-      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-seaweed-s3:8333}
+      - MINIO_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -423,7 +395,7 @@ services:
       - graphrag-milvus:/var/lib/milvus
     depends_on:
       - etcd
-      - minio
+      - seaweed-s3
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
       interval: 30s
@@ -449,7 +421,7 @@ volumes:
   graphrag-postgres:
   graphrag-neo4j:
   graphrag-etcd:
-  graphrag-minio:
+
   graphrag-seaweed-master:
   graphrag-seaweed-volume:
   graphrag-seaweed-filer:
