@@ -379,11 +379,13 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     )
 
     resolved_ollama_url = settings.ollama_base_url
+    tenant_runtime_config: dict = {}
     try:
         async with async_session() as tmp_session:
             t_repo = PostgresTenantRepository(tmp_session)
             t_obj = await t_repo.get(tenant_id)
             if t_obj and t_obj.config:
+                tenant_runtime_config = t_obj.config
                 resolved_ollama_url = t_obj.config.get("ollama_base_url") or resolved_ollama_url
     except Exception as e:
         logger.warning(f"Failed to fetch tenant config for provider init: {e}")
@@ -407,9 +409,19 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     from src.core.graph.domain.ports.graph_client import set_graph_client
     from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+    from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
     from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
 
-    set_graph_extractor(GraphExtractor(use_gleaning=True))
+    graph_sync_config = resolve_graph_sync_runtime_config(
+        settings=settings,
+        tenant_config=tenant_runtime_config,
+    )
+    set_graph_extractor(
+        GraphExtractor(
+            use_gleaning=graph_sync_config.use_gleaning,
+            max_gleaning_steps=graph_sync_config.max_gleaning_steps,
+        )
+    )
     set_graph_client(platform.neo4j_client)
 
     try:

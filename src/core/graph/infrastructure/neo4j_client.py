@@ -118,6 +118,30 @@ class Neo4jClient:
                 logger.error("Write transaction failed: %s", str(e))
                 raise
 
+    @trace_span("Neo4j.execute_write_batch")
+    async def execute_write_batch(
+        self,
+        statements: list[tuple[str, dict[str, Any] | None]],
+    ) -> list[list[dict[str, Any]]]:
+        """
+        Execute multiple write statements in a single transaction/session.
+
+        Args:
+            statements: list of (query, parameters) pairs
+
+        Returns:
+            List of result-record lists, one entry per statement
+        """
+        driver = await self.get_driver()
+
+        async with driver.session() as session:
+            try:
+                result = await session.execute_write(self._execute_batch_tx, statements)
+                return result
+            except Exception as e:
+                logger.error("Write batch transaction failed: %s", str(e))
+                raise
+
     async def _execute_tx(
         self, tx, query: str, parameters: dict[str, Any] = None
     ) -> list[dict[str, Any]]:
@@ -128,6 +152,20 @@ class Neo4jClient:
         result = await tx.run(query, parameters)
         records = [record.data() async for record in result]
         return records
+
+    async def _execute_batch_tx(
+        self,
+        tx,
+        statements: list[tuple[str, dict[str, Any] | None]],
+    ) -> list[list[dict[str, Any]]]:
+        """Run multiple write statements in the same transaction."""
+        batched_results: list[list[dict[str, Any]]] = []
+        for query, parameters in statements:
+            params = parameters or {}
+            result = await tx.run(query, params)
+            records = [record.data() async for record in result]
+            batched_results.append(records)
+        return batched_results
 
     async def merge_nodes(self, target_id: str, source_ids: list[str], tenant_id: str) -> bool:
         """
