@@ -1,3 +1,5 @@
+import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -318,3 +320,46 @@ async def test_smart_gleaning_runs_when_pass1_yield_is_low():
         names = sorted([e.name for e in result.entities])
         assert names == ["NEO", "TRINITY"]
         assert mock_provider.generate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_extractor_llm_metrics_include_chunk_progress(caplog):
+    caplog.set_level(logging.INFO)
+
+    with (
+        patch(
+            "src.core.ingestion.infrastructure.extraction.graph_extractor.get_llm_provider"
+        ) as mock_get,
+        patch("src.shared.kernel.runtime.get_settings") as mock_settings,
+    ):
+        mock_provider = AsyncMock()
+        mock_get.return_value = mock_provider
+        mock_settings.return_value.default_llm_model = DEFAULT_LLM_MODEL["openai"]
+        mock_settings.return_value.db.redis_url = None
+
+        response = MagicMock()
+        response.text = '("entity"<|>NEO<|>PERSON<|>The One<|>0.9)'
+        response.usage = SimpleNamespace(total_tokens=10, input_tokens=5, output_tokens=5)
+        response.cost_estimate = 0.001
+        response.model = "test-model"
+        response.provider = "test-provider"
+        mock_provider.generate.return_value = response
+
+        extractor = GraphExtractor(use_gleaning=False)
+        await extractor.extract(
+            "some text",
+            chunk_id="c2",
+            track_usage=False,
+            chunk_number=2,
+            total_chunks=5,
+        )
+
+    llm_metric_logs = [
+        r.getMessage()
+        for r in caplog.records
+        if "graph_extractor_llm_call_metrics" in r.getMessage()
+    ]
+    assert llm_metric_logs
+    payload = json.loads(llm_metric_logs[0].split(" ", 1)[1])
+    assert payload["chunk_number"] == 2
+    assert payload["total_chunks"] == 5

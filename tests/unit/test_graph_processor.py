@@ -130,6 +130,38 @@ async def test_processor_emits_chunk_and_document_metrics(caplog):
 
 
 @pytest.mark.asyncio
+async def test_processor_passes_chunk_progress_to_extractor():
+    mock_result = ExtractionResult(
+        entities=[ExtractedEntity(name="E1", type="CONCEPT", description="D1")],
+        relationships=[],
+        usage=ExtractionUsage(total_tokens=1, llm_calls=1),
+    )
+
+    chunks = [
+        _chunk("c1", "d1", "Chunk 1 is long enough to be processed by graph pipeline code path."),
+        _chunk("c2", "d1", "Chunk 2 is long enough to be processed by graph pipeline code path."),
+    ]
+
+    with patch("src.core.graph.application.processor.graph_writer") as mock_writer:
+        mock_writer.write_extraction_result = AsyncMock()
+        mock_extractor = AsyncMock()
+        mock_extractor.extract = AsyncMock(return_value=mock_result)
+
+        processor = GraphProcessor(graph_extractor=mock_extractor)
+        await processor.process_chunks(chunks, "tenant_1")
+
+    observed = {
+        (
+            call.kwargs["chunk_id"],
+            call.kwargs["chunk_number"],
+            call.kwargs["total_chunks"],
+        )
+        for call in mock_extractor.extract.await_args_list
+    }
+    assert observed == {("c1", 1, 2), ("c2", 2, 2)}
+
+
+@pytest.mark.asyncio
 async def test_processor_supports_adaptive_concurrency_mode(caplog):
     caplog.set_level(logging.INFO)
 
