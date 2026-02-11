@@ -89,7 +89,9 @@ class GraphProcessor:
         cache_hits = 0
         chunk_errors = 0
 
-        async def _process_one(chunk):
+        total_chunks = len(chunks)
+
+        async def _process_one(chunk, chunk_number: int):
             nonlocal total_tokens
             nonlocal total_input_tokens
             nonlocal total_output_tokens
@@ -104,6 +106,9 @@ class GraphProcessor:
                 "event": "graph_sync_chunk_metrics",
                 "document_id": chunk.document_id,
                 "chunk_id": chunk.id,
+                "chunk_number": chunk_number,
+                "total_chunks": total_chunks,
+                "chunk_progress": f"{chunk_number}/{total_chunks}",
                 "profile": graph_sync_config.profile,
                 "concurrency_mode": concurrency_mode,
                 "extract_wait_ms": 0,
@@ -136,6 +141,8 @@ class GraphProcessor:
                             track_usage=False,
                             tenant_id=tenant_id,
                             tenant_config=tenant_config,
+                            chunk_number=chunk_number,
+                            total_chunks=total_chunks,
                         )
                     except Exception:
                         had_error = True
@@ -156,6 +163,8 @@ class GraphProcessor:
                             track_usage=False,
                             tenant_id=tenant_id,
                             tenant_config=tenant_config,
+                            chunk_number=chunk_number,
+                            total_chunks=total_chunks,
                         )
                         chunk_metrics["extract_ms"] = int((time.perf_counter() - extract_started) * 1000)
 
@@ -198,7 +207,7 @@ class GraphProcessor:
                 chunk_metrics["total_ms"] = int((time.perf_counter() - chunk_started) * 1000)
                 logger.info("graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True))
 
-        tasks = [_process_one(c) for c in chunks]
+        tasks = [_process_one(c, idx) for idx, c in enumerate(chunks, start=1)]
         await asyncio.gather(*tasks)
 
         total_ms = int((time.perf_counter() - document_started) * 1000)

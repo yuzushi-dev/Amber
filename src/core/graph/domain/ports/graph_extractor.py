@@ -11,6 +11,8 @@ class GraphExtractorPort(Protocol):
         track_usage: bool = True,
         tenant_id: str | None = None,
         tenant_config: dict | None = None,
+        chunk_number: int | None = None,
+        total_chunks: int | None = None,
     ) -> Any: ...
 
 

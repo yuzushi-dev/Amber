@@ -120,6 +120,8 @@ class GraphExtractor:
         track_usage: bool = True,
         tenant_id: str | None = None,
         tenant_config: dict[str, Any] | None = None,
+        chunk_number: int | None = None,
+        total_chunks: int | None = None,
     ) -> ExtractionResult:
         """
         Extract entities/relationships using tuple format + quality scoring.
@@ -173,6 +175,13 @@ class GraphExtractor:
         query_id = generate_query_id()
         collector = MetricsCollector(redis_url=settings.db.redis_url)
         effective_tenant_id = tenant_id or get_current_tenant() or "system"
+        progress_fields: dict[str, Any] = {}
+        if chunk_number is not None:
+            progress_fields["chunk_number"] = chunk_number
+        if total_chunks is not None:
+            progress_fields["total_chunks"] = total_chunks
+        if chunk_number is not None and total_chunks is not None:
+            progress_fields["chunk_progress"] = f"{chunk_number}/{total_chunks}"
         response: Any = None
         gleaning_steps_run = 0
         gleaning_run_reason = "not_applicable"
@@ -217,6 +226,7 @@ class GraphExtractor:
                             "event": "graph_extractor_chunk_metrics",
                             "chunk_id": chunk_id,
                             "tenant_id": effective_tenant_id,
+                            **progress_fields,
                             "cache_hit": True,
                             "gleaning_enabled": self.use_gleaning and runtime_config.use_gleaning,
                             "gleaning_steps_run": 0,
@@ -270,6 +280,7 @@ class GraphExtractor:
                         {
                             "event": "graph_extractor_llm_call_metrics",
                             "chunk_id": chunk_id,
+                            **progress_fields,
                             "stage": stage,
                             "latency_ms": latency_ms,
                             "tokens_total": getattr(getattr(response, "usage", None), "total_tokens", 0),
@@ -456,6 +467,7 @@ class GraphExtractor:
                     "event": "graph_extractor_chunk_metrics",
                     "chunk_id": chunk_id,
                     "tenant_id": effective_tenant_id,
+                    **progress_fields,
                     "cache_hit": usage_stats.cache_hit,
                     "gleaning_enabled": self.use_gleaning and runtime_config.use_gleaning,
                     "gleaning_steps_run": gleaning_steps_run,
