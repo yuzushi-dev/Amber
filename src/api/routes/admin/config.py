@@ -639,6 +639,21 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                         changes=llm_update,
                     )
 
+                    # Trigger task purge and re-queue for this specific tenant
+                    from src.workers.task_management import (
+                        purge_community_tasks,
+                        invalidate_and_retrigger_communities,
+                    )
+
+                    # 1. Purge active tasks (best effort)
+                    # Note: currently purges ALL tasks globally since we can't filter by args easily
+                    purge_community_tasks()
+
+                    # 2. Re-trigger for this tenant
+                    # Ensure Neo4j client is initialized if needed (platform.initialize happens in main app)
+                    # But here we are in API process, so platform is active.
+                    await invalidate_and_retrigger_communities(tenant.id)
+
                 if other_update:
                     await tuning_service.log_change(
                         tenant_id=tenant_id,
@@ -673,6 +688,19 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 )
 
                 logger.info(f"Updated config for tenant {tenant_id}: {update_dict.keys()}")
+
+                # If LLM config changed, purge and re-trigger
+                if llm_update:
+                    from src.workers.task_management import (
+                        purge_community_tasks,
+                        invalidate_and_retrigger_communities,
+                    )
+
+                    # 1. Purge active tasks
+                    purge_community_tasks()
+
+                    # 2. Re-trigger for this tenant
+                    await invalidate_and_retrigger_communities(tenant_id)
 
         # Propagate ollama_base_url change to running factory
         if "ollama_base_url" in update_dict:
