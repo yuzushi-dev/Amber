@@ -16,6 +16,7 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
+from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
