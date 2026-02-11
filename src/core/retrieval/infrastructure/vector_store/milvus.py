@@ -64,7 +64,7 @@ class MilvusConfig:
     user: str = ""
     password: str = ""
     collection_name: str = "document_chunks"
-    dimensions: int = 1536
+    dimensions: int = 768
     index_type: str = "HNSW"
     metric_type: str = "COSINE"
 

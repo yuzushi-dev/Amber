@@ -7,7 +7,7 @@ Helpers for selecting the per-tenant active vector collection.
 
 DEFAULT_TENANT_ID = "default"
 DEFAULT_COLLECTION_PREFIX = "amber_"
-DEFAULT_COLLECTION_NAME = "amber_default"
+DEFAULT_COLLECTION_NAME = "document_chunks"
 
 
 class ActiveCollectionPermissionError(Exception):

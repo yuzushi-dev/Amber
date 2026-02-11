@@ -30,7 +30,7 @@ async def init_milvus():
         config = MilvusConfig(
             host=settings.db.milvus_host,
             port=settings.db.milvus_port,
-            dimensions=settings.embedding_dimensions or 1536,
+            dimensions=settings.embedding_dimensions or 768,
         )
         store = MilvusVectorStore(config)
         await store.connect()

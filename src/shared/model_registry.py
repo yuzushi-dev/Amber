@@ -108,6 +108,10 @@ LLM_MODELS = {
             "tier": ProviderTier.LOCAL,
             "description": "Microsoft Phi-3",
         },
+        "devstral-small-2:24b-cloud": {
+            "tier": ProviderTier.LOCAL,
+            "description": "Devstral (Mistral 24B)",
+        },
     },
 }
 
@@ -271,12 +275,16 @@ EMBEDDING_MODEL_TO_PROVIDERS = _build_model_to_providers(EMBEDDING_MODELS)
 
 def resolve_provider_for_model(
     model: str, model_to_providers: dict[str, set[str]], *, kind: str
-) -> str:
+) -> str | None:
+    """Resolve which provider owns a model.
+
+    Returns None for models not in the registry — the caller should use
+    the already-configured provider and let the provider itself reject
+    invalid model names with a clear error.
+    """
     providers = model_to_providers.get(model, set())
     if not providers:
-        raise ConfigurationError(
-            f"{kind}_model", f"Model '{model}' is not registered for {kind} providers."
-        )
+        return None
     if len(providers) > 1:
         choices = ", ".join(sorted(providers))
         raise ConfigurationError(

@@ -173,6 +173,7 @@ frontend/.vite/
 # Data and uploads
 data/
 uploads/
+recovered_pdfs/
 *.pdf
 *.docx
 test_doc*.txt
@@ -234,3 +235,4 @@ docs/plans/
 /.drift
 .driftignore
 docs/HYBRID_QUERY_PROPOSAL.md
+backups/
