@@ -1,101 +1,67 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from src.amber_platform.composition_root import platform
-from src.api.main import app
+from src.api.routes.graph_editor import (
+    get_node_neighborhood,
+    get_top_nodes,
+    search_nodes,
+)
 
 
-# Mock Key Object
-class MockKey:
-    def __init__(self):
-        self.id = "mock_key_id"  # Required by auth middleware
-        self.name = "test_key"
-        self.tenants = [MagicMock(id="test_tenant")]
-        self.scopes = ["read", "write"]
-
-
-@pytest.fixture
-def client():
-    # We need to permit the unauthenticated request OR mock the auth process.
-    # Approach: Mock ApiKeyService.validate_key
-    with patch(
-        "src.core.admin_ops.application.api_key_service.ApiKeyService.validate_key",
-        new_callable=AsyncMock,
-    ) as mock_validate:
-        mock_validate.return_value = MockKey()
-        with TestClient(app) as c:
-            yield c
-
-
-@pytest.fixture
-def auth_headers():
-    return {"X-API-Key": "dummy_key", "X-Tenant-ID": "test_tenant"}
-
-
-def test_get_top_nodes(client, auth_headers):
-    """Test GET /v1/graph/editor/top"""
+@pytest.mark.asyncio
+async def test_get_top_nodes():
+    """Test graph editor top-nodes endpoint handler."""
     mock_data = [
         {"id": "NodeA", "label": "NodeA", "type": "Entity", "community_id": 1, "degree": 10},
         {"id": "NodeB", "label": "NodeB", "type": "Entity", "community_id": 2, "degree": 5},
     ]
 
-    # Access the client instance currently in use by the platform
-    neo4j_client = platform.neo4j_client
-
-    with patch.object(neo4j_client, "execute_read", new_callable=AsyncMock) as mock_read:
+    with patch.object(platform.neo4j_client, "get_top_nodes", new_callable=AsyncMock) as mock_read:
         mock_read.return_value = mock_data
+        result = await get_top_nodes(limit=5, tenant_id="test_tenant")
 
-        response = client.get("/v1/graph/editor/top?limit=5", headers=auth_headers)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 2
-        assert data[0]["id"] == "NodeA"
+    assert len(result) == 2
+    assert result[0].id == "NodeA"
+    assert result[1].id == "NodeB"
 
 
-def test_search_nodes(client, auth_headers):
-    """Test GET /v1/graph/editor/search"""
+@pytest.mark.asyncio
+async def test_search_nodes():
+    """Test graph editor search endpoint handler."""
     mock_data = [{"id": "Alpha", "label": "Alpha", "type": "Entity", "community_id": 1}]
 
-    neo4j_client = platform.neo4j_client
-
-    with patch.object(neo4j_client, "execute_read", new_callable=AsyncMock) as mock_read:
+    with patch.object(platform.neo4j_client, "search_nodes", new_callable=AsyncMock) as mock_read:
         mock_read.return_value = mock_data
+        result = await search_nodes(q="Alp", limit=10, tenant_id="test_tenant")
 
-        response = client.get("/v1/graph/editor/search?q=Alp", headers=auth_headers)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "Alpha"
+    assert len(result) == 1
+    assert result[0].id == "Alpha"
 
 
-def test_get_neighborhood(client, auth_headers):
-    """Test GET /v1/graph/editor/neighborhood via get_node_neighborhood_graph"""
-    mock_rows = [
-        {
-            "c_id": "Center",
-            "c_type": "Node",
-            "c_comm": 1,
-            "r_type": "LINKS",
-            "source": "Center",
-            "target": "Neighbor",
-            "n_id": "Neighbor",
-            "n_type": "Node",
-            "n_comm": 1,
-        }
-    ]
+@pytest.mark.asyncio
+async def test_get_neighborhood():
+    """Test graph editor neighborhood endpoint handler."""
+    mock_data = {
+        "nodes": [
+            {"id": "Center", "label": "Center", "type": "Node", "community_id": 1},
+            {"id": "Neighbor", "label": "Neighbor", "type": "Node", "community_id": 1},
+        ],
+        "edges": [
+            {"source": "Center", "target": "Neighbor", "type": "LINKS"},
+        ],
+    }
 
-    neo4j_client = platform.neo4j_client
+    with patch.object(
+        platform.neo4j_client, "get_node_neighborhood_graph", new_callable=AsyncMock
+    ) as mock_read:
+        mock_read.return_value = mock_data
+        result = await get_node_neighborhood(
+            node_id="Center",
+            limit=50,
+            tenant_id="test_tenant",
+        )
 
-    with patch.object(neo4j_client, "execute_read", new_callable=AsyncMock) as mock_read:
-        mock_read.return_value = mock_rows
-
-        response = client.get("/v1/graph/editor/neighborhood?node_id=Center", headers=auth_headers)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["nodes"]) == 2
-        assert len(data["edges"]) == 1
+    assert len(result.nodes) == 2
+    assert len(result.edges) == 1

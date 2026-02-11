@@ -1,44 +1,28 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.amber_platform.composition_root import platform
 from src.core.generation.application.prompts.entity_extraction import (
     ExtractedEntity,
     ExtractedRelationship,
     ExtractionResult,
 )
 from src.core.graph.application.writer import graph_writer
-from src.core.graph.domain.schema import NodeLabel, RelationshipType
-
-neo4j_client = platform.neo4j_client
+from src.core.graph.domain.ports.graph_client import set_graph_client
 
 
 @pytest.mark.asyncio
-async def test_graph_writer_integration():
+async def test_graph_writer_pipeline_with_injected_graph_client():
     """
-    Test writing to the real Neo4j instance and verifying data.
+    Integration-style test for writer pipeline without external Neo4j.
+
+    Validates that extraction payloads are translated into graph write calls
+    and community staleness trigger is invoked.
     """
-    # 1. Setup Data
     tenant_id = "test_tenant_integration"
     doc_id = "doc_integration_1"
     chunk_id = "chunk_integration_1"
 
-    # Configure global graph client for Writer
-    from src.core.graph.domain.ports.graph_client import set_graph_client
-
-    set_graph_client(neo4j_client)
-
-    # Cleanup before test
-    await neo4j_client.connect()
-    try:
-        await neo4j_client.execute_write(
-            "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
-        )
-    except Exception as e:
-        pytest.fail(f"Failed to cleanup Neo4j: {e}")
-
-    # 2. Prepare Extraction Result
     extraction_result = ExtractionResult(
         entities=[
             ExtractedEntity(name="Neo4j", type="TECHNOLOGY", description="Graph Database"),
@@ -55,80 +39,22 @@ async def test_graph_writer_integration():
         ],
     )
 
-    # 3. Write to Graph
-    try:
+    fake_graph_client = AsyncMock()
+    fake_graph_client.execute_write = AsyncMock(return_value=[])
+    fake_graph_client.execute_write_batch = AsyncMock(return_value=[])
+    set_graph_client(fake_graph_client)
+
+    with patch(
+        "src.core.graph.application.communities.lifecycle.CommunityLifecycleManager"
+    ) as mock_lifecycle_cls:
+        lifecycle = AsyncMock()
+        mock_lifecycle_cls.return_value = lifecycle
+
         await graph_writer.write_extraction_result(doc_id, chunk_id, tenant_id, extraction_result)
-    except Exception as e:
-        pytest.fail(f"GraphWriter failed: {e}")
 
-    # 4. Verify in Neo4j
-    # Check Entities
-    # 4. Verify in Neo4j
-    # Check Entities
-    query_entities = f"""
-    MATCH (e:{NodeLabel.Entity.value})
-    ...
-    """
-
-    # PERMANENT FIX: Since neo4j_client is mocked in this environment, we must mock the read results.
-    # The write above went to a mock, so it didn't persist.
-    # We configure the mock to return what we expect.
-
-    # Helper to mock read based on query content
-    async def mock_execute_read(query, params=None):
-        query_str = query.strip()
-        if "MATCH (e:Entity)" in query_str:
-            return [
-                {"name": "Neo4j", "type": "TECHNOLOGY"},
-                {"name": "Python", "type": "TECHNOLOGY"},
-            ]
-        elif "MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)" in query_str:
-            return [
-                {
-                    "source": "Python",
-                    "target": "Neo4j",
-                    "type": "CONNECTS_TO",
-                    "weight": 9,
-                    "description": "Python driver connects to Neo4j",
-                }
-            ]
-        elif "MATCH (c:Chunk)-[r:MENTIONS]->(e:Entity)" in query_str:
-            return [{"count": 2}]
-        return []
-
-    neo4j_client.execute_read = AsyncMock(side_effect=mock_execute_read)
-
-    records = await neo4j_client.execute_read(query_entities, {"tenant_id": tenant_id})
-
-    assert len(records) == 2
-    names = sorted([r["name"] for r in records])
-    assert names == ["Neo4j", "Python"]
-
-    # Check Relationship
-    query_rels = f"""
-    MATCH (s:{NodeLabel.Entity.value})-[r:{RelationshipType.RELATED_TO.value}]->(t:{NodeLabel.Entity.value})
-    WHERE s.tenant_id = $tenant_id
-    RETURN s.name as source, t.name as target, r.type as type, r.weight as weight
-    """
-    records_rels = await neo4j_client.execute_read(query_rels, {"tenant_id": tenant_id})
-
-    assert len(records_rels) == 1
-    rel = records_rels[0]
-    assert rel["source"] == "Python"
-    assert rel["target"] == "Neo4j"
-    assert rel["type"] == "CONNECTS_TO"
-    assert rel["weight"] == 9
-
-    # Check Provenance (Chunk -> Entity)
-    query_prov = f"""
-    MATCH (c:{NodeLabel.Chunk.value})-[r:{RelationshipType.MENTIONS.value}]->(e:{NodeLabel.Entity.value})
-    WHERE c.id = $chunk_id
-    RETURN count(e) as count
-    """
-    records_prov = await neo4j_client.execute_read(query_prov, {"chunk_id": chunk_id})
-    assert records_prov[0]["count"] == 2
-
-    # Cleanup
-    await neo4j_client.execute_write(
-        "MATCH (n) WHERE n.tenant_id = $tenant_id DETACH DELETE n", {"tenant_id": tenant_id}
+    fake_graph_client.execute_write_batch.assert_awaited_once()
+    statements = fake_graph_client.execute_write_batch.await_args.args[0]
+    assert len(statements) == 2  # base query + one relationship type query
+    lifecycle.mark_stale_by_entities_by_name.assert_awaited_once_with(
+        ["Neo4j", "Python"], tenant_id
     )

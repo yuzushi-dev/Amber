@@ -135,6 +135,7 @@ class PlatformRegistry:
         # Neo4j
         from src.core.graph.domain.ports.graph_client import set_graph_client
         from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
+        from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
         from src.core.graph.infrastructure.neo4j_client import Neo4jClient
         from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
 
@@ -150,7 +151,11 @@ class PlatformRegistry:
         set_graph_client(self._neo4j_client)
 
         # Graph extractor
-        self._graph_extractor = GraphExtractor(use_gleaning=True)
+        graph_sync_config = resolve_graph_sync_runtime_config(settings=settings)
+        self._graph_extractor = GraphExtractor(
+            use_gleaning=graph_sync_config.use_gleaning,
+            max_gleaning_steps=graph_sync_config.max_gleaning_steps,
+        )
         set_graph_extractor(self._graph_extractor)
 
         # MinIO (sync client, no async init needed)

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -161,6 +161,37 @@ class MinIOSettings(BaseSettings):
     )
 
 
+class GraphSyncProfileSettings(BaseModel):
+    """Graph sync profile settings for extraction throughput control."""
+
+    initial_concurrency: int = Field(default=3, ge=1)
+    max_concurrency: int = Field(default=5, ge=1)
+    adaptive_concurrency_enabled: bool = False
+    use_gleaning: bool = True
+    max_gleaning_steps: int = Field(default=1, ge=0)
+    cache_enabled: bool = False
+    cache_ttl_hours: int = Field(default=168, ge=1)
+    smart_gleaning_enabled: bool = False
+    smart_gleaning_entity_threshold: int = Field(default=2, ge=0)
+    smart_gleaning_relationship_threshold: int = Field(default=1, ge=0)
+    smart_gleaning_min_chunk_chars: int = Field(default=250, ge=0)
+
+
+def _default_graph_sync_profiles() -> dict[str, GraphSyncProfileSettings]:
+    return {
+        "default": GraphSyncProfileSettings(initial_concurrency=3, use_gleaning=True),
+        "local_weak": GraphSyncProfileSettings(initial_concurrency=1, use_gleaning=True),
+        "cloud_strong": GraphSyncProfileSettings(initial_concurrency=3, use_gleaning=True),
+    }
+
+
+class GraphSyncSettings(BaseModel):
+    """Graph sync runtime behavior."""
+
+    profile: str = "default"
+    profiles: dict[str, GraphSyncProfileSettings] = Field(default_factory=_default_graph_sync_profiles)
+
+
 class Settings(BaseSettings):
     """
     Main application settings.
@@ -233,6 +264,7 @@ class Settings(BaseSettings):
     uploads: UploadSettings = Field(default_factory=UploadSettings)
     object_storage: ObjectStorageSettings = Field(default_factory=ObjectStorageSettings)
     minio: MinIOSettings = Field(default_factory=MinIOSettings)
+    graph_sync: GraphSyncSettings = Field(default_factory=GraphSyncSettings)
 
     # LLM Provider Keys
     openai_api_key: str = Field(default="", description="OpenAI API key")
@@ -370,6 +402,11 @@ def get_settings() -> Settings:
             settings.default_embedding_model = emb_config["model"]
         if "dimensions" in emb_config:
             settings.embedding_dimensions = emb_config["dimensions"]
+
+        # Apply Graph Sync settings from YAML
+        graph_sync_config = yaml_config.get("graph_sync", {})
+        if graph_sync_config:
+            settings.graph_sync = GraphSyncSettings(**graph_sync_config)
 
     except Exception:
         # Fallback to defaults/env if YAML fails

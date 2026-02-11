@@ -18,6 +18,11 @@ class GraphClientPort(Protocol):
         parameters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    async def execute_write_batch(
+        self,
+        statements: list[tuple[str, dict[str, Any] | None]],
+    ) -> list[list[dict[str, Any]]]: ...
+
     async def import_graph(self, items: Any, mode: str) -> dict:
         """Import graph data from an iterator."""
         ...

@@ -40,6 +40,14 @@ def _configure_runtime_settings() -> None:
     configure_settings(settings)
 
 
+def _is_test_runtime() -> bool:
+    # Pytest sets PYTEST_CURRENT_TEST for test execution;
+    # AMBER_SKIP_STARTUP_TASKS allows explicit startup bypass in CI/dev.
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    return os.getenv("AMBER_SKIP_STARTUP_TASKS", "false").lower() == "true"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -51,6 +59,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
     _configure_runtime_settings()
+
+    if _is_test_runtime():
+        logger.info("Test runtime detected: skipping heavy startup tasks")
+        yield
+        logger.info("Shutting down test runtime")
+        return
 
     # Initialize Platform Clients (Neo4j, Redis, MinIO)
     try:

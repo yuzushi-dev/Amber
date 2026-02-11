@@ -45,6 +45,29 @@ class ObjectStorageSettingsProtocol(Protocol):
     bucket_name: str
 
 
+class GraphSyncProfileProtocol(Protocol):
+    """Protocol for graph sync profile settings."""
+
+    initial_concurrency: int
+    max_concurrency: int
+    adaptive_concurrency_enabled: bool
+    use_gleaning: bool
+    max_gleaning_steps: int
+    cache_enabled: bool
+    cache_ttl_hours: int
+    smart_gleaning_enabled: bool
+    smart_gleaning_entity_threshold: int
+    smart_gleaning_relationship_threshold: int
+    smart_gleaning_min_chunk_chars: int
+
+
+class GraphSyncSettingsProtocol(Protocol):
+    """Protocol for graph sync runtime settings."""
+
+    profile: str
+    profiles: dict[str, GraphSyncProfileProtocol]
+
+
 class SettingsProtocol(Protocol):
     """
     Protocol defining the settings interface used by core/application layers.
@@ -62,6 +85,7 @@ class SettingsProtocol(Protocol):
     db: DatabaseSettingsProtocol
     object_storage: ObjectStorageSettingsProtocol
     minio: MinIOSettingsProtocol
+    graph_sync: GraphSyncSettingsProtocol
 
     # LLM Provider Keys
     openai_api_key: str

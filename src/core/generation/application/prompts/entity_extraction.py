@@ -37,6 +37,8 @@ class ExtractionUsage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     cost_estimate: float = 0.0
+    llm_calls: int = 0
+    cache_hit: bool = False
     model: str = ""
     provider: str = ""
 

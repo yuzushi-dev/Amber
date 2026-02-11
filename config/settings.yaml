@@ -73,3 +73,44 @@ communities:
   algorithm: "leiden"
   min_community_size: 3
   resolution: 1.0
+
+# Graph Sync Runtime
+graph_sync:
+  profile: "default" # Options: default, local_weak, cloud_strong
+  profiles:
+    default:
+      initial_concurrency: 3
+      max_concurrency: 5
+      adaptive_concurrency_enabled: false
+      use_gleaning: true
+      max_gleaning_steps: 1
+      cache_enabled: false
+      cache_ttl_hours: 168
+      smart_gleaning_enabled: false
+      smart_gleaning_entity_threshold: 2
+      smart_gleaning_relationship_threshold: 1
+      smart_gleaning_min_chunk_chars: 250
+    local_weak:
+      initial_concurrency: 1
+      max_concurrency: 2
+      adaptive_concurrency_enabled: false
+      use_gleaning: true
+      max_gleaning_steps: 1
+      cache_enabled: false
+      cache_ttl_hours: 168
+      smart_gleaning_enabled: false
+      smart_gleaning_entity_threshold: 2
+      smart_gleaning_relationship_threshold: 1
+      smart_gleaning_min_chunk_chars: 250
+    cloud_strong:
+      initial_concurrency: 3
+      max_concurrency: 5
+      adaptive_concurrency_enabled: false
+      use_gleaning: true
+      max_gleaning_steps: 1
+      cache_enabled: false
+      cache_ttl_hours: 168
+      smart_gleaning_enabled: false
+      smart_gleaning_entity_threshold: 2
+      smart_gleaning_relationship_threshold: 1
+      smart_gleaning_min_chunk_chars: 250
