@@ -591,6 +591,7 @@ class GenerationService:
                 max_tokens=self.config.max_tokens,
                 seed=seed,
                 model=llm_cfg.model,
+                work_class="chat",
                 history=conversation_history,
             ):
                 full_answer += token
@@ -598,8 +599,8 @@ class GenerationService:
             logger.info(f"LLM stream completed, total answer length: {len(full_answer)}")
         except Exception as e:
             logger.exception(f"LLM stream failed with error: {e}")
-            yield {"event": "error", "data": f"Generation failed: {str(e)}"}
-            return
+            # Let the API layer map provider errors to structured SSE processing_error events.
+            raise
 
         # Step 5.5: Trigger Async Memory Extraction
         if user_id and full_answer:
@@ -685,6 +686,7 @@ class GenerationService:
             "tool_choice": tool_choice,
             "temperature": temp,
             "max_tokens": self.config.max_tokens,
+            "work_class": "chat",
         }
         if seed is not None:
             kwargs["seed"] = seed
