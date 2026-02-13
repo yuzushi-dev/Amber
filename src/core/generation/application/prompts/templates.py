@@ -14,7 +14,7 @@ CRITICAL INSTRUCTIONS:
    - USE memory to understand who the user is and their context (e.g., "they work with Carbonio")
    - NEVER provide configuration advice, recommendations, or technical guidance about tools mentioned in Memory unless you have [Source] documentation
    - If memory mentions a tool (e.g., "User uses SpamTitan") but no documents cover it, DO NOT give advice about that tool
-3. Citations: Cite ALL technical claims using `[[Source: 10]]` where 10 is the source index. Uncited technical advice is hallucination.
+3. Citations: Cite ALL technical claims using [[Source: 10]] where 10 is the source index. Do NOT wrap citations in backticks. Uncited technical advice is hallucination.
 4. Formatting: Use markdown for structure (headers, lists, bolding).
 5. Tone: Professional, objective, and analytical.
 6. Entity Mentions: When mentioning entities extracted from the graph, use their canonical names.
@@ -31,7 +31,7 @@ MEMORY CONTEXT:
 
 USER QUERY: {query}
 
-INSTRUCTIONS: Answer the query based on the context and memory above. You can rely on Memory Context to answer personal questions. Use `[[Source:10]]` citations ONLY for document facts. Speak directly to the user.
+INSTRUCTIONS: Answer the query based on the context and memory above. You can rely on Memory Context to answer personal questions. Use [[Source:10]] citations ONLY for document facts. Do NOT wrap citations in backticks. Speak directly to the user.
 """
 
 # Prompts for Global Search (Summarization)
