@@ -43,4 +43,21 @@ describe('parseCitations', () => {
         expect(processedContent).toContain('[Source: 1](#citation-msg1-0)');
         expect(processedContent).toContain('[Source: 2](#citation-msg1-1)');
     });
+
+    it('strips backtick-wrapped citations', () => {
+        const input = 'Check `[[Source: 1]]` here';
+        const { processedContent, citations } = parseCitations(input, 'msg1');
+        expect(citations).toHaveLength(1);
+        expect(citations[0].label).toBe('1');
+        // The backticks should be consumed, leaving a clean markdown link
+        expect(processedContent).toBe('Check [Source: 1](#citation-msg1-0) here');
+        expect(processedContent).not.toContain('`');
+    });
+
+    it('strips backtick-wrapped citations with multiple ids', () => {
+        const input = 'See `[[Source: 1, 2]]` for details';
+        const { processedContent, citations } = parseCitations(input, 'msg1');
+        expect(citations).toHaveLength(2);
+        expect(processedContent).not.toContain('`');
+    });
 });

@@ -59,7 +59,7 @@ interface UploadState {
     dismiss: (id: string) => void // Just remove from list if terminal
     reset: () => void
 
-    // Worker Control
+    // Control
     startWorker: () => void
     rehydrate: () => Promise<void>
 }
@@ -68,7 +68,8 @@ interface UploadState {
 
 const abortControllers = new Map<string, AbortController>()
 const sseManagers = new Map<string, SSEManager>()
-const pollingTimers = new Map<string, NodeJS.Timeout>()
+// Removed: const pollingTimers = new Map<string, NodeJS.Timeout>()
+let globalPollingTimer: NodeJS.Timeout | null = null
 
 // --- Constants ---
 const MAX_CONCURRENT_UPLOADS = 1
@@ -200,10 +201,7 @@ export const useUploadStore = create<UploadState>()(
                     abortControllers.delete(id)
                     sseManagers.get(id)?.disconnect()
                     sseManagers.delete(id)
-                    if (pollingTimers.has(id)) {
-                        clearInterval(pollingTimers.get(id))
-                        pollingTimers.delete(id)
-                    }
+                    // Polling now global, no individual cleanup needed unless it's the last one
 
                     // Cleanup IDB
                     await idbDel(item.fileKey)
@@ -231,6 +229,12 @@ export const useUploadStore = create<UploadState>()(
             startWorker: async () => {
                 const { items } = get()
                 const activeCount = items.filter(i => i.status === 'uploading').length
+
+                // Also kick off polling if we have processing items
+                const processingItems = items.filter(i => i.status === 'processing')
+                if (processingItems.length > 0) {
+                    startGlobalPolling()
+                }
 
                 if (activeCount >= MAX_CONCURRENT_UPLOADS) return
 
@@ -409,9 +413,8 @@ const startSSEMonitoring = async (itemId: string, documentId: string, eventsUrl?
         sseManagers.set(itemId, manager)
         manager.connect()
 
-        // Fallback Polling
-        const timer = setInterval(() => checkStatus(itemId, documentId), POLLING_INTERVAL)
-        pollingTimers.set(itemId, timer)
+        // Fallback Polling - kicked off globally now
+        startGlobalPolling()
 
     } catch (e) {
         console.error('Failed to start monitoring', e)
@@ -437,7 +440,7 @@ const handleSSEMessage = (itemId: string, data: UploadStatusEvent) => {
         'completed': 100
     }
 
-    const progress = STAGE_WEIGHTS[data.status] || 0
+    const progress = (data as any).progress ?? STAGE_WEIGHTS[data.status] ?? 0
     let newStatus: UploadStatus = 'processing'
 
     if (data.status === 'ready' || data.status === 'completed') newStatus = 'ready'
@@ -483,8 +486,39 @@ const cleanupMonitoring = (itemId: string) => {
     sseManagers.get(itemId)?.disconnect()
     sseManagers.delete(itemId)
 
-    if (pollingTimers.has(itemId)) {
-        clearInterval(pollingTimers.get(itemId)!)
-        pollingTimers.delete(itemId)
+    // Global polling takes care of itself (won't pick up items that aren't processing)
+}
+
+// --- Global Polling ---
+
+const startGlobalPolling = () => {
+    if (globalPollingTimer) return // Already running
+    // Start the loop
+    globalPollingTimer = setTimeout(runGlobalPoll, POLLING_INTERVAL)
+}
+
+const runGlobalPoll = async () => {
+    const state = useUploadStore.getState()
+    // Identify items that need polling: 'processing' state and have a documentId
+    // We could also poll 'uploading' if we wanted server-side confirmation, but usually we just poll 'processing'
+    const processingItems = state.items.filter(i => i.status === 'processing' && i.documentId)
+
+    if (processingItems.length === 0) {
+        // Stop polling if nothing to do
+        if (globalPollingTimer) {
+            clearTimeout(globalPollingTimer)
+            globalPollingTimer = null
+        }
+        return
     }
+
+    // Process sequentially to be gentle on the browser
+    for (const item of processingItems) {
+        if (item.documentId) {
+            await checkStatus(item.id, item.documentId)
+        }
+    }
+
+    // Schedule next run
+    globalPollingTimer = setTimeout(runGlobalPoll, POLLING_INTERVAL)
 }

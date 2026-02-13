@@ -11,8 +11,9 @@ export function parseCitations(content: string, messageId: string): { processedC
     // [[Source: 1, 2]]
     // [[Source: 1, Source: 2]]
     // [[Source 1 2]]
+    // `[[Source: 1]]` (LLM sometimes wraps citations in backticks)
 
-    const citationBlockRegex = /\[\[\s*(?:Source|Sources).*?\]\]/gi;
+    const citationBlockRegex = /`?\[\[\s*(?:Source|Sources).*?\]\]`?/gi;
 
     const processedContent = content.replace(citationBlockRegex, (match) => {
         // Extract all distinct numeric sequences from the match
