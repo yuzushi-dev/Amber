@@ -66,15 +66,24 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_NUM_CTX=${OLLAMA_NUM_CTX:-32768}
+      - OLLAMA_CAPACITY_ENABLED=${OLLAMA_CAPACITY_ENABLED:-true}
+      - OLLAMA_CAPACITY_TOTAL=${OLLAMA_CAPACITY_TOTAL:-6}
+      - OLLAMA_CAPACITY_RESERVED_CHAT=${OLLAMA_CAPACITY_RESERVED_CHAT:-2}
+      - OLLAMA_CAPACITY_RESERVED_INGESTION=${OLLAMA_CAPACITY_RESERVED_INGESTION:-2}
+      - OLLAMA_CAPACITY_LEASE_TTL_SECONDS=${OLLAMA_CAPACITY_LEASE_TTL_SECONDS:-600}
+      - OLLAMA_CAPACITY_CHAT_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_CHAT_WAIT_TIMEOUT_SECONDS:-15}
+      - OLLAMA_CAPACITY_INGESTION_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_INGESTION_WAIT_TIMEOUT_SECONDS:-120}
+      - OLLAMA_CAPACITY_COMMUNITIES_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_COMMUNITIES_WAIT_TIMEOUT_SECONDS:-600}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
       - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
-      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-seaweed-s3}
-      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-8333}
-      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
-      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-garage}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-3900}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY}
       - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
       - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
 
@@ -85,6 +94,8 @@ services:
     volumes:
       - ./src:/app/src:ro
       - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
+      - ./pytest.ini:/app/pytest.ini:ro
       - ./config:/app/config:ro
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
@@ -137,21 +148,31 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_NUM_CTX=${OLLAMA_NUM_CTX:-32768}
+      - OLLAMA_CAPACITY_ENABLED=${OLLAMA_CAPACITY_ENABLED:-true}
+      - OLLAMA_CAPACITY_TOTAL=${OLLAMA_CAPACITY_TOTAL:-6}
+      - OLLAMA_CAPACITY_RESERVED_CHAT=${OLLAMA_CAPACITY_RESERVED_CHAT:-2}
+      - OLLAMA_CAPACITY_RESERVED_INGESTION=${OLLAMA_CAPACITY_RESERVED_INGESTION:-2}
+      - OLLAMA_CAPACITY_LEASE_TTL_SECONDS=${OLLAMA_CAPACITY_LEASE_TTL_SECONDS:-600}
+      - OLLAMA_CAPACITY_CHAT_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_CHAT_WAIT_TIMEOUT_SECONDS:-15}
+      - OLLAMA_CAPACITY_INGESTION_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_INGESTION_WAIT_TIMEOUT_SECONDS:-120}
+      - OLLAMA_CAPACITY_COMMUNITIES_WAIT_TIMEOUT_SECONDS=${OLLAMA_CAPACITY_COMMUNITIES_WAIT_TIMEOUT_SECONDS:-600}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
       - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
       - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
-      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-seaweed-s3}
-      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-8333}
-      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
-      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-garage}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-3900}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY}
       - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
       - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
+      - COMMUNITY_SUMMARIZATION_CONCURRENCY=${COMMUNITY_SUMMARIZATION_CONCURRENCY:-1}
 
       - AMBER_RUNTIME=docker
       - HF_HOME=/home/appuser/.cache/huggingface
-    command: celery -A src.workers.celery_app worker --loglevel=info -Q celery,ingestion,extraction,evaluation
+    command: celery -A src.workers.celery_app worker --loglevel=info -Q high_priority,celery,ingestion,extraction,evaluation,low_priority
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
@@ -273,103 +294,29 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # SeaweedFS (S3-Compatible Object Storage)
+  # Garage (S3-Compatible Object Storage)
   # ---------------------------------------------------------------------------
-  seaweed-master:
-    image: chrislusf/seaweedfs:3.74
-    command: master -ip=seaweed-master -port=9333 -mdir=/data -volumeSizeLimitMB=1024
-    ports:
-      - "9333:9333"
+  garage:
+    image: dxflrs/garage:v1.1.0
     volumes:
-      - graphrag-seaweed-master:/data
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null || exit 1" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-    restart: unless-stopped
-    networks:
-      - graphrag-network
-
-  seaweed-volume:
-    image: chrislusf/seaweedfs:3.74
-    command: volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume -ip.bind=0.0.0.0 -dir=/data -max=200 -minFreeSpace=2GiB
+      - ./docker/garage/garage.toml:/etc/garage.toml:ro
+      - graphrag-garage-data:/var/lib/garage/data
+      - graphrag-garage-meta:/var/lib/garage/meta
     ports:
-      - "8080:8080"
-    volumes:
-      - graphrag-seaweed-volume:/data
-    depends_on:
-      seaweed-master:
-        condition: service_healthy
+      - "3900:3900"  # S3 API
+      - "3903:3903"  # Admin API
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/status >/dev/null || exit 1" ]
+      test: [ "CMD", "/garage", "stats", "-a" ]
       interval: 30s
-      timeout: 20s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-    restart: unless-stopped
-    networks:
-      - graphrag-network
-
-  seaweed-filer:
-    image: chrislusf/seaweedfs:3.74
-    command: filer -master=seaweed-master:9333 -port=8888 -ip.bind=0.0.0.0
-    ports:
-      - "8888:8888"
-    volumes:
-      - graphrag-seaweed-filer:/data
-    depends_on:
-      seaweed-master:
-        condition: service_healthy
-      seaweed-volume:
-        condition: service_healthy
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8888/ >/dev/null || exit 1" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 128M
-    restart: unless-stopped
-    networks:
-      - graphrag-network
-
-  seaweed-s3:
-    image: chrislusf/seaweedfs:3.74
-    command: s3 -filer=seaweed-filer:8888 -ip.bind=0.0.0.0 -port=8333 -config=/etc/seaweedfs/s3.conf
-    ports:
-      - "8333:8333"
-    volumes:
-      - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
-    depends_on:
-      seaweed-filer:
-        condition: service_healthy
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:8333/ 2>&1 | grep -q \"HTTP/1.1\" || exit 1" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -385,9 +332,9 @@ services:
       - seccomp:unconfined
     environment:
       - ETCD_ENDPOINTS=etcd:2379
-      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-seaweed-s3:8333}
-      - MINIO_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY:-minioadmin}
+      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-garage:3900}
+      - MINIO_ACCESS_KEY_ID=${OBJECT_STORAGE_ACCESS_KEY}
+      - MINIO_SECRET_ACCESS_KEY=${OBJECT_STORAGE_SECRET_KEY}
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -395,7 +342,7 @@ services:
       - graphrag-milvus:/var/lib/milvus
     depends_on:
       - etcd
-      - seaweed-s3
+      - garage
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
       interval: 30s
@@ -422,9 +369,8 @@ volumes:
   graphrag-neo4j:
   graphrag-etcd:
 
-  graphrag-seaweed-master:
-  graphrag-seaweed-volume:
-  graphrag-seaweed-filer:
+  graphrag-garage-data:
+  graphrag-garage-meta:
   graphrag-milvus:
   graphrag-uploads:
   pip-packages:
