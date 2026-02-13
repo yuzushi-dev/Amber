@@ -236,3 +236,7 @@ docs/plans/
 .driftignore
 docs/HYBRID_QUERY_PROPOSAL.md
 backups/
+
+# Local Docker secrets
+docker/garage/garage.toml
+docker-compose.yml.bak.*
