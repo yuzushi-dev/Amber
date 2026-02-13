@@ -84,6 +84,8 @@ celery_app.conf.update(
 
 # Task routing (optional, can be configured later)
 celery_app.conf.task_routes = {
+    "src.workers.tasks.process_document": {"queue": "high_priority"},
+    "src.workers.tasks.process_communities": {"queue": "low_priority"},
     "src.workers.tasks.ingestion.*": {"queue": "ingestion"},
     "src.workers.tasks.extraction.*": {"queue": "extraction"},
     "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},

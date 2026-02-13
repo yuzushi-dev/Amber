@@ -11,6 +11,7 @@ from src.core.generation.application.prompts.community_summary import (
 from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.graph.domain.ports.graph_client import GraphClientPort
+from src.shared.provider_models import RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +84,15 @@ class CommunitySummarizer:
                 tier=ProviderTier.ECONOMY,
             )
 
+            # NOTE: Ollama Cloud (OpenAI-compatible) can 500 on larger prompts if max_tokens is omitted.
+            # Community summaries are small JSON; cap the completion to a sane budget.
             result = await llm.generate(
                 prompt=prompt,
                 system_prompt=COMMUNITY_SUMMARY_SYSTEM_PROMPT,
                 temperature=llm_cfg.temperature,
+                max_tokens=800,
                 seed=llm_cfg.seed,
+                work_class="communities",
             )
 
             # 4. Parse JSON
@@ -97,6 +102,11 @@ class CommunitySummarizer:
             await self._persist_summary(community_id, summary_content)
 
             return summary_content
+
+        except RateLimitError as e:
+            # Do not mark as failed; caller may retry with lower concurrency.
+            logger.warning(f"Rate limited while summarizing community {community_id}: {e}")
+            raise
 
         except Exception as e:
             logger.error(f"Failed to summarize community {community_id}: {e}")
@@ -110,12 +120,19 @@ class CommunitySummarizer:
     async def summarize_all_stale(
         self,
         tenant_id: str,
-        batch_size: int = 10,
+        batch_size: int = 50,
+        concurrency: int = 1,
         tenant_config: dict[str, Any] | None = None,
     ):
         """
         Finds all communities marked as stale (or missing summary) and summarizes them.
+
+        If the LLM provider rate-limits (HTTP 429 surfaced as RateLimitError), we:
+        - retry those communities in the next batch
+        - optionally reduce concurrency by 1 when rate limiting is significant
         """
+        # 1. Fetch ALL candidate IDs
+        # For 15k communities, fetching just IDs is fine (~1MB RAM).
         query = """
         MATCH (c:Community)
         WHERE c.tenant_id = $tenant_id
@@ -126,26 +143,97 @@ class CommunitySummarizer:
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
         community_ids = [r["id"] for r in results]
+        total = len(community_ids)
+        current_concurrency = max(1, int(concurrency))
         logger.info(
-            f"Found {len(community_ids)} communities needing summarization for tenant {tenant_id}"
+            f"Found {total} communities needing summarization for tenant {tenant_id}. "
+            f"Concurrency: {current_concurrency}"
         )
 
-        # Group by level to ensure child communities are summarized before parents
-        # Actually our query already orders by level ASC
+        if not community_ids:
+            return
 
-        # Limit concurrency to avoid 429s or OOM with local LLMs or Economy models
-        # Economy models with strict TPM limits can overload quickly. Serializing ensures safety.
-        sem = asyncio.Semaphore(1)
+        # 2. Process in Batches
+        # This prevents creating 15k coroutines at once which would blow up memory.
+        from collections import deque
 
-        async def _bounded_summarize(cid):
-            async with sem:
-                return await self.summarize_community(cid, tenant_id, tenant_config)
+        # "Many 429s" threshold: reduce concurrency by 1 for the NEXT batch.
+        rate_limit_reduce_ratio = 0.10
+        rate_limit_reduce_min = 2
 
-        # Create tasks for all IDs (semaphore controls active execution)
-        tasks = [_bounded_summarize(cid) for cid in community_ids]
+        # Avoid infinite loops if the provider is saturated; leave as stale for next run.
+        max_rate_limit_retries_per_community = 5
+        rate_limit_retries: dict[str, int] = {}
 
-        # Run safely
-        await asyncio.gather(*tasks)
+        carry_over: deque[str] = deque()
+        cursor = 0
+        batch_num = 0
+
+        while cursor < total or carry_over:
+            batch_num += 1
+
+            # Build next batch: retry rate-limited communities first, then take new IDs.
+            batch_ids: list[str] = []
+            while carry_over and len(batch_ids) < batch_size:
+                batch_ids.append(carry_over.popleft())
+
+            remaining = batch_size - len(batch_ids)
+            if remaining > 0 and cursor < total:
+                batch_ids.extend(community_ids[cursor : cursor + remaining])
+                cursor += remaining
+
+            if not batch_ids:
+                break
+
+            logger.info(
+                f"Processing batch {batch_num}: {len(batch_ids)} communities "
+                f"(cursor={cursor}/{total}, carry_over={len(carry_over)}, concurrency={current_concurrency})"
+            )
+
+            sem = asyncio.Semaphore(current_concurrency)
+
+            async def _bounded_summarize(cid: str):
+                async with sem:
+                    try:
+                        await self.summarize_community(cid, tenant_id, tenant_config)
+                        return ("ok", cid, None)
+                    except RateLimitError as e:
+                        return ("rate_limited", cid, e)
+                    except Exception as e:
+                        # summarize_community handles most errors; this is a safety net.
+                        logger.error(f"Unhandled exception while summarizing community {cid}: {e}")
+                        return ("error", cid, e)
+
+            results = await asyncio.gather(*[_bounded_summarize(cid) for cid in batch_ids])
+
+            rate_limited = [(cid, err) for (kind, cid, err) in results if kind == "rate_limited"]
+            if not rate_limited:
+                continue
+
+            # Requeue rate-limited items so they get retried in the next batch.
+            for cid, _err in rate_limited:
+                attempts = rate_limit_retries.get(cid, 0) + 1
+                rate_limit_retries[cid] = attempts
+                if attempts <= max_rate_limit_retries_per_community:
+                    carry_over.append(cid)
+                else:
+                    logger.warning(
+                        f"Community {cid} hit rate limit {attempts} times; leaving it stale for next run"
+                    )
+
+            rl_count = len(rate_limited)
+            rl_ratio = rl_count / max(1, len(batch_ids))
+
+            if (
+                current_concurrency > 1
+                and rl_count >= rate_limit_reduce_min
+                and rl_ratio >= rate_limit_reduce_ratio
+            ):
+                current_concurrency -= 1
+                logger.warning(
+                    f"Rate limits in batch {batch_num}: {rl_count}/{len(batch_ids)}. "
+                    f"Reducing concurrency to {current_concurrency} for next batch"
+                )
 
     async def _fetch_community_data(self, community_id: str, tenant_id: str) -> dict[str, Any]:
         """
@@ -179,7 +267,7 @@ class CommunitySummarizer:
         chunk_query = """
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
-        WITH DISTINCT c_chunk LIMIT 10
+        WITH DISTINCT c_chunk LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
@@ -251,7 +339,11 @@ class CommunitySummarizer:
             "title": summary.get("title", "Untitled Community"),
             "summary": summary.get("summary", ""),
             "rating": summary.get("rating", 0),
-            "key_entities": summary.get("key_entities", []),
-            "findings": summary.get("findings", []),
+            "key_entities": [json.dumps(e) for e in summary.get("key_entities", [])]
+            if summary.get("key_entities")
+            else [],
+            "findings": [json.dumps(f) for f in summary.get("findings", [])]
+            if summary.get("findings")
+            else [],
         }
         await self.graph.execute_write(query, params)

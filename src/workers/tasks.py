@@ -24,6 +24,25 @@ from src.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
+def _background_warmup():
+    """Run heavy model warming in a background thread."""
+    try:
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
+        logger.info("Starting background warmup for SparseEmbeddingService (SPLADE)...")
+        service = SparseEmbeddingService()
+        if service.prewarm():
+            logger.info("SparseEmbeddingService background warmup completed.")
+        else:
+            logger.warning("SparseEmbeddingService background warmup returned False.")
+    except Exception as e:
+        logger.error(f"Failed to background warmup SparseEmbeddingService: {e}")
+
+
+# Trigger background warmup on module load (worker startup)
+import threading
+# threading.Thread(target=_background_warmup, daemon=True).start()
+
+
 def run_async(coro):
     """Helper to run async code in sync Celery task."""
     try:
@@ -96,6 +115,7 @@ def health_check(self) -> dict:
     base=BaseTask,
     max_retries=3,
     default_retry_delay=60,
+    queue="high_priority",
 )
 def process_document(self, document_id: str, tenant_id: str) -> dict:
     """
@@ -159,12 +179,47 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
 
 @celery_app.task(
-    bind=True, name="src.workers.tasks.process_communities", base=BaseTask, max_retries=2
+    bind=True,
+    name="src.workers.tasks.process_communities",
+    base=BaseTask,
+    max_retries=2,
+    queue="low_priority",
 )
 def process_communities(self, tenant_id: str) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
     """
+    # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
+    lock_key = f"locks:process_communities:{tenant_id}"
+    lock_ttl_seconds = 60 * 60 * 2  # 2h safety TTL in case of worker crash
+
+    redis_client = None
+    lock_acquired = False
+    try:
+        import redis
+
+        from src.api.config import settings
+
+        redis_client = redis.Redis.from_url(settings.db.redis_url)
+        lock_acquired = bool(
+            redis_client.set(lock_key, str(self.request.id), nx=True, ex=lock_ttl_seconds)
+        )
+    except Exception as e:
+        # If Redis is unavailable, proceed without the lock rather than blocking ingestion.
+        logger.warning(f"[Task {self.request.id}] Could not acquire communities lock: {e}")
+        lock_acquired = True
+
+    if not lock_acquired:
+        if redis_client is not None:
+            try:
+                redis_client.close()
+            except Exception:
+                pass
+        logger.info(
+            f"[Task {self.request.id}] Communities already running for tenant {tenant_id}; skipping"
+        )
+        return {"status": "skipped", "reason": "already_running", "tenant_id": tenant_id}
+
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
     deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
@@ -173,6 +228,19 @@ def process_communities(self, tenant_id: str) -> dict:
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
         raise self.retry(exc=e) from e
+    finally:
+        if redis_client is not None:
+            try:
+                # Only release if we still own the lock (avoid deleting a newer lock).
+                current = redis_client.get(lock_key)
+                if current is not None and current.decode() == str(self.request.id):
+                    redis_client.delete(lock_key)
+            except Exception:
+                pass
+            try:
+                redis_client.close()
+            except Exception:
+                pass
 
 
 async def _process_communities_async(tenant_id: str) -> dict:
@@ -222,7 +290,13 @@ async def _process_communities_async(tenant_id: str) -> dict:
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
         # We summarize all that are now stale or new
-        await summarizer.summarize_all_stale(tenant_id, tenant_config=tenant_config)
+        # Check tenant config for override, otherwise use global setting
+        concurrency = tenant_config.get("community_summarization_concurrency") or settings.community_summarization_concurrency
+        await summarizer.summarize_all_stale(
+            tenant_id, 
+            tenant_config=tenant_config,
+            concurrency=int(concurrency)
+        )
 
         # 3. Embeddings
         embeddings_config = getattr(settings, "embeddings", None)
