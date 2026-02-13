@@ -298,7 +298,7 @@ async def cancel_all_jobs():
                 logger.warning(f"Failed to revoke task {task_id}: {e}")
 
         # Also purge any queued messages from all active queues
-        queues_to_purge = ["celery", "ingestion", "extraction", "evaluation"]
+        queues_to_purge = ["high_priority", "celery", "ingestion", "extraction", "evaluation", "low_priority"]
 
         # Add any queues found in inspector
         try:
@@ -346,6 +346,7 @@ async def get_queue_status():
         # Get worker stats
         stats = inspect.stats() or {}
         active = inspect.active() or {}
+        active_queues = inspect.active_queues() or {}
 
         workers = []
         total_active = 0
@@ -353,6 +354,11 @@ async def get_queue_status():
         for hostname, worker_stats in stats.items():
             active_tasks = len(active.get(hostname, []))
             total_active += active_tasks
+
+            queues = [q.get("name", "unknown") for q in active_queues.get(hostname, [])]
+            if not queues:
+                # Backwards compatibility: some brokers put queue info in stats.
+                queues = [q.get("name", "unknown") for q in worker_stats.get("queues", [])]
 
             workers.append(
                 WorkerInfo(
@@ -363,7 +369,7 @@ async def get_queue_status():
                         "src.workers.tasks.process_document", 0
                     ),
                     concurrency=worker_stats.get("pool", {}).get("max-concurrency", 0),
-                    queues=[q.get("name", "unknown") for q in worker_stats.get("queues", [])],
+                    queues=queues,
                 )
             )
 
@@ -377,7 +383,22 @@ async def get_queue_status():
             redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
             r = redis.from_url(redis_url)
             try:
-                for queue_name in ["celery", "ingestion", "extraction"]:
+                queue_names = [
+                    "high_priority",
+                    "celery",
+                    "ingestion",
+                    "extraction",
+                    "evaluation",
+                    "low_priority",
+                ]
+
+                # Add any queues discovered from workers (custom queues).
+                for w in workers:
+                    for q in w.queues:
+                        if q and q not in queue_names:
+                            queue_names.append(q)
+
+                for queue_name in queue_names:
                     try:
                         count = r.llen(queue_name)
                         queues.append(

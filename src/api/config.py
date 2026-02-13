@@ -313,6 +313,13 @@ class Settings(BaseSettings):
         description="Embedding dimensions (auto-detected if not set)",
     )
 
+    # Community Summarization
+    community_summarization_concurrency: int = Field(
+        default=1,
+        alias="COMMUNITY_SUMMARIZATION_CONCURRENCY",
+        description="Concurrency level for community summarization",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -387,18 +394,17 @@ def get_settings() -> Settings:
 
         # Apply LLM settings from YAML
         llm_config = yaml_config.get("llm", {})
-        if "provider" in llm_config:
+        if "provider" in llm_config and settings.default_llm_provider is None:
             settings.default_llm_provider = llm_config["provider"]
-        if "model" in llm_config:
+        if "model" in llm_config and settings.default_llm_model is None:
             settings.default_llm_model = llm_config["model"]
-        if "temperature" in llm_config:
-            settings.default_llm_temperature = llm_config["temperature"]
-
+        if "temperature" in llm_config and os.getenv("DEFAULT_LLM_TEMPERATURE") in (None, ""):
+            settings.default_llm_temperature = float(llm_config["temperature"])
         # Apply Embedding settings from YAML
         emb_config = yaml_config.get("embeddings", {})
-        if "provider" in emb_config:
+        if "provider" in emb_config and settings.default_embedding_provider is None:
             settings.default_embedding_provider = emb_config["provider"]
-        if "model" in emb_config:
+        if "model" in emb_config and settings.default_embedding_model is None:
             settings.default_embedding_model = emb_config["model"]
         if "dimensions" in emb_config:
             settings.embedding_dimensions = emb_config["dimensions"]
