@@ -33,6 +33,7 @@ class Tokenizer:
     @staticmethod
     def get_encoding(model: str | None = None) -> Any:
         """Get tiktoken encoding for a model."""
+        logger.debug('Tokenizer.get_encoding model=%s', model)
         if not TIKTOKEN_AVAILABLE:
             return None
 

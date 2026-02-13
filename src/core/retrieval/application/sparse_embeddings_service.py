@@ -55,6 +55,17 @@ class SparseEmbeddingService:
             self._model = AutoModelForMaskedLM.from_pretrained(self.model_name)
             self._model.to(self._device)
             self._model.eval()
+        except PermissionError as e:
+            logger.error(f"Permission denied while loading SPLADE model: {e}")
+            logger.error(
+                "Common cause: Incorrect ownership of the HuggingFace cache directory. "
+                "Try running: chown -R 1000:1000 ./.cache/huggingface"
+            )
+            # Re-raise with a more helpful message
+            raise PermissionError(
+                f"Failed to load sparse embedding model due to PermissionError: {e}. "
+                f"Check cache directory permissions."
+            ) from e
         except Exception as e:
             logger.error(f"Failed to load SPLADE model: {e}")
             raise

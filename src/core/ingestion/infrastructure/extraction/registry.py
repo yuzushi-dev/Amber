@@ -17,6 +17,9 @@ from src.core.ingestion.infrastructure.extraction.local.pymupdf_extractor import
 from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
     UnstructuredExtractor,
 )
+from src.core.ingestion.infrastructure.extraction.local.kreuzberg_extractor import (
+    KreuzbergExtractor,
+)
 
 
 class ExtractorRegistry:
@@ -66,6 +69,10 @@ class ExtractorRegistry:
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":
+            # Kreuzberg (High Performance / Local)
+            if extraction_settings.kreuzberg_enabled:
+                return cls._get_instance("kreuzberg", KreuzbergExtractor)
+
             # Hybrid OCR (Marker + PyMuPDF)
             if extraction_settings.hybrid_ocr_enabled:
                 return cls._get_instance("hybrid", HybridMarkerExtractor)

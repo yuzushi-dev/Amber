@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from src.core.graph.application.concurrency_governor import ConcurrencyGovernor
 from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
@@ -31,6 +32,7 @@ class GraphProcessor:
         tenant_id: str,
         filename: str = None,
         tenant_config: dict[str, Any] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ):
         """
         Process a list of chunks to extract and write graph data.
@@ -90,6 +92,7 @@ class GraphProcessor:
         chunk_errors = 0
 
         total_chunks = len(chunks)
+        chunks_completed = 0
 
         async def _process_one(chunk, chunk_number: int):
             nonlocal total_tokens
@@ -101,6 +104,7 @@ class GraphProcessor:
             nonlocal total_rels
             nonlocal cache_hits
             nonlocal chunk_errors
+            nonlocal chunks_completed
             chunk_started = time.perf_counter()
             chunk_metrics: dict[str, Any] = {
                 "event": "graph_sync_chunk_metrics",
@@ -206,6 +210,13 @@ class GraphProcessor:
             finally:
                 chunk_metrics["total_ms"] = int((time.perf_counter() - chunk_started) * 1000)
                 logger.info("graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True))
+
+                chunks_completed += 1
+                if progress_callback:
+                    try:
+                        progress_callback(chunks_completed, total_chunks)
+                    except Exception as e:
+                        logger.warning(f"Progress callback failed: {e}")
 
         tasks = [_process_one(c, idx) for idx, c in enumerate(chunks, start=1)]
         await asyncio.gather(*tasks)

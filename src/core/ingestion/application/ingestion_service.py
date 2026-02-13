@@ -396,6 +396,9 @@ class IngestionService:
                 except RuntimeError:
                     factory = get_provider_factory()
 
+                # Reduce batch size for Ollama to prevent runner crashes on large inputs
+                max_tokens = 2048 if res_prov == "ollama" else None
+                
                 embedding_service = EmbeddingService(
                     provider=factory.get_embedding_provider(
                         provider_name=res_prov,
@@ -403,15 +406,19 @@ class IngestionService:
                     ),
                     model=res_model,
                     dimensions=res_dims,
+                    max_tokens_per_batch=max_tokens,
                 )
+                
                 sparse_service = SparseEmbeddingService()
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
+
                 if self.vector_store_factory:
                     vector_store = self.vector_store_factory(
                         res_dims, collection_name=active_collection
                     )
                 else:
+                    logger.debug("Using provided vector store")
                     vector_store = self.vector_store
 
                 logger.info(
@@ -424,7 +431,6 @@ class IngestionService:
                     f"  - Tenant Config Model: {t_config.get('embedding_model')} (sys default: {sys_model})"
                 )
                 logger.info(f"  - Resolved Provider: {res_prov}")
-                logger.info(f"  - Resolved Model: {res_model}")
                 logger.info(f"  - Resolved Model: {res_model}")
                 logger.info(f"  - Factory: {factory.__class__.__name__}")
 
@@ -439,9 +445,11 @@ class IngestionService:
                     raise RuntimeError("Vector store not configured")
 
                 chunk_contents = [c.content for c in chunks_to_process]
+                logger.debug('Calling embed_texts chunks=%d model=%s', len(chunk_contents), res_model)
                 embeddings, stats = await embedding_service.embed_texts(
                     chunk_contents, metadata={"document_id": document.id}
                 )
+                logger.debug("embed_texts returned")
 
                 # Log Aggregated Ingestion Metrics
                 try:
@@ -552,12 +560,40 @@ class IngestionService:
                     old_status=DocumentStatus.EMBEDDING,
                     new_status=DocumentStatus.GRAPH_SYNC,
                     tenant_id=document.tenant_id,
-                    details={"progress": 80},
+                    details={"progress": 70},
                 )
             )
 
             try:
                 from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+                # Define callback for granular progress (70-95%)
+                def _on_graph_progress(completed: int, total: int):
+                    if total == 0:
+                        return
+                    # Scale 70 -> 95 based on chunk completion
+                    progress = 70 + int((completed / total) * 25)
+                    
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(
+                            self.event_dispatcher.emit_state_change(
+                                StateChangeEvent(
+                                    document_id=document.id,
+                                    old_status=DocumentStatus.GRAPH_SYNC,
+                                    new_status=DocumentStatus.GRAPH_SYNC,
+                                    tenant_id=document.tenant_id,
+                                    details={
+                                        "progress": progress,
+                                        "chunks_completed": completed,
+                                        "total_chunks": total
+                                    },
+                                )
+                            )
+                        )
+                    except RuntimeError:
+                        # Fallback for sync context if needed, though process_document is async
+                        logger.warning("Could not emit progress: No running event loop")
 
                 get_provider_factory()
                 if chunks_to_process:
@@ -566,6 +602,7 @@ class IngestionService:
                         document.tenant_id,
                         filename=document.filename,
                         tenant_config=tenant_config,
+                        progress_callback=_on_graph_progress,
                     )
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
