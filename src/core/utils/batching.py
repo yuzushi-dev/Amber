@@ -153,17 +153,22 @@ def batch_texts_for_embedding(
     Returns:
         Batches with (index, text) tuples
     """
+    logger.debug('batch_texts_for_embedding texts=%d model=%s', len(texts), model)
     if not model:
         model = DEFAULT_EMBEDDING_MODEL.get("openai") or next(
             iter(DEFAULT_EMBEDDING_MODEL.values()), ""
         )
+    logger.debug('batch_texts_for_embedding: getting token counter')
     counter = get_token_counter(model)
-    return batch_by_tokens(
+    logger.debug('batch_texts_for_embedding: batching by tokens')
+    result = batch_by_tokens(
         texts=texts,
         max_tokens_per_batch=max_tokens,
         max_items_per_batch=max_items,
         token_counter=counter,
     )
+    logger.debug('batch_texts_for_embedding: created %d batches', len(result))
+    return result
 
 
 class BatchProcessor:
