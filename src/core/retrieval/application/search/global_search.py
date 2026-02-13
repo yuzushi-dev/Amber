@@ -105,7 +105,10 @@ class GlobalSearchService:
         if reduce_cfg.seed is not None:
             reduce_kwargs["seed"] = reduce_cfg.seed
 
-        final_answer = await reduce_provider.generate(reduce_prompt, **reduce_kwargs)
+        reduce_res = await reduce_provider.generate(
+            reduce_prompt, work_class="chat", **reduce_kwargs
+        )
+        final_answer = reduce_res.text or ""
 
         return {
             "answer": final_answer,
@@ -128,7 +131,8 @@ class GlobalSearchService:
             kwargs["temperature"] = llm_cfg.temperature
         if llm_cfg.seed is not None:
             kwargs["seed"] = llm_cfg.seed
-        return await provider.generate(prompt, **kwargs)
+        res = await provider.generate(prompt, work_class="chat", **kwargs)
+        return res.text or ""
 
     def _get_provider(self, llm_cfg: Any) -> LLMProviderPort:
         if self.factory:

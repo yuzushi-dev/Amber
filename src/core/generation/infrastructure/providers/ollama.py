@@ -22,6 +22,7 @@ from src.core.generation.infrastructure.providers.base import (
     TokenUsage,
 )
 from src.shared.context import get_current_tenant, get_request_id
+from src.shared.llm_capacity import get_ollama_capacity_limiter
 from src.shared.kernel.observability import trace_span
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_MODEL,
@@ -130,22 +131,49 @@ class OllamaLLMProvider(BaseLLMProvider):
         model = model or self.default_model
         start_time = time.perf_counter()
 
+        work_class = kwargs.pop("work_class", "ingestion")
+        limiter = get_ollama_capacity_limiter()
+
         # Build messages
-        messages = []
+        messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Add Ollama specific options via extra_body
+        extra_body = kwargs.pop("extra_body", {}) or {}
+        if "options" not in extra_body:
+            extra_body["options"] = {}
+
+        # Default context window if not provided.
+        if "num_ctx" not in extra_body["options"]:
+            import os
+
+            try:
+                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+            except Exception:
+                extra_body["options"]["num_ctx"] = 32768
+
         try:
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                stop=stop,
-                **kwargs,
-            )
+            try:
+                async with limiter.hold(work_class=work_class):
+                    response = await self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        seed=seed,
+                        stop=stop,
+                        extra_body=extra_body,
+                        **kwargs,
+                    )
+            except TimeoutError as e:
+                raise RateLimitError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                    retry_after=1.0,
+                )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
@@ -173,7 +201,9 @@ class OllamaLLMProvider(BaseLLMProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
+                trace_id = (
+                    format(span_context.trace_id, "032x") if span_context.is_valid else None
+                )
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
@@ -189,8 +219,11 @@ class OllamaLLMProvider(BaseLLMProvider):
 
             return result
 
+        except RateLimitError:
+            raise
         except Exception as e:
             self._handle_error(e, model)
+
 
     @trace_span("LLM.chat")
     async def chat(
@@ -200,23 +233,49 @@ class OllamaLLMProvider(BaseLLMProvider):
         tool_choice: Any | None = "auto",
         **kwargs: Any,
     ) -> Any:
-        """
-        Direct chat completion with tool support.
-        """
+        """Direct chat completion with tool support."""
         model = self.default_model
 
-        try:
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-                **kwargs,
-            )
-            return response
+        work_class = kwargs.pop("work_class", "chat")
+        limiter = get_ollama_capacity_limiter()
 
+        # Ollama options via extra_body
+        extra_body = kwargs.pop("extra_body", {}) or {}
+        if "options" not in extra_body:
+            extra_body["options"] = {}
+        if "num_ctx" not in extra_body["options"]:
+            import os
+
+            try:
+                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+            except Exception:
+                extra_body["options"]["num_ctx"] = 32768
+
+        try:
+            try:
+                async with limiter.hold(work_class=work_class):
+                    response = await self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        extra_body=extra_body,
+                        **kwargs,
+                    )
+                return response
+            except TimeoutError as e:
+                raise RateLimitError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                    retry_after=1.0,
+                )
+
+        except RateLimitError:
+            raise
         except Exception as e:
             self._handle_error(e, model)
+
 
     async def generate_stream(
         self,
@@ -231,32 +290,72 @@ class OllamaLLMProvider(BaseLLMProvider):
         """Stream text generation."""
         model = model or self.default_model
 
-        messages = []
+        work_class = kwargs.pop("work_class", "chat")
+        limiter = get_ollama_capacity_limiter()
+
+        messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Ollama options via extra_body
+        extra_body = kwargs.pop("extra_body", {}) or {}
+        if "options" not in extra_body:
+            extra_body["options"] = {}
+        if "num_ctx" not in extra_body["options"]:
+            import os
+
+            try:
+                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+            except Exception:
+                extra_body["options"]["num_ctx"] = 32768
+
+        # Internal-only metadata, never sent to provider.
+        kwargs.pop("history", None)
+
         try:
-            stream = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                stream=True,
-                **{k: v for k, v in kwargs.items() if k != "history"},
-            )
+            try:
+                async with limiter.hold(work_class=work_class):
+                    stream = await self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        seed=seed,
+                        stream=True,
+                        extra_body=extra_body,
+                        **kwargs,
+                    )
 
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            yield chunk.choices[0].delta.content
+            except TimeoutError as e:
+                raise RateLimitError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                    retry_after=1.0,
+                )
 
+        except RateLimitError:
+            raise
         except Exception as e:
             self._handle_error(e, model)
+
 
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
+        
+        # Log the full error details including response body if available
+        error_body = ""
+        if hasattr(e, "response") and hasattr(e.response, "text"):
+             error_body = f" | Response Body: {e.response.text}"
+        elif hasattr(e, "body"): # Some versions use body
+             error_body = f" | Body: {e.body}"
+             
+        logger.error(f"Ollama Error ({error_type}): {e}{error_body}")
 
         if "RateLimitError" in error_type:
             raise RateLimitError(
@@ -273,7 +372,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             )
         elif "BadRequestError" in error_type or "InvalidRequestError" in error_type:
             raise InvalidRequestError(
-                str(e),
+                f"{str(e)}{error_body}",
                 provider=self.provider_name,
                 model=model,
             )
@@ -286,7 +385,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         else:
             # Re-raise as generic provider error
             raise ProviderUnavailableError(
-                f"Unexpected error: {e}",
+                f"Unexpected error: {e}{error_body}",
                 provider=self.provider_name,
                 model=model,
             )
@@ -339,11 +438,23 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         model = model or self.default_model
         start_time = time.perf_counter()
 
+        work_class = kwargs.pop("work_class", "ingestion")
+        limiter = get_ollama_capacity_limiter()
+
         try:
-            response = await self.client.embeddings.create(
-                model=model,
-                input=texts,
-            )
+            try:
+                async with limiter.hold(work_class=work_class):
+                    response = await self.client.embeddings.create(
+                        model=model,
+                        input=texts,
+                    )
+            except TimeoutError as e:
+                raise RateLimitError(
+                    str(e),
+                    provider=self.provider_name,
+                    model=model,
+                    retry_after=1.0,
+                )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
@@ -372,7 +483,9 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
+                trace_id = (
+                    format(span_context.trace_id, "032x") if span_context.is_valid else None
+                )
 
                 # Merge metadata from kwargs (e.g. document_id) with result metadata
                 usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
@@ -391,8 +504,11 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
             return result
 
+        except RateLimitError:
+            raise
         except Exception as e:
             self._handle_error(e, model)
+
 
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""

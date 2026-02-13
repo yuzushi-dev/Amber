@@ -121,14 +121,14 @@ class QueryRewriter:
                 kwargs["seed"] = llm_cfg.seed
 
             # We don't have a direct timeout in the provider yet, but we can check after
-            rewritten = await provider.generate(prompt, **kwargs)
+            rewritten_res = await provider.generate(prompt, work_class="chat", **kwargs)
 
             elapsed = time.perf_counter() - start_time
             if elapsed > timeout_sec:
                 logger.warning(f"Query rewrite took too long ({elapsed:.2f}s), using original")
                 return query
 
-            return rewritten.strip()
+            return (rewritten_res.text or "").strip()
 
         except Exception as e:
             logger.error(f"Query rewrite failed: {e}")

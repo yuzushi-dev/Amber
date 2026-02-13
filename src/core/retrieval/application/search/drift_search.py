@@ -91,7 +91,10 @@ class DriftSearchService:
             if followup_cfg.seed is not None:
                 followup_kwargs["seed"] = followup_cfg.seed
 
-            response = await followup_provider.generate(follow_up_prompt, **followup_kwargs)
+            followup_res = await followup_provider.generate(
+                follow_up_prompt, work_class="chat", **followup_kwargs
+            )
+            response = followup_res.text or ""
             if "DONE" in response.upper():
                 break
 
@@ -136,7 +139,10 @@ class DriftSearchService:
         if synthesis_cfg.seed is not None:
             synthesis_kwargs["seed"] = synthesis_cfg.seed
 
-        final_answer = await synthesis_provider.generate(synthesis_prompt, **synthesis_kwargs)
+        synthesis_res = await synthesis_provider.generate(
+            synthesis_prompt, work_class="chat", **synthesis_kwargs
+        )
+        final_answer = synthesis_res.text or ""
 
         return {
             "answer": final_answer,

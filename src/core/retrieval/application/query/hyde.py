@@ -102,8 +102,8 @@ class HyDEService:
             # or just loop for now.
             hypotheses = []
             for _ in range(n):
-                response = await provider.generate(prompt, **kwargs)
-                hypotheses.append(response.strip())
+                response_res = await provider.generate(prompt, work_class="chat", **kwargs)
+                hypotheses.append((response_res.text or "").strip())
 
             return hypotheses
 

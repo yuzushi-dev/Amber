@@ -799,7 +799,7 @@ async def _query_stream_impl(
                 if isinstance(e, RateLimitError):
                     error_code = "rate_limit"
                     provider = get_provider(e)
-                    message = "Rate limit exceeded"
+                    message = str(e)
                     is_handled_error = True
 
                 elif isinstance(e, AuthenticationError):

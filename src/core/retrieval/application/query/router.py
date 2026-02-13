@@ -166,8 +166,8 @@ class QueryRouter:
                     kwargs["seed"] = llm_cfg.seed
 
                 prompt = QUERY_MODE_PROMPT.format(query=query)
-                mode_str = await provider.generate(prompt, **kwargs)
-                mode_str = mode_str.strip().lower()
+                mode_res = await provider.generate(prompt, work_class="chat", **kwargs)
+                mode_str = (mode_res.text or "").strip().lower()
 
                 if mode_str in [m.value for m in SearchMode]:
                     logger.debug(f"Routing to {mode_str} mode via LLM")

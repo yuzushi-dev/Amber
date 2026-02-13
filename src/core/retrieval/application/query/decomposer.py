@@ -104,10 +104,10 @@ class QueryDecomposer:
             if llm_cfg.seed is not None:
                 kwargs["seed"] = llm_cfg.seed
 
-            response = await provider.generate(prompt, **kwargs)
+            response_res = await provider.generate(prompt, work_class="chat", **kwargs)
 
             # Clean response for JSON parsing
-            response = response.strip()
+            response = (response_res.text or "").strip()
             if "```json" in response:
                 response = response.split("```json")[-1].split("```")[0].strip()
             elif "```" in response:
