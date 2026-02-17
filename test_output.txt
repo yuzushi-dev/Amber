@@ -1,0 +1,1514 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________________________ test_register_document_flow __________________________
+
+self = <HTTPConnection(host='garage', port=3900) at 0x70425cbc8260>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+>           sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+
+.venv/lib/python3.12/site-packages/urllib3/connection.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/urllib3/util/connection.py:60: in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+host = 'garage', port = 3900, family = <AddressFamily.AF_UNSPEC: 0>
+type = <SocketKind.SOCK_STREAM: 1>, proto = 0, flags = 0
+
+    def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        """Resolve host and port into list of address info entries.
+    
+        Translate the host/port argument into a sequence of 5-tuples that contain
+        all the necessary arguments for creating a socket connected to that service.
+        host is a domain name, a string representation of an IPv4/v6 address or
+        None. port is a string service name such as 'http', a numeric port number or
+        None. By passing None as the value of host and port, you can pass NULL to
+        the underlying C API.
+    
+        The family, type and proto arguments can be optionally specified in order to
+        narrow the list of addresses returned. Passing zero as a value for each of
+        these arguments selects the full range of results.
+        """
+        # We override this function since we want to translate the numeric family
+        # and socket type values to enum constants.
+        addrlist = []
+>       for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       socket.gaierror: [Errno -2] Name or service not known
+
+/usr/lib/python3.12/socket.py:963: gaierror
+
+The above exception was the direct cause of the following exception:
+
+self = <urllib3.connectionpool.HTTPConnectionPool object at 0x70425cba38f0>
+method = 'GET', url = '/documents?location=', body = None
+headers = HTTPHeaderDict({'Host': 'garage:3900', 'User-Agent': 'MinIO (Linux; x86_64) minio-py/7.2.20', 'x-amz-content-sha256': ...ers=host;x-amz-content-sha256;x-amz-date, Signature=023c84481e9573353a730364129b9a03791b77b99c2a306be265c7ea8b61fe1f'})
+retries = Retry(total=0, connect=None, read=None, redirect=None, status=None)
+redirect = False, assert_same_host = False, timeout = <_TYPE_DEFAULT.token: -1>
+pool_timeout = None, release_conn = True, chunked = False, body_pos = None
+preload_content = True, decode_content = True, response_kw = {}
+parsed_url = Url(scheme=None, auth=None, host=None, port=None, path='/documents', query='location=', fragment=None)
+destination_scheme = None, conn = None, release_this_conn = True
+http_tunnel_required = False, err = None, clean_exit = False
+
+    def urlopen(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        body: _TYPE_BODY | None = None,
+        headers: typing.Mapping[str, str] | None = None,
+        retries: Retry | bool | int | None = None,
+        redirect: bool = True,
+        assert_same_host: bool = True,
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        pool_timeout: int | None = None,
+        release_conn: bool | None = None,
+        chunked: bool = False,
+        body_pos: _TYPE_BODY_POSITION | None = None,
+        preload_content: bool = True,
+        decode_content: bool = True,
+        **response_kw: typing.Any,
+    ) -> BaseHTTPResponse:
+        """
+        Get a connection from the pool and perform an HTTP request. This is the
+        lowest level call for making a request, so you'll need to specify all
+        the raw details.
+    
+        .. note::
+    
+           More commonly, it's appropriate to use a convenience method
+           such as :meth:`request`.
+    
+        .. note::
+    
+           `release_conn` will only behave as expected if
+           `preload_content=False` because we want to make
+           `preload_content=False` the default behaviour someday soon without
+           breaking backwards compatibility.
+    
+        :param method:
+            HTTP request method (such as GET, POST, PUT, etc.)
+    
+        :param url:
+            The URL to perform the request on.
+    
+        :param body:
+            Data to send in the request body, either :class:`str`, :class:`bytes`,
+            an iterable of :class:`str`/:class:`bytes`, or a file-like object.
+    
+        :param headers:
+            Dictionary of custom headers to send, such as User-Agent,
+            If-None-Match, etc. If None, pool headers are used. If provided,
+            these headers completely replace any pool-specific headers.
+    
+        :param retries:
+            Configure the number of retries to allow before raising a
+            :class:`~urllib3.exceptions.MaxRetryError` exception.
+    
+            If ``None`` (default) will retry 3 times, see ``Retry.DEFAULT``. Pass a
+            :class:`~urllib3.util.retry.Retry` object for fine-grained control
+            over different types of retries.
+            Pass an integer number to retry connection errors that many times,
+            but no other types of errors. Pass zero to never retry.
+    
+            If ``False``, then retries are disabled and any exception is raised
+            immediately. Also, instead of raising a MaxRetryError on redirects,
+            the redirect response will be returned.
+    
+        :type retries: :class:`~urllib3.util.retry.Retry`, False, or an int.
+    
+        :param redirect:
+            If True, automatically handle redirects (status codes 301, 302,
+            303, 307, 308). Each redirect counts as a retry. Disabling retries
+            will disable redirect, too.
+    
+        :param assert_same_host:
+            If ``True``, will make sure that the host of the pool requests is
+            consistent else will raise HostChangedError. When ``False``, you can
+            use the pool on an HTTP proxy and request foreign hosts.
+    
+        :param timeout:
+            If specified, overrides the default timeout for this one
+            request. It may be a float (in seconds) or an instance of
+            :class:`urllib3.util.Timeout`.
+    
+        :param pool_timeout:
+            If set and the pool is set to block=True, then this method will
+            block for ``pool_timeout`` seconds and raise EmptyPoolError if no
+            connection is available within the time period.
+    
+        :param bool preload_content:
+            If True, the response's body will be preloaded into memory.
+    
+        :param bool decode_content:
+            If True, will attempt to decode the body based on the
+            'content-encoding' header.
+    
+        :param release_conn:
+            If False, then the urlopen call will not release the connection
+            back into the pool once a response is received (but will release if
+            you read the entire contents of the response such as when
+            `preload_content=True`). This is useful if you're not preloading
+            the response's content immediately. You will need to call
+            ``r.release_conn()`` on the response ``r`` to return the connection
+            back into the pool. If None, it takes the value of ``preload_content``
+            which defaults to ``True``.
+    
+        :param bool chunked:
+            If True, urllib3 will send the body using chunked transfer
+            encoding. Otherwise, urllib3 will send the body using the standard
+            content-length form. Defaults to False.
+    
+        :param int body_pos:
+            Position to seek to in file-like body in the event of a retry or
+            redirect. Typically this won't need to be set because urllib3 will
+            auto-populate the value when needed.
+        """
+        parsed_url = parse_url(url)
+        destination_scheme = parsed_url.scheme
+    
+        if headers is None:
+            headers = self.headers
+    
+        if not isinstance(retries, Retry):
+            retries = Retry.from_int(retries, redirect=redirect, default=self.retries)
+    
+        if release_conn is None:
+            release_conn = preload_content
+    
+        # Check host
+        if assert_same_host and not self.is_same_host(url):
+            raise HostChangedError(self, url, retries)
+    
+        # Ensure that the URL we're connecting to is properly encoded
+        if url.startswith("/"):
+            url = to_str(_encode_target(url))
+        else:
+            url = to_str(parsed_url.url)
+    
+        conn = None
+    
+        # Track whether `conn` needs to be released before
+        # returning/raising/recursing. Update this variable if necessary, and
+        # leave `release_conn` constant throughout the function. That way, if
+        # the function recurses, the original value of `release_conn` will be
+        # passed down into the recursive call, and its value will be respected.
+        #
+        # See issue #651 [1] for details.
+        #
+        # [1] <https://github.com/urllib3/urllib3/issues/651>
+        release_this_conn = release_conn
+    
+        http_tunnel_required = connection_requires_http_tunnel(
+            self.proxy, self.proxy_config, destination_scheme
+        )
+    
+        # Merge the proxy headers. Only done when not using HTTP CONNECT. We
+        # have to copy the headers dict so we can safely change it without those
+        # changes being reflected in anyone else's copy.
+        if not http_tunnel_required:
+            headers = headers.copy()  # type: ignore[attr-defined]
+            headers.update(self.proxy_headers)  # type: ignore[union-attr]
+    
+        # Must keep the exception bound to a separate variable or else Python 3
+        # complains about UnboundLocalError.
+        err = None
+    
+        # Keep track of whether we cleanly exited the except block. This
+        # ensures we do proper cleanup in finally.
+        clean_exit = False
+    
+        # Rewind body position, if needed. Record current position
+        # for future rewinds in the event of a redirect/retry.
+        body_pos = set_file_position(body, body_pos)
+    
+        try:
+            # Request a connection from the queue.
+            timeout_obj = self._get_timeout(timeout)
+            conn = self._get_conn(timeout=pool_timeout)
+    
+            conn.timeout = timeout_obj.connect_timeout  # type: ignore[assignment]
+    
+            # Is this a closed/new connection that requires CONNECT tunnelling?
+            if self.proxy is not None and http_tunnel_required and conn.is_closed:
+                try:
+                    self._prepare_proxy(conn)
+                except (BaseSSLError, OSError, SocketTimeout) as e:
+                    self._raise_timeout(
+                        err=e, url=self.proxy.url, timeout_value=conn.timeout
+                    )
+                    raise
+    
+            # If we're going to release the connection in ``finally:``, then
+            # the response doesn't need to know about the connection. Otherwise
+            # it will also try to release it and we'll have a double-release
+            # mess.
+            response_conn = conn if not release_conn else None
+    
+            # Make the request on the HTTPConnection object
+>           response = self._make_request(
+                conn,
+                method,
+                url,
+                timeout=timeout_obj,
+                body=body,
+                headers=headers,
+                chunked=chunked,
+                retries=retries,
+                response_conn=response_conn,
+                preload_content=preload_content,
+                decode_content=decode_content,
+                **response_kw,
+            )
+
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:787: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:493: in _make_request
+    conn.request(
+.venv/lib/python3.12/site-packages/urllib3/connection.py:500: in request
+    self.endheaders()
+/usr/lib/python3.12/http/client.py:1331: in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+/usr/lib/python3.12/http/client.py:1091: in _send_output
+    self.send(msg)
+/usr/lib/python3.12/http/client.py:1035: in send
+    self.connect()
+.venv/lib/python3.12/site-packages/urllib3/connection.py:331: in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <HTTPConnection(host='garage', port=3900) at 0x70425cbc8260>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+            sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except socket.gaierror as e:
+>           raise NameResolutionError(self.host, self, e) from e
+E           urllib3.exceptions.NameResolutionError: HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)
+
+.venv/lib/python3.12/site-packages/urllib3/connection.py:211: NameResolutionError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x70425cccf860>
+
+    @pytest.mark.asyncio
+    async def test_register_document_flow(db_session: AsyncSession):
+        # Setup
+        tenant_id = f"test_tenant_{uuid.uuid4().hex[:8]}"
+        filename = "test_doc.txt"
+        content = b"Hello, World! This is a test document."
+    
+        # Clean DB
+        # await clean_database(db_session) # Don't wipe everything if concurrent tests
+    
+        # Initialize Service
+        # Use default settings which point to localhost MinIO
+    
+        storage = MinIOClient()
+        # Ensure bucket exists (handling this in service/client implicitly or explicitly)
+        # The client.ensure_bucket_exists() is called in upload_file()
+    
+        # Initialize Repositories & UoW
+        # Initialize Repositories & UoW
+        from unittest.mock import MagicMock
+    
+        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+            PostgresDocumentRepository,
+        )
+        from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
+            PostgresTenantRepository,
+        )
+    
+        doc_repo = PostgresDocumentRepository(db_session)
+        tenant_repo = PostgresTenantRepository(db_session)
+        # SqlAlchemyUnitOfWork expects (session_factory, tenant_id, is_super_admin)
+        # But here we want a simple UoW that wraps the EXISTING db_session.
+        # The real implementation creates new sessions.
+        # For testing, we might want to mock UoW or assume we pass a session factory that yields current session.
+    
+        # Mock UoW for invalid arguments or misuse?
+        # IngestionService expects `unit_of_work.commit()` to be awaitable.
+    
+        # Let's use a mock UoW that simulates commit on the db_session.
+        uow = MagicMock()
+        uow.commit = AsyncMock()
+        uow.rollback = AsyncMock()
+    
+        # Mock provider factory
+        from unittest.mock import MagicMock
+    
+        mock_factory = MagicMock()
+        mock_provider = MagicMock()
+        mock_factory.get_embedding_provider.return_value = mock_provider
+        mock_factory.get_llm_provider.return_value = mock_provider
+    
+        from src.core.generation.domain.ports.provider_factory import set_provider_factory
+    
+        set_provider_factory(mock_factory)
+    
+        try:
+            service = IngestionService(
+                document_repository=doc_repo,
+                tenant_repository=tenant_repo,
+                unit_of_work=uow,
+                storage_client=storage,
+                neo4j_client=MagicMock(),  # Not used for registration
+                vector_store=None,
+            )
+    
+            # 1. Register Document
+>           doc = await service.register_document(
+                tenant_id=tenant_id, filename=filename, file_content=content
+            )
+
+tests/integration/test_ingestion_flow.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/ingestion/application/ingestion_service.py:133: in register_document
+    await asyncio.to_thread(
+/usr/lib/python3.12/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/ingestion/infrastructure/storage/storage_client.py:104: in upload_file
+    self.ensure_bucket_exists()
+src/core/ingestion/infrastructure/storage/storage_client.py:82: in ensure_bucket_exists
+    if not self.client.bucket_exists(self.bucket_name):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/minio/api.py:700: in bucket_exists
+    self._execute("HEAD", bucket_name)
+.venv/lib/python3.12/site-packages/minio/api.py:441: in _execute
+    region = self._get_region(bucket_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/minio/api.py:498: in _get_region
+    response = self._url_open(
+.venv/lib/python3.12/site-packages/minio/api.py:306: in _url_open
+    response = self._http.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/poolmanager.py:457: in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = Retry(total=0, connect=None, read=None, redirect=None, status=None)
+method = 'GET', url = '/documents?location=', response = None
+error = NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")
+_pool = <urllib3.connectionpool.HTTPConnectionPool object at 0x70425cba38f0>
+_stacktrace = <traceback object at 0x70425cbc6940>
+
+    def increment(
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        response: BaseHTTPResponse | None = None,
+        error: Exception | None = None,
+        _pool: ConnectionPool | None = None,
+        _stacktrace: TracebackType | None = None,
+    ) -> Self:
+        """Return a new Retry object with incremented retry counters.
+    
+        :param response: A response object, or None, if the server did not
+            return a response.
+        :type response: :class:`~urllib3.response.BaseHTTPResponse`
+        :param Exception error: An error encountered during the request, or
+            None if the response was received successfully.
+    
+        :return: A new ``Retry`` object.
+        """
+        if self.total is False and error:
+            # Disabled, indicate to re-raise the error.
+            raise reraise(type(error), error, _stacktrace)
+    
+        total = self.total
+        if total is not None:
+            total -= 1
+    
+        connect = self.connect
+        read = self.read
+        redirect = self.redirect
+        status_count = self.status
+        other = self.other
+        cause = "unknown"
+        status = None
+        redirect_location = None
+    
+        if error and self._is_connection_error(error):
+            # Connect retry?
+            if connect is False:
+                raise reraise(type(error), error, _stacktrace)
+            elif connect is not None:
+                connect -= 1
+    
+        elif error and self._is_read_error(error):
+            # Read retry?
+            if read is False or method is None or not self._is_method_retryable(method):
+                raise reraise(type(error), error, _stacktrace)
+            elif read is not None:
+                read -= 1
+    
+        elif error:
+            # Other retry?
+            if other is not None:
+                other -= 1
+    
+        elif response and response.get_redirect_location():
+            # Redirect retry?
+            if redirect is not None:
+                redirect -= 1
+            cause = "too many redirects"
+            response_redirect_location = response.get_redirect_location()
+            if response_redirect_location:
+                redirect_location = response_redirect_location
+            status = response.status
+    
+        else:
+            # Incrementing because of a server error like a 500 in
+            # status_forcelist and the given method is in the allowed_methods
+            cause = ResponseError.GENERIC_ERROR
+            if response and response.status:
+                if status_count is not None:
+                    status_count -= 1
+                cause = ResponseError.SPECIFIC_ERROR.format(status_code=response.status)
+                status = response.status
+    
+        history = self.history + (
+            RequestHistory(method, url, error, status, redirect_location),
+        )
+    
+        new_retry = self.new(
+            total=total,
+            connect=connect,
+            read=read,
+            redirect=redirect,
+            status=status_count,
+            other=other,
+            history=history,
+        )
+    
+        if new_retry.is_exhausted():
+            reason = error or ResponseError(cause)
+>           raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+
+.venv/lib/python3.12/site-packages/urllib3/util/retry.py:519: MaxRetryError
+---------------------------- Captured stdout setup -----------------------------
+{"timestamp": "2026-02-13 18:14:51,031", "level": "INFO", "message": "Connected to Neo4j at bolt://localhost:7687", "module": "neo4j_client", "function": "connect", "line": 55}
+{"timestamp": "2026-02-13 18:14:51,681", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:14:52,621", "level": "INFO", "message": "Deleted 0 chunks for tenant integration_test_tenant", "module": "milvus", "function": "delete_by_tenant", "line": 599}
+{"timestamp": "2026-02-13 18:14:52,625", "level": "INFO", "message": "Creating collection: amber_integration_test_tenant", "module": "milvus", "function": "_create_collection", "line": 169}
+{"timestamp": "2026-02-13 18:14:55,131", "level": "INFO", "message": "Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields", "module": "milvus", "function": "_create_collection", "line": 259}
+{"timestamp": "2026-02-13 18:14:55,132", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:14:55,140", "level": "WARNING", "message": "Dropped collection amber_integration_test_tenant", "module": "milvus", "function": "drop_collection", "line": 798}
+Consider using the pymupdf_layout package for a greatly improved page layout analysis.
+------------------------------ Captured log setup ------------------------------
+INFO     src.core.graph.infrastructure.neo4j_client:neo4j_client.py:55 Connected to Neo4j at bolt://localhost:7687
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:599 Deleted 0 chunks for tenant integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:169 Creating collection: amber_integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:259 Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+WARNING  src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:798 Dropped collection amber_integration_test_tenant
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-02-13 18:14:56,530", "level": "WARNING", "message": "Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868}
+{"timestamp": "2026-02-13 18:14:56,948", "level": "WARNING", "message": "Retrying (Retry(total=3, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868}
+{"timestamp": "2026-02-13 18:14:57,770", "level": "WARNING", "message": "Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868}
+{"timestamp": "2026-02-13 18:14:59,387", "level": "WARNING", "message": "Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868}
+{"timestamp": "2026-02-13 18:15:02,605", "level": "WARNING", "message": "Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868}
+{"timestamp": "2026-02-13 18:15:02,626", "level": "ERROR", "message": "Failed to upload file to storage: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\"))", "module": "ingestion_service", "function": "register_document", "line": 141}
+------------------------------ Captured log call -------------------------------
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=3, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+ERROR    src.core.ingestion.application.ingestion_service:ingestion_service.py:141 Failed to upload file to storage: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+--------------------------- Captured stdout teardown ---------------------------
+{"timestamp": "2026-02-13 18:15:03,649", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:04,427", "level": "INFO", "message": "Deleted 0 chunks for tenant integration_test_tenant", "module": "milvus", "function": "delete_by_tenant", "line": 599}
+{"timestamp": "2026-02-13 18:15:04,432", "level": "INFO", "message": "Creating collection: amber_integration_test_tenant", "module": "milvus", "function": "_create_collection", "line": 169}
+{"timestamp": "2026-02-13 18:15:07,145", "level": "INFO", "message": "Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields", "module": "milvus", "function": "_create_collection", "line": 259}
+{"timestamp": "2026-02-13 18:15:07,145", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:07,150", "level": "WARNING", "message": "Dropped collection amber_integration_test_tenant", "module": "milvus", "function": "drop_collection", "line": 798}
+---------------------------- Captured log teardown -----------------------------
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:599 Deleted 0 chunks for tenant integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:169 Creating collection: amber_integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:259 Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+WARNING  src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:798 Dropped collection amber_integration_test_tenant
+_________________ TestIngestionPipeline.test_complete_pipeline _________________
+
+self = <HTTPConnection(host='garage', port=3900) at 0x70424527ee70>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+>           sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+
+.venv/lib/python3.12/site-packages/urllib3/connection.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/urllib3/util/connection.py:60: in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+host = 'garage', port = 3900, family = <AddressFamily.AF_UNSPEC: 0>
+type = <SocketKind.SOCK_STREAM: 1>, proto = 0, flags = 0
+
+    def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        """Resolve host and port into list of address info entries.
+    
+        Translate the host/port argument into a sequence of 5-tuples that contain
+        all the necessary arguments for creating a socket connected to that service.
+        host is a domain name, a string representation of an IPv4/v6 address or
+        None. port is a string service name such as 'http', a numeric port number or
+        None. By passing None as the value of host and port, you can pass NULL to
+        the underlying C API.
+    
+        The family, type and proto arguments can be optionally specified in order to
+        narrow the list of addresses returned. Passing zero as a value for each of
+        these arguments selects the full range of results.
+        """
+        # We override this function since we want to translate the numeric family
+        # and socket type values to enum constants.
+        addrlist = []
+>       for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       socket.gaierror: [Errno -2] Name or service not known
+
+/usr/lib/python3.12/socket.py:963: gaierror
+
+The above exception was the direct cause of the following exception:
+
+self = <urllib3.connectionpool.HTTPConnectionPool object at 0x70424527e3c0>
+method = 'GET', url = '/documents?location=', body = None
+headers = HTTPHeaderDict({'Host': 'garage:3900', 'User-Agent': 'MinIO (Linux; x86_64) minio-py/7.2.20', 'x-amz-content-sha256': ...ers=host;x-amz-content-sha256;x-amz-date, Signature=ede73de08faba026defe95294f3616cf98387acbbf0d0c68b3e063cad967801d'})
+retries = Retry(total=0, connect=None, read=None, redirect=None, status=None)
+redirect = False, assert_same_host = False, timeout = <_TYPE_DEFAULT.token: -1>
+pool_timeout = None, release_conn = True, chunked = False, body_pos = None
+preload_content = True, decode_content = True, response_kw = {}
+parsed_url = Url(scheme=None, auth=None, host=None, port=None, path='/documents', query='location=', fragment=None)
+destination_scheme = None, conn = None, release_this_conn = True
+http_tunnel_required = False, err = None, clean_exit = False
+
+    def urlopen(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        body: _TYPE_BODY | None = None,
+        headers: typing.Mapping[str, str] | None = None,
+        retries: Retry | bool | int | None = None,
+        redirect: bool = True,
+        assert_same_host: bool = True,
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        pool_timeout: int | None = None,
+        release_conn: bool | None = None,
+        chunked: bool = False,
+        body_pos: _TYPE_BODY_POSITION | None = None,
+        preload_content: bool = True,
+        decode_content: bool = True,
+        **response_kw: typing.Any,
+    ) -> BaseHTTPResponse:
+        """
+        Get a connection from the pool and perform an HTTP request. This is the
+        lowest level call for making a request, so you'll need to specify all
+        the raw details.
+    
+        .. note::
+    
+           More commonly, it's appropriate to use a convenience method
+           such as :meth:`request`.
+    
+        .. note::
+    
+           `release_conn` will only behave as expected if
+           `preload_content=False` because we want to make
+           `preload_content=False` the default behaviour someday soon without
+           breaking backwards compatibility.
+    
+        :param method:
+            HTTP request method (such as GET, POST, PUT, etc.)
+    
+        :param url:
+            The URL to perform the request on.
+    
+        :param body:
+            Data to send in the request body, either :class:`str`, :class:`bytes`,
+            an iterable of :class:`str`/:class:`bytes`, or a file-like object.
+    
+        :param headers:
+            Dictionary of custom headers to send, such as User-Agent,
+            If-None-Match, etc. If None, pool headers are used. If provided,
+            these headers completely replace any pool-specific headers.
+    
+        :param retries:
+            Configure the number of retries to allow before raising a
+            :class:`~urllib3.exceptions.MaxRetryError` exception.
+    
+            If ``None`` (default) will retry 3 times, see ``Retry.DEFAULT``. Pass a
+            :class:`~urllib3.util.retry.Retry` object for fine-grained control
+            over different types of retries.
+            Pass an integer number to retry connection errors that many times,
+            but no other types of errors. Pass zero to never retry.
+    
+            If ``False``, then retries are disabled and any exception is raised
+            immediately. Also, instead of raising a MaxRetryError on redirects,
+            the redirect response will be returned.
+    
+        :type retries: :class:`~urllib3.util.retry.Retry`, False, or an int.
+    
+        :param redirect:
+            If True, automatically handle redirects (status codes 301, 302,
+            303, 307, 308). Each redirect counts as a retry. Disabling retries
+            will disable redirect, too.
+    
+        :param assert_same_host:
+            If ``True``, will make sure that the host of the pool requests is
+            consistent else will raise HostChangedError. When ``False``, you can
+            use the pool on an HTTP proxy and request foreign hosts.
+    
+        :param timeout:
+            If specified, overrides the default timeout for this one
+            request. It may be a float (in seconds) or an instance of
+            :class:`urllib3.util.Timeout`.
+    
+        :param pool_timeout:
+            If set and the pool is set to block=True, then this method will
+            block for ``pool_timeout`` seconds and raise EmptyPoolError if no
+            connection is available within the time period.
+    
+        :param bool preload_content:
+            If True, the response's body will be preloaded into memory.
+    
+        :param bool decode_content:
+            If True, will attempt to decode the body based on the
+            'content-encoding' header.
+    
+        :param release_conn:
+            If False, then the urlopen call will not release the connection
+            back into the pool once a response is received (but will release if
+            you read the entire contents of the response such as when
+            `preload_content=True`). This is useful if you're not preloading
+            the response's content immediately. You will need to call
+            ``r.release_conn()`` on the response ``r`` to return the connection
+            back into the pool. If None, it takes the value of ``preload_content``
+            which defaults to ``True``.
+    
+        :param bool chunked:
+            If True, urllib3 will send the body using chunked transfer
+            encoding. Otherwise, urllib3 will send the body using the standard
+            content-length form. Defaults to False.
+    
+        :param int body_pos:
+            Position to seek to in file-like body in the event of a retry or
+            redirect. Typically this won't need to be set because urllib3 will
+            auto-populate the value when needed.
+        """
+        parsed_url = parse_url(url)
+        destination_scheme = parsed_url.scheme
+    
+        if headers is None:
+            headers = self.headers
+    
+        if not isinstance(retries, Retry):
+            retries = Retry.from_int(retries, redirect=redirect, default=self.retries)
+    
+        if release_conn is None:
+            release_conn = preload_content
+    
+        # Check host
+        if assert_same_host and not self.is_same_host(url):
+            raise HostChangedError(self, url, retries)
+    
+        # Ensure that the URL we're connecting to is properly encoded
+        if url.startswith("/"):
+            url = to_str(_encode_target(url))
+        else:
+            url = to_str(parsed_url.url)
+    
+        conn = None
+    
+        # Track whether `conn` needs to be released before
+        # returning/raising/recursing. Update this variable if necessary, and
+        # leave `release_conn` constant throughout the function. That way, if
+        # the function recurses, the original value of `release_conn` will be
+        # passed down into the recursive call, and its value will be respected.
+        #
+        # See issue #651 [1] for details.
+        #
+        # [1] <https://github.com/urllib3/urllib3/issues/651>
+        release_this_conn = release_conn
+    
+        http_tunnel_required = connection_requires_http_tunnel(
+            self.proxy, self.proxy_config, destination_scheme
+        )
+    
+        # Merge the proxy headers. Only done when not using HTTP CONNECT. We
+        # have to copy the headers dict so we can safely change it without those
+        # changes being reflected in anyone else's copy.
+        if not http_tunnel_required:
+            headers = headers.copy()  # type: ignore[attr-defined]
+            headers.update(self.proxy_headers)  # type: ignore[union-attr]
+    
+        # Must keep the exception bound to a separate variable or else Python 3
+        # complains about UnboundLocalError.
+        err = None
+    
+        # Keep track of whether we cleanly exited the except block. This
+        # ensures we do proper cleanup in finally.
+        clean_exit = False
+    
+        # Rewind body position, if needed. Record current position
+        # for future rewinds in the event of a redirect/retry.
+        body_pos = set_file_position(body, body_pos)
+    
+        try:
+            # Request a connection from the queue.
+            timeout_obj = self._get_timeout(timeout)
+            conn = self._get_conn(timeout=pool_timeout)
+    
+            conn.timeout = timeout_obj.connect_timeout  # type: ignore[assignment]
+    
+            # Is this a closed/new connection that requires CONNECT tunnelling?
+            if self.proxy is not None and http_tunnel_required and conn.is_closed:
+                try:
+                    self._prepare_proxy(conn)
+                except (BaseSSLError, OSError, SocketTimeout) as e:
+                    self._raise_timeout(
+                        err=e, url=self.proxy.url, timeout_value=conn.timeout
+                    )
+                    raise
+    
+            # If we're going to release the connection in ``finally:``, then
+            # the response doesn't need to know about the connection. Otherwise
+            # it will also try to release it and we'll have a double-release
+            # mess.
+            response_conn = conn if not release_conn else None
+    
+            # Make the request on the HTTPConnection object
+>           response = self._make_request(
+                conn,
+                method,
+                url,
+                timeout=timeout_obj,
+                body=body,
+                headers=headers,
+                chunked=chunked,
+                retries=retries,
+                response_conn=response_conn,
+                preload_content=preload_content,
+                decode_content=decode_content,
+                **response_kw,
+            )
+
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:787: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:493: in _make_request
+    conn.request(
+.venv/lib/python3.12/site-packages/urllib3/connection.py:500: in request
+    self.endheaders()
+/usr/lib/python3.12/http/client.py:1331: in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+/usr/lib/python3.12/http/client.py:1091: in _send_output
+    self.send(msg)
+/usr/lib/python3.12/http/client.py:1035: in send
+    self.connect()
+.venv/lib/python3.12/site-packages/urllib3/connection.py:331: in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <HTTPConnection(host='garage', port=3900) at 0x70424527ee70>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+            sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except socket.gaierror as e:
+>           raise NameResolutionError(self.host, self, e) from e
+E           urllib3.exceptions.NameResolutionError: HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)
+
+.venv/lib/python3.12/site-packages/urllib3/connection.py:211: NameResolutionError
+
+The above exception was the direct cause of the following exception:
+
+self = <tests.integration.test_ingestion_pipeline.TestIngestionPipeline object at 0x7042a9e99b50>
+client = <httpx.AsyncClient object at 0x70425c181070>
+api_key = 'amber-dev-key-2024'
+test_pdf_file = ('test_integration_2b0bac98.pdf', b'%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Typ...iler\n<<\n/Size 6\n/Root 1 0 R\n>>\nstartxref\n882\n%%EOF\n\n% Random: 2b0bac98 1771002919.6243386', 'application/pdf')
+
+    @pytest.mark.asyncio
+    async def test_complete_pipeline(
+        self, client: AsyncClient, api_key: str, test_pdf_file: tuple[str, bytes, str]
+    ):
+        """
+        Test the complete ingestion pipeline from upload to graph sync.
+    
+        This test verifies:
+        1. Document upload succeeds
+        2. Document processes through all stages
+        3. Chunks are created and embedded
+        4. Entities are extracted
+        5. Relationships are created
+        6. Data exists in Neo4j
+        7. Embeddings exist in Milvus
+        """
+        filename, content, content_type = test_pdf_file
+    
+        # Force eager execution to run tasks synchronously in the test process
+        from src.workers.celery_app import celery_app
+    
+        celery_app.conf.task_always_eager = True
+        celery_app.conf.task_eager_propagates = True
+    
+        # Step 0: Verify Tenant Isolation
+        # We rely on the client injection of X-Tenant-ID
+        # The API key service mock/fixture should have set this up.
+    
+        # Verify that we are NOT touching the default collection manually
+        print("\n0. Pipeline running under tenant isolation.")
+    
+        # REMOVED: Manual drop_collection on custom names.
+        # We rely on the 'cleanup_test_tenant' fixture in conftest.py matches this.
+        # The API will use "amber_{tenant_id}" automatically.
+    
+        # Step 1: Upload document
+        print("\n1. Uploading document...")
+        files = {"file": (filename, content, content_type)}
+    
+        # Mock process_communities to avoid blocking on it during eager execution
+        # We will trigger it manually later if needed
+        from unittest.mock import patch
+    
+        with patch("src.workers.tasks.process_communities"):
+>           response = await client.post(
+                "/v1/documents", headers={"X-API-Key": api_key}, files=files
+            )
+
+tests/integration/test_ingestion_pipeline.py:207: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx/_client.py:1859: in post
+    return await self.request(
+.venv/lib/python3.12/site-packages/httpx/_client.py:1540: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx/_client.py:1629: in send
+    response = await self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx/_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx/_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx/_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx/_transports/asgi.py:170: in handle_async_request
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1135: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:107: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/middleware/request_id.py:58: in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/middleware/timing.py:32: in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/admin_ops/infrastructure/observability/middleware.py:96: in dispatch
+    raise e
+src/core/admin_ops/infrastructure/observability/middleware.py:61: in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/middleware/rate_limit.py:135: in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/middleware/auth.py:232: in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+/usr/lib/python3.12/contextlib.py:158: in __exit__
+    self.gen.throw(value)
+.venv/lib/python3.12/site-packages/starlette/_utils.py:85: in collapse_excgroups
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/middleware/rate_limit.py:187: in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/cors.py:85: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:716: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:736: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:290: in handle
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:115: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:101: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:355: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:243: in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/api/routes/documents.py:151: in upload_document
+    result = await use_case.execute(
+src/core/ingestion/application/use_cases_documents.py:140: in execute
+    document = await service.register_document(
+src/core/ingestion/application/ingestion_service.py:133: in register_document
+    await asyncio.to_thread(
+/usr/lib/python3.12/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/ingestion/infrastructure/storage/storage_client.py:104: in upload_file
+    self.ensure_bucket_exists()
+src/core/ingestion/infrastructure/storage/storage_client.py:82: in ensure_bucket_exists
+    if not self.client.bucket_exists(self.bucket_name):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/minio/api.py:700: in bucket_exists
+    self._execute("HEAD", bucket_name)
+.venv/lib/python3.12/site-packages/minio/api.py:441: in _execute
+    region = self._get_region(bucket_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/minio/api.py:498: in _get_region
+    response = self._url_open(
+.venv/lib/python3.12/site-packages/minio/api.py:306: in _url_open
+    response = self._http.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/poolmanager.py:457: in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:871: in urlopen
+    return self.urlopen(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = Retry(total=0, connect=None, read=None, redirect=None, status=None)
+method = 'GET', url = '/documents?location=', response = None
+error = NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")
+_pool = <urllib3.connectionpool.HTTPConnectionPool object at 0x70424527e3c0>
+_stacktrace = <traceback object at 0x70425c0fb140>
+
+    def increment(
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        response: BaseHTTPResponse | None = None,
+        error: Exception | None = None,
+        _pool: ConnectionPool | None = None,
+        _stacktrace: TracebackType | None = None,
+    ) -> Self:
+        """Return a new Retry object with incremented retry counters.
+    
+        :param response: A response object, or None, if the server did not
+            return a response.
+        :type response: :class:`~urllib3.response.BaseHTTPResponse`
+        :param Exception error: An error encountered during the request, or
+            None if the response was received successfully.
+    
+        :return: A new ``Retry`` object.
+        """
+        if self.total is False and error:
+            # Disabled, indicate to re-raise the error.
+            raise reraise(type(error), error, _stacktrace)
+    
+        total = self.total
+        if total is not None:
+            total -= 1
+    
+        connect = self.connect
+        read = self.read
+        redirect = self.redirect
+        status_count = self.status
+        other = self.other
+        cause = "unknown"
+        status = None
+        redirect_location = None
+    
+        if error and self._is_connection_error(error):
+            # Connect retry?
+            if connect is False:
+                raise reraise(type(error), error, _stacktrace)
+            elif connect is not None:
+                connect -= 1
+    
+        elif error and self._is_read_error(error):
+            # Read retry?
+            if read is False or method is None or not self._is_method_retryable(method):
+                raise reraise(type(error), error, _stacktrace)
+            elif read is not None:
+                read -= 1
+    
+        elif error:
+            # Other retry?
+            if other is not None:
+                other -= 1
+    
+        elif response and response.get_redirect_location():
+            # Redirect retry?
+            if redirect is not None:
+                redirect -= 1
+            cause = "too many redirects"
+            response_redirect_location = response.get_redirect_location()
+            if response_redirect_location:
+                redirect_location = response_redirect_location
+            status = response.status
+    
+        else:
+            # Incrementing because of a server error like a 500 in
+            # status_forcelist and the given method is in the allowed_methods
+            cause = ResponseError.GENERIC_ERROR
+            if response and response.status:
+                if status_count is not None:
+                    status_count -= 1
+                cause = ResponseError.SPECIFIC_ERROR.format(status_code=response.status)
+                status = response.status
+    
+        history = self.history + (
+            RequestHistory(method, url, error, status, redirect_location),
+        )
+    
+        new_retry = self.new(
+            total=total,
+            connect=connect,
+            read=read,
+            redirect=redirect,
+            status=status_count,
+            other=other,
+            history=history,
+        )
+    
+        if new_retry.is_exhausted():
+            reason = error or ResponseError(cause)
+>           raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+
+.venv/lib/python3.12/site-packages/urllib3/util/retry.py:519: MaxRetryError
+---------------------------- Captured stdout setup -----------------------------
+{"timestamp": "2026-02-13 18:15:07,667", "level": "INFO", "message": "Connected to Neo4j at bolt://localhost:7687", "module": "neo4j_client", "function": "connect", "line": 55}
+{"timestamp": "2026-02-13 18:15:08,116", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:16,242", "level": "INFO", "message": "Deleted 0 chunks for tenant integration_test_tenant", "module": "milvus", "function": "delete_by_tenant", "line": 599}
+{"timestamp": "2026-02-13 18:15:16,248", "level": "INFO", "message": "Creating collection: amber_integration_test_tenant", "module": "milvus", "function": "_create_collection", "line": 169}
+{"timestamp": "2026-02-13 18:15:18,957", "level": "INFO", "message": "Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields", "module": "milvus", "function": "_create_collection", "line": 259}
+{"timestamp": "2026-02-13 18:15:18,958", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:18,966", "level": "WARNING", "message": "Dropped collection amber_integration_test_tenant", "module": "milvus", "function": "drop_collection", "line": 798}
+------------------------------ Captured log setup ------------------------------
+INFO     src.core.graph.infrastructure.neo4j_client:neo4j_client.py:55 Connected to Neo4j at bolt://localhost:7687
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:599 Deleted 0 chunks for tenant integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:169 Creating collection: amber_integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:259 Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+WARNING  src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:798 Dropped collection amber_integration_test_tenant
+----------------------------- Captured stdout call -----------------------------
+
+0. Pipeline running under tenant isolation.
+
+1. Uploading document...
+{"timestamp": "2026-02-13 18:15:19,699", "level": "WARNING", "message": "Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:20,122", "level": "WARNING", "message": "Retrying (Retry(total=3, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:20,944", "level": "WARNING", "message": "Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:22,566", "level": "WARNING", "message": "Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:25,789", "level": "WARNING", "message": "Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\")': /documents?location=", "module": "connectionpool", "function": "urlopen", "line": 868, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:25,808", "level": "ERROR", "message": "Failed to upload file to storage: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\"))", "module": "ingestion_service", "function": "register_document", "line": 141, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e"}
+{"timestamp": "2026-02-13 18:15:25,812", "level": "ERROR", "message": "Request exception: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\"))", "module": "middleware", "function": "dispatch", "line": 85, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e", "method": "POST", "path": "/v1/documents", "status_code": 500, "latency_ms": 6184.8}
+{"timestamp": "2026-02-13 18:15:25,812", "level": "ERROR", "message": "Unhandled exception: MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\"))", "module": "exceptions", "function": "unhandled_exception_handler", "line": 123, "request_id": "req_79d8a19750284bc7b0536d46c4fdda7e", "exception": "Traceback (most recent call last):\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/socket.py\", line 963, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -2] Name or service not known\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 493, in _make_request\n    conn.request(\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py\", line 500, in request\n    self.endheaders()\n  File \"/usr/lib/python3.12/http/client.py\", line 1331, in endheaders\n    self._send_output(message_body, encode_chunked=encode_chunked)\n  File \"/usr/lib/python3.12/http/client.py\", line 1091, in _send_output\n    self.send(msg)\n  File \"/usr/lib/python3.12/http/client.py\", line 1035, in send\n    self.connect()\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py\", line 331, in connect\n    self.sock = self._new_conn()\n                ^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/middleware/request_id.py\", line 58, in dispatch\n    response = await call_next(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/middleware/timing.py\", line 32, in dispatch\n    response = await call_next(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/core/admin_ops/infrastructure/observability/middleware.py\", line 96, in dispatch\n    raise e\n  File \"/home/daniele/Amber_2.0/src/core/admin_ops/infrastructure/observability/middleware.py\", line 61, in dispatch\n    response = await call_next(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/middleware/rate_limit.py\", line 135, in dispatch\n    response = await call_next(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/middleware/auth.py\", line 232, in dispatch\n    return await call_next(request)\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 191, in __call__\n    with recv_stream, send_stream, collapse_excgroups():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py\", line 85, in collapse_excgroups\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 193, in __call__\n    response = await self.dispatch_func(request, call_next)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/middleware/rate_limit.py\", line 187, in dispatch\n    return await call_next(request)\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 168, in call_next\n    raise app_exc from app_exc.__cause__ or app_exc.__context__\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py\", line 144, in coro\n    await self.app(scope, receive_or_disconnect, send_no_error)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py\", line 85, in __call__\n    await self.app(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py\", line 716, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py\", line 736, in app\n    await route.handle(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py\", line 290, in handle\n    await self.app(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py\", line 115, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py\", line 101, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py\", line 355, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py\", line 243, in run_endpoint_function\n    return await dependant.call(**values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/api/routes/documents.py\", line 151, in upload_document\n    result = await use_case.execute(\n             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/core/ingestion/application/use_cases_documents.py\", line 140, in execute\n    document = await service.register_document(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/core/ingestion/application/ingestion_service.py\", line 133, in register_document\n    await asyncio.to_thread(\n  File \"/usr/lib/python3.12/asyncio/threads.py\", line 25, in to_thread\n    return await loop.run_in_executor(None, func_call)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/concurrent/futures/thread.py\", line 58, in run\n    result = self.fn(*self.args, **self.kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/src/core/ingestion/infrastructure/storage/storage_client.py\", line 104, in upload_file\n    self.ensure_bucket_exists()\n  File \"/home/daniele/Amber_2.0/src/core/ingestion/infrastructure/storage/storage_client.py\", line 82, in ensure_bucket_exists\n    if not self.client.bucket_exists(self.bucket_name):\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py\", line 700, in bucket_exists\n    self._execute(\"HEAD\", bucket_name)\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py\", line 441, in _execute\n    region = self._get_region(bucket_name)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py\", line 498, in _get_region\n    response = self._url_open(\n               ^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py\", line 306, in _url_open\n    response = self._http.urlopen(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/poolmanager.py\", line 457, in urlopen\n    response = conn.urlopen(method, u.request_uri, **kw)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 871, in urlopen\n    return self.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 871, in urlopen\n    return self.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 871, in urlopen\n    return self.urlopen(\n           ^^^^^^^^^^^^^\n  [Previous line repeated 2 more times]\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/util/retry.py\", line 519, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError(\"HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)\"))"}
+------------------------------ Captured log call -------------------------------
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=3, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+WARNING  urllib3.connectionpool:connectionpool.py:868 Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)")': /documents?location=
+ERROR    src.core.ingestion.application.ingestion_service:ingestion_service.py:141 Failed to upload file to storage: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+ERROR    src.core.admin_ops.infrastructure.observability.middleware:middleware.py:85 Request exception: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+ERROR    src.api.middleware.exceptions:exceptions.py:123 Unhandled exception: MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+Traceback (most recent call last):
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/util/connection.py", line 60, in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 963, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -2] Name or service not known
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 493, in _make_request
+    conn.request(
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 500, in request
+    self.endheaders()
+  File "/usr/lib/python3.12/http/client.py", line 1331, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1091, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.12/http/client.py", line 1035, in send
+    self.connect()
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 331, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 211, in _new_conn
+    raise NameResolutionError(self.host, self, e) from e
+urllib3.exceptions.NameResolutionError: HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/middleware/request_id.py", line 58, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/middleware/timing.py", line 32, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/core/admin_ops/infrastructure/observability/middleware.py", line 96, in dispatch
+    raise e
+  File "/home/daniele/Amber_2.0/src/core/admin_ops/infrastructure/observability/middleware.py", line 61, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/middleware/rate_limit.py", line 135, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/middleware/auth.py", line 232, in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/middleware/rate_limit.py", line 187, in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 115, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 101, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 355, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 243, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/api/routes/documents.py", line 151, in upload_document
+    result = await use_case.execute(
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/core/ingestion/application/use_cases_documents.py", line 140, in execute
+    document = await service.register_document(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/core/ingestion/application/ingestion_service.py", line 133, in register_document
+    await asyncio.to_thread(
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/src/core/ingestion/infrastructure/storage/storage_client.py", line 104, in upload_file
+    self.ensure_bucket_exists()
+  File "/home/daniele/Amber_2.0/src/core/ingestion/infrastructure/storage/storage_client.py", line 82, in ensure_bucket_exists
+    if not self.client.bucket_exists(self.bucket_name):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py", line 700, in bucket_exists
+    self._execute("HEAD", bucket_name)
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py", line 441, in _execute
+    region = self._get_region(bucket_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py", line 498, in _get_region
+    response = self._url_open(
+               ^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/minio/api.py", line 306, in _url_open
+    response = self._http.urlopen(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/poolmanager.py", line 457, in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 871, in urlopen
+    return self.urlopen(
+           ^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 871, in urlopen
+    return self.urlopen(
+           ^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 871, in urlopen
+    return self.urlopen(
+           ^^^^^^^^^^^^^
+  [Previous line repeated 2 more times]
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/home/daniele/Amber_2.0/.venv/lib/python3.12/site-packages/urllib3/util/retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='garage', port=3900): Max retries exceeded with url: /documents?location= (Caused by NameResolutionError("HTTPConnection(host='garage', port=3900): Failed to resolve 'garage' ([Errno -2] Name or service not known)"))
+--------------------------- Captured stdout teardown ---------------------------
+{"timestamp": "2026-02-13 18:15:26,953", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:28,077", "level": "INFO", "message": "Deleted 0 chunks for tenant integration_test_tenant", "module": "milvus", "function": "delete_by_tenant", "line": 599}
+{"timestamp": "2026-02-13 18:15:28,080", "level": "INFO", "message": "Creating collection: amber_integration_test_tenant", "module": "milvus", "function": "_create_collection", "line": 169}
+{"timestamp": "2026-02-13 18:15:30,596", "level": "INFO", "message": "Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields", "module": "milvus", "function": "_create_collection", "line": 259}
+{"timestamp": "2026-02-13 18:15:30,596", "level": "INFO", "message": "Connected to Milvus at localhost:19530", "module": "milvus", "function": "connect", "line": 158}
+{"timestamp": "2026-02-13 18:15:30,602", "level": "WARNING", "message": "Dropped collection amber_integration_test_tenant", "module": "milvus", "function": "drop_collection", "line": 798}
+---------------------------- Captured log teardown -----------------------------
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:599 Deleted 0 chunks for tenant integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:169 Creating collection: amber_integration_test_tenant
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:259 Collection amber_integration_test_tenant created with HNSW index and Dynamic Fields
+INFO     src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:158 Connected to Milvus at localhost:19530
+WARNING  src.core.retrieval.infrastructure.vector_store.milvus:milvus.py:798 Dropped collection amber_integration_test_tenant
+=========================== short test summary info ============================
+FAILED tests/integration/test_ingestion_flow.py::test_register_document_flow
+FAILED tests/integration/test_ingestion_pipeline.py::TestIngestionPipeline::test_complete_pipeline
+2 failed in 40.20s

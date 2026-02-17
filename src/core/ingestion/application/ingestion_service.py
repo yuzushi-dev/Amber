@@ -446,8 +446,26 @@ class IngestionService:
 
                 chunk_contents = [c.content for c in chunks_to_process]
                 logger.debug('Calling embed_texts chunks=%d model=%s', len(chunk_contents), res_model)
+
+                # Callback for granular progress (60->70%)
+                async def _on_embedding_progress(completed: int, total: int):
+                    if total == 0: return
+                    # Scale 60 -> 70
+                    progress = 60 + int((completed / total) * 10)
+                    await self.event_dispatcher.emit_state_change(
+                        StateChangeEvent(
+                            document_id=document.id,
+                            old_status=DocumentStatus.EMBEDDING,
+                            new_status=DocumentStatus.EMBEDDING,
+                            tenant_id=document.tenant_id,
+                            details={"progress": progress, "chunks_completed": completed, "total_chunks": total},
+                        )
+                    )
+
                 embeddings, stats = await embedding_service.embed_texts(
-                    chunk_contents, metadata={"document_id": document.id}
+                    chunk_contents, 
+                    metadata={"document_id": document.id},
+                    progress_callback=_on_embedding_progress
                 )
                 logger.debug("embed_texts returned")
 
@@ -499,6 +517,13 @@ class IngestionService:
                     milvus_data.append(data)
 
                 await vector_store.upsert_chunks(milvus_data)
+
+                # Report Granular Embedding Progress (60-70%)
+                # We do this AFTER upserting to keep it simple, or during if the service supported it.
+                # Actually, the service now supports it via callback if we update it.
+                # But since we batch upsert here at the end, the "embedding generation" is the long part.
+                # If we passed a callback to embed_texts, we could get 60->70 updates.
+
 
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.COMPLETED
@@ -568,32 +593,25 @@ class IngestionService:
                 from src.core.generation.domain.ports.provider_factory import get_provider_factory
 
                 # Define callback for granular progress (70-95%)
-                def _on_graph_progress(completed: int, total: int):
+                async def _on_graph_progress(completed: int, total: int):
                     if total == 0:
                         return
                     # Scale 70 -> 95 based on chunk completion
                     progress = 70 + int((completed / total) * 25)
                     
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(
-                            self.event_dispatcher.emit_state_change(
-                                StateChangeEvent(
-                                    document_id=document.id,
-                                    old_status=DocumentStatus.GRAPH_SYNC,
-                                    new_status=DocumentStatus.GRAPH_SYNC,
-                                    tenant_id=document.tenant_id,
-                                    details={
-                                        "progress": progress,
-                                        "chunks_completed": completed,
-                                        "total_chunks": total
-                                    },
-                                )
-                            )
+                    await self.event_dispatcher.emit_state_change(
+                        StateChangeEvent(
+                            document_id=document.id,
+                            old_status=DocumentStatus.GRAPH_SYNC,
+                            new_status=DocumentStatus.GRAPH_SYNC,
+                            tenant_id=document.tenant_id,
+                            details={
+                                "progress": progress,
+                                "chunks_completed": completed,
+                                "total_chunks": total
+                            },
                         )
-                    except RuntimeError:
-                        # Fallback for sync context if needed, though process_document is async
-                        logger.warning("Could not emit progress: No running event loop")
+                    )
 
                 get_provider_factory()
                 if chunks_to_process:

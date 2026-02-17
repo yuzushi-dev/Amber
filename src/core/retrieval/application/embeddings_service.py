@@ -9,6 +9,7 @@ Handles batching, retries, and provider failover.
 import logging
 from dataclasses import dataclass
 from typing import Any
+from collections.abc import Awaitable, Callable
 
 from tenacity import (
     retry,
@@ -131,6 +132,7 @@ class EmbeddingService:
         dimensions: int | None = None,
         show_progress: bool = False,
         metadata: dict[str, Any] | None = None,
+        progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> tuple[list[list[float]], EmbeddingStats]:
         """
         Generate embeddings for a list of texts.
@@ -140,6 +142,7 @@ class EmbeddingService:
             model: Override default model
             dimensions: Override default dimensions
             show_progress: Log progress updates
+            progress_callback: Async callback(completed_items, total_items)
 
         Returns:
             Tuple of (embeddings, stats)
@@ -163,6 +166,9 @@ class EmbeddingService:
             total_texts=len(texts),
             total_batches=len(batches),
         )
+
+        completed_count = 0
+        total_count = len(texts)
 
         # Pre-allocate result array
         embeddings: list[list[float] | None] = [None] * len(texts)
@@ -193,6 +199,13 @@ class EmbeddingService:
             stats.total_tokens += result.usage.input_tokens
             stats.total_latency_ms += result.latency_ms
             stats.total_cost += result.cost_estimate
+
+            completed_count += len(batch)
+            if progress_callback:
+                try:
+                    await progress_callback(completed_count, total_count)
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
 
         # Filter out None values (shouldn't happen but be safe)
         final_embeddings = [e if e is not None else [] for e in embeddings]

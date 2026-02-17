@@ -440,7 +440,19 @@ const handleSSEMessage = (itemId: string, data: UploadStatusEvent) => {
         'completed': 100
     }
 
-    const progress = (data as any).progress ?? STAGE_WEIGHTS[data.status] ?? 0
+    const defaultProgress = STAGE_WEIGHTS[data.status] ?? 0
+    let progress = (data as any).progress
+
+    // If progress is missing (e.g. from polling), and we are in the same stage,
+    // preserve the current granular progress instead of reverting to default.
+    const currentItem = useUploadStore.getState().items.find(i => i.id === itemId)
+    if (progress === undefined) {
+        if (currentItem && currentItem.currentStage === data.status) {
+            progress = currentItem.stageProgress
+        } else {
+            progress = defaultProgress
+        }
+    }
     let newStatus: UploadStatus = 'processing'
 
     if (data.status === 'ready' || data.status === 'completed') newStatus = 'ready'
