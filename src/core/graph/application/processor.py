@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from src.core.graph.application.concurrency_governor import ConcurrencyGovernor
 from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
@@ -32,7 +32,7 @@ class GraphProcessor:
         tenant_id: str,
         filename: str = None,
         tenant_config: dict[str, Any] | None = None,
-        progress_callback: Callable[[int, int], None] | None = None,
+        progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
     ):
         """
         Process a list of chunks to extract and write graph data.
@@ -214,7 +214,7 @@ class GraphProcessor:
                 chunks_completed += 1
                 if progress_callback:
                     try:
-                        progress_callback(chunks_completed, total_chunks)
+                        await progress_callback(chunks_completed, total_chunks)
                     except Exception as e:
                         logger.warning(f"Progress callback failed: {e}")
 
