@@ -11,11 +11,25 @@ import os
 import sys
 
 from celery import Celery
-from celery.signals import worker_process_init, worker_ready
+from celery.signals import setup_logging, worker_process_init, worker_ready
 
 from src.shared.kernel.runtime import configure_settings
 
 logger = logging.getLogger(__name__)
+
+
+# -------------------------------------------------------------------------
+# Celery Logging Hook
+# -------------------------------------------------------------------------
+# Celery's default behaviour is to *replace* the root logger config.
+# We intercept the ``setup_logging`` signal so our structlog config wins.
+# -------------------------------------------------------------------------
+@setup_logging.connect
+def _on_setup_logging(**kwargs):
+    """Prevent Celery from overriding our structured logging."""
+    from src.core.admin_ops.infrastructure.observability.logging import configure_logging
+
+    configure_logging()
 # =============================================================================
 # SAFETY GUARDRAIL
 # =============================================================================

@@ -72,5 +72,9 @@ opentelemetry-sdk>=1.22.0
 opentelemetry-exporter-otlp>=1.22.0
 opentelemetry-instrumentation-fastapi>=0.43b0
 
+# Structured Logging
+structlog>=24.1.0
+rich>=13.7.0
+
 # XMPP for Carbonio Chat
 slixmpp>=1.8.0
