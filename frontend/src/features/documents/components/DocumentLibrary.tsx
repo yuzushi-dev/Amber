@@ -51,7 +51,7 @@ export default function DocumentLibrary() {
     const { data: documents, isLoading, refetch } = useQuery({
         queryKey: ['documents'],
         queryFn: async () => {
-            const response = await apiClient.get<Document[]>('/documents')
+            const response = await apiClient.get<Document[]>('/documents', { params: { limit: 10000 } })
             return response.data
         }
     })
