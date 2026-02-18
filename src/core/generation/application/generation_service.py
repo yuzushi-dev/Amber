@@ -8,6 +8,8 @@ LLM-based answer generation with context injection and groundedness checks.
 import logging
 import re
 import time
+
+import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -25,7 +27,7 @@ from src.core.security.source_verifier import SourceVerifier
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.kernel.observability import trace_span
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 CITATION_NORMALIZE_PATTERN = re.compile(
     r"(?:\[\[|\[)\s*(?:source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*)?(\d+)\s*(?:\]\]|\])",
@@ -299,10 +301,13 @@ class GenerationService:
             llm_cfg = replace(llm_cfg, model=req_model)
             logger.info(f"Model override from request: {req_model}")
 
-        logger.info("RESOLVED LLM STEP CONFIG [generate] | Step: chat.generation")
-        logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
-        logger.info(f"  - Settings Default: {settings.default_llm_provider}")
-        logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
+        logger.info(
+            "llm_call_start",
+            step="chat.generation",
+            provider=llm_cfg.provider,
+            model=llm_cfg.model,
+            tenant_override=tenant_config.get("llm_provider", None),
+        )
 
         # Priority: explicit config > step config
         temp = (
@@ -355,6 +360,32 @@ class GenerationService:
         # Step 4: Parse citations and map sources
         normalized_answer = self._normalize_citations(llm_result.text)
         cited_sources = self._map_sources(normalized_answer, context_result.used_candidates)
+
+        # Log response summary
+        logger.info(
+            "llm_response_summary",
+            provider=llm_result.provider,
+            model=llm_result.model,
+            latency_ms=round(llm_result.latency_ms, 1),
+            input_tokens=llm_result.usage.input_tokens,
+            output_tokens=llm_result.usage.output_tokens,
+            answer_len=len(normalized_answer),
+            sources_cited=len(cited_sources),
+        )
+        if not normalized_answer or not normalized_answer.strip():
+            logger.warning(
+                "generation_empty_answer",
+                provider=llm_result.provider,
+                model=llm_result.model,
+                query_preview=query[:100],
+            )
+        elif len(normalized_answer.strip()) < 10:
+            logger.warning(
+                "generation_suspiciously_short_answer",
+                provider=llm_result.provider,
+                model=llm_result.model,
+                answer=normalized_answer.strip(),
+            )
 
         # Step 5: Verify sources
         is_grounded = True
@@ -557,10 +588,13 @@ class GenerationService:
             llm_cfg = replace(llm_cfg, model=req_model)
             logger.info(f"Model override from request (stream): {req_model}")
 
-        logger.info("RESOLVED LLM STEP CONFIG [stream] | Step: chat.generation")
-        logger.info(f"  - Config output: provider={llm_cfg.provider}, model={llm_cfg.model}")
-        logger.info(f"  - Settings Default: {settings.default_llm_provider}")
-        logger.info(f"  - Tenant Override: {tenant_config.get('llm_provider', 'N/A')}")
+        logger.info(
+            "llm_call_start",
+            step="chat.generation",
+            provider=llm_cfg.provider,
+            model=llm_cfg.model,
+            tenant_override=tenant_config.get("llm_provider", None),
+        )
 
         temp = (
             self.config.temperature if self.config.temperature is not None else llm_cfg.temperature

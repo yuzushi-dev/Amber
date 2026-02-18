@@ -7,6 +7,8 @@ LLM provider implementation for Ollama API (OpenAI compatible).
 
 import logging
 import time
+
+import structlog
 from typing import Any
 
 from src.core.generation.infrastructure.providers.base import (
@@ -49,7 +51,7 @@ except ImportError:
 
     trace = MockTrace()
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 # Lazy import
 _openai_client = None
@@ -198,6 +200,42 @@ class OllamaLLMProvider(BaseLLMProvider):
                 metadata={"response_id": response.id},
             )
 
+            # --- Structured response logging ---
+            log_kw = dict(
+                provider=self.provider_name,
+                model=model,
+                latency_ms=round(elapsed_ms, 1),
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                finish_reason=finish_reason,
+                answer_preview=text[:200].replace("\n", " ") if text else "",
+            )
+            logger.info("llm_response", **log_kw)
+
+            # Quality warnings
+            if not text or not text.strip():
+                logger.warning(
+                    "llm_empty_response",
+                    provider=self.provider_name,
+                    model=model,
+                    finish_reason=finish_reason,
+                )
+            elif finish_reason == "length":
+                logger.warning(
+                    "llm_response_truncated",
+                    provider=self.provider_name,
+                    model=model,
+                    output_tokens=usage.output_tokens,
+                    hint="Increase max_tokens or reduce context size",
+                )
+            elif usage.output_tokens == 0:
+                logger.warning(
+                    "llm_zero_output_tokens",
+                    provider=self.provider_name,
+                    model=model,
+                    answer_len=len(text),
+                )
+
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
@@ -327,9 +365,17 @@ class OllamaLLMProvider(BaseLLMProvider):
                         **kwargs,
                     )
 
+                    token_count = 0
                     async for chunk in stream:
                         if chunk.choices and chunk.choices[0].delta.content:
+                            token_count += 1
                             yield chunk.choices[0].delta.content
+                    logger.info(
+                        "llm_stream_complete",
+                        provider=self.provider_name,
+                        model=model,
+                        chunks_yielded=token_count,
+                    )
             except TimeoutError as e:
                 raise RateLimitError(
                     str(e),
