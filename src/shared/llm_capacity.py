@@ -353,6 +353,6 @@ def get_ollama_capacity_limiter() -> RedisLLMCapacityLimiter:
             "Ollama capacity limiter initialized | "
             f"enabled={settings.enabled}, total={settings.total}, "
             f"reserved_chat={settings.reserved_chat}, reserved_ingestion={settings.reserved_ingestion}, "
-            f"redis_url={set if settings.redis_url else unset}"
+            f"redis_url={'set' if settings.redis_url else 'unset'}"
         )
     return _ollama_limiter

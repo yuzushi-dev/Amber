@@ -7,6 +7,8 @@ LLM and Embedding provider implementations for OpenAI API.
 
 import logging
 import time
+
+import structlog
 from typing import Any
 
 from src.core.generation.infrastructure.providers.base import (
@@ -52,7 +54,7 @@ except ImportError:
     trace = MockTrace()
 
 tracer = trace.get_tracer(__name__)
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 # Global client to allow connection pooling reuse
 _openai_client = None
@@ -161,7 +163,6 @@ class OpenAILLMProvider(BaseLLMProvider):
             input_tokens = usage.prompt_tokens
             output_tokens = usage.completion_tokens
 
-            # Extract finish reason
             finish_reason = response.choices[0].finish_reason if response.choices else None
 
             # Convert usage to domain object
@@ -169,7 +170,7 @@ class OpenAILLMProvider(BaseLLMProvider):
 
             cost = self.estimate_cost(usage_obj, model)
 
-            return GenerationResult(
+            result = GenerationResult(
                 text=content,
                 model=model,
                 provider=self.provider_name,
@@ -179,6 +180,37 @@ class OpenAILLMProvider(BaseLLMProvider):
                 finish_reason=finish_reason,
                 metadata={"response_id": response.id},
             )
+
+            # --- Structured response logging ---
+            logger.info(
+                "llm_response",
+                provider=self.provider_name,
+                model=model,
+                latency_ms=round(latency, 1),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                finish_reason=finish_reason,
+                answer_preview=content[:200].replace("\n", " ") if content else "",
+            )
+
+            # Quality warnings
+            if not content or not content.strip():
+                logger.warning(
+                    "llm_empty_response",
+                    provider=self.provider_name,
+                    model=model,
+                    finish_reason=finish_reason,
+                )
+            elif finish_reason == "length":
+                logger.warning(
+                    "llm_response_truncated",
+                    provider=self.provider_name,
+                    model=model,
+                    output_tokens=output_tokens,
+                    hint="Increase max_tokens or reduce context size",
+                )
+
+            return result
 
         except Exception as e:
             self._handle_error(e, model)
@@ -259,51 +291,55 @@ class OpenAILLMProvider(BaseLLMProvider):
             if stop:
                 params["stop"] = stop
 
-            # DIAGNOSTIC: Log the exact request being sent
-            logger.warning(
-                f"[DIAG] Calling OpenAI with: model={model}, msg_count={len(messages)}, temp={params.get('temperature')}, max_tokens={params.get('max_completion_tokens') or params.get('max_tokens')}"
+            # Log request summary at DEBUG level
+            logger.debug(
+                "llm_stream_request",
+                provider=self.provider_name,
+                model=model,
+                msg_count=len(messages),
+                temperature=params.get("temperature"),
+                max_tokens=params.get("max_completion_tokens") or params.get("max_tokens"),
             )
-            if messages:
-                logger.warning(
-                    f"[DIAG] Last message role={messages[-1].get('role')}, content_len={len(str(messages[-1].get('content', '')))}"
-                )
 
             stream = await self.client.chat.completions.create(**params)
 
             chunk_count = 0
-            content_count = 0
+            content_chunks = 0
             async for chunk in stream:
                 chunk_count += 1
                 if chunk.choices:
                     delta = chunk.choices[0].delta
-
-                    # DIAGNOSTIC: Log first few chunks to understand structure
-                    finish_reason = chunk.choices[0].finish_reason
-                    if chunk_count <= 3 or finish_reason:
-                        logger.warning(
-                            f"[DIAG] Chunk {chunk_count}: delta={delta}, finish_reason={finish_reason}, delta.reasoning_content={getattr(delta, 'reasoning_content', None)}"
-                        )
-
                     if delta.content:
-                        content_count += 1
+                        content_chunks += 1
                         yield delta.content
                     elif getattr(delta, "reasoning_content", None):
-                        # Some reasoning models use reasoning_content
-                        content_count += 1
+                        content_chunks += 1
                         yield delta.reasoning_content
                     elif getattr(delta, "refusal", None):
                         yield f"[REFUSAL] {delta.refusal}"
-                else:
-                    # Keepalive or empty chunk
-                    if chunk_count <= 3:
-                        logger.warning(f"[DIAG] Empty chunk {chunk_count}: {chunk}")
 
-            logger.warning(
-                f"[DIAG] Stream finished: total_chunks={chunk_count}, content_chunks={content_count}"
+            logger.info(
+                "llm_stream_complete",
+                provider=self.provider_name,
+                model=model,
+                total_chunks=chunk_count,
+                content_chunks=content_chunks,
             )
+            if content_chunks == 0:
+                logger.warning(
+                    "llm_stream_no_content",
+                    provider=self.provider_name,
+                    model=model,
+                    total_chunks=chunk_count,
+                )
 
         except Exception as e:
-            logger.error(f"[DIAG] Stream error for model {model}: {e}", exc_info=True)
+            logger.error(
+                "llm_stream_error",
+                provider=self.provider_name,
+                model=model,
+                exc_info=True,
+            )
             self._handle_error(e, model)
 
     def _handle_error(self, e: Exception, model: str) -> None:
