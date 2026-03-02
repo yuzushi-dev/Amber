@@ -70,11 +70,19 @@ async def get_community(community_id: str, tenant_id: str = Depends(get_tenant_i
 
 
 @router.post("/refresh")
-async def trigger_community_refresh(tenant_id: str = Depends(get_tenant_id)):
+async def trigger_community_refresh(
+    skip_detection: bool = Query(
+        False,
+        description="If true, skip community detection (Leiden) and only "
+        "run summarization + embedding on existing communities. "
+        "Use this to resume summarization without wiping already-summarized communities.",
+    ),
+    tenant_id: str = Depends(get_tenant_id),
+):
     """
     Manually trigger community detection and summarization for the tenant.
     """
     from src.workers.tasks import process_communities
 
-    task = process_communities.delay(tenant_id)
-    return {"task_id": task.id, "status": "queued"}
+    task = process_communities.delay(tenant_id, skip_detection=skip_detection)
+    return {"task_id": task.id, "status": "queued", "skip_detection": skip_detection}

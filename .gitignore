@@ -167,6 +167,7 @@ node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/playwright-report/
 .npm/
 *.tsbuildinfo
 
@@ -240,3 +241,6 @@ backups/
 # Local Docker secrets
 docker/garage/garage.toml
 docker-compose.yml.bak.*
+
+# Documentation
+documentation_html/

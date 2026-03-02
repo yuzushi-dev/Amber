@@ -92,6 +92,11 @@ async def lifespan(app: FastAPI):
             llm_fallback_standard=settings.llm_fallback_standard,
             llm_fallback_premium=settings.llm_fallback_premium,
             embedding_fallback_order=settings.embedding_fallback_order,
+            openrouter_api_key=settings.openrouter_api_key,
+            openrouter_base_url=settings.openrouter_base_url,
+            nvidia_nim_api_key=settings.nvidia_nim_api_key,
+            nvidia_nim_base_url=settings.nvidia_nim_base_url,
+            llm_fallback_enabled=settings.llm_fallback_enabled,
         )
         logger.info("LLM Providers initialized")
     except Exception as e:

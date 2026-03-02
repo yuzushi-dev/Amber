@@ -272,6 +272,29 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(
         default="http://localhost:11434/v1", alias="OLLAMA_BASE_URL", description="Ollama base URL"
     )
+
+    # Fallback LLM Providers (OpenAI-compatible)
+    openrouter_api_key: str = Field(
+        default="", alias="OPENROUTER_API_KEY", description="OpenRouter API key"
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        alias="OPENROUTER_BASE_URL",
+        description="OpenRouter base URL",
+    )
+    nvidia_nim_api_key: str = Field(
+        default="", alias="NVIDIA_NIM_API_KEY", description="Nvidia NIM API key"
+    )
+    nvidia_nim_base_url: str = Field(
+        default="https://integrate.api.nvidia.com/v1",
+        alias="NVIDIA_NIM_BASE_URL",
+        description="Nvidia NIM base URL",
+    )
+
+    # LLM Fallback Configuration
+    llm_fallback_enabled: bool = Field(
+        default=True, alias="LLM_FALLBACK_ENABLED", description="Enable LLM provider fallbacks"
+    )
     default_llm_provider: str | None = Field(
         default=None, alias="DEFAULT_LLM_PROVIDER", description="Default LLM provider"
     )

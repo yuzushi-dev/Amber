@@ -66,14 +66,15 @@ def reset_client() -> None:
     _openai_client = None
 
 
-def _get_openai_client(api_key: str, base_url: str):
+def _get_openai_client(api_key: str, base_url: str, timeout: float | None = 60.0):
     """Get or create OpenAI client configured for Ollama."""
     global _openai_client
     try:
         from openai import AsyncOpenAI
 
         # API key is required by client but ignored by Ollama
-        return AsyncOpenAI(api_key=api_key or "ollama", base_url=base_url)
+        # max_retries=0: let FailoverLLMProvider handle retries at the application level
+        return AsyncOpenAI(api_key=api_key or "ollama", base_url=base_url, max_retries=0, timeout=timeout)
     except ImportError as e:
         raise ImportError(
             "openai package is required. Install with: pip install openai>=1.10.0"
@@ -115,6 +116,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             self._client = _get_openai_client(
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
+                timeout=self.config.timeout or 300.0,
             )
         return self._client
 
@@ -470,6 +472,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             self._client = _get_openai_client(
                 api_key=self.config.api_key or "ollama",
                 base_url=self.config.base_url,
+                timeout=self.config.timeout or 300.0,
             )
         return self._client
 
