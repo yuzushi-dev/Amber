@@ -118,6 +118,15 @@ def _auto_register():
     except ImportError:
         pass
 
+    # OpenAI-compatible fallback providers
+    try:
+        from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
+
+        register_llm_provider("nvidia_nim", OpenAILLMProvider)
+        register_llm_provider("openrouter", OpenAILLMProvider)
+    except ImportError:
+        pass
+
 
 _auto_register()
 
@@ -148,6 +157,12 @@ class ProviderFactory:
         llm_fallback_premium: str | None = None,
         embedding_fallback_order: str | None = None,
         enable_local_fallback: bool = True,
+        # Fallback provider keys
+        openrouter_api_key: str | None = None,
+        openrouter_base_url: str | None = None,
+        nvidia_nim_api_key: str | None = None,
+        nvidia_nim_base_url: str | None = None,
+        llm_fallback_enabled: bool = True,
     ):
         self.openai_api_key = openai_api_key
         self.anthropic_api_key = anthropic_api_key
@@ -163,6 +178,12 @@ class ProviderFactory:
         self.llm_fallback_premium = llm_fallback_premium
         self.embedding_fallback_order = embedding_fallback_order
         self.enable_local_fallback = enable_local_fallback
+        # Fallback providers
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_base_url = openrouter_base_url or "https://openrouter.ai/api/v1"
+        self.nvidia_nim_api_key = nvidia_nim_api_key
+        self.nvidia_nim_base_url = nvidia_nim_base_url or "https://integrate.api.nvidia.com/v1"
+        self.llm_fallback_enabled = llm_fallback_enabled
 
         # Initialize Usage Tracker
         self.usage_tracker = UsageTracker(session_factory=async_session_maker)
@@ -215,13 +236,54 @@ class ProviderFactory:
             provider_name = self.default_llm_provider
 
         if provider_name:
-            return self._create_llm_provider(provider_name, model=model)
+            primary = self._create_llm_provider(provider_name, model=model)
+            # If fallbacks enabled, wrap with fallback chain
+            if self.llm_fallback_enabled and with_failover:
+                chain = parse_fallback_chain(None, default=DEFAULT_LLM_FALLBACKS.get(tier, []))
+                logger.info(
+                    f"Building failover chain: primary={provider_name}, tier={tier}, "
+                    f"chain={chain}, nim_key={'YES' if self.nvidia_nim_api_key else 'NO'}, "
+                    f"or_key={'YES' if self.openrouter_api_key else 'NO'}"
+                )
+                providers = [primary]
+                for fb_provider, fb_model in chain:
+                    if fb_provider == provider_name:
+                        continue  # Skip — already the primary
+                    if not self._is_llm_provider_available(fb_provider):
+                        logger.info(f"Skipping unavailable fallback provider: {fb_provider}")
+                        continue
+                    providers.append(self._create_llm_provider(fb_provider, model=fb_model))
+                logger.info(f"Final failover chain: {[p.provider_name for p in providers]}")
+                if len(providers) > 1:
+                    return FailoverLLMProvider(providers)
+            return primary
 
         # Check for explicit default provider
         if self.default_llm_provider:
-            return self._create_llm_provider(
+            primary = self._create_llm_provider(
                 self.default_llm_provider, model=self.default_llm_model
             )
+            # If fallbacks disabled, return primary only
+            if not self.llm_fallback_enabled:
+                return primary
+            # Build fallback chain behind the primary
+            fallback_value = {
+                ProviderTier.LOCAL: self.llm_fallback_local,
+                ProviderTier.ECONOMY: self.llm_fallback_economy,
+                ProviderTier.STANDARD: self.llm_fallback_standard,
+                ProviderTier.PREMIUM: self.llm_fallback_premium,
+            }.get(tier)
+            chain = parse_fallback_chain(fallback_value, default=DEFAULT_LLM_FALLBACKS[tier])
+            providers = [primary]
+            for fb_provider, model_name in chain:
+                if fb_provider == self.default_llm_provider:
+                    continue  # Skip the primary — already first in the list
+                if not self._is_llm_provider_available(fb_provider):
+                    continue
+                providers.append(self._create_llm_provider(fb_provider, model=model_name))
+            if with_failover and len(providers) > 1:
+                return FailoverLLMProvider(providers)
+            return providers[0]
 
         fallback_value = {
             ProviderTier.LOCAL: self.llm_fallback_local,
@@ -233,11 +295,7 @@ class ProviderFactory:
         chain = parse_fallback_chain(fallback_value, default=DEFAULT_LLM_FALLBACKS[tier])
         providers = []
         for provider, model_name in chain:
-            if provider == "openai" and not self.openai_api_key:
-                continue
-            if provider == "anthropic" and not self.anthropic_api_key:
-                continue
-            if provider == "ollama" and not self.ollama_base_url:
+            if not self._is_llm_provider_available(provider):
                 continue
             providers.append(self._create_llm_provider(provider, model=model_name))
 
@@ -247,10 +305,27 @@ class ProviderFactory:
                 provider="factory",
             )
 
+        if not self.llm_fallback_enabled:
+            return providers[0]
+
         if with_failover and len(providers) > 1:
             return FailoverLLMProvider(providers)
 
         return providers[0]
+
+    def _is_llm_provider_available(self, provider: str) -> bool:
+        """Check if a provider has the necessary credentials configured."""
+        if provider == "openai" and not self.openai_api_key:
+            return False
+        if provider == "anthropic" and not self.anthropic_api_key:
+            return False
+        if provider == "ollama" and not self.ollama_base_url:
+            return False
+        if provider == "nvidia_nim" and not self.nvidia_nim_api_key:
+            return False
+        if provider == "openrouter" and not self.openrouter_api_key:
+            return False
+        return True
 
     def get_embedding_provider(
         self,
@@ -316,6 +391,7 @@ class ProviderFactory:
         model: str | None = None,
     ) -> BaseLLMProvider:
         """Create an LLM provider instance."""
+        from src.shared.model_registry import DEFAULT_LLM_MODEL
         cache_key = f"{name}:{model}"
         if cache_key in self._llm_cache:
             return self._llm_cache[cache_key]
@@ -324,27 +400,43 @@ class ProviderFactory:
         if not provider_class:
             raise ValueError(f"Unknown LLM provider: {name}")
 
-        # Get API key for provider
+        # Get API key and base URL for provider
         api_key = None
+        base_url = None
+
         if name == "openai":
             api_key = self.openai_api_key
         elif name == "anthropic":
             api_key = self.anthropic_api_key
-        if name == "ollama":
+        elif name == "ollama":
             api_key = "ollama"  # placeholder
-
-        base_url = None
-        if name == "ollama":
             base_url = self.ollama_base_url
+        elif name == "nvidia_nim":
+            api_key = self.nvidia_nim_api_key
+            base_url = self.nvidia_nim_base_url
+        elif name == "openrouter":
+            api_key = self.openrouter_api_key
+            base_url = self.openrouter_base_url
 
         config = ProviderConfig(
             api_key=api_key, base_url=base_url, usage_tracker=self.usage_tracker
         )
-        provider = provider_class(config)
 
-        # Override default model if specified
+        # OpenRouter requires extra HTTP headers for free-tier models
+        if name == "openrouter":
+            config.extra["default_headers"] = {
+                "HTTP-Referer": "https://amber.local",
+                "X-Title": "Amber RAG",
+            }
+
+        provider = provider_class(config)
+        provider.provider_name = name
+
+        # Override default model if specified, or use the registry default
         if model:
             provider.default_model = model
+        elif name in DEFAULT_LLM_MODEL:
+            provider.default_model = DEFAULT_LLM_MODEL[name]
 
         self._llm_cache[cache_key] = provider
         return provider
@@ -420,6 +512,11 @@ def init_providers(
     llm_fallback_standard: str | None = None,
     llm_fallback_premium: str | None = None,
     embedding_fallback_order: str | None = None,
+    openrouter_api_key: str | None = None,
+    openrouter_base_url: str | None = None,
+    nvidia_nim_api_key: str | None = None,
+    nvidia_nim_base_url: str | None = None,
+    llm_fallback_enabled: bool = True,
     **kwargs,
 ) -> ProviderFactory:
     """Initialize the default provider factory."""
@@ -437,6 +534,11 @@ def init_providers(
         llm_fallback_standard=llm_fallback_standard,
         llm_fallback_premium=llm_fallback_premium,
         embedding_fallback_order=embedding_fallback_order,
+        openrouter_api_key=openrouter_api_key,
+        openrouter_base_url=openrouter_base_url,
+        nvidia_nim_api_key=nvidia_nim_api_key,
+        nvidia_nim_base_url=nvidia_nim_base_url,
+        llm_fallback_enabled=llm_fallback_enabled,
         **kwargs,
     )
     set_provider_factory_builder(ProviderFactory)
