@@ -45,8 +45,8 @@ class CommunitySummarizer:
 
         # 1. Fetch data for community
         data = await self._fetch_community_data(community_id, tenant_id)
-        if not data["entities"] and not data["child_communities"]:
-            logger.warning(f"Community {community_id} has no members. Skipping.")
+        if not data["entities"] and not data["child_summaries"]:
+            logger.warning(f"Community {community_id} has no entities and no child summaries. Skipping.")
             return {}
 
         # 2. Format for LLM
@@ -131,30 +131,55 @@ class CommunitySummarizer:
         - retry those communities in the next batch
         - optionally reduce concurrency by 1 when rate limiting is significant
         """
-        # 1. Fetch ALL candidate IDs
-        # For 15k communities, fetching just IDs is fine (~1MB RAM).
+        # 1. Fetch candidate IDs, grouped by level.
+        # Level 0 communities have direct entity members.
+        # Level 1+ communities only have child community summaries.
+        # We MUST process level 0 first so child summaries exist when level 1+ is processed.
         query = """
         MATCH (c:Community)
         WHERE c.tenant_id = $tenant_id
           AND (c.summary IS NULL OR c.is_stale = true)
-        RETURN c.id as id
+        RETURN c.id as id, coalesce(c.level, 0) as level
         ORDER BY c.level ASC
         """
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
-        community_ids = [r["id"] for r in results]
-        total = len(community_ids)
+        level_0_ids = [r["id"] for r in results if r["level"] == 0]
+        higher_level_ids = [r["id"] for r in results if r["level"] > 0]
+        total = len(level_0_ids) + len(higher_level_ids)
         current_concurrency = max(1, int(concurrency))
         logger.info(
-            f"Found {total} communities needing summarization for tenant {tenant_id}. "
+            f"Found {total} communities needing summarization for tenant {tenant_id} "
+            f"(level 0: {len(level_0_ids)}, level 1+: {len(higher_level_ids)}). "
             f"Concurrency: {current_concurrency}"
         )
 
-        if not community_ids:
+        if not total:
             return
 
-        # 2. Process in Batches
-        # This prevents creating 15k coroutines at once which would blow up memory.
+        # Process in two passes: level 0 first, then level 1+
+        for pass_label, community_ids in [("level 0", level_0_ids), ("level 1+", higher_level_ids)]:
+            if not community_ids:
+                logger.info(f"No {pass_label} communities to summarize. Skipping pass.")
+                continue
+            logger.info(f"Starting {pass_label} pass: {len(community_ids)} communities")
+            await self._process_community_batch(
+                community_ids=community_ids,
+                tenant_id=tenant_id,
+                batch_size=batch_size,
+                concurrency=current_concurrency,
+                tenant_config=tenant_config,
+            )
+
+    async def _process_community_batch(
+        self,
+        community_ids: list[str],
+        tenant_id: str,
+        batch_size: int,
+        concurrency: int,
+        tenant_config: dict[str, Any] | None = None,
+    ):
+        """Process a list of community IDs in batches with rate-limit handling."""
         from collections import deque
 
         # "Many 429s" threshold: reduce concurrency by 1 for the NEXT batch.
@@ -167,7 +192,9 @@ class CommunitySummarizer:
 
         carry_over: deque[str] = deque()
         cursor = 0
+        total = len(community_ids)
         batch_num = 0
+        current_concurrency = max(1, concurrency)
 
         while cursor < total or carry_over:
             batch_num += 1
@@ -313,12 +340,12 @@ class CommunitySummarizer:
         text = text.strip()
 
         try:
-            return json.loads(text)
+            return json.loads(text, strict=False)
         except json.JSONDecodeError:
             # Try to find JSON block with regex
             match = re.search(r"(\{.*\})", text, re.DOTALL)
             if match:
-                return json.loads(match.group(1))
+                return json.loads(match.group(1), strict=False)
             raise
 
     async def _persist_summary(self, community_id: str, summary: dict[str, Any]):

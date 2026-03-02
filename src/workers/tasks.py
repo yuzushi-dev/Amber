@@ -185,9 +185,16 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     max_retries=2,
     queue="low_priority",
 )
-def process_communities(self, tenant_id: str) -> dict:
+def process_communities(self, tenant_id: str, skip_detection: bool = False) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
+
+    Args:
+        tenant_id: Tenant ID to process communities for.
+        skip_detection: If True, skip community detection (Leiden) and only
+                        run summarization + embedding on existing communities.
+                        Useful for retrying after embedding failures without
+                        wiping already-summarized communities.
     """
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
@@ -223,7 +230,7 @@ def process_communities(self, tenant_id: str) -> dict:
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
     deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
-        result = run_async(_process_communities_async(tenant_id))
+        result = run_async(_process_communities_async(tenant_id, skip_detection=skip_detection))
         return result
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
@@ -243,7 +250,7 @@ def process_communities(self, tenant_id: str) -> dict:
                 pass
 
 
-async def _process_communities_async(tenant_id: str) -> dict:
+async def _process_communities_async(tenant_id: str, skip_detection: bool = False) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
     from src.api.config import settings
@@ -259,15 +266,20 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.graph.application.communities.leiden import CommunityDetector
     from src.core.graph.application.communities.summarizer import CommunitySummarizer
     from src.core.retrieval.application.embeddings_service import EmbeddingService
+    from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     try:
-        # 1. Detection
-        detector = CommunityDetector(platform.neo4j_client)
-        detect_res = await detector.detect_communities(tenant_id)
+        # 1. Detection (skip if flag is set — useful for retrying summarization/embedding only)
+        detect_res = {"status": "skipped_by_flag", "community_count": 0}
+        if not skip_detection:
+            detector = CommunityDetector(platform.neo4j_client)
+            detect_res = await detector.detect_communities(tenant_id)
 
-        if detect_res["status"] == "skipped":
-            return detect_res
+            if detect_res["status"] == "skipped":
+                return detect_res
+        else:
+            logger.info(f"Skipping community detection for tenant {tenant_id} (skip_detection=True)")
 
         tuning_service = TuningService(get_session_maker())
         tenant_config = await tuning_service.get_tenant_config(tenant_id)
@@ -286,6 +298,11 @@ async def _process_communities_async(tenant_id: str) -> dict:
             llm_fallback_economy=settings.llm_fallback_economy,
             llm_fallback_standard=settings.llm_fallback_standard,
             llm_fallback_premium=settings.llm_fallback_premium,
+            openrouter_api_key=settings.openrouter_api_key,
+            openrouter_base_url=settings.openrouter_base_url,
+            nvidia_nim_api_key=settings.nvidia_nim_api_key,
+            nvidia_nim_base_url=settings.nvidia_nim_base_url,
+            llm_fallback_enabled=settings.llm_fallback_enabled,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
@@ -299,30 +316,38 @@ async def _process_communities_async(tenant_id: str) -> dict:
         )
 
         # 3. Embeddings
-        embeddings_config = getattr(settings, "embeddings", None)
-        embedding_model = (
-            getattr(embeddings_config, "default_model", None) if embeddings_config else None
+        # Use the already-configured ProviderFactory (which respects default_embedding_provider)
+        # to get the correct embedding provider, instead of letting EmbeddingService create
+        # its own factory that may default to OpenAI.
+        embedding_provider = factory.get_embedding_provider(
+            provider_name=settings.default_embedding_provider,
+            model=settings.default_embedding_model,
         )
-        if not embedding_model:
-            provider = settings.default_embedding_provider or "openai"
-            embedding_model = (
-                settings.default_embedding_model
-                or DEFAULT_EMBEDDING_MODEL.get(provider)
-                or DEFAULT_EMBEDDING_MODEL.get("openai")
-            )
+        embedding_model = (
+            settings.default_embedding_model
+            or DEFAULT_EMBEDDING_MODEL.get(settings.default_embedding_provider or "ollama")
+        )
         embedding_svc = EmbeddingService(
-            openai_api_key=settings.openai_api_key,
+            provider=embedding_provider,
             model=embedding_model,
-            ollama_base_url=res_ollama_url,
         )
         vector_store_factory = build_vector_store_factory()
         comm_vector_store = vector_store_factory(
             settings.embedding_dimensions or 1536,
             collection_name="community_embeddings",
         )
+        
+        # Initialize Sparse Service
+        sparse_svc = None
+        try:
+            sparse_svc = SparseEmbeddingService()
+        except Exception as e:
+            logger.warning(f"Failed to initialize SparseEmbeddingService: {e}")
+
         comm_embedding_svc = CommunityEmbeddingService(
             embedding_service=embedding_svc,
             vector_store=comm_vector_store,
+            sparse_embedding_service=sparse_svc,
         )
 
         # Fetch all communities that need embedding (just summarized)
@@ -388,6 +413,14 @@ def deep_reset_singletons():
         reset_ollama_client()
     except Exception:
         pass  # Ollama module may not be available in all envs
+
+    # 4b. OpenAI client cache (supports multiple providers: OpenAI, OpenRouter, NIM)
+    try:
+        from src.core.generation.infrastructure.providers import openai as openai_mod
+
+        openai_mod._openai_clients.clear()
+    except Exception:
+        pass
 
     # 5. Document Summarizer (Reset singleton instance)
     try:
@@ -479,6 +512,11 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         llm_fallback_standard=settings.llm_fallback_standard,
         llm_fallback_premium=settings.llm_fallback_premium,
         embedding_fallback_order=settings.embedding_fallback_order,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_base_url=settings.openrouter_base_url,
+        nvidia_nim_api_key=settings.nvidia_nim_api_key,
+        nvidia_nim_base_url=settings.nvidia_nim_base_url,
+        llm_fallback_enabled=settings.llm_fallback_enabled,
     )
 
     from src.core.graph.domain.ports.graph_client import set_graph_client

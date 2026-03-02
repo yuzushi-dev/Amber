@@ -5,6 +5,7 @@ Generation Service
 LLM-based answer generation with context injection and groundedness checks.
 """
 
+import os
 import logging
 import re
 import time
@@ -103,6 +104,11 @@ class GenerationService:
         config: GenerationConfig | None = None,
         document_repository: DocumentRepository | None = None,
         tenant_repository: TenantRepository | None = None,
+        nvidia_nim_api_key: str | None = None,
+        nvidia_nim_base_url: str | None = None,
+        openrouter_api_key: str | None = None,
+        openrouter_base_url: str | None = None,
+        llm_fallback_enabled: bool = True,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
@@ -126,11 +132,16 @@ class GenerationService:
                     ollama_base_url=ollama_base_url,
                     default_llm_provider=default_llm_provider,
                     default_llm_model=default_llm_model,
+                    nvidia_nim_api_key=nvidia_nim_api_key,
+                    nvidia_nim_base_url=nvidia_nim_base_url,
+                    openrouter_api_key=openrouter_api_key,
+                    openrouter_base_url=openrouter_base_url,
+                    llm_fallback_enabled=llm_fallback_enabled,
                 )
             else:
                 factory = get_provider_factory()
             self.factory = factory
-            self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=False)
+            self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=True)
 
         self.verifier = SourceVerifier()
 
@@ -161,6 +172,11 @@ class GenerationService:
             ollama_base_url=t_ollama_url,
             default_llm_provider=settings.default_llm_provider,
             default_llm_model=settings.default_llm_model,
+            nvidia_nim_api_key=getattr(settings, "nvidia_nim_api_key", None) or os.environ.get("NVIDIA_NIM_API_KEY") or None,
+            nvidia_nim_base_url=getattr(settings, "nvidia_nim_base_url", None) or os.environ.get("NVIDIA_NIM_BASE_URL"),
+            openrouter_api_key=getattr(settings, "openrouter_api_key", None) or os.environ.get("OPENROUTER_API_KEY") or None,
+            openrouter_base_url=getattr(settings, "openrouter_base_url", None) or os.environ.get("OPENROUTER_BASE_URL"),
+            llm_fallback_enabled=getattr(settings, "llm_fallback_enabled", True),
         )
 
     def _normalize_citations(self, text: str) -> str:
@@ -323,7 +339,7 @@ class GenerationService:
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm
@@ -609,7 +625,7 @@ class GenerationService:
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm
@@ -708,7 +724,7 @@ class GenerationService:
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm

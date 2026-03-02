@@ -9,6 +9,7 @@ Infrastructure adapters are created here and injected into application services.
 """
 
 import logging
+import os
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -561,6 +562,14 @@ def build_generation_service(session=None):
         doc_repo = PostgresDocumentRepository(session)
         tenant_repo = PostgresTenantRepository(session)
 
+    _nim_key = os.environ.get("NVIDIA_NIM_API_KEY") or None
+    _or_key = os.environ.get("OPENROUTER_API_KEY") or None
+    logger.warning(
+        f"build_generation_service: nim_key={'YES' if _nim_key else 'NO'}, "
+        f"or_key={'YES' if _or_key else 'NO'}, "
+        f"fallback_enabled={os.environ.get('LLM_FALLBACK_ENABLED', 'true')}"
+    )
+
     return GenerationService(
         openai_api_key=openai_key or None,
         anthropic_api_key=anthropic_key or None,
@@ -569,6 +578,11 @@ def build_generation_service(session=None):
         default_llm_model=settings.default_llm_model,
         document_repository=doc_repo,
         tenant_repository=tenant_repo,
+        nvidia_nim_api_key=os.environ.get("NVIDIA_NIM_API_KEY") or None,
+        nvidia_nim_base_url=os.environ.get("NVIDIA_NIM_BASE_URL"),
+        openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
+        openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL"),
+        llm_fallback_enabled=os.environ.get("LLM_FALLBACK_ENABLED", "true").lower() != "false",
     )
 
 
