@@ -258,6 +258,9 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
 
     deep_reset_singletons()
     configure_settings(settings)
+    
+    from src.core.database.session import configure_database
+    configure_database(settings.db.database_url)
 
     from src.core.admin_ops.application.tuning_service import TuningService
     from src.core.database.session import get_session_maker

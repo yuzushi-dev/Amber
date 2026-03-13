@@ -206,6 +206,7 @@ class RetrievalService:
             llm,
             embedding_service=self.embedding_service,
             provider_factory=factory,
+            neo4j_client=self.neo4j_client,
         )
         self.drift_search = DriftSearchService(self, llm, provider_factory=factory)
 
@@ -353,11 +354,11 @@ class RetrievalService:
                     tenant_config=tenant_config,
                 )
                 result = RetrievalResult(
-                    chunks=[{"content": res["answer"], "chunk_id": "summary", "score": 1.0}],
+                    chunks=res.get("candidates", []),
                     query=query,
                     tenant_id=tenant_id,
                     latency_ms=0,
-                    trace=trace + [{"step": "global_search", "sources": res["sources"]}],
+                    trace=trace + [{"step": "global_search", "sources": [c["chunk_id"] for c in res.get("candidates", [])]}],
                 )
             elif search_mode == SearchMode.DRIFT:
                 res = await self.drift_search.search(
