@@ -225,8 +225,16 @@ class IngestionService:
             # 4. Extract Content (Fallback Chain)
             import mimetypes
 
+            # Use stored content_type from upload metadata first,
+            # then fall back to mimetypes.guess_type() (which returns None for .md files)
+            stored_ct = None
+            if document.metadata_ and isinstance(document.metadata_, dict):
+                stored_ct = document.metadata_.get("content_type")
+
             mime_type, _ = mimetypes.guess_type(document.filename)
-            if not mime_type:
+            if stored_ct and stored_ct != "application/octet-stream":
+                mime_type = stored_ct
+            elif not mime_type:
                 mime_type = "application/octet-stream"
 
             extractor = self.content_extractor or get_content_extractor()
