@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 class GlobalSearchService:
     """
-    Implements Global Search using a Map-Reduce approach over community reports.
+    Implements Global Search Map phase over community reports,
+    yielding structured points linked to their backing documents.
     """
 
     def __init__(
@@ -22,12 +23,14 @@ class GlobalSearchService:
         embedding_service: Any,
         map_chunk_size: int = 2000,
         provider_factory: ProviderFactoryPort | None = None,
+        neo4j_client: Any = None,
     ):
         self.vector_store = vector_store
         self.llm = llm_provider
         self.embedding_service = embedding_service
         self.map_chunk_size = map_chunk_size
         self.factory = provider_factory
+        self.neo4j_client = neo4j_client
 
     async def search(
         self,
@@ -39,15 +42,15 @@ class GlobalSearchService:
         tenant_config: dict | None = None,
     ) -> dict[str, Any]:
         """
-        Execute Global Search:
-        1. Map: Score and summarize relevant community reports.
-        2. Reduce: Synthesize the final answer.
+        Execute Global Search (Map Phase Only):
+        1. Retrieve relevant community reports via vector search.
+        2. Map: Extract key points from each report.
+        3. Resolve: Find original documents backing those communities.
+        Returns candidates for the standard Generation (Reduce) phase.
         """
         # 1. Retrieve relevant community reports via vector search
-        # Embed the query
         query_vector = await self.embedding_service.embed_single(query)
 
-        # Community report embeddings were stored in Phase 4
         reports = await self.vector_store.search(
             query_vector=query_vector,
             tenant_id=tenant_id,
@@ -56,10 +59,9 @@ class GlobalSearchService:
         )
 
         if not reports:
-            return {"answer": "No relevant communities found for this query.", "sources": []}
+            return {"candidates": []}
 
         # 2. Map Phase: Extract key points from each report
-        # In a real implementation, we would call the LLM for each report or batch them.
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.shared.kernel.runtime import get_settings
 
@@ -70,11 +72,6 @@ class GlobalSearchService:
             step_id="retrieval.global_map",
             settings=settings,
         )
-        reduce_cfg = resolve_llm_step_config(
-            tenant_config=tenant_config,
-            step_id="retrieval.global_reduce",
-            settings=settings,
-        )
 
         map_tasks = []
         for report in reports:
@@ -83,37 +80,57 @@ class GlobalSearchService:
 
         map_results = await asyncio.gather(*map_tasks)
 
-        # 3. Reduce Phase: Synthesize final answer
-        all_points = "\n".join([r for r in map_results if r])
+        # 3. Resolve Original Documents
+        community_ids = [r.chunk_id for r in reports]
+        origins_map = await self._resolve_community_origins(community_ids, tenant_id)
 
-        reduce_prompt = f"""
-        You are an analyst synthesizing information from multiple community reports.
-        User Query: {query}
+        # 4. Pack into Candidates
+        candidates = []
+        for report, points in zip(reports, map_results, strict=True):
+            if not points or points.strip() == "NONE":
+                continue
+            
+            origin_doc_id = origins_map.get(report.chunk_id, "unknown")
+            candidates.append({
+                "chunk_id": report.chunk_id,
+                "document_id": origin_doc_id,
+                "content": f"Community Summary Findings:\n{points}",
+                "score": float(report.score) if hasattr(report, "score") else 1.0,
+                "metadata": {
+                    "title": f"Community Insight Context",
+                    "original_community": report.chunk_id
+                }
+            })
 
-        Key points extracted from relevant communities:
-        {all_points}
+        return {"candidates": candidates}
 
-        Based on the above points, provide a comprehensive, holistic answer to the user query.
-        If the information is contradictory, highlight the different perspectives.
-        Answer:
+    async def _resolve_community_origins(self, community_ids: list[str], tenant_id: str) -> dict[str, str]:
         """
-
-        reduce_provider = self._get_provider(reduce_cfg)
-        reduce_kwargs: dict[str, Any] = {}
-        if reduce_cfg.temperature is not None:
-            reduce_kwargs["temperature"] = reduce_cfg.temperature
-        if reduce_cfg.seed is not None:
-            reduce_kwargs["seed"] = reduce_cfg.seed
-
-        reduce_res = await reduce_provider.generate(
-            reduce_prompt, work_class="chat", **reduce_kwargs
-        )
-        final_answer = reduce_res.text or ""
-
-        return {
-            "answer": final_answer,
-            "sources": [r.chunk_id for r in reports],  # Community IDs
-        }
+        Finds the primary underlying document for each community using Neo4j.
+        Returns a mapping of {community_id: document_id}.
+        """
+        if not self.neo4j_client or not community_ids:
+            return {}
+            
+        try:
+            query = """
+            MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(com:Community)
+            WHERE com.id IN $community_ids AND com.tenant_id = $tenant_id
+            WITH com.id AS community_id, d.id AS doc_id, count(e) AS entity_count
+            ORDER BY entity_count DESC
+            WITH community_id, collect(doc_id)[0] AS primary_doc_id
+            RETURN community_id, primary_doc_id
+            """
+            
+            results = await self.neo4j_client.execute_read(
+                query, 
+                {"community_ids": community_ids, "tenant_id": tenant_id}
+            )
+            
+            return {row["community_id"]: row["primary_doc_id"] for row in results if row.get("community_id")}
+        except Exception as e:
+            logger.warning(f"Failed to resolve community origins: {e}")
+            return {}
 
     async def _map_report(self, query: str, report_content: str, llm_cfg: Any) -> str:
         """LLM-based Map step to extract relevant points from a report."""
