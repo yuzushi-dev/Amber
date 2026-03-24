@@ -293,6 +293,8 @@ class RetrievalService:
         include_trace: bool = False,
         options: QueryOptions | None = None,
         history: list[dict] | None = None,
+        global_rules: list[str] | None = None,
+        memory_context: str | None = None,
     ) -> RetrievalResult:
         """
         Retrieve relevant chunks for a query with Phase 5 analysis.
@@ -319,10 +321,13 @@ class RetrievalService:
 
         # Step 1: Contextual Rewriting
         processed_query = query
-        if options.use_rewrite and history:
+        # Rewrite if history is provided OR explicit system constraints (rules/memory) are given
+        if options.use_rewrite and (history or global_rules or memory_context):
             processed_query = await self.rewriter.rewrite(
                 query,
-                history,
+                history=history,
+                global_rules=global_rules,
+                memory_context=memory_context,
                 tenant_config=tenant_config,
             )
 

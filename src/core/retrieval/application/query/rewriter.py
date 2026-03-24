@@ -55,7 +55,9 @@ class QueryRewriter:
     async def rewrite(
         self,
         query: str,
-        history: list[dict] | str = "",
+        history: list[dict] | str | None = None,
+        global_rules: list[str] | None = None,
+        memory_context: str | None = None,
         timeout_sec: float = 2.0,
         tenant_config: dict | None = None,
     ) -> str:
@@ -70,11 +72,11 @@ class QueryRewriter:
         Returns:
             Rewritten query or original if failure/timeout
         """
-        if not history:
+        if not history and not global_rules and not memory_context:
             return query
 
         # Convert list history to string if needed
-        history_str = history
+        history_str = history or ""
         if isinstance(history, list):
             history_str = "\n".join(
                 [
@@ -83,7 +85,18 @@ class QueryRewriter:
                 ]
             )
 
-        prompt = QUERY_REWRITE_PROMPT.format(history=history_str, query=query)
+        rules_str = ""
+        if global_rules:
+            rules_str = "\n".join([f"- {rule}" for rule in global_rules])
+            
+        memory_str = memory_context or ""
+
+        prompt = QUERY_REWRITE_PROMPT.format(
+            history=history_str, 
+            query=query,
+            rules=rules_str,
+            memory=memory_str
+        )
 
         start_time = time.perf_counter()
         try:

@@ -503,6 +503,42 @@ async def _query_stream_impl(
             # Add timeout to prevent hangs
             import asyncio
 
+            # Fetch rules and memory BEFORE retrieval
+            global_rules_list = None
+            try:
+                from src.core.admin_ops.application.rules_service import get_rules_service
+                rules_service = get_rules_service()
+                active_rules_resp = await rules_service.get_active_rules()
+                if active_rules_resp:
+                    global_rules_list = active_rules_resp
+            except Exception as e:
+                logger.warning(f"Failed to fetch global rules for retrieval: {e}")
+
+            memory_context_str = None
+            user_id = http_request.headers.get("X-User-ID", "default_user")
+            if user_id:
+                try:
+                    from src.core.generation.application.memory.manager import memory_manager
+                    
+                    # 1. Facts
+                    facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
+                    formatted_facts = "\n".join([f"- {f.content}" for f in facts])
+
+                    # 2. Summaries
+                    summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
+                    formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
+
+                    parts = []
+                    if formatted_facts:
+                        parts.append(f"USER FACTS:\n{formatted_facts}")
+                    if formatted_summaries:
+                        parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
+
+                    if parts:
+                        memory_context_str = "\n\n".join(parts)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch user memory for retrieval: {e}")
+
             # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
                 retrieval_result = await asyncio.wait_for(
@@ -511,6 +547,11 @@ async def _query_stream_impl(
                         tenant_id=tenant_id,
                         document_ids=document_ids,
                         top_k=max_chunks,
+                        include_trace=request.options.include_trace if request.options else False,
+                        options=request.options,
+                        history=None,
+                        global_rules=global_rules_list,
+                        memory_context=memory_context_str,
                     ),
                     timeout=60.0,
                 )

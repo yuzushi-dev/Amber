@@ -199,7 +199,8 @@ class GenerationService:
         start_time = time.perf_counter()
         trace = []
 
-        # Step 0.5: Inject global rules as candidates
+        # Step 0.5: Inject global rules as candidates AND build system prompt addendum
+        rules_addendum = ""
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
@@ -207,6 +208,11 @@ class GenerationService:
             active_rules = await rules_service.get_active_rules()
 
             if active_rules:
+                # Build system prompt addendum (authoritative rules)
+                rules_addendum = await rules_service.build_system_prompt_addendum()
+                logger.info(f"Injecting {len(active_rules)} global rules into system prompt")
+
+                # Also inject as candidates for citation support
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
                     rule_candidates.append(
@@ -266,6 +272,10 @@ class GenerationService:
         # Step 2: Get prompts from registry
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
+
+        # Append global rules to system prompt (highest priority instructions)
+        if rules_addendum:
+            system_prompt = system_prompt + rules_addendum
 
         # Apply Tenant Overrides
         tenant_config: dict[str, Any] = {}
@@ -455,7 +465,8 @@ class GenerationService:
 
         Yields dictionaries suitable for SSE conversion.
         """
-        # Step 0.5: Inject global rules as candidates (so they can be cited)
+        # Step 0.5: Inject global rules as candidates AND build system prompt addendum
+        rules_addendum = ""
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
@@ -463,6 +474,11 @@ class GenerationService:
             active_rules = await rules_service.get_active_rules()
 
             if active_rules:
+                # Build system prompt addendum (authoritative rules)
+                rules_addendum = await rules_service.build_system_prompt_addendum()
+                logger.info(f"Injecting {len(active_rules)} global rules into system prompt (stream)")
+
+                # Also inject as candidates for citation support
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
                     rule_candidates.append(
@@ -562,6 +578,10 @@ class GenerationService:
         # Step 4: Preparation
         system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
         user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
+
+        # Append global rules to system prompt (highest priority instructions)
+        if rules_addendum:
+            system_prompt = system_prompt + rules_addendum
 
         # Apply Tenant Overrides (Stream)
         tenant_config: dict[str, Any] = {}

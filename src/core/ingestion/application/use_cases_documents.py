@@ -37,6 +37,8 @@ class UploadDocumentRequest:
     filename: str
     content: bytes
     content_type: str
+    metadata: dict[str, Any] | None = None
+    folder_id: str | None = None
 
 
 @dataclass
@@ -142,6 +144,8 @@ class UploadDocumentUseCase:
             filename=request.filename,
             file_content=request.content,
             content_type=request.content_type,
+            metadata_=request.metadata,
+            folder_id=request.folder_id,
         )
 
         # Commit transaction before dispatching async processing
