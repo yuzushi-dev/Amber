@@ -120,6 +120,8 @@ async def upload_document(
     request: Request,
     file: UploadFile = File(..., description="Document file to upload"),
     tenant_id: str = Form(default=None, description="Tenant ID (optional, super admin only)"),
+    metadata: str = Form(default=None, description="JSON metadata (optional)"),
+    folder_id: str = Form(default=None, description="Folder ID (optional)"),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentUploadResponse:
     """
@@ -136,6 +138,15 @@ async def upload_document(
         target_tenant_id = tenant_id
     else:
         target_tenant_id = _get_tenant_id(request)
+
+    # Parse metadata if provided
+    metadata_dict = None
+    if metadata:
+        try:
+            import json
+            metadata_dict = json.loads(metadata)
+        except Exception as e:
+            logger.warning(f"Failed to parse metadata: {e}")
 
     # Read file content
     content = await file.read()
@@ -154,6 +165,8 @@ async def upload_document(
                 filename=file.filename or "unnamed",
                 content=content,
                 content_type=file.content_type or "application/octet-stream",
+                metadata=metadata_dict,
+                folder_id=folder_id,
             )
         )
     except ValueError as e:

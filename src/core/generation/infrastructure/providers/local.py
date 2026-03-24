@@ -132,6 +132,8 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
             ) from e
 
 
+_flashrank_ranker_cache: dict[str, Any] = {}
+
 class FlashRankReranker(BaseRerankerProvider):
     """
     Local reranker using FlashRank.
@@ -146,20 +148,20 @@ class FlashRankReranker(BaseRerankerProvider):
 
     def __init__(self, config: ProviderConfig | None = None):
         super().__init__(config)
-        self._ranker = None
 
     def _load_ranker(self, model_name: str):
-        """Lazily load FlashRank ranker."""
-        if self._ranker is not None:
-            return self._ranker
+        """Lazily load FlashRank ranker and cache globally."""
+        global _flashrank_ranker_cache
+        if model_name in _flashrank_ranker_cache:
+            return _flashrank_ranker_cache[model_name]
 
         try:
             from flashrank import Ranker
-            # from flashrank import RerankRequest # Unused
 
-            logger.info(f"Loading FlashRank reranker: {model_name}")
-            self._ranker = Ranker(model_name=model_name)
-            return self._ranker
+            logger.info(f"Loading FlashRank reranker: {model_name} (Global Cache)")
+            ranker = Ranker(model_name=model_name)
+            _flashrank_ranker_cache[model_name] = ranker
+            return ranker
 
         except ImportError as e:
             raise ImportError(

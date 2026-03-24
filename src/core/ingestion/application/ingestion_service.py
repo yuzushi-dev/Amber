@@ -86,6 +86,8 @@ class IngestionService:
         filename: str,
         file_content: bytes,
         content_type: str = "application/octet-stream",
+        metadata_: dict[str, Any] | None = None,
+        folder_id: str | None = None,
     ) -> Document:
         """
         Register a new document in the system.
@@ -141,6 +143,11 @@ class IngestionService:
             logger.error(f"Failed to upload file to storage: {e}")
             raise
 
+        # Prepare metadata
+        doc_metadata = {"original_filename": filename, "content_type": content_type}
+        if metadata_:
+            doc_metadata.update(metadata_)
+
         # 5. Create DB Record
         new_doc = Document(
             id=doc_id,
@@ -150,7 +157,8 @@ class IngestionService:
             storage_path=storage_path,
             status=DocumentStatus.INGESTED,
             source_type="file",
-            metadata_={"original_filename": filename, "content_type": content_type},
+            metadata_=doc_metadata,
+            folder_id=folder_id,
         )
 
         await self.document_repository.save(new_doc)
