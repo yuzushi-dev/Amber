@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from src.api.deps import verify_tenant_admin
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,6 +180,7 @@ async def apply_pending_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Apply a pending edit (execute the action)."""
     # Fetch the pending edit
@@ -293,6 +295,7 @@ async def reject_pending_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Reject/discard a pending edit."""
     result = await session.execute(
@@ -320,6 +323,7 @@ async def undo_applied_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Undo an applied edit (requires snapshot)."""
     result = await session.execute(

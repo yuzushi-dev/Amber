@@ -61,10 +61,14 @@ def _get_content_type(document: Document) -> str | None:
 
 
 def _get_tenant_id(request: Request) -> str:
-    """Resolve tenant ID from request context or default settings."""
-    if hasattr(request.state, "tenant_id"):
-        return str(request.state.tenant_id)
-    return settings.tenant_id
+    """Resolve tenant ID from request context. Raises 401 if not authenticated."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
 
 
 class DocumentUploadResponse(BaseModel):
@@ -333,10 +337,9 @@ async def list_documents(
         if tenant_id:
             query = query.where(Document.tenant_id == tenant_id)
     else:
-        # Regular User: Enforce current tenant
-        # Use tenant from request state (set by auth middleware) or fallback to settings
-        current_tenant = getattr(http_request.state, "tenant_id", settings.tenant_id)
-        query = query.where(Document.tenant_id == str(current_tenant))
+        # Regular User: Enforce current tenant (authentication required)
+        current_tenant = _get_tenant_id(http_request)
+        query = query.where(Document.tenant_id == current_tenant)
 
     # Apply pagination
     query = query.limit(limit).offset(offset)

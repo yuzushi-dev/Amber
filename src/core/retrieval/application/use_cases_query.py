@@ -50,7 +50,7 @@ class QueryUseCase:
         request: QueryRequest,
         tenant_id: str,
         http_request_state: Any = None,  # For permissions/context if needed, or extract needed data
-        user_id: str = "default_user",
+        user_id: str = "",
     ) -> QueryResponse | StructuredQueryResponse:
         """
         Execute the query pipeline.

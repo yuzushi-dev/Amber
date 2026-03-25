@@ -36,11 +36,25 @@ router = APIRouter(prefix="/query", tags=["query"])
 
 
 def _get_tenant_id(request: Request) -> str:
-    """Extract tenant ID from request context."""
-    # Check if set by auth middleware
-    if hasattr(request.state, "tenant_id"):
-        return request.state.tenant_id
-    return settings.tenant_id
+    """Extract tenant ID from request context. Raises 401 if not authenticated."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
+
+
+def _get_user_id(request: Request) -> str:
+    """Extract X-User-ID from request headers. Raises 400 if absent or blank."""
+    user_id = (request.headers.get("X-User-ID") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-User-ID header is required.",
+        )
+    return user_id
 
 
 # =============================================================================
@@ -122,7 +136,7 @@ async def query(
         )
 
         # Determine User ID (extract logic from previous implementation)
-        user_id = http_request.headers.get("X-User-ID", "default_user")
+        user_id = _get_user_id(http_request)
 
         return await use_case.execute(
             request=request,
@@ -536,7 +550,7 @@ async def _query_stream_impl(
                 logger.warning(f"Failed to fetch global rules for retrieval: {e}")
 
             memory_context_str = None
-            user_id = http_request.headers.get("X-User-ID", "default_user")
+            user_id = _get_user_id(http_request)
             if user_id:
                 try:
                     from src.core.generation.application.memory.manager import memory_manager
@@ -614,7 +628,7 @@ async def _query_stream_impl(
             stream_start_time = time.perf_counter()  # Track generation latency
 
             # Extract User ID (Phase 3 Memory)
-            user_id = http_request.headers.get("X-User-ID", "default_user")
+            user_id = _get_user_id(http_request)
 
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
