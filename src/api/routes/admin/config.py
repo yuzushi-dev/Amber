@@ -645,9 +645,8 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                         invalidate_and_retrigger_communities,
                     )
 
-                    # 1. Purge active tasks (best effort)
-                    # Note: currently purges ALL tasks globally since we can't filter by args easily
-                    purge_community_tasks()
+                    # 1. Purge active tasks for this tenant only
+                    purge_community_tasks(tenant_id=tenant.id)
 
                     # 2. Re-trigger for this tenant
                     # Ensure Neo4j client is initialized if needed (platform.initialize happens in main app)
@@ -696,8 +695,8 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                         invalidate_and_retrigger_communities,
                     )
 
-                    # 1. Purge active tasks
-                    purge_community_tasks()
+                    # 1. Purge active tasks for this tenant only
+                    purge_community_tasks(tenant_id=tenant_id)
 
                     # 2. Re-trigger for this tenant
                     await invalidate_and_retrigger_communities(tenant_id)
