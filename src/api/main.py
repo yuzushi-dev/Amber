@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     try:
         from src.shared.security import configure_security
 
-        configure_security(settings.secret_key)
+        configure_security(settings.secret_key, secondary_key=settings.secret_key_old)
         logger.info("Security module configured")
     except Exception as e:
         logger.error(f"Failed to configure security: {e}")
