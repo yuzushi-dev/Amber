@@ -53,6 +53,8 @@ services:
       - PYTHONPATH=/app:/app/src:/app/.packages
       - DEBUG=${DEBUG:-false}
       - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
+      - DEV_API_KEY=${DEV_API_KEY:-amber-dev-key-2024}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
@@ -96,7 +98,6 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - AMBER_RUNTIME=docker
-      - IGNORE_EMBEDDING_MISMATCH=true
     volumes:
       - ./src:/app/src:ro
       - ./tests:/app/tests:ro
@@ -140,6 +141,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
