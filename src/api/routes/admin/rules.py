@@ -8,7 +8,7 @@ CRUD endpoints for managing global rules that guide AI reasoning.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,12 +61,18 @@ class RuleResponse(BaseModel):
 
 @router.get("/", response_model=ResponseSchema[list[RuleResponse]])
 async def list_rules(
+    request: Request,
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
     _admin: Any = Depends(verify_admin),
 ):
-    """List all global rules."""
-    query = select(GlobalRule).order_by(GlobalRule.priority, GlobalRule.created_at)
+    """List all global rules for the caller's tenant."""
+    tenant_id = str(request.state.tenant_id)
+    query = (
+        select(GlobalRule)
+        .where(GlobalRule.tenant_id == tenant_id)
+        .order_by(GlobalRule.priority, GlobalRule.created_at)
+    )
 
     if not include_inactive:
         query = query.where(GlobalRule.is_active.is_(True))
@@ -81,17 +87,20 @@ async def list_rules(
 
 @router.post("/", response_model=ResponseSchema[RuleResponse], status_code=status.HTTP_201_CREATED)
 async def create_rule(
+    request: Request,
     data: RuleCreate,
     db: AsyncSession = Depends(get_db),
     _admin: Any = Depends(verify_admin),
 ):
-    """Create a new global rule."""
+    """Create a new rule for the caller's tenant."""
+    tenant_id = str(request.state.tenant_id)
     rule = GlobalRule(
         content=data.content,
         category=data.category,
         priority=data.priority,
         is_active=data.is_active,
         source="manual",
+        tenant_id=tenant_id,
     )
     db.add(rule)
     await db.commit()
@@ -100,7 +109,7 @@ async def create_rule(
     # Invalidate cache
     from src.core.admin_ops.application.rules_service import RulesService
 
-    RulesService.invalidate_cache()
+    RulesService.invalidate_cache(tenant_id=tenant_id)
 
     logger.info(f"Created global rule: {rule.id}")
     return ResponseSchema(data=RuleResponse.model_validate(rule), message="Rule created")
@@ -108,14 +117,16 @@ async def create_rule(
 
 @router.put("/{rule_id}", response_model=ResponseSchema[RuleResponse])
 async def update_rule(
+    request: Request,
     rule_id: str,
     data: RuleUpdate,
     db: AsyncSession = Depends(get_db),
     _admin: Any = Depends(verify_admin),
 ):
-    """Update a global rule."""
+    """Update a rule within the caller's tenant."""
+    tenant_id = str(request.state.tenant_id)
     rule = await db.get(GlobalRule, rule_id)
-    if not rule:
+    if not rule or rule.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     if data.content is not None:
@@ -133,7 +144,7 @@ async def update_rule(
     # Invalidate cache
     from src.core.admin_ops.application.rules_service import RulesService
 
-    RulesService.invalidate_cache()
+    RulesService.invalidate_cache(tenant_id=tenant_id)
 
     logger.info(f"Updated global rule: {rule.id}")
     return ResponseSchema(data=RuleResponse.model_validate(rule), message="Rule updated")
@@ -141,13 +152,15 @@ async def update_rule(
 
 @router.delete("/{rule_id}", response_model=ResponseSchema[dict])
 async def delete_rule(
+    request: Request,
     rule_id: str,
     db: AsyncSession = Depends(get_db),
     _admin: Any = Depends(verify_admin),
 ):
-    """Delete a global rule."""
+    """Delete a rule within the caller's tenant."""
+    tenant_id = str(request.state.tenant_id)
     rule = await db.get(GlobalRule, rule_id)
-    if not rule:
+    if not rule or rule.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     await db.delete(rule)
@@ -156,7 +169,7 @@ async def delete_rule(
     # Invalidate cache
     from src.core.admin_ops.application.rules_service import RulesService
 
-    RulesService.invalidate_cache()
+    RulesService.invalidate_cache(tenant_id=tenant_id)
 
     logger.info(f"Deleted global rule: {rule_id}")
     return ResponseSchema(data={"deleted": rule_id}, message="Rule deleted")
@@ -164,6 +177,7 @@ async def delete_rule(
 
 @router.post("/upload", response_model=ResponseSchema[dict])
 async def upload_rules_file(
+    request: Request,
     file: UploadFile = File(...),
     replace_existing: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -176,6 +190,7 @@ async def upload_rules_file(
         file: Text file with one rule per line
         replace_existing: If true, deletes all existing file-sourced rules first
     """
+    tenant_id = str(request.state.tenant_id)
     if not file.filename.endswith(".txt"):
         raise HTTPException(status_code=400, detail="Only .txt files are supported")
 
@@ -206,6 +221,7 @@ async def upload_rules_file(
             priority=i + 1,  # Order from file
             source=source_name,
             is_active=True,
+            tenant_id=tenant_id,
         )
         db.add(rule)
         created_count += 1
@@ -215,7 +231,7 @@ async def upload_rules_file(
     # Invalidate cache
     from src.core.admin_ops.application.rules_service import RulesService
 
-    RulesService.invalidate_cache()
+    RulesService.invalidate_cache(tenant_id=tenant_id)
 
     logger.info(f"Uploaded {created_count} rules from {file.filename}")
     return ResponseSchema(

@@ -205,12 +205,13 @@ class GenerationService:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
             rules_service = get_rules_service()
-            active_rules = await rules_service.get_active_rules()
+            _tenant_id = (options or {}).get("tenant_id", "")
+            active_rules = await rules_service.get_active_rules(tenant_id=_tenant_id)
 
             if active_rules:
                 # Build system prompt addendum (authoritative rules)
-                rules_addendum = await rules_service.build_system_prompt_addendum()
-                logger.info(f"Injecting {len(active_rules)} global rules into system prompt")
+                rules_addendum = await rules_service.build_system_prompt_addendum(tenant_id=_tenant_id)
+                logger.info(f"Injecting {len(active_rules)} rules for tenant {_tenant_id!r} into system prompt")
 
                 # Also inject as candidates for citation support
                 rule_candidates = []
@@ -471,12 +472,13 @@ class GenerationService:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
             rules_service = get_rules_service()
-            active_rules = await rules_service.get_active_rules()
+            _tenant_id = (options or {}).get("tenant_id", "")
+            active_rules = await rules_service.get_active_rules(tenant_id=_tenant_id)
 
             if active_rules:
                 # Build system prompt addendum (authoritative rules)
-                rules_addendum = await rules_service.build_system_prompt_addendum()
-                logger.info(f"Injecting {len(active_rules)} global rules into system prompt (stream)")
+                rules_addendum = await rules_service.build_system_prompt_addendum(tenant_id=_tenant_id)
+                logger.info(f"Injecting {len(active_rules)} rules for tenant {_tenant_id!r} into system prompt (stream)")
 
                 # Also inject as candidates for citation support
                 rule_candidates = []
