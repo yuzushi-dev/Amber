@@ -30,6 +30,10 @@ class ConnectorState(Base, TimestampMixin):
         JSONB, server_default="{}", nullable=False
     )  # Pagination state
 
+    encrypted_credentials: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # Fernet-encrypted credential dict
+
     status: Mapped[str] = mapped_column(
         String, default="idle", nullable=False
     )  # idle, syncing, error
