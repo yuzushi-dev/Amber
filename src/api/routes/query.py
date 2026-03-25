@@ -307,6 +307,25 @@ async def _query_stream_impl(
             # AGENTIC MODE SUPPORT
             # =========================================================================
             if request.options and request.options.agent_mode:
+                # ── Privilege checks ─────────────────────────────────────────────
+                from fastapi import HTTPException as _HTTPException
+
+                from src.api.config import settings as _settings
+
+                if not _settings.enable_agent_mode:
+                    raise _HTTPException(
+                        status_code=403,
+                        detail="Agent mode is disabled on this server.",
+                    )
+                _agent_role = request.options.agent_role if request.options else "knowledge"
+                if _agent_role == "maintainer":
+                    _is_super = getattr(http_request.state, "is_super_admin", False)
+                    if not _is_super:
+                        raise _HTTPException(
+                            status_code=403,
+                            detail="agent_role='maintainer' requires super_admin privileges.",
+                        )
+                # ── End privilege checks ──────────────────────────────────────────
                 yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
 
                 try:
@@ -332,13 +351,15 @@ async def _query_stream_impl(
                     tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
                     tool_schemas = [retrieval_tool_def["schema"]]
 
+                    from src.api.config import settings as _stream_settings
+
                     agent_role = request.options.agent_role if request.options else "knowledge"
-                    if agent_role == "maintainer":
+                    if agent_role == "maintainer" and _stream_settings.enable_maintainer_tools:
                         fs_tools = create_filesystem_tools(base_path=".")
                         for tool in fs_tools:
                             tool_map[tool["name"]] = tool["func"]
                             tool_schemas.append(tool["schema"])
-                    else:
+                    elif _stream_settings.enable_agent_graph_tool:
                         from src.core.tools.graph import GRAPH_TOOLS, query_graph
 
                         tool_map["query_graph"] = query_graph

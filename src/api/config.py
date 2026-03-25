@@ -343,6 +343,24 @@ class Settings(BaseSettings):
         description="Concurrency level for community summarization",
     )
 
+    # Agent Mode Feature Flags
+    # All three default to False so production deployments are safe without explicit opt-in.
+    enable_agent_mode: bool = Field(
+        default=False,
+        alias="ENABLE_AGENT_MODE",
+        description="Enable agent mode endpoints (disabled by default in production)",
+    )
+    enable_maintainer_tools: bool = Field(
+        default=False,
+        alias="ENABLE_MAINTAINER_TOOLS",
+        description="Enable filesystem tools for maintainer agent role (super_admin only)",
+    )
+    enable_agent_graph_tool: bool = Field(
+        default=False,
+        alias="ENABLE_AGENT_GRAPH_TOOL",
+        description="Enable graph query tool in agent mode",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
