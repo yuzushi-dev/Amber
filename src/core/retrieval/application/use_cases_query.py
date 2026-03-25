@@ -13,6 +13,8 @@ import logging
 import time
 from typing import Any
 
+from fastapi import HTTPException
+
 from src.core.admin_ops.application.metrics.collector import MetricsCollector
 from src.core.generation.application.generation_service import GenerationService
 from src.core.retrieval.application.retrieval_service import RetrievalService
@@ -105,8 +107,30 @@ class QueryUseCase:
 
         # 2. AGENTIC MODE
         if request.options and request.options.agent_mode:
+            # ── Privilege checks (must be outside the broad except below) ──────
+            from src.api.config import settings as _settings
+
+            if not _settings.enable_agent_mode:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Agent mode is disabled on this server.",
+                )
+
+            agent_role = request.options.agent_role if request.options else "knowledge"
+            if agent_role == "maintainer":
+                is_super = getattr(http_request_state, "is_super_admin", False)
+                if not is_super:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="agent_role='maintainer' requires super_admin privileges.",
+                    )
+            # ── End privilege checks ─────────────────────────────────────────
             try:
-                return await self._execute_agent(request, tenant_id, start_time)
+                return await self._execute_agent(
+                    request, tenant_id, start_time, http_request_state
+                )
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}")
                 # Fallback to standard RAG
@@ -244,7 +268,14 @@ class QueryUseCase:
             follow_up_questions=follow_ups,
         )
 
-    async def _execute_agent(self, request: QueryRequest, tenant_id: str, start_time: float):
+    async def _execute_agent(
+        self,
+        request: QueryRequest,
+        tenant_id: str,
+        start_time: float,
+        http_request_state: Any = None,
+    ):
+        from src.api.config import settings as _settings
         from src.core.generation.application.agent.orchestrator import AgentOrchestrator
         from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
         from src.core.tools.filesystem import create_filesystem_tools
@@ -256,12 +287,12 @@ class QueryUseCase:
         tool_schemas = [retrieval_tool_def["schema"]]
 
         agent_role = request.options.agent_role
-        if agent_role == "maintainer":
+        if agent_role == "maintainer" and _settings.enable_maintainer_tools:
             fs_tools = create_filesystem_tools(base_path=".")
             for t in fs_tools:
                 tool_map[t["name"]] = t["func"]
                 tool_schemas.append(t["schema"])
-        else:
+        elif _settings.enable_agent_graph_tool:
             from src.core.tools.graph import GRAPH_TOOLS, query_graph
 
             tool_map["query_graph"] = query_graph
