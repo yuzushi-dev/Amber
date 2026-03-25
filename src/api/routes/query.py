@@ -543,7 +543,7 @@ async def _query_stream_impl(
             try:
                 from src.core.admin_ops.application.rules_service import get_rules_service
                 rules_service = get_rules_service()
-                active_rules_resp = await rules_service.get_active_rules()
+                active_rules_resp = await rules_service.get_active_rules(tenant_id=tenant_id)
                 if active_rules_resp:
                     global_rules_list = active_rules_resp
             except Exception as e:
