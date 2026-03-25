@@ -104,9 +104,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             result = await _get_rate_limiter().check(str(tenant_id), category)
         except Exception as e:
-            # Fail open if rate limiter fails (e.g. Redis down)
-            logger.warning(f"Rate limiter failed (fail open): {e}")
-            return await call_next(request)
+            if settings.rate_limits.fail_open:
+                logger.warning(f"Rate limiter unavailable (fail_open=True, passing through): {e}")
+                return await call_next(request)
+            # Default: fail closed — return 503 so Redis outages cannot bypass rate limiting
+            logger.error(f"Rate limiter unavailable (fail_open=False, returning 503): {e}")
+            response = JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "RATE_LIMITER_UNAVAILABLE",
+                        "message": "Service temporarily unavailable. Please retry shortly.",
+                    }
+                },
+            )
+            return _add_cors_headers(response, origin)
 
         if not result.allowed:
             logger.warning(

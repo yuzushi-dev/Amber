@@ -76,6 +76,14 @@ class RateLimitSettings(BaseSettings):
     requests_per_hour: int = Field(default=1000, description="Max requests per hour")
     queries_per_minute: int = Field(default=20, description="Max queries per minute")
     uploads_per_hour: int = Field(default=50, description="Max uploads per hour")
+    fail_open: bool = Field(
+        default=False,
+        alias="RATE_LIMIT_FAIL_OPEN",
+        description=(
+            "When True, allow requests through if Redis is unavailable (legacy behaviour). "
+            "When False (default), return 503 so Redis outages cannot bypass rate limiting."
+        ),
+    )
 
 
 class UploadSettings(BaseSettings):
