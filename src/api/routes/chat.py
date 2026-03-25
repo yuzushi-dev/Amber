@@ -20,6 +20,17 @@ from src.core.generation.domain.memory_models import ConversationSummary
 router = APIRouter(prefix="/chat", tags=["Chat History"])
 
 
+def _get_user_id(request: Request) -> str:
+    """Extract X-User-ID from request headers. Raises 400 if absent or blank."""
+    user_id = (request.headers.get("X-User-ID") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="X-User-ID header is required.",
+        )
+    return user_id
+
+
 @router.get("/history", response_model=ChatHistoryResponse)
 async def list_history(
     request: Request,
@@ -34,7 +45,7 @@ async def list_history(
     # Determine User ID (match query.py logic)
     # 1. Check header
     # 2. Fallback to 'default_user'
-    user_id = request.headers.get("X-User-ID", "default_user")
+    user_id = _get_user_id(request)
 
     try:
         # Build query
@@ -113,7 +124,7 @@ async def get_history_detail(
     """
     Get full conversation details.
     """
-    user_id = request.headers.get("X-User-ID", "default_user")
+    user_id = _get_user_id(request)
 
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
@@ -156,7 +167,7 @@ async def delete_history(
     """
     Delete a conversation.
     """
-    user_id = request.headers.get("X-User-ID", "default_user")
+    user_id = _get_user_id(request)
 
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
