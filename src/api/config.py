@@ -231,7 +231,16 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),
-        description="Secret key for hashing",
+        description="Primary secret key for HMAC-SHA256 API key hashing",
+    )
+    secret_key_old: str | None = Field(
+        default=None,
+        alias="SECRET_KEY_OLD",
+        description=(
+            "Previous secret key retained during rotation. When set, "
+            "verify_api_key() accepts hashes made with either key so "
+            "existing API keys remain valid while SECRET_KEY is rotated."
+        ),
     )
 
     @field_validator("secret_key")
