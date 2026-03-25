@@ -107,7 +107,7 @@ async def migrate_embeddings(tenant_id: str, db: AsyncSession = Depends(get_db_s
             "message": str(e),
         }
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Migration failed: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         ) from e
 
 

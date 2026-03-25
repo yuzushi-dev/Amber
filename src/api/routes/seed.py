@@ -280,7 +280,7 @@ async def seed_sample_data(
         logger.error(f"Failed to seed sample data: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to seed sample data: {str(e)}",
+            detail="Internal server error",
         ) from e
 
 

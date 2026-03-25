@@ -264,7 +264,7 @@ async def _query_stream_impl(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"RAG services unavailable: {e}",
+            detail="Service temporarily unavailable.",
         ) from e
 
     async def generate_stream():
