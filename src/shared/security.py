@@ -7,8 +7,9 @@ API key hashing, generation, and verification utilities.
 
 import hashlib
 import hmac
+import json
 import secrets
-from base64 import b64encode
+from base64 import b64encode, urlsafe_b64encode
 
 # from src.api.config import settings # DELETED: direct import violation
 
@@ -122,3 +123,48 @@ def mask_api_key(key: str) -> str:
         return f"{prefix}_****...****{rest[-4:]}"
 
     return f"****...****{key[-4:]}"
+
+
+def _fernet_key() -> bytes:
+    """Derive a 32-byte URL-safe base64 Fernet key from the primary secret."""
+    raw = hashlib.sha256(_SECRET_KEY.encode('utf-8')).digest()
+    return urlsafe_b64encode(raw)
+
+
+def encrypt_credentials(data: dict) -> str:
+    """
+    Encrypt a credentials dict with Fernet (AES-128-CBC + HMAC-SHA256).
+
+    The key is derived from the current primary _SECRET_KEY so rotating the
+    key will invalidate stored tokens (re-authentication required).
+
+    Args:
+        data: Credential dict (e.g. {api_token, subdomain, email}).
+
+    Returns:
+        str: Fernet token (URL-safe base64, opaque ciphertext).
+    """
+    from cryptography.fernet import Fernet
+    f = Fernet(_fernet_key())
+    return f.encrypt(json.dumps(data).encode('utf-8')).decode('utf-8')
+
+
+def decrypt_credentials(token: str) -> dict | None:
+    """
+    Decrypt a Fernet token back to the credential dict.
+
+    Returns None on any error (wrong key, invalid/truncated token, tampering).
+
+    Args:
+        token: Fernet token as returned by encrypt_credentials().
+
+    Returns:
+        dict | None: Decrypted credentials or None on failure.
+    """
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+        f = Fernet(_fernet_key())
+        plaintext = f.decrypt(token.encode('utf-8'))
+        return json.loads(plaintext.decode('utf-8'))
+    except Exception:
+        return None
