@@ -557,7 +557,7 @@ async def get_tenant_config(tenant_id: str):
 
     except Exception as e:
         logger.error(f"Failed to get tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get config: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.put("/tenants/{tenant_id}", response_model=TenantConfigResponse)
@@ -632,7 +632,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 for tenant in tenants:
                     await tuning_service.log_change(
                         tenant_id=tenant.id,
-                        actor="admin",  # TODO: Get from auth context
+                        actor=getattr(request.state, "api_key_name", "admin"),
                         action="update_config",
                         target_type="tenant",
                         target_id=tenant.id,
@@ -657,7 +657,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 if other_update:
                     await tuning_service.log_change(
                         tenant_id=tenant_id,
-                        actor="admin",
+                        actor=getattr(request.state, "api_key_name", "admin"),
                         action="update_config",
                         target_type="tenant",
                         target_id=tenant_id,
@@ -680,7 +680,7 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 tuning_service = TuningService(async_session_maker)
                 await tuning_service.log_change(
                     tenant_id=tenant_id,
-                    actor="admin",  # TODO: Get from auth context
+                    actor=getattr(request.state, "api_key_name", "admin"),
                     action="update_config",
                     target_type="tenant",
                     target_id=tenant_id,
@@ -725,11 +725,11 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
         raise
     except Exception as e:
         logger.error(f"Failed to update tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/tenants/{tenant_id}/reset")
-async def reset_tenant_config(tenant_id: str):
+async def reset_tenant_config(tenant_id: str, request: Request = None):
     """
     Reset tenant configuration to defaults.
 
@@ -759,7 +759,7 @@ async def reset_tenant_config(tenant_id: str):
             tuning_service = TuningService(async_session_maker)
             await tuning_service.log_change(
                 tenant_id=tenant_id,
-                actor="admin",
+                actor=getattr(request.state, "api_key_name", "admin") if request else "admin",
                 action="reset_config",
                 target_type="tenant",
                 target_id=tenant_id,
@@ -774,7 +774,7 @@ async def reset_tenant_config(tenant_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to reset tenant config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to reset config: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/tenants/backfill-active-collection", dependencies=[Depends(verify_super_admin)])
@@ -797,4 +797,4 @@ async def backfill_active_vector_collection():
         return {"updated": updated, "total": len(tenants)}
     except Exception as e:
         logger.error(f"Failed to backfill active collections: {e}")
-        raise HTTPException(status_code=500, detail=f"Backfill failed: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
