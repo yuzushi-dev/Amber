@@ -133,6 +133,7 @@ async def create_pending_edit(
     request_body: GraphEditHistoryCreate,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Create a new pending graph edit (record without applying)."""
     edit_id = str(uuid.uuid4())

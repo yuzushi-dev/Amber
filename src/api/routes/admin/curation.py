@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
@@ -21,7 +21,8 @@ from src.core.database.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/curation", tags=["admin-curation"])
+from src.api.deps import verify_tenant_admin
+router = APIRouter(prefix="/curation", tags=["admin-curation"], dependencies=[Depends(verify_tenant_admin)])
 
 
 # =============================================================================

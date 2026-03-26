@@ -114,13 +114,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if not api_key:
             api_key = request.headers.get("X-API-Key")
 
-        # 3. Fallback: Legacy Query Param for SSE (Deprecated but kept for compat if needed,
-        #    but we prefer Ticket now. We can log a warning if used.)
-        if not api_key and is_sse_path:
-            api_key = request.query_params.get("api_key")
-            if api_key:
-                logger.warning(f"Legacy query param auth used for {path}. migrate to ticket auth.")
-
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
             return _cors_error_response(

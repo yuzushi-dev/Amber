@@ -33,7 +33,8 @@ def _get_migration_service(db: AsyncSession) -> EmbeddingMigrationService:
     )
 
 
-router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"])
+from src.api.deps import verify_super_admin
+router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"], dependencies=[Depends(verify_super_admin)])
 
 # In-memory migration state (could use Redis for multi-worker)
 _migration_state: dict = {}

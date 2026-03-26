@@ -115,7 +115,11 @@ async def create_feedback(
 
 @router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
-    request_id: str, limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)
+    request_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get feedback for a specific request with pagination.
@@ -130,14 +134,23 @@ async def get_feedback(
     """
     from sqlalchemy import func, select
 
-    # Get total count
-    count_stmt = select(func.count(Feedback.id)).where(Feedback.request_id == request_id)
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+
+    # Get total count — scoped to caller's tenant
+    count_stmt = select(func.count(Feedback.id)).where(
+        Feedback.request_id == request_id, Feedback.tenant_id == tenant_id
+    )
     total = await db.scalar(count_stmt)
 
-    # Fetch feedback with pagination
+    # Fetch feedback with pagination — scoped to caller's tenant
     result = await db.execute(
         select(Feedback)
-        .where(Feedback.request_id == request_id)
+        .where(Feedback.request_id == request_id, Feedback.tenant_id == tenant_id)
         .order_by(Feedback.created_at.desc())
         .offset(offset)
         .limit(limit)
