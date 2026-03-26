@@ -116,12 +116,14 @@ async def _create_backup_async(job_id: str, tenant_id: str, scope: str, task_id:
     from src.core.admin_ops.domain.backup_job import BackupJob, BackupScope, BackupStatus
     from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Fetch and update job status to RUNNING
             result = await session.execute(select(BackupJob).where(BackupJob.id == job_id))
             job = result.scalar_one_or_none()
@@ -189,12 +191,14 @@ async def _mark_backup_failed(job_id: str, error: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.backup_job import BackupJob, BackupStatus
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(select(BackupJob).where(BackupJob.id == job_id))
             job = result.scalar_one_or_none()
 
@@ -263,12 +267,14 @@ async def _restore_backup_async(
     from src.core.admin_ops.domain.backup_job import BackupStatus, RestoreJob, RestoreMode
     from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Fetch and update job status to RUNNING
             result = await session.execute(select(RestoreJob).where(RestoreJob.id == job_id))
             job = result.scalar_one_or_none()
@@ -345,12 +351,14 @@ async def _mark_restore_failed(job_id: str, error: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.backup_job import BackupStatus, RestoreJob
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(select(RestoreJob).where(RestoreJob.id == job_id))
             job = result.scalar_one_or_none()
 
@@ -397,12 +405,14 @@ async def _create_scheduled_backup_job(job_id: str, tenant_id: str, scope: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.backup_job import BackupJob, BackupScope, BackupStatus
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             job = BackupJob(
                 id=job_id,
                 tenant_id=tenant_id,

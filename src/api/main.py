@@ -115,12 +115,16 @@ async def lifespan(app: FastAPI):
     try:
         from src.core.database.session import configure_database
 
+        # Use non-owner app role when configured (respects RLS)
+        effective_db_url = settings.db.app_database_url or settings.db.database_url
         configure_database(
-            database_url=settings.db.database_url,
+            database_url=effective_db_url,
             pool_size=settings.db.pool_size,
             max_overflow=settings.db.max_overflow,
         )
-        logger.info("Database module configured")
+        logger.info(
+            f"Database module configured (role: {'app' if settings.db.app_database_url else 'owner'})"
+        )
     except Exception as e:
         logger.error(f"Failed to configure database: {e}")
 
