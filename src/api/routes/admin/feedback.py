@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from src.api.deps import verify_tenant_admin
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from src.core.graph.application.context_writer import context_graph_writer
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.shared.context import get_current_tenant
 
-router = APIRouter(prefix="/feedback", tags=["admin-feedback"])
+router = APIRouter(prefix="/feedback", tags=["admin-feedback"], dependencies=[Depends(verify_tenant_admin)])
 
 
 @router.get("/pending", response_model=ResponseSchema[list[dict]])

@@ -90,7 +90,7 @@ async def export_conversation(
         storage = platform.minio_client
         export_service = ExportService(session, storage)
 
-        zip_bytes = await export_service.generate_single_conversation_zip(conversation_id)
+        zip_bytes = await export_service.generate_single_conversation_zip(conversation_id, tenant_id)
 
         # Generate filename
         safe_title = "".join(

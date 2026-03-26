@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, verify_admin
+from src.api.deps import get_db_session, verify_admin, verify_super_admin
 from src.core.tenants.application.tenant_service import TenantService
 
 router = APIRouter(prefix="/tenants", tags=["admin-tenants"])
@@ -77,7 +77,7 @@ async def list_tenants(
     return []
 
 
-@router.post("", response_model=TenantResponse, dependencies=[Depends(verify_admin)])
+@router.post("", response_model=TenantResponse, dependencies=[Depends(verify_super_admin)])
 async def create_tenant(data: TenantCreate, session: AsyncSession = Depends(get_db_session)):
     service = TenantService(session)
     if data.api_key_prefix:
@@ -107,7 +107,7 @@ async def get_tenant(tenant_id: str, session: AsyncSession = Depends(get_db_sess
     return t_model
 
 
-@router.patch("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_admin)])
+@router.patch("/{tenant_id}", response_model=TenantResponse, dependencies=[Depends(verify_super_admin)])
 async def update_tenant(
     tenant_id: str, data: TenantUpdate, session: AsyncSession = Depends(get_db_session)
 ):
@@ -150,7 +150,7 @@ async def cleanup_tenant_resources(tenant_id: str):
 
 
 @router.delete(
-    "/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_admin)]
+    "/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_super_admin)]
 )
 async def delete_tenant(tenant_id: str, session: AsyncSession = Depends(get_db_session)):
     service = TenantService(session)
