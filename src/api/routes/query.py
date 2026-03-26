@@ -47,12 +47,19 @@ def _get_tenant_id(request: Request) -> str:
 
 
 def _get_user_id(request: Request) -> str:
-    """Extract X-User-ID from request headers. Raises 400 if absent or blank."""
+    """Resolve user identity from X-User-ID header or authenticated API key name.
+
+    Server-to-server callers may pass X-User-ID explicitly.
+    Browser/frontend callers without the header fall back to the API key name
+    so every authenticated caller gets a stable, non-shared identity.
+    """
     user_id = (request.headers.get("X-User-ID") or "").strip()
     if not user_id:
+        user_id = getattr(request.state, "api_key_name", "") or ""
+    if not user_id:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-User-ID header is required.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not resolve user identity: provide X-User-ID or authenticate with a named API key.",
         )
     return user_id
 
@@ -290,6 +297,9 @@ async def _query_stream_impl(
         yield f": {(padding_token * 100)[:4096]}\n\n"
         yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
 
+        # Resolve user identity once; used throughout this generator
+        stream_user_id = _get_user_id(http_request)
+
         # =========================================================================
         # STICKY MODE CHECK
         # =========================================================================
@@ -301,6 +311,10 @@ async def _query_stream_impl(
 
                 async with _get_async_session_maker()() as session:
                     existing_conv = await session.get(ConversationSummary, request.conversation_id)
+                    if existing_conv and existing_conv.metadata_:
+                        # Ownership check: only allow sticky switch for caller's own conversation
+                        if existing_conv.tenant_id != tenant_id:
+                            existing_conv = None  # ignore foreign-tenant conversations
                     if existing_conv and existing_conv.metadata_:
                         mode = existing_conv.metadata_.get("mode")
                         if mode == "agent":
@@ -411,6 +425,10 @@ async def _query_stream_impl(
                             )
 
                         if existing_summary:
+                            # Ownership check: reject updates to foreign-tenant/user conversations
+                            if existing_summary.tenant_id != tenant_id:
+                                yield f'event: error\ndata: {json.dumps("Conversation not found")}\n\n'
+                                return
                             # UPDATE existing conversation
                             # 1. Append to history in metadata
                             history = existing_summary.metadata_.get("history", [])
@@ -445,7 +463,7 @@ async def _query_stream_impl(
                             new_summary = ConversationSummary(
                                 id=agent_conversation_id,
                                 tenant_id=tenant_id,
-                                user_id="user",  # Default user
+                                user_id=stream_user_id,
                                 title=title_text,
                                 summary=summary_text,
                                 metadata_={
@@ -687,6 +705,10 @@ async def _query_stream_impl(
 
                     persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
 
+                    if existing_summary:
+                        # Ownership check: reject updates to foreign-tenant/user conversations
+                        if existing_summary.tenant_id != tenant_id or existing_summary.user_id != stream_user_id:
+                            existing_summary = None  # treat as new
                     if existing_summary:
                         # UPDATE existing conversation
                         # 1. Append to history

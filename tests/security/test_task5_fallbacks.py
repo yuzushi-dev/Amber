@@ -81,31 +81,31 @@ def test_graph_editor_get_tenant_id_raises_401_when_missing():
 # ── User ID: fail-closed helpers ─────────────────────────────────────────────
 
 
-def test_query_get_user_id_raises_400_when_header_absent():
-    """query.py _get_user_id must raise 400 when X-User-ID header is absent."""
+def test_query_get_user_id_raises_401_when_no_identity_available():
+    """_get_user_id must raise 401 when neither X-User-ID nor api_key_name is available."""
     from src.api.routes.query import _get_user_id
 
     req = MagicMock()
-    req.headers = {}  # No X-User-ID
+    req.headers = {}
+    del req.state.api_key_name  # no key name either
 
     with pytest.raises(HTTPException) as exc_info:
         _get_user_id(req)
-    assert exc_info.value.status_code == 400, (
-        f"Expected 400, got {exc_info.value.status_code}. "
-        "Missing X-User-ID falls back to 'default_user' — all conversations share one identity."
+    assert exc_info.value.status_code == 401, (
+        f"Expected 401, got {exc_info.value.status_code}. "
+        "Must reject requests with no resolvable user identity."
     )
 
 
-def test_query_get_user_id_raises_400_when_header_empty():
-    """query.py _get_user_id must reject empty/whitespace X-User-ID."""
+def test_query_get_user_id_uses_api_key_name_when_header_absent():
+    """_get_user_id falls back to api_key_name when X-User-ID is absent (browser flow)."""
     from src.api.routes.query import _get_user_id
 
     req = MagicMock()
-    req.headers = {"X-User-ID": "   "}
-
-    with pytest.raises(HTTPException) as exc_info:
-        _get_user_id(req)
-    assert exc_info.value.status_code == 400
+    req.headers = {}
+    req.state.api_key_name = "frontend-key"
+    result = _get_user_id(req)
+    assert result == "frontend-key"
 
 
 def test_query_get_user_id_returns_value_when_present():
@@ -118,16 +118,17 @@ def test_query_get_user_id_returns_value_when_present():
     assert result == "user-abc-123"
 
 
-def test_chat_get_user_id_raises_400_when_header_absent():
-    """chat.py _get_user_id must raise 400 when X-User-ID header is absent."""
+def test_chat_get_user_id_raises_401_when_no_identity_available():
+    """chat.py _get_user_id must raise 401 when neither X-User-ID nor api_key_name is available."""
     from src.api.routes.chat import _get_user_id
 
     req = MagicMock()
     req.headers = {}
+    del req.state.api_key_name
 
     with pytest.raises(HTTPException) as exc_info:
         _get_user_id(req)
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 401
 
 
 # ── use_cases_query: no default_user sentinel ────────────────────────────────
