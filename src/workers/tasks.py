@@ -480,7 +480,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     from src.core.ingestion.domain.chunk import Chunk  # noqa: F401
     from src.core.ingestion.domain.document import Document  # noqa: F401
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Fetch Tenant Config for correct Provider Init
@@ -541,6 +541,8 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     try:
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Initialize services
             from src.core.events.dispatcher import EventDispatcher
             from src.core.ingestion.application.ingestion_service import IngestionService
@@ -621,12 +623,14 @@ async def _mark_document_failed(document_id: str, error: str):
 
     from src.api.config import settings
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
 
@@ -739,12 +743,14 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
     from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
     # Create async session
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Fetch benchmark run
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
@@ -953,12 +959,14 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
