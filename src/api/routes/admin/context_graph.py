@@ -12,10 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.amber_platform.composition_root import platform
-from src.api.deps import verify_admin
+from src.api.deps import verify_super_admin
 from src.core.graph.domain.schema import NodeLabel, RelationshipType
 
-router = APIRouter(prefix="/context-graph", tags=["admin", "context-graph"])
+router = APIRouter(prefix="/context-graph", tags=["admin", "context-graph"], dependencies=[Depends(verify_super_admin)])
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +54,6 @@ class ContextGraphStats(BaseModel):
 
 @router.get("/stats", response_model=ContextGraphStats)
 async def get_context_graph_stats(
-    _admin: Any = Depends(verify_admin),
 ):
     """Get overall statistics of the Context Graph."""
     try:
@@ -106,7 +105,6 @@ async def get_context_graph_stats(
 @router.get("/feedback", response_model=list[FeedbackGraphItem])
 async def list_graph_feedback(
     limit: int = 50,
-    _admin: Any = Depends(verify_admin),
 ):
     """List feedback from the Context Graph with related turn and chunk info."""
     try:
@@ -160,7 +158,6 @@ async def list_graph_feedback(
 @router.delete("/feedback/{feedback_id}")
 async def delete_graph_feedback(
     feedback_id: str,
-    _admin: Any = Depends(verify_admin),
 ):
     """Remove a feedback node and its relationships from the Context Graph."""
     try:
@@ -186,7 +183,6 @@ async def delete_graph_feedback(
 @router.get("/chunk/{chunk_id}/impact")
 async def get_chunk_feedback_impact(
     chunk_id: str,
-    _admin: Any = Depends(verify_admin),
 ):
     """Get the feedback impact score for a specific chunk."""
     try:
@@ -253,7 +249,6 @@ class ConversationGraphItem(BaseModel):
 @router.get("/conversations", response_model=list[ConversationGraphItem])
 async def list_conversations(
     limit: int = 50,
-    _admin: Any = Depends(verify_admin),
 ):
     """List conversations from the Context Graph."""
     try:

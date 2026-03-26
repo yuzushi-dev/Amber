@@ -5,13 +5,14 @@ Observability Admin Routes
 Endpoints for monitoring system health and business metrics.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from src.amber_platform.composition_root import build_metrics_collector
 from src.core.admin_ops.application.metrics.collector import AggregatedMetrics
 
-router = APIRouter(prefix="/observability", tags=["observability"])
+from src.api.deps import verify_super_admin
+router = APIRouter(prefix="/observability", tags=["observability"], dependencies=[Depends(verify_super_admin)])
 
 
 class MetricsResponse(BaseModel):

@@ -14,11 +14,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db
-from src.api.deps import verify_admin
+from src.api.deps import verify_tenant_admin
 from src.api.schemas.base import ResponseSchema
 from src.core.admin_ops.domain.global_rule import GlobalRule
 
-router = APIRouter(prefix="/rules", tags=["admin", "rules"])
+router = APIRouter(
+    prefix="/rules", tags=["admin", "rules"],
+    dependencies=[Depends(verify_tenant_admin)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +67,6 @@ async def list_rules(
     request: Request,
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
 ):
     """List all global rules for the caller's tenant."""
     tenant_id = str(request.state.tenant_id)
@@ -90,7 +92,6 @@ async def create_rule(
     request: Request,
     data: RuleCreate,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
 ):
     """Create a new rule for the caller's tenant."""
     tenant_id = str(request.state.tenant_id)
@@ -121,7 +122,6 @@ async def update_rule(
     rule_id: str,
     data: RuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
 ):
     """Update a rule within the caller's tenant."""
     tenant_id = str(request.state.tenant_id)
@@ -155,7 +155,6 @@ async def delete_rule(
     request: Request,
     rule_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
 ):
     """Delete a rule within the caller's tenant."""
     tenant_id = str(request.state.tenant_id)
@@ -181,7 +180,6 @@ async def upload_rules_file(
     file: UploadFile = File(...),
     replace_existing: bool = False,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(verify_admin),
 ):
     """
     Upload a rules.txt file. Each non-empty line becomes a rule.
