@@ -63,7 +63,6 @@ def _env_float(name: str, default: float) -> float:
 class LLMCapacitySettings:
     enabled: bool
     redis_url: str | None
-    fail_open: bool = False  # When True, bypass on Redis error (legacy). Default: fail closed.
     # Total allowed in-flight requests across the whole deployment.
     total: int
     # Reserved capacity. Lower classes cannot consume these slots.
@@ -75,6 +74,7 @@ class LLMCapacitySettings:
     chat_wait_timeout_seconds: float
     ingestion_wait_timeout_seconds: float
     communities_wait_timeout_seconds: float
+    fail_open: bool = False  # When True, bypass on Redis error (legacy). Default: fail closed.
 
     @staticmethod
     def from_env() -> "LLMCapacitySettings":
