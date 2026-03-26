@@ -152,19 +152,20 @@ async def query(
             user_id=user_id,
         )
 
-        # Mirror the streaming path: persist conversation summary in Postgres
+        # Persist conversation summary in Postgres (mirrors streaming path)
         if user_id and response.conversation_id:
             try:
                 from src.core.generation.application.memory.manager import memory_manager
-                await memory_manager.update_conversation_summary(
+                await memory_manager.save_conversation_summary(
                     tenant_id=tenant_id,
                     user_id=user_id,
                     conversation_id=response.conversation_id,
-                    new_turn={"query": request.query, "answer": response.answer},
-                    session=session,
+                    title=request.query[:100],
+                    summary=response.answer[:500] if response.answer else "",
+                    metadata={"query": request.query, "mode": "rag"},
                 )
             except Exception as mem_e:
-                logger.warning(f"Memory update skipped: {mem_e}")
+                logger.warning(f"Conversation history save skipped: {mem_e}")
 
         return response
 
