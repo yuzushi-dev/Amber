@@ -245,6 +245,10 @@ class DeleteDocumentUseCase:
         result = await self._session.execute(query)
         document = result.scalars().first()
 
+        # Non-super-admin: document must exist in caller's tenant
+        if document is None and not request.is_super_admin:
+            raise LookupError(f"Document {request.document_id} not found")
+
         # We determine storage path and tenant_id
         # If document not in Postgres, we use request info for best-effort cleanup
         tenant_id = document.tenant_id if document else request.tenant_id
