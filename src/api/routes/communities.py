@@ -1,3 +1,4 @@
+from src.api.deps import verify_tenant_admin
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
@@ -71,7 +72,7 @@ async def get_community(community_id: str, tenant_id: str = Depends(get_tenant_i
     return CommunityResponse(**results[0])
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[Depends(verify_tenant_admin)])
 async def trigger_community_refresh(
     request: Request,
     skip_detection: bool = Query(

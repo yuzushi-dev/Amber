@@ -117,12 +117,15 @@ async def get_my_key_info(request: Request):
 
 
 @router.get("", response_model=list[ApiKeyResponse], dependencies=[Depends(verify_admin)])
-async def list_api_keys(session: AsyncSession = Depends(get_db_session)):
+async def list_api_keys(http_request: Request, session: AsyncSession = Depends(get_db_session)):
     """
-    List all active API keys.
+    List API keys visible to the caller.
+    Super-admins see all keys; tenant admins see only keys linked to their tenant.
     """
+    is_super_admin = getattr(http_request.state, "is_super_admin", False)
+    tenant_id = getattr(http_request.state, "tenant_id", None)
     service = ApiKeyService(session)
-    keys = await service.list_keys()
+    keys = await service.list_keys(tenant_id=None if is_super_admin else tenant_id)
 
     return [
         ApiKeyResponse(
