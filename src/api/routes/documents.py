@@ -333,9 +333,10 @@ async def list_documents(
     query = select(Document).options(selectinload(Document.folder))
 
     if is_super_admin:
-        # Super Admin: Show all if no tenant specified
-        if tenant_id:
-            query = query.where(Document.tenant_id == tenant_id)
+        # Super Admin: filter by query param OR X-Tenant-ID header context
+        target_tenant = tenant_id or str(getattr(http_request.state, "tenant_id", "") or "")
+        if target_tenant:
+            query = query.where(Document.tenant_id == target_tenant)
     else:
         # Regular User: Enforce current tenant (authentication required)
         current_tenant = _get_tenant_id(http_request)

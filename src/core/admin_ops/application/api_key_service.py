@@ -117,13 +117,22 @@ class ApiKeyService:
 
         return None
 
-    async def list_keys(self) -> list[ApiKey]:
+    async def list_keys(self, tenant_id: str | None = None) -> list[ApiKey]:
         """
-        List all active API keys.
+        List active API keys. If tenant_id is given, only return keys linked to that tenant.
         """
-        query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc())  # noqa
+        if tenant_id:
+            # Only keys that are linked to this tenant via ApiKeyTenant junction
+            query = (
+                select(ApiKey)
+                .join(ApiKeyTenant, ApiKey.id == ApiKeyTenant.api_key_id)
+                .where(ApiKey.is_active == True, ApiKeyTenant.tenant_id == tenant_id)  # noqa
+                .order_by(ApiKey.created_at.desc())
+            )
+        else:
+            query = select(ApiKey).where(ApiKey.is_active == True).order_by(ApiKey.created_at.desc())  # noqa
         result = await self.session.execute(query)
-        return list(result.scalars().all())
+        return list(result.scalars().unique().all())
 
     async def revoke_key(self, key_id: str) -> bool:
         """

@@ -145,12 +145,28 @@ async def query(
         # Determine User ID (extract logic from previous implementation)
         user_id = _get_user_id(http_request)
 
-        return await use_case.execute(
+        response = await use_case.execute(
             request=request,
             tenant_id=tenant_id,
             http_request_state=http_request.state,
             user_id=user_id,
         )
+
+        # Mirror the streaming path: persist conversation summary in Postgres
+        if user_id and response.conversation_id:
+            try:
+                from src.core.generation.application.memory.manager import memory_manager
+                await memory_manager.update_conversation_summary(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    conversation_id=response.conversation_id,
+                    new_turn={"query": request.query, "answer": response.answer},
+                    session=session,
+                )
+            except Exception as mem_e:
+                logger.warning(f"Memory update skipped: {mem_e}")
+
+        return response
 
     except Exception as e:
         start_time = time.perf_counter()  # Fallback Start Time
