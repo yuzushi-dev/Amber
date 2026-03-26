@@ -44,6 +44,13 @@ class DatabaseSettings(BaseSettings):
     milvus_host: str = Field(default="localhost", alias="MILVUS_HOST", description="Milvus host")
     milvus_port: int = Field(default=19530, alias="MILVUS_PORT", description="Milvus port")
 
+    # Application role (non-owner, non-superuser — respects RLS without BYPASSRLS)
+    app_database_url: str | None = Field(
+        default=None,
+        alias="APP_DATABASE_URL",
+        description="Optional non-owner DB role URL; used by the app layer when set.",
+    )
+
     # Redis
     redis_url: str = Field(
         default="redis://localhost:6379/0", alias="REDIS_URL", description="Redis connection URL"
