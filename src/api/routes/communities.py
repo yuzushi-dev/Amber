@@ -15,11 +15,11 @@ class CommunityResponse(BaseModel):
     title: str
     level: int
     summary: str | None = None
-    rating: float = 0
-    key_entities: list[str] = Field(default_factory=list)
-    findings: list[str] = Field(default_factory=list)
-    status: str
-    is_stale: bool
+    rating: float | None = None
+    key_entities: list[str] | None = None
+    findings: list[str] | None = None
+    status: str | None = None
+    is_stale: bool | None = None
     last_updated_at: str | None = None
 
 
