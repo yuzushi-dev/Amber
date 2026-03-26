@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from src.amber_platform.composition_root import platform
 from src.shared.context import get_current_tenant as get_tenant_id
+
+_COMMUNITY_REFRESH_COOLDOWN_SECONDS = 300  # 5 min per tenant
 
 router = APIRouter(prefix="/communities", tags=["Communities"])
 
@@ -71,6 +73,7 @@ async def get_community(community_id: str, tenant_id: str = Depends(get_tenant_i
 
 @router.post("/refresh")
 async def trigger_community_refresh(
+    request: Request,
     skip_detection: bool = Query(
         False,
         description="If true, skip community detection (Leiden) and only "
@@ -81,7 +84,37 @@ async def trigger_community_refresh(
 ):
     """
     Manually trigger community detection and summarization for the tenant.
+    Throttled to one refresh per tenant per 5 minutes (Redis-backed cooldown).
     """
+    # Per-tenant cooldown: reject rapid repeated refresh requests
+    try:
+        import redis.asyncio as redis_async
+        from src.api.config import get_settings
+        _settings = get_settings()
+        _r = redis_async.from_url(_settings.db.redis_url, decode_responses=True)
+        cooldown_key = f"community_refresh_cooldown:{tenant_id}"
+        already_queued = await _r.set(
+            cooldown_key, "1",
+            nx=True,  # only set if not exists
+            ex=_COMMUNITY_REFRESH_COOLDOWN_SECONDS,
+        )
+        await _r.aclose()
+        if already_queued is None:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Community refresh already queued for this tenant. "                       f"Please wait {_COMMUNITY_REFRESH_COOLDOWN_SECONDS // 60} minutes before retrying.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Fail closed: if we cannot check cooldown, reject the request
+        import logging
+        logging.getLogger(__name__).error(f"Community refresh cooldown check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limiting temporarily unavailable. Please try again later.",
+        )
+
     from src.workers.tasks import process_communities
 
     task = process_communities.delay(tenant_id, skip_detection=skip_detection)

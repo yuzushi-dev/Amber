@@ -8,7 +8,7 @@ Endpoints for capturing user feedback on RAG responses.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,11 +58,21 @@ class FeedbackResponse(BaseModel):
 
 
 @router.post("/", response_model=ResponseSchema[FeedbackResponse])
-async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_db)):
+async def create_feedback(
+    data: FeedbackCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Submit feedback for a RAG response.
     """
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    tenant_id = str(tenant_id)
 
     # Safety Check: Rate Limit for Feedback
     rl_result = await _get_rate_limiter_instance().check(str(tenant_id), RateLimitCategory.GENERAL)

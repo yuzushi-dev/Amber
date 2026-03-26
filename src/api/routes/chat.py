@@ -21,12 +21,14 @@ router = APIRouter(prefix="/chat", tags=["Chat History"])
 
 
 def _get_user_id(request: Request) -> str:
-    """Extract X-User-ID from request headers. Raises 400 if absent or blank."""
+    """Resolve user identity from X-User-ID header or authenticated API key name."""
     user_id = (request.headers.get("X-User-ID") or "").strip()
     if not user_id:
+        user_id = getattr(request.state, "api_key_name", "") or ""
+    if not user_id:
         raise HTTPException(
-            status_code=400,
-            detail="X-User-ID header is required.",
+            status_code=401,
+            detail="Could not resolve user identity: provide X-User-ID or authenticate with a named API key.",
         )
     return user_id
 

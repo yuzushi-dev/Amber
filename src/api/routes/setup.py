@@ -11,12 +11,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from src.api.deps import verify_admin
+from src.api.deps import verify_super_admin
 from src.api.services.setup_service import get_setup_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/setup", tags=["admin-setup"], dependencies=[Depends(verify_admin)])
+router = APIRouter(prefix="/setup", tags=["admin-setup"], dependencies=[Depends(verify_super_admin)])
 
 
 class SetupStatusResponse(BaseModel):

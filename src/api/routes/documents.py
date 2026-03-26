@@ -244,8 +244,8 @@ async def document_events(
             redis_client = redis.from_url(settings.db.redis_url, decode_responses=True)
             pubsub = redis_client.pubsub()
 
-            # Subscribe to document status channel
-            channel = f"document:{document_id}:status"
+            # Subscribe to tenant-qualified status channel
+            channel = f"document:{tenant_id}:{document_id}:status"
             await pubsub.subscribe(channel)
 
             logger.info(f"SSE client connected for document {document_id}")
