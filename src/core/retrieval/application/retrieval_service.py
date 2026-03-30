@@ -26,6 +26,9 @@ from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.query.decomposer import QueryDecomposer
 from src.core.retrieval.application.query.hyde import HyDEService
 from src.core.retrieval.application.query.models import StructuredQuery
+from src.core.retrieval.application.query.product_context_resolver import (
+    resolve_product_context,
+)
 from src.core.retrieval.application.query.parser import QueryParser
 from src.core.retrieval.application.query.rewriter import QueryRewriter
 from src.core.retrieval.application.query.router import QueryRouter
@@ -655,6 +658,79 @@ class RetrievalService:
         if structured_query.tags:
             all_filters["tags"] = structured_query.tags
         # Date range filters could be added here
+
+        # Taxonomy Routing: resolve edition/audience context and pre-filter document IDs
+        # Explicit filter overrides take precedence over query-inferred context.
+        _explicit_edition = all_filters.pop("edition", None)
+        _explicit_audience = all_filters.pop("audience", None)
+        _explicit_source_family = all_filters.pop("source_family", None)
+
+        _tax_ctx = resolve_product_context(structured_query.cleaned_query)
+        _tax_edition = _explicit_edition or (_tax_ctx.edition if _tax_ctx.edition != "unknown" else None)
+        _tax_audience = _explicit_audience or (_tax_ctx.audience if _tax_ctx.audience != "unknown" else None)
+        _tax_source_family = _explicit_source_family
+
+        _taxonomy_doc_ids: list[str] | None = None
+        _broadening_stage = "none"
+
+        _has_taxonomy_signal = bool(_tax_edition or _tax_audience or _tax_source_family)
+        if _has_taxonomy_signal and hasattr(self.document_repository, "list_visible_document_ids_by_taxonomy"):
+            _primary_scope = resolved_scopes.effective_tenant_id
+
+            # Stage 1: strict (edition + audience + source_family)
+            _strict_ids = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                viewer_tenant_id=_primary_scope,
+                owner_tenant_id=_primary_scope,
+                candidate_document_ids=all_document_ids or None,
+                edition=_tax_edition,
+                audience=_tax_audience,
+                source_family=_tax_source_family,
+            )
+
+            if _strict_ids:
+                _taxonomy_doc_ids = _strict_ids
+                _broadening_stage = "strict"
+            elif _tax_edition and _tax_audience:
+                # Stage 2: same edition, any audience
+                _broad2 = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                    viewer_tenant_id=_primary_scope,
+                    owner_tenant_id=_primary_scope,
+                    candidate_document_ids=all_document_ids or None,
+                    edition=_tax_edition,
+                )
+                if _broad2:
+                    _taxonomy_doc_ids = _broad2
+                    _broadening_stage = "edition_only"
+                else:
+                    # Stage 3: any edition, same audience
+                    _broad3 = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                        viewer_tenant_id=_primary_scope,
+                        owner_tenant_id=_primary_scope,
+                        candidate_document_ids=all_document_ids or None,
+                        audience=_tax_audience,
+                    )
+                    if _broad3:
+                        _taxonomy_doc_ids = _broad3
+                        _broadening_stage = "audience_only"
+                    else:
+                        # Stage 4: unfiltered fallback (low confidence or empty corpus)
+                        _broadening_stage = "unfiltered"
+
+            if include_trace:
+                trace.append({
+                    "step": "taxonomy_routing",
+                    "inferred_edition": _tax_ctx.edition,
+                    "inferred_audience": _tax_ctx.audience,
+                    "explicit_edition": _explicit_edition,
+                    "explicit_audience": _explicit_audience,
+                    "confidence": _tax_ctx.confidence,
+                    "broadening_stage": _broadening_stage,
+                    "strict_candidate_count": len(_strict_ids) if _has_taxonomy_signal else None,
+                    "taxonomy_doc_ids_count": len(_taxonomy_doc_ids) if _taxonomy_doc_ids else 0,
+                })
+
+        if _taxonomy_doc_ids is not None:
+            all_document_ids = _taxonomy_doc_ids
 
         # Step 3: Query Routing
         search_mode = await self.router.route(
