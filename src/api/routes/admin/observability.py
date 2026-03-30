@@ -266,16 +266,16 @@ async def get_taxonomy_corpus_summary(
 ):
     from src.core.ingestion.domain.document import Document
 
-    where_clause = "WHERE metadata_ -> 'taxonomy' IS NOT NULL"
+    where_clause = "WHERE metadata -> 'taxonomy' IS NOT NULL"
     if tenant_id:
         where_clause += f" AND tenant_id = :tenant_id"
 
     bucket_sql = text(
         f"""
         SELECT
-            metadata_ -> 'taxonomy' ->> 'edition'      AS edition,
-            metadata_ -> 'taxonomy' ->> 'audience'     AS audience,
-            metadata_ -> 'taxonomy' ->> 'source_family' AS source_family,
+            metadata -> 'taxonomy' ->> 'edition'      AS edition,
+            metadata -> 'taxonomy' ->> 'audience'     AS audience,
+            metadata -> 'taxonomy' ->> 'source_family' AS source_family,
             COUNT(*)::int                                  AS cnt
         FROM documents
         {where_clause}
@@ -288,9 +288,9 @@ async def get_taxonomy_corpus_summary(
     bucket_rows = bucket_result.fetchall()
 
     unstamped_sql = text(
-        f"SELECT COUNT(*)::int FROM documents"
-        + (" WHERE tenant_id = :tenant_id" if tenant_id else "")
-        + " AND (metadata_ -> 'taxonomy' IS NULL)"
+        "SELECT COUNT(*)::int FROM documents"
+        + (" WHERE tenant_id = :tenant_id AND" if tenant_id else " WHERE")
+        + " (metadata -> 'taxonomy' IS NULL)"
     )
     unstamped_result = await session.execute(unstamped_sql, params)
     total_unstamped = unstamped_result.scalar() or 0
