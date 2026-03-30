@@ -1,6 +1,6 @@
 """Provisioning policy guards for legacy tenant cloning paths."""
 
-from src.api.config import settings
+from src.shared.kernel.runtime import get_settings
 
 
 class ProvisioningDisabledError(RuntimeError):
@@ -17,6 +17,6 @@ def provisioning_disabled_message() -> str:
 
 
 def ensure_tenant_provisioning_enabled() -> None:
-    if settings.enable_tenant_provisioning:
+    if get_settings().enable_tenant_provisioning:
         return
     raise ProvisioningDisabledError(provisioning_disabled_message())
