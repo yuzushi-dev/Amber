@@ -112,7 +112,7 @@ def _classify_zendesk_audience(document_title: str | None) -> str:
         return "admin"
     if has_user:
         return "user"
-    return "unknown"
+    return "admin"  # default: admin for unrecognised KB titles
 
 
 def classify_document_taxonomy(
