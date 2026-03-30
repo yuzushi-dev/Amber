@@ -74,3 +74,8 @@ class DocumentRepository(Protocol):
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
         ...
+
+
+    async def get_folder_name(self, folder_id: str) -> str | None:
+        """Return the display name of a folder by its ID, or None if not found."""
+        ...
