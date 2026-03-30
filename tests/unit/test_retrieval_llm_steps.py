@@ -37,7 +37,7 @@ async def test_rewrite_step_resolves_custom_seed():
 
         async def generate(self, prompt: str, **kwargs):
             self.calls.append(kwargs)
-            return "rewritten"
+            return SimpleNamespace(text="rewritten")
 
     class DummyFactory:
         def __init__(self, provider):

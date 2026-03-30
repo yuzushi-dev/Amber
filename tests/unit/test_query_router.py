@@ -2,6 +2,7 @@
 Unit tests for QueryRouter
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,7 +36,7 @@ async def test_router_llm_classification():
 
     # Setup mocks
     mock_provider = AsyncMock()
-    mock_provider.generate.return_value = "local"
+    mock_provider.generate.return_value = SimpleNamespace(text="local")
 
     # Provider factory is synchronous
     mock_factory = MagicMock()

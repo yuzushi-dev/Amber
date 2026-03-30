@@ -119,9 +119,9 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
         "src.core.generation.domain.memory_models.ConversationSummary",
         StubConversationSummary,
     )
-    monkeypatch.setattr("src.api.routes.query.settings.enable_agent_mode", True, raising=False)
+    monkeypatch.setattr("src.api.config.settings.enable_agent_mode", True, raising=False)
     monkeypatch.setattr(
-        "src.api.routes.query.settings.enable_maintainer_tools", True, raising=False
+        "src.api.config.settings.enable_maintainer_tools", True, raising=False
     )
 
     request = QueryRequest(
