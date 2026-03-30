@@ -33,17 +33,21 @@ def purge_community_tasks(tenant_id: str | None = None) -> int:
         active = i.active() or {}
         reserved = i.reserved() or {}
         scheduled = i.scheduled() or {}
-        
+
         tasks_to_revoke = set()
 
         for source in [active, reserved, scheduled]:
             for worker, tasks in source.items():
                 for task in tasks:
-                    if task.get("name") == task_name:
-                        # If we could filter by tenant_id in args/kwargs, we would here.
-                        # Creating that parser is complex, so we purge all for safety 
-                        # when model config changes globally or for a tenant.
-                        tasks_to_revoke.add(task.get("id"))
+                    if task.get("name") != task_name:
+                        continue
+                    if tenant_id is not None:
+                        # Only revoke tasks whose first positional arg matches
+                        # the requesting tenant — prevent cross-tenant blast radius.
+                        task_tenant = (task.get("args") or [None])[0]
+                        if task_tenant != tenant_id:
+                            continue
+                    tasks_to_revoke.add(task.get("id"))
 
         tasks_to_revoke = list(tasks_to_revoke)
 

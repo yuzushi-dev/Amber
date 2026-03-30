@@ -36,11 +36,32 @@ router = APIRouter(prefix="/query", tags=["query"])
 
 
 def _get_tenant_id(request: Request) -> str:
-    """Extract tenant ID from request context."""
-    # Check if set by auth middleware
-    if hasattr(request.state, "tenant_id"):
-        return request.state.tenant_id
-    return settings.tenant_id
+    """Extract tenant ID from request context. Raises 401 if not authenticated."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
+
+
+def _get_user_id(request: Request) -> str:
+    """Resolve user identity from X-User-ID header or authenticated API key name.
+
+    Server-to-server callers may pass X-User-ID explicitly.
+    Browser/frontend callers without the header fall back to the API key name
+    so every authenticated caller gets a stable, non-shared identity.
+    """
+    user_id = (request.headers.get("X-User-ID") or "").strip()
+    if not user_id:
+        user_id = getattr(request.state, "api_key_name", "") or ""
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not resolve user identity: provide X-User-ID or authenticate with a named API key.",
+        )
+    return user_id
 
 
 # =============================================================================
@@ -122,14 +143,31 @@ async def query(
         )
 
         # Determine User ID (extract logic from previous implementation)
-        user_id = http_request.headers.get("X-User-ID", "default_user")
+        user_id = _get_user_id(http_request)
 
-        return await use_case.execute(
+        response = await use_case.execute(
             request=request,
             tenant_id=tenant_id,
             http_request_state=http_request.state,
             user_id=user_id,
         )
+
+        # Persist conversation summary in Postgres (mirrors streaming path)
+        if user_id and response.conversation_id:
+            try:
+                from src.core.generation.application.memory.manager import memory_manager
+                await memory_manager.save_conversation_summary(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    conversation_id=response.conversation_id,
+                    title=request.query[:100],
+                    summary=response.answer[:500] if response.answer else "",
+                    metadata={"query": request.query, "mode": "rag"},
+                )
+            except Exception as mem_e:
+                logger.warning(f"Conversation history save skipped: {mem_e}")
+
+        return response
 
     except Exception as e:
         start_time = time.perf_counter()  # Fallback Start Time
@@ -264,7 +302,7 @@ async def _query_stream_impl(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"RAG services unavailable: {e}",
+            detail="Service temporarily unavailable.",
         ) from e
 
     async def generate_stream():
@@ -275,6 +313,9 @@ async def _query_stream_impl(
         padding_token = "abcdefghijklmnopqrstuvwxyz1234567890!@#$%^&*()_+[]{};'.,<>?"
         yield f": {(padding_token * 100)[:4096]}\n\n"
         yield f"event: status\ndata: {json.dumps('Searching documents...')}\n\n"
+
+        # Resolve user identity once; used throughout this generator
+        stream_user_id = _get_user_id(http_request)
 
         # =========================================================================
         # STICKY MODE CHECK
@@ -287,6 +328,10 @@ async def _query_stream_impl(
 
                 async with _get_async_session_maker()() as session:
                     existing_conv = await session.get(ConversationSummary, request.conversation_id)
+                    if existing_conv and existing_conv.metadata_:
+                        # Ownership check: only allow sticky switch for caller's own conversation
+                        if existing_conv.tenant_id != tenant_id:
+                            existing_conv = None  # ignore foreign-tenant conversations
                     if existing_conv and existing_conv.metadata_:
                         mode = existing_conv.metadata_.get("mode")
                         if mode == "agent":
@@ -307,6 +352,25 @@ async def _query_stream_impl(
             # AGENTIC MODE SUPPORT
             # =========================================================================
             if request.options and request.options.agent_mode:
+                # ── Privilege checks ─────────────────────────────────────────────
+                from fastapi import HTTPException as _HTTPException
+
+                from src.api.config import settings as _settings
+
+                if not _settings.enable_agent_mode:
+                    raise _HTTPException(
+                        status_code=403,
+                        detail="Agent mode is disabled on this server.",
+                    )
+                _agent_role = request.options.agent_role if request.options else "knowledge"
+                if _agent_role == "maintainer":
+                    _is_super = getattr(http_request.state, "is_super_admin", False)
+                    if not _is_super:
+                        raise _HTTPException(
+                            status_code=403,
+                            detail="agent_role='maintainer' requires super_admin privileges.",
+                        )
+                # ── End privilege checks ──────────────────────────────────────────
                 yield f"event: status\ndata: {json.dumps('Consulting agent tools (Mail, Calendar, etc.)...')}\n\n"
 
                 try:
@@ -332,13 +396,15 @@ async def _query_stream_impl(
                     tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
                     tool_schemas = [retrieval_tool_def["schema"]]
 
+                    from src.api.config import settings as _stream_settings
+
                     agent_role = request.options.agent_role if request.options else "knowledge"
-                    if agent_role == "maintainer":
+                    if agent_role == "maintainer" and _stream_settings.enable_maintainer_tools:
                         fs_tools = create_filesystem_tools(base_path=".")
                         for tool in fs_tools:
                             tool_map[tool["name"]] = tool["func"]
                             tool_schemas.append(tool["schema"])
-                    else:
+                    elif _stream_settings.enable_agent_graph_tool:
                         from src.core.tools.graph import GRAPH_TOOLS, query_graph
 
                         tool_map["query_graph"] = query_graph
@@ -376,6 +442,10 @@ async def _query_stream_impl(
                             )
 
                         if existing_summary:
+                            # Ownership check: reject updates to foreign-tenant/user conversations
+                            if existing_summary.tenant_id != tenant_id:
+                                yield f'event: error\ndata: {json.dumps("Conversation not found")}\n\n'
+                                return
                             # UPDATE existing conversation
                             # 1. Append to history in metadata
                             history = existing_summary.metadata_.get("history", [])
@@ -410,7 +480,7 @@ async def _query_stream_impl(
                             new_summary = ConversationSummary(
                                 id=agent_conversation_id,
                                 tenant_id=tenant_id,
-                                user_id="user",  # Default user
+                                user_id=stream_user_id,
                                 title=title_text,
                                 summary=summary_text,
                                 metadata_={
@@ -478,7 +548,7 @@ async def _query_stream_impl(
                 if not effective_model:
                     settings = get_settings()
                     tuning_service = TuningService(_get_async_session_maker())
-                    tenant_config = await tuning_service.get_tenant_config(tenant_id)
+                    tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
                     effective_model, _ = resolve_tenant_llm_model(
                         tenant_config,
                         settings,
@@ -508,14 +578,14 @@ async def _query_stream_impl(
             try:
                 from src.core.admin_ops.application.rules_service import get_rules_service
                 rules_service = get_rules_service()
-                active_rules_resp = await rules_service.get_active_rules()
+                active_rules_resp = await rules_service.get_active_rules(tenant_id=tenant_id)
                 if active_rules_resp:
                     global_rules_list = active_rules_resp
             except Exception as e:
                 logger.warning(f"Failed to fetch global rules for retrieval: {e}")
 
             memory_context_str = None
-            user_id = http_request.headers.get("X-User-ID", "default_user")
+            user_id = _get_user_id(http_request)
             if user_id:
                 try:
                     from src.core.generation.application.memory.manager import memory_manager
@@ -593,7 +663,7 @@ async def _query_stream_impl(
             stream_start_time = time.perf_counter()  # Track generation latency
 
             # Extract User ID (Phase 3 Memory)
-            user_id = http_request.headers.get("X-User-ID", "default_user")
+            user_id = _get_user_id(http_request)
 
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
@@ -652,6 +722,10 @@ async def _query_stream_impl(
 
                     persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
 
+                    if existing_summary:
+                        # Ownership check: reject updates to foreign-tenant/user conversations
+                        if existing_summary.tenant_id != tenant_id or existing_summary.user_id != stream_user_id:
+                            existing_summary = None  # treat as new
                     if existing_summary:
                         # UPDATE existing conversation
                         # 1. Append to history

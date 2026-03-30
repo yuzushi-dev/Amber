@@ -1,19 +1,77 @@
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Upload, CheckCircle2, AlertCircle, Clock, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { tenantsApi, type Tenant } from '@/lib/api-admin'
+import { useAuth } from '@/features/auth/hooks/useAuth'
 import { calculateGlobalProgress, useUploadStore, UploadItem } from '../stores/useUploadStore'
 import { cn } from '@/lib/utils'
 
 export default function UploadWizard() {
     // We don't use props anymore, we use the store
     const { items, setOpen, enqueueFiles, retry, remove, dismiss } = useUploadStore()
+    const { tenantId, permissions } = useAuth()
     const [isDragging, setIsDragging] = useState(false)
+    const [availableTenants, setAvailableTenants] = useState<Tenant[]>([])
+    const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([])
+    const [loadingTenants, setLoadingTenants] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const canConfigureVisibility = tenantId === 'default' && permissions.includes('admin')
+
+    useEffect(() => {
+        if (!canConfigureVisibility) {
+            setAvailableTenants([])
+            setSelectedTenantIds([])
+            return
+        }
+
+        let cancelled = false
+        const loadTenants = async () => {
+            setLoadingTenants(true)
+            try {
+                const tenants = await tenantsApi.list()
+                if (!cancelled) {
+                    setAvailableTenants(
+                        tenants.filter((tenant) => tenant.id !== 'default' && tenant.is_active)
+                    )
+                }
+            } catch (err) {
+                console.error('Failed to load share targets', err)
+                if (!cancelled) {
+                    setAvailableTenants([])
+                }
+            } finally {
+                if (!cancelled) {
+                    setLoadingTenants(false)
+                }
+            }
+        }
+
+        loadTenants()
+        return () => {
+            cancelled = true
+        }
+    }, [canConfigureVisibility])
+
+    const uploadOptions = canConfigureVisibility && selectedTenantIds.length > 0
+        ? { sharedWithTenantIds: selectedTenantIds }
+        : undefined
+
+    const handleTenantToggle = (tenantId: string, checked: boolean) => {
+        setSelectedTenantIds((current) => {
+            if (checked) {
+                return current.includes(tenantId) ? current : [...current, tenantId]
+            }
+            return current.filter((candidate) => candidate !== tenantId)
+        })
+    }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
-            enqueueFiles(Array.from(e.target.files))
+            enqueueFiles(Array.from(e.target.files), uploadOptions)
             // Reset input
             if (fileInputRef.current) fileInputRef.current.value = ''
         }
@@ -23,7 +81,7 @@ export default function UploadWizard() {
         e.preventDefault()
         setIsDragging(false)
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            enqueueFiles(Array.from(e.dataTransfer.files))
+            enqueueFiles(Array.from(e.dataTransfer.files), uploadOptions)
         }
     }
 
@@ -91,6 +149,50 @@ export default function UploadWizard() {
                             style={{ width: `${globalProgress}%` }}
                         />
                     </div>
+                )}
+
+                {canConfigureVisibility && (
+                    <section className="border-b bg-muted/20 px-4 py-3 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Visibility
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Leave all targets unchecked to keep new uploads private to the default tenant.
+                                </p>
+                            </div>
+                            <Badge variant={selectedTenantIds.length > 0 ? 'secondary' : 'outline'}>
+                                {selectedTenantIds.length > 0
+                                    ? `Shared with ${selectedTenantIds.length} tenant${selectedTenantIds.length === 1 ? '' : 's'}`
+                                    : 'Private to default'}
+                            </Badge>
+                        </div>
+
+                        {loadingTenants ? (
+                            <p className="text-xs text-muted-foreground">Loading tenant targets...</p>
+                        ) : availableTenants.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No additional active tenants available.</p>
+                        ) : (
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                {availableTenants.map((tenant) => (
+                                    <label
+                                        key={tenant.id}
+                                        className="flex items-center gap-3 rounded-lg border bg-background/70 px-3 py-2 text-sm hover:border-primary/40 transition-colors"
+                                    >
+                                        <Checkbox
+                                            checked={selectedTenantIds.includes(tenant.id)}
+                                            onCheckedChange={(checked) => handleTenantToggle(tenant.id, checked)}
+                                        />
+                                        <div className="min-w-0">
+                                            <div className="font-medium truncate">{tenant.name}</div>
+                                            <div className="text-[11px] text-muted-foreground truncate">{tenant.id}</div>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </section>
                 )}
 
                 {/* Content */}

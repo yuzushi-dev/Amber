@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, verify_admin
+from src.api.deps import get_db_session, verify_super_admin
 from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 from src.workers.tasks import run_ragas_benchmark
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 DATASETS_UPLOAD_DIR = "/app/uploads/datasets"
 
 # Fix: Protect all ragas routes with admin check
-router = APIRouter(prefix="/ragas", tags=["admin", "ragas"], dependencies=[Depends(verify_admin)])
+router = APIRouter(prefix="/ragas", tags=["admin", "ragas"], dependencies=[Depends(verify_super_admin)])
 
 
 # =============================================================================
@@ -380,7 +380,7 @@ async def upload_dataset(file: UploadFile = File(...)):
         logger.exception("Unexpected error during dataset upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}",
+            detail="Internal server error",
         ) from e
 
 
@@ -404,7 +404,7 @@ async def delete_dataset(filename: str):
         logger.error(f"Failed to delete dataset {filename}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete dataset: {str(e)}",
+            detail="Internal server error",
         ) from e
 
 

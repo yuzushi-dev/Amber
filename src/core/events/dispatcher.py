@@ -50,7 +50,10 @@ class EventDispatcher:
         if not self.publisher:
             return
 
-        channel = f"document:{event.document_id}:status"
+        # Publish to both legacy bare-ID channel and new tenant-qualified channel.
+        # Legacy channel is retained for transition; subscriber already uses tenant-qualified.
+        channel = f"document:{event.tenant_id}:{event.document_id}:status"
+        legacy_channel = f"document:{event.document_id}:status"
         message = {
             "document_id": event.document_id,
             "status": event.new_status.value,
@@ -61,7 +64,9 @@ class EventDispatcher:
             message["details"] = event.details
 
         payload = {"channel": channel, "message": message}
+        legacy_payload = {"channel": legacy_channel, "message": message}
         try:
             await self.publisher.publish(payload)
+            await self.publisher.publish(legacy_payload)  # backward compat
         except Exception as e:
             logger.warning(f"Failed to publish event: {e}")

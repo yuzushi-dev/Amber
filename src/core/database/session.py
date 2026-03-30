@@ -9,6 +9,7 @@ This enables unit tests to import modules without requiring a database connectio
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -128,6 +129,20 @@ async def close_database() -> None:
         _engine = None
         _async_session_maker = None
 
+
+
+
+async def configure_worker_session(session: AsyncSession) -> None:
+    """
+    Mark a DB session as a privileged worker session.
+
+    Sets app.is_super_admin = 'true' so that the session can access data
+    across all tenants when RLS is enforced.  Call this immediately after
+    opening any session in a Celery/background worker.
+    """
+    await session.execute(
+        text("SELECT set_config('app.is_super_admin', 'true', false)")
+    )
 
 def reset_engine() -> None:
     """
