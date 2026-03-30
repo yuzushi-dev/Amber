@@ -13,11 +13,12 @@ from datetime import datetime
 from typing import Any
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -71,6 +72,183 @@ def _get_tenant_id(request: Request) -> str:
     return str(tenant_id)
 
 
+async def _record_document_visibility_counter(counter_name: str, tenant_id: str) -> None:
+    """Best-effort operational counter for document visibility checks."""
+    from src.amber_platform.composition_root import build_metrics_collector
+
+    collector = build_metrics_collector()
+    increment = getattr(collector, "increment_counter", None)
+    if not callable(increment):
+        return
+
+    try:
+        await increment(counter_name, tenant_id, 1)
+    except Exception as e:
+        logger.warning(
+            f"Failed to record document visibility metric {counter_name} for tenant {tenant_id}: {e}"
+        )
+
+
+async def _record_document_visibility_miss(
+    document_id: str,
+    http_request: Request | None,
+    session: AsyncSession,
+) -> None:
+    """Classify a 404 on document visibility as denied vs not found."""
+    if http_request is None:
+        return
+
+    permissions = getattr(http_request.state, "permissions", [])
+    if "super_admin" in permissions:
+        return
+
+    from src.core.ingestion.domain.document_share import DocumentVisibilityStatus
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+    from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+    tenant_id = _get_tenant_id(http_request)
+    repository = PostgresDocumentRepository(session)
+    visibility_status = DocumentVisibilityStatus.NOT_FOUND
+    classifier = getattr(repository, "classify_visibility", None)
+    if callable(classifier):
+        query_scopes = getattr(http_request.state, "query_scopes", None)
+        if query_scopes is None:
+            query_scopes = resolve_query_scopes(tenant_id)
+
+        shared_owner_tenant_ids = list(
+            getattr(query_scopes, "shared_document_owner_tenants", []) or []
+        )
+        visibility_status = await classifier(
+            document_id=document_id,
+            viewer_tenant_id=tenant_id,
+            shared_owner_tenant_ids=shared_owner_tenant_ids,
+        )
+
+    counter_name = "document_visibility_denied"
+    if visibility_status != DocumentVisibilityStatus.DENIED:
+        counter_name = "document_visibility_not_found"
+
+    await _record_document_visibility_counter(counter_name, tenant_id)
+
+
+async def _get_visible_document_or_404(
+    document_id: str,
+    http_request: Request | None,
+    session: AsyncSession,
+):
+    """Resolve a document visible to the current tenant or raise 404."""
+    if http_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Request context missing.",
+        )
+
+    permissions = getattr(http_request.state, "permissions", [])
+    is_super_admin = "super_admin" in permissions
+
+    if is_super_admin:
+        from src.core.ingestion.domain.document_share import VisibleDocument
+
+        result = await session.execute(
+            select(Document)
+            .options(selectinload(Document.folder))
+            .where(Document.id == document_id)
+        )
+        document = result.scalars().first()
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document {document_id} not found",
+            )
+
+        return VisibleDocument(
+            document=document,
+            is_shared=False,
+            owner_tenant_id=document.tenant_id,
+            visible_from_tenant_id=document.tenant_id,
+            share_mode=None,
+        )
+
+    from src.core.ingestion.domain.document_share import DocumentVisibilityStatus
+    from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+        PostgresDocumentRepository,
+    )
+
+    tenant_id = _get_tenant_id(http_request)
+    repository = PostgresDocumentRepository(session)
+    visible_document = await repository.get_visible(document_id, tenant_id)
+    if not visible_document:
+        await _record_document_visibility_miss(document_id, http_request, session)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found",
+        )
+    return visible_document
+
+
+def _require_document_share_manager(request: Request) -> str:
+    """Allow share management only for super admins or default tenant admins."""
+    permissions = getattr(request.state, "permissions", [])
+    if "super_admin" in permissions:
+        return str(getattr(request.state, "api_key_name", "super_admin"))
+
+    tenant_id = _get_tenant_id(request)
+    tenant_role = getattr(request.state, "tenant_role", None)
+    if tenant_id != "default" or tenant_role != "admin" or "admin" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Default tenant admin privileges required.",
+        )
+
+    return str(getattr(request.state, "api_key_name", "default_admin"))
+
+
+def _parse_shared_with_tenant_ids(raw_value: str | None) -> list[str] | None:
+    """Parse optional multipart JSON array of tenant IDs."""
+    if raw_value is None:
+        return None
+
+    candidate = raw_value.strip()
+    if not candidate:
+        return []
+
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="shared_with_tenant_ids must be a JSON array of tenant IDs.",
+        ) from e
+
+    if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="shared_with_tenant_ids must be a JSON array of tenant IDs.",
+        )
+
+    return parsed
+
+
+def _ensure_document_share_management_enabled() -> None:
+    """Reject explicit share-management routes when the feature is disabled."""
+    if not settings.enable_document_share_management:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Document share management is disabled on this server.",
+        )
+
+
+def _ensure_upload_time_document_shares_enabled() -> None:
+    """Reject upload-time share target selection when the feature is disabled."""
+    if not settings.enable_upload_time_document_shares:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Upload-time document sharing is disabled on this server.",
+        )
+
+
 class DocumentUploadResponse(BaseModel):
     """Response model for document upload."""
 
@@ -92,9 +270,12 @@ class DocumentResponse(BaseModel):
     folder_id: str | None = None
     source_type: str | None = "upload"
     content_type: str | None = None  # MIME type of the document
-    content_type: str | None = None  # MIME type of the document
     created_at: datetime
     error_message: str | None = None  # Added field for error feedback
+    is_shared: bool = False
+    owner_tenant_id: str | None = None
+    visible_from_tenant_id: str | None = None
+    share_mode: str | None = None
 
     # Enrichment fields
     summary: str | None = None
@@ -106,6 +287,46 @@ class DocumentResponse(BaseModel):
     # Stats (computed from chunks/entities/relationships)
     stats: dict[str, int] | None = None
     ingestion_cost: float | None = 0.0
+
+
+
+class DocumentShareRequest(BaseModel):
+    """Request model for adding, replacing, or removing share targets."""
+
+    tenant_ids: list[str] = Field(default_factory=list)
+
+
+class DocumentShareTargetResponse(BaseModel):
+    """Response model for one shared tenant target."""
+
+    tenant_id: str
+    tenant_name: str | None = None
+    share_mode: str
+    created_at: datetime
+
+
+class DocumentSharesResponse(BaseModel):
+    """Response model for document share configuration."""
+
+    document_id: str
+    owner_tenant_id: str
+    shares: list[DocumentShareTargetResponse] = Field(default_factory=list)
+
+
+def _to_document_shares_response(output) -> DocumentSharesResponse:
+    return DocumentSharesResponse(
+        document_id=output.document_id,
+        owner_tenant_id=output.owner_tenant_id,
+        shares=[
+            DocumentShareTargetResponse(
+                tenant_id=share.tenant_id,
+                tenant_name=share.tenant_name,
+                share_mode=share.share_mode,
+                created_at=share.created_at,
+            )
+            for share in output.shares
+        ],
+    )
 
 
 @router.post(
@@ -126,6 +347,10 @@ async def upload_document(
     tenant_id: str = Form(default=None, description="Tenant ID (optional, super admin only)"),
     metadata: str = Form(default=None, description="JSON metadata (optional)"),
     folder_id: str = Form(default=None, description="Folder ID (optional)"),
+    shared_with_tenant_ids: str = Form(
+        default=None,
+        description="JSON array of tenant IDs to share a default-owned document with immediately.",
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentUploadResponse:
     """
@@ -142,6 +367,17 @@ async def upload_document(
         target_tenant_id = tenant_id
     else:
         target_tenant_id = _get_tenant_id(request)
+
+    parsed_share_targets = _parse_shared_with_tenant_ids(shared_with_tenant_ids)
+    share_actor = None
+    if parsed_share_targets is not None:
+        _ensure_upload_time_document_shares_enabled()
+        if target_tenant_id != "default":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="shared_with_tenant_ids is only allowed when uploading into the default tenant.",
+            )
+        share_actor = _require_document_share_manager(request)
 
     # Parse metadata if provided
     metadata_dict = None
@@ -171,6 +407,8 @@ async def upload_document(
                 content_type=file.content_type or "application/octet-stream",
                 metadata=metadata_dict,
                 folder_id=folder_id,
+                shared_with_tenant_ids=parsed_share_targets,
+                share_actor=share_actor,
             )
         )
     except ValueError as e:
@@ -216,23 +454,9 @@ async def document_events(
 
     This endpoint subscribes to Redis pub/sub for real-time status updates.
     """
-    # Verify document exists and get tenant_id
-    # Verify document exists and get tenant_id
-    permissions = getattr(http_request.state, "permissions", [])
-    is_super_admin = "super_admin" in permissions
-
-    query = select(Document).where(Document.id == document_id)
-
-    if not is_super_admin:
-        tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
+    tenant_id = visible_document.owner_tenant_id
 
     async def event_generator():
         """Generate SSE events from Redis pub/sub."""
@@ -324,31 +548,9 @@ async def list_documents(
     """
     List documents in the knowledge base.
     """
-    # Check permissions
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
 
-    from sqlalchemy.orm import selectinload
-
-    query = select(Document).options(selectinload(Document.folder))
-
-    if is_super_admin:
-        # Super Admin: filter by query param OR X-Tenant-ID header context
-        target_tenant = tenant_id or str(getattr(http_request.state, "tenant_id", "") or "")
-        if target_tenant:
-            query = query.where(Document.tenant_id == target_tenant)
-    else:
-        # Regular User: Enforce current tenant (authentication required)
-        current_tenant = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == current_tenant)
-
-    # Apply pagination
-    query = query.limit(limit).offset(offset)
-
-    result = await session.execute(query)
-    documents = result.scalars().all()
-
-    # Helper to merge dynamic folder into metadata
     def enrich_metadata(doc):
         meta = doc.metadata_ or {}
         if doc.folder:
@@ -356,23 +558,58 @@ async def list_documents(
             meta["folder"] = doc.folder.name
         return meta
 
+    if is_super_admin:
+        from src.core.ingestion.domain.document_share import VisibleDocument
+
+        query = select(Document).options(selectinload(Document.folder))
+        target_tenant = tenant_id or str(getattr(http_request.state, "tenant_id", "") or "")
+        if target_tenant:
+            query = query.where(Document.tenant_id == target_tenant)
+
+        query = query.limit(limit).offset(offset)
+        result = await session.execute(query)
+        visible_documents = [
+            VisibleDocument(
+                document=doc,
+                is_shared=False,
+                owner_tenant_id=doc.tenant_id,
+                visible_from_tenant_id=doc.tenant_id,
+                share_mode=None,
+            )
+            for doc in result.scalars().all()
+        ]
+    else:
+        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+            PostgresDocumentRepository,
+        )
+
+        current_tenant = _get_tenant_id(http_request)
+        repository = PostgresDocumentRepository(session)
+        visible_documents = await repository.list_visible_by_tenant(
+            current_tenant, limit=limit, offset=offset
+        )
+
     return [
         DocumentResponse(
-            id=doc.id,
-            filename=doc.filename,
-            title=doc.filename,  # Alias for frontend
-            status=doc.status.value,
-            domain=doc.domain,
-            tenant_id=doc.tenant_id,
-            folder_id=doc.folder_id,
-            source_type=doc.source_type,
-            content_type=_get_content_type(doc),
-            created_at=doc.created_at,
-            error_message=doc.error_message,
+            id=visible.document.id,
+            filename=visible.document.filename,
+            title=visible.document.filename,
+            status=visible.document.status.value,
+            domain=visible.document.domain,
+            tenant_id=visible.document.tenant_id,
+            folder_id=visible.document.folder_id,
+            source_type=visible.document.source_type,
+            content_type=_get_content_type(visible.document),
+            created_at=visible.document.created_at,
+            error_message=visible.document.error_message,
             ingestion_cost=0.0,
-            metadata=enrich_metadata(doc),
+            metadata=enrich_metadata(visible.document),
+            is_shared=visible.is_shared,
+            owner_tenant_id=visible.owner_tenant_id,
+            visible_from_tenant_id=visible.visible_from_tenant_id,
+            share_mode=visible.share_mode,
         )
-        for doc in documents
+        for visible in visible_documents
     ]
 
 
@@ -422,6 +659,7 @@ async def get_document(
     # I will check if I can modify `DocumentOutput` by searching for it.
 
     from src.core.ingestion.application.use_cases_documents import (
+        resolve_graph_document_id,
         DocumentOutput,
         GetDocumentRequest,
         GetDocumentUseCase,
@@ -441,6 +679,7 @@ async def get_document(
             )
         )
     except LookupError as e:
+        await _record_document_visibility_miss(document_id, http_request, session)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return DocumentResponse(
@@ -461,7 +700,114 @@ async def get_document(
         metadata=output.metadata,
         stats=output.stats,
         ingestion_cost=output.ingestion_cost,
+        is_shared=output.is_shared,
+        owner_tenant_id=output.owner_tenant_id,
+        visible_from_tenant_id=output.visible_from_tenant_id,
+        share_mode=output.share_mode,
     )
+
+
+@router.get(
+    "/{document_id}/shares",
+    response_model=DocumentSharesResponse,
+    summary="List Document Shares",
+    description="List the tenant targets that can access a default-owned document.",
+)
+async def list_document_shares(
+    document_id: str,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentSharesResponse:
+    from src.core.ingestion.application.document_sharing_service import DocumentSharingService
+
+    _ensure_document_share_management_enabled()
+    _require_document_share_manager(http_request)
+    service = DocumentSharingService(session)
+    try:
+        output = await service.list_shares(document_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return _to_document_shares_response(output)
+
+
+@router.post(
+    "/{document_id}/shares",
+    response_model=DocumentSharesResponse,
+    summary="Add Document Shares",
+    description="Add tenant targets that can access a default-owned document.",
+)
+async def add_document_shares(
+    document_id: str,
+    payload: DocumentShareRequest,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentSharesResponse:
+    from src.core.ingestion.application.document_sharing_service import DocumentSharingService
+
+    _ensure_document_share_management_enabled()
+    actor = _require_document_share_manager(http_request)
+    service = DocumentSharingService(session)
+    try:
+        output = await service.add_shares(document_id, payload.tenant_ids, actor=actor)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return _to_document_shares_response(output)
+
+
+@router.put(
+    "/{document_id}/shares",
+    response_model=DocumentSharesResponse,
+    summary="Replace Document Shares",
+    description="Replace the tenant targets that can access a default-owned document.",
+)
+async def replace_document_shares(
+    document_id: str,
+    payload: DocumentShareRequest,
+    http_request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentSharesResponse:
+    from src.core.ingestion.application.document_sharing_service import DocumentSharingService
+
+    _ensure_document_share_management_enabled()
+    actor = _require_document_share_manager(http_request)
+    service = DocumentSharingService(session)
+    try:
+        output = await service.replace_shares(document_id, payload.tenant_ids, actor=actor)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return _to_document_shares_response(output)
+
+
+@router.delete(
+    "/{document_id}/shares",
+    response_model=DocumentSharesResponse,
+    summary="Remove Document Shares",
+    description="Remove tenant targets from a default-owned document share list.",
+)
+async def remove_document_shares(
+    document_id: str,
+    payload: DocumentShareRequest = Body(default_factory=DocumentShareRequest),
+    http_request: Request = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentSharesResponse:
+    from src.core.ingestion.application.document_sharing_service import DocumentSharingService
+
+    _ensure_document_share_management_enabled()
+    actor = _require_document_share_manager(http_request)
+    service = DocumentSharingService(session)
+    try:
+        output = await service.remove_shares(document_id, payload.tenant_ids, actor=actor)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return _to_document_shares_response(output)
 
 
 @router.get(
@@ -481,39 +827,12 @@ async def get_document_communities(
 
     Returns communities with their entities, sorted by entity count.
     """
-    # Verify document exists
-    permissions = getattr(http_request.state, "permissions", [])
-    is_super_admin = "super_admin" in permissions
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
 
-    query = select(Document).where(Document.id == document_id)
+    from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
-    if not is_super_admin:
-        # Need tenant_id to verify ownership if not super admin
-        # We can't easily get it here without request object properly
-        # But http_request is optional in signature? No, let's look at signature.
-        # http_request: Request = None
-        # Wait, if it's None we can't check permissions.
-        # But Depends(verify_admin) or auth middleware ensures request is populated?
-        # Actually get_document_communities has `http_request: Request = None` ???
-        # Checking signature: `http_request: Request = None`.
-        # If called from API, FastAPI injects it? No, Request must be declared.
-        # If it's None, we might fail.
-        # But let's assume it's injected if requested.
-        if http_request:
-            tenant_id = _get_tenant_id(http_request)
-            query = query.where(Document.tenant_id == tenant_id)
-        else:
-            # Fallback or error? If we are here, we probably have a request context.
-            # The signature seems to imply it might be optional, but for a router endpoint it should be there.
-            # Let's trust `_get_tenant_id` handles request attribute access, but we need request.
-            pass
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
 
     # Query Neo4j for communities via BELONGS_TO relationship
     cypher = """
@@ -535,7 +854,7 @@ async def get_document_communities(
         records = await platform.neo4j_client.execute_read(
             cypher,
             {
-                "document_id": document_id,
+                "document_id": graph_doc_id,
                 "offset": offset,
                 "limit": limit,
             },
@@ -572,22 +891,8 @@ async def get_document_file(
 
     Returns a streaming response with the file content and appropriate content-type header.
     """
-    # Get document metadata
-    permissions = getattr(http_request.state, "permissions", [])
-    is_super_admin = "super_admin" in permissions
-
-    query = select(Document).where(Document.id == document_id)
-
-    if not is_super_admin:
-        tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
 
     # Get file from MinIO
     try:
@@ -683,6 +988,10 @@ async def update_document(
         metadata=output.metadata,
         stats=output.stats,
         ingestion_cost=output.ingestion_cost,
+        is_shared=output.is_shared,
+        owner_tenant_id=output.owner_tenant_id,
+        visible_from_tenant_id=output.visible_from_tenant_id,
+        share_mode=output.share_mode,
     )
 
 
@@ -777,27 +1086,12 @@ async def get_document_entities(
         limit: Maximum number of entities to return (default: 100)
         offset: Number of entities to skip (default: 0)
     """
-    # 1. Verify existence in SQL and get tenant_id
-    permissions = getattr(http_request.state, "permissions", []) if http_request else []
-    is_super_admin = "super_admin" in permissions
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
 
-    query = select(Document).where(Document.id == document_id)
+    from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
-    if not is_super_admin:
-        if http_request:
-            tenant_id = _get_tenant_id(http_request)
-            query = query.where(Document.tenant_id == tenant_id)
-        else:
-            # Fallback if request is missing (should not happen in API call)
-            pass
-
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
 
     # 2. Query Neo4j with pagination
     cypher = """
@@ -811,7 +1105,7 @@ async def get_document_entities(
 
     try:
         records = await platform.neo4j_client.execute_read(
-            cypher, {"document_id": document_id, "limit": limit, "offset": offset}
+            cypher, {"document_id": graph_doc_id, "limit": limit, "offset": offset}
         )
         # Neo4j Node objects can be converted to dict, but driver returns distinct e as Node.
         # We need to extract properties.
@@ -843,24 +1137,12 @@ async def get_document_relationships(
         limit: Maximum number of relationships to return (default: 100)
         offset: Number of relationships to skip (default: 0)
     """
-    # 1. Verify existence
-    permissions = getattr(http_request.state, "permissions", []) if http_request else []
-    is_super_admin = "super_admin" in permissions
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
 
-    query = select(Document).where(Document.id == document_id)
+    from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
-    if not is_super_admin:
-        if http_request:
-            tenant_id = _get_tenant_id(http_request)
-            query = query.where(Document.tenant_id == tenant_id)
-
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
 
     # 2. Query Neo4j
     # OPTIMIZED: Direct MATCH pattern instead of UNWIND Cartesian product
@@ -888,7 +1170,7 @@ async def get_document_relationships(
 
     try:
         records = await platform.neo4j_client.execute_read(
-            cypher, {"document_id": document_id, "limit": limit, "offset": offset}
+            cypher, {"document_id": graph_doc_id, "limit": limit, "offset": offset}
         )
         return [record["rel"] for record in records]
     except Exception as e:
@@ -913,25 +1195,8 @@ async def get_document_chunks(
     """
     Get chunks for a document from PostgreSQL.
     """
-    permissions = getattr(http_request.state, "permissions", [])
-    is_super_admin = "super_admin" in permissions
-
-    # 1. Verify existence
-    # We can join with chunks directly or check doc first.
-    # Checking doc first gives better error message.
-    query = select(Document).where(Document.id == document_id)
-
-    if not is_super_admin:
-        tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-
-    result = await session.execute(query)
-    doc = result.scalars().first()
-
-    if not doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    doc = visible_document.document
 
     # 2. Fetch chunks from Postgres
     chunks_query = select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.index.asc())
@@ -965,22 +1230,12 @@ async def get_document_similarities(
     """
     Get similarity relationships between chunks within the document.
     """
-    # Verify document and get tenant
-    permissions = getattr(http_request.state, "permissions", [])
-    is_super_admin = "super_admin" in permissions
+    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
+    document = visible_document.document
 
-    query = select(Document).where(Document.id == document_id)
+    from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
-    if not is_super_admin:
-        tenant_id = _get_tenant_id(http_request)
-        query = query.where(Document.tenant_id == tenant_id)
-    result = await session.execute(query)
-    document = result.scalars().first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {document_id} not found"
-        )
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
 
     # Query SIMILAR_TO relationships in Neo4j
     # We want chunk text as well to display in frontend
@@ -1001,7 +1256,7 @@ async def get_document_similarities(
     try:
         # 1. Fetch relations from Neo4j
         records = await platform.neo4j_client.execute_read(
-            cypher, {"document_id": document_id, "offset": offset, "limit": limit}
+            cypher, {"document_id": graph_doc_id, "offset": offset, "limit": limit}
         )
 
         if not records:

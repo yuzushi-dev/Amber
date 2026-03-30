@@ -444,6 +444,7 @@ def build_upload_document_use_case(
     Build UploadDocumentUseCase with concrete infrastructure adapters.
     """
     from src.core.events.dispatcher import EventDispatcher
+    from src.core.ingestion.application.document_sharing_service import DocumentSharingService
     from src.core.ingestion.application.use_cases_documents import UploadDocumentUseCase
     from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
         PostgresDocumentRepository,
@@ -468,6 +469,7 @@ def build_upload_document_use_case(
         vector_store_factory=vector_store_factory,
         task_dispatcher=task_dispatcher or CeleryTaskDispatcher(),
         event_dispatcher=event_dispatcher or EventDispatcher(RedisStatePublisher()),
+        document_sharing_service=DocumentSharingService(session),
     )
 
 

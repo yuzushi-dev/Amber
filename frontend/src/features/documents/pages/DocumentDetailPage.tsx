@@ -13,6 +13,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/features/auth';
 import {
     ChevronLeft,
     FileText,
@@ -40,6 +41,7 @@ import CommunitiesTab from '../components/DocumentTabs/CommunitiesTab';
 import SimilaritiesTab from '../components/DocumentTabs/SimilaritiesTab';
 import LiveStatusBadge from '../components/LiveStatusBadge';
 import DeleteDocumentModal from '../components/DeleteDocumentModal';
+import DocumentShareDialog from '../components/DocumentShareDialog';
 
 // Placeholder for missing tabs
 // const SimilaritiesView = () => <div className="p-4 text-center text-muted-foreground">Similarities exploration coming soon.</div>;
@@ -49,9 +51,14 @@ interface DocumentDetail {
     filename: string
     title?: string
     status: string
+    tenant_id: string
     summary?: string
     keywords?: string[]
     metadata?: Record<string, unknown>
+    is_shared?: boolean
+    owner_tenant_id?: string | null
+    visible_from_tenant_id?: string | null
+    share_mode?: string | null
     stats?: {
         chunks: number
         entities: number
@@ -64,6 +71,7 @@ interface DocumentDetail {
 export default function DocumentDetailPage() {
     const { documentId } = useParams({ from: '/admin/data/documents/$documentId' });
     const navigate = useNavigate();
+    const { tenantId, permissions } = useAuth();
 
     // React Query Client
     const queryClient = useQueryClient();
@@ -71,6 +79,7 @@ export default function DocumentDetailPage() {
     // State for Modals
     const [activeModal, setActiveModal] = useState<string | null>(null);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
     // Fetch Document Metadata
     const { data: document, isLoading } = useQuery({
@@ -96,6 +105,10 @@ export default function DocumentDetailPage() {
     if (!document) {
         return <div className="p-8 text-center">Document not found</div>;
     }
+
+    const canManageShares =
+        permissions.includes('super_admin') || (tenantId === 'default' && permissions.includes('admin'));
+    const isDefaultOwnedDocument = (document.owner_tenant_id ?? document.tenant_id) === 'default';
 
     const statsCards = [
         { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-chart-1', bg: 'bg-chart-1/10' },
@@ -151,6 +164,16 @@ export default function DocumentDetailPage() {
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {canManageShares && isDefaultOwnedDocument && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShareDialogOpen(true)}
+                        >
+                            <Share2 className="w-4 h-4 mr-2" />
+                            Manage Access
+                        </Button>
+                    )}
                     <Button
                         variant="destructive"
                         size="sm"
@@ -271,6 +294,17 @@ export default function DocumentDetailPage() {
                     await queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
                     // Navigate back to library
                     navigate({ to: '/admin/data/documents' });
+                }}
+            />
+
+            <DocumentShareDialog
+                open={shareDialogOpen}
+                onOpenChange={setShareDialogOpen}
+                documentId={documentId}
+                documentTitle={document.title || document.filename}
+                onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: ['document', documentId] });
+                    queryClient.invalidateQueries({ queryKey: ['documents'] });
                 }}
             />
 

@@ -70,3 +70,70 @@ async def test_hybrid_search_uses_tenant_weights():
         query_type=options.search_mode,
         tenant_config={"vector": 0.9, "graph": 0.1},
     )
+
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_forwards_document_ids_to_graph_acl():
+    vector_store = MagicMock()
+    graph_store = MagicMock()
+    document_repository = MagicMock()
+    document_repository.get_chunks = AsyncMock(return_value=[])
+
+    mock_factory = MagicMock()
+    mock_factory.get_embedding_provider.return_value = MagicMock()
+    mock_factory.get_llm_provider.return_value = MagicMock()
+
+    with (
+        patch(
+            "src.core.retrieval.application.retrieval_service.build_provider_factory",
+            return_value=mock_factory,
+        ),
+        patch("src.core.retrieval.application.retrieval_service.SemanticCache"),
+        patch("src.core.retrieval.application.retrieval_service.ResultCache"),
+    ):
+        service = RetrievalService(
+            document_repository=document_repository,
+            vector_store=vector_store,
+            neo4j_client=graph_store,
+            openai_api_key="sk-test",
+        )
+
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 8)
+    service.vector_searcher.search = AsyncMock(return_value=[])
+    service.entity_searcher.search = AsyncMock(
+        return_value=[{"entity_id": "entity-1", "score": 0.9}]
+    )
+    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
+    service.graph_traversal.beam_search = AsyncMock(return_value=[])
+    service.reranker = None
+
+    structured_query = StructuredQuery(original_query="q", cleaned_query="q")
+    options = QueryOptions(search_mode=SearchMode.BASIC)
+    trace: list[dict] = []
+
+    await service._execute_hybrid_search(
+        structured_query=structured_query,
+        tenant_id="tenant-1",
+        document_ids=["doc-1"],
+        filters={},
+        top_k=5,
+        options=options,
+        trace=trace,
+        collection_name="amber_tenant_1",
+        tenant_config=None,
+    )
+
+    service.graph_searcher.search_by_entities.assert_awaited_once_with(
+        entity_ids=["entity-1"],
+        tenant_id="tenant-1",
+        limit=service.config.initial_k,
+        allowed_doc_ids=["doc-1"],
+    )
+    service.graph_traversal.beam_search.assert_awaited_once_with(
+        seed_entity_ids=["entity-1"],
+        tenant_id="tenant-1",
+        depth=1,
+        beam_width=3,
+        allowed_doc_ids=["doc-1"],
+    )

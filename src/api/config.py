@@ -384,6 +384,35 @@ class Settings(BaseSettings):
         alias="ENABLE_AGENT_GRAPH_TOOL",
         description="Enable graph query tool in agent mode",
     )
+    enable_tenant_provisioning: bool = Field(
+        default=False,
+        alias="ENABLE_TENANT_PROVISIONING",
+        description=(
+            "Enable legacy tenant provisioning that physically clones documents, chunks, "
+            "vectors, and optional graph data between tenants. Disabled by default to "
+            "prevent new shared-corpus duplication during the Shared GraphRAG migration."
+        ),
+    )
+    enable_document_share_management: bool = Field(
+        default=True,
+        alias="ENABLE_DOCUMENT_SHARE_MANAGEMENT",
+        description="Enable explicit document share management endpoints and workflows.",
+    )
+    enable_upload_time_document_shares: bool = Field(
+        default=True,
+        alias="ENABLE_UPLOAD_TIME_DOCUMENT_SHARES",
+        description="Enable upload-time document share target selection for default-owned documents.",
+    )
+    enable_acl_aware_vector_retrieval: bool = Field(
+        default=True,
+        alias="ENABLE_ACL_AWARE_VECTOR_RETRIEVAL",
+        description="Enable vector retrieval filtering against explicit document share ACLs.",
+    )
+    enable_acl_aware_graph_retrieval: bool = Field(
+        default=True,
+        alias="ENABLE_ACL_AWARE_GRAPH_RETRIEVAL",
+        description="Enable graph/global retrieval filtering against explicit document share ACLs.",
+    )
 
     @field_validator("log_level")
     @classmethod
