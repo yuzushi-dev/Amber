@@ -17,6 +17,26 @@ from src.core.admin_ops.application.api_key_service import ApiKeyService
 
 logger = logging.getLogger(__name__)
 
+# Scopes that require super_admin to grant — prevent privilege escalation
+_PRIVILEGED_SCOPES = frozenset({"super_admin", "root"})
+
+
+def _assert_no_scope_escalation(caller_request, requested_scopes: list[str]) -> None:
+    """Raise 403 if caller tries to grant privileged scopes they don't hold."""
+    caller_perms = set(getattr(caller_request.state, "permissions", []))
+    escalated = _PRIVILEGED_SCOPES.intersection(requested_scopes)
+    if escalated and not _PRIVILEGED_SCOPES.intersection(caller_perms):
+        from fastapi import HTTPException, status as _status
+
+        raise HTTPException(
+            status_code=_status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Cannot grant privileged scopes "
+                f"({', '.join(sorted(escalated))}) without super_admin privileges."
+            ),
+        )
+
+
 router = APIRouter(prefix="/keys", tags=["admin-keys"])
 
 
@@ -97,12 +117,15 @@ async def get_my_key_info(request: Request):
 
 
 @router.get("", response_model=list[ApiKeyResponse], dependencies=[Depends(verify_admin)])
-async def list_api_keys(session: AsyncSession = Depends(get_db_session)):
+async def list_api_keys(http_request: Request, session: AsyncSession = Depends(get_db_session)):
     """
-    List all active API keys.
+    List API keys visible to the caller.
+    Super-admins see all keys; tenant admins see only keys linked to their tenant.
     """
+    is_super_admin = getattr(http_request.state, "is_super_admin", False)
+    tenant_id = getattr(http_request.state, "tenant_id", None)
     service = ApiKeyService(session)
-    keys = await service.list_keys()
+    keys = await service.list_keys(tenant_id=None if is_super_admin else tenant_id)
 
     return [
         ApiKeyResponse(
@@ -122,12 +145,16 @@ async def list_api_keys(session: AsyncSession = Depends(get_db_session)):
 
 @router.post("", response_model=CreatedKeyResponse, dependencies=[Depends(verify_admin)])
 async def create_api_key(
-    request: CreateKeyRequest, session: AsyncSession = Depends(get_db_session)
+    request: CreateKeyRequest,
+    session: AsyncSession = Depends(get_db_session),
+    http_request: Request = None,
 ):
     """
     Generate a new API key.
     The secret key is returned only in this response and cannot be retrieved later.
     """
+    if http_request is not None:
+        _assert_no_scope_escalation(http_request, request.scopes or [])
     service = ApiKeyService(session)
     result = await service.create_key(
         name=request.name, prefix=request.prefix, scopes=request.scopes
@@ -147,11 +174,16 @@ async def create_api_key(
 
 @router.patch("/{key_id}", response_model=ApiKeyResponse, dependencies=[Depends(verify_admin)])
 async def update_api_key(
-    key_id: str, request: UpdateKeyRequest, session: AsyncSession = Depends(get_db_session)
+    key_id: str,
+    request: UpdateKeyRequest,
+    session: AsyncSession = Depends(get_db_session),
+    http_request: Request = None,
 ):
     """
     Update an existing API key's name or scopes.
     """
+    if http_request is not None and request.scopes is not None:
+        _assert_no_scope_escalation(http_request, request.scopes)
     service = ApiKeyService(session)
     key = await service.update_key(key_id=key_id, name=request.name, scopes=request.scopes)
 

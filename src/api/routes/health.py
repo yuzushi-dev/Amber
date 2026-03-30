@@ -128,7 +128,9 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
             dependencies[name] = DependencyStatus(
                 status=dep.status.value,
                 latency_ms=dep.latency_ms,
-                error=dep.error,
+                # Sanitize: never expose raw exception strings (may contain
+                # connection strings, hostnames, or credentials).
+                error="Health check failed" if dep.error else None,
             )
 
         response = ReadinessResponse(
@@ -143,7 +145,7 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
             status="unhealthy",
             timestamp=datetime.now(UTC).isoformat(),
             dependencies={
-                "system": DependencyStatus(status="down", error=f"Health check failed: {str(e)}")
+                "system": DependencyStatus(status="down", error="Health check failed")
             },
         )
         system_health = None  # Marker that it failed

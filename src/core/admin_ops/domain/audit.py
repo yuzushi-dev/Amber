@@ -22,7 +22,11 @@ class AuditLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     tenant_id = Column(String, index=True, nullable=False)
-    timestamp = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    timestamp = Column(
+        DateTime,
+        default=lambda: datetime.now(UTC).replace(tzinfo=None),
+        index=True,
+    )
 
     actor = Column(String)  # Who made the change (e.g., user_id or "system")
     action = Column(String, nullable=False)  # e.g., "update_weights", "disable_tenant"

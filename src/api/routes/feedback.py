@@ -8,7 +8,7 @@ Endpoints for capturing user feedback on RAG responses.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,11 +58,21 @@ class FeedbackResponse(BaseModel):
 
 
 @router.post("/", response_model=ResponseSchema[FeedbackResponse])
-async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_db)):
+async def create_feedback(
+    data: FeedbackCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Submit feedback for a RAG response.
     """
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    tenant_id = str(tenant_id)
 
     # Safety Check: Rate Limit for Feedback
     rl_result = await _get_rate_limiter_instance().check(str(tenant_id), RateLimitCategory.GENERAL)
@@ -105,7 +115,11 @@ async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_d
 
 @router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
-    request_id: str, limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)
+    request_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get feedback for a specific request with pagination.
@@ -120,14 +134,23 @@ async def get_feedback(
     """
     from sqlalchemy import func, select
 
-    # Get total count
-    count_stmt = select(func.count(Feedback.id)).where(Feedback.request_id == request_id)
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+
+    # Get total count — scoped to caller's tenant
+    count_stmt = select(func.count(Feedback.id)).where(
+        Feedback.request_id == request_id, Feedback.tenant_id == tenant_id
+    )
     total = await db.scalar(count_stmt)
 
-    # Fetch feedback with pagination
+    # Fetch feedback with pagination — scoped to caller's tenant
     result = await db.execute(
         select(Feedback)
-        .where(Feedback.request_id == request_id)
+        .where(Feedback.request_id == request_id, Feedback.tenant_id == tenant_id)
         .order_by(Feedback.created_at.desc())
         .offset(offset)
         .limit(limit)

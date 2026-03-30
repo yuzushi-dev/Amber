@@ -44,6 +44,13 @@ class DatabaseSettings(BaseSettings):
     milvus_host: str = Field(default="localhost", alias="MILVUS_HOST", description="Milvus host")
     milvus_port: int = Field(default=19530, alias="MILVUS_PORT", description="Milvus port")
 
+    # Application role (non-owner, non-superuser — respects RLS without BYPASSRLS)
+    app_database_url: str | None = Field(
+        default=None,
+        alias="APP_DATABASE_URL",
+        description="Optional non-owner DB role URL; used by the app layer when set.",
+    )
+
     # Redis
     redis_url: str = Field(
         default="redis://localhost:6379/0", alias="REDIS_URL", description="Redis connection URL"
@@ -76,6 +83,14 @@ class RateLimitSettings(BaseSettings):
     requests_per_hour: int = Field(default=1000, description="Max requests per hour")
     queries_per_minute: int = Field(default=20, description="Max queries per minute")
     uploads_per_hour: int = Field(default=50, description="Max uploads per hour")
+    fail_open: bool = Field(
+        default=False,
+        alias="RATE_LIMIT_FAIL_OPEN",
+        description=(
+            "When True, allow requests through if Redis is unavailable (legacy behaviour). "
+            "When False (default), return 503 so Redis outages cannot bypass rate limiting."
+        ),
+    )
 
 
 class UploadSettings(BaseSettings):
@@ -223,7 +238,16 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),
-        description="Secret key for hashing",
+        description="Primary secret key for HMAC-SHA256 API key hashing",
+    )
+    secret_key_old: str | None = Field(
+        default=None,
+        alias="SECRET_KEY_OLD",
+        description=(
+            "Previous secret key retained during rotation. When set, "
+            "verify_api_key() accepts hashes made with either key so "
+            "existing API keys remain valid while SECRET_KEY is rotated."
+        ),
     )
 
     @field_validator("secret_key")
@@ -341,6 +365,53 @@ class Settings(BaseSettings):
         default=1,
         alias="COMMUNITY_SUMMARIZATION_CONCURRENCY",
         description="Concurrency level for community summarization",
+    )
+
+    # Agent Mode Feature Flags
+    # All three default to False so production deployments are safe without explicit opt-in.
+    enable_agent_mode: bool = Field(
+        default=False,
+        alias="ENABLE_AGENT_MODE",
+        description="Enable agent mode endpoints (disabled by default in production)",
+    )
+    enable_maintainer_tools: bool = Field(
+        default=False,
+        alias="ENABLE_MAINTAINER_TOOLS",
+        description="Enable filesystem tools for maintainer agent role (super_admin only)",
+    )
+    enable_agent_graph_tool: bool = Field(
+        default=False,
+        alias="ENABLE_AGENT_GRAPH_TOOL",
+        description="Enable graph query tool in agent mode",
+    )
+    enable_tenant_provisioning: bool = Field(
+        default=False,
+        alias="ENABLE_TENANT_PROVISIONING",
+        description=(
+            "Enable legacy tenant provisioning that physically clones documents, chunks, "
+            "vectors, and optional graph data between tenants. Disabled by default to "
+            "prevent new shared-corpus duplication during the Shared GraphRAG migration."
+        ),
+    )
+    enable_document_share_management: bool = Field(
+        default=True,
+        alias="ENABLE_DOCUMENT_SHARE_MANAGEMENT",
+        description="Enable explicit document share management endpoints and workflows.",
+    )
+    enable_upload_time_document_shares: bool = Field(
+        default=True,
+        alias="ENABLE_UPLOAD_TIME_DOCUMENT_SHARES",
+        description="Enable upload-time document share target selection for default-owned documents.",
+    )
+    enable_acl_aware_vector_retrieval: bool = Field(
+        default=True,
+        alias="ENABLE_ACL_AWARE_VECTOR_RETRIEVAL",
+        description="Enable vector retrieval filtering against explicit document share ACLs.",
+    )
+    enable_acl_aware_graph_retrieval: bool = Field(
+        default=True,
+        alias="ENABLE_ACL_AWARE_GRAPH_RETRIEVAL",
+        description="Enable graph/global retrieval filtering against explicit document share ACLs.",
     )
 
     @field_validator("log_level")

@@ -66,8 +66,8 @@ class ContextGraphWriter:
             # 1. Create or merge Conversation node
             await graph_client.execute_write(
                 f"""
-                MERGE (c:{NodeLabel.Conversation.value} {{id: $conv_id}})
-                ON CREATE SET c.tenant_id = $tenant_id, c.created_at = $ts
+                MERGE (c:{NodeLabel.Conversation.value} {{id: $conv_id, tenant_id: $tenant_id}})
+                ON CREATE SET c.created_at = $ts
                 ON MATCH SET c.updated_at = $ts
                 """,
                 {"conv_id": conversation_id, "tenant_id": tenant_id, "ts": timestamp},
@@ -102,11 +102,11 @@ class ContextGraphWriter:
             # 3. Link Conversation -> Turn
             await graph_client.execute_write(
                 f"""
-                MATCH (c:{NodeLabel.Conversation.value} {{id: $conv_id}})
-                MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
+                MATCH (c:{NodeLabel.Conversation.value} {{id: $conv_id, tenant_id: $tenant_id}})
+                MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id, tenant_id: $tenant_id}})
                 MERGE (c)-[:{RelationshipType.HAS_TURN.value}]->(t)
                 """,
-                {"conv_id": conversation_id, "turn_id": turn_id},
+                {"conv_id": conversation_id, "turn_id": turn_id, "tenant_id": tenant_id},
             )
 
             # 4. Link Turn -> Retrieved Chunks (Decision Trace)
@@ -116,8 +116,8 @@ class ContextGraphWriter:
                     if chunk_id:
                         await graph_client.execute_write(
                             f"""
-                            MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
-                            MATCH (c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
+                            MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id, tenant_id: $tenant_id}})
+                            MATCH (c:{NodeLabel.Chunk.value} {{id: $chunk_id, tenant_id: $tenant_id}})
                             MERGE (t)-[r:{RelationshipType.RETRIEVED.value}]->(c)
                             SET r.score = $score
                             """,
@@ -125,6 +125,7 @@ class ContextGraphWriter:
                                 "turn_id": turn_id,
                                 "chunk_id": chunk_id,
                                 "score": source.get("score", 0.0),
+                                "tenant_id": tenant_id,
                             },
                         )
 
@@ -194,22 +195,22 @@ class ContextGraphWriter:
             if turn_id:
                 await graph_client.execute_write(
                     f"""
-                    MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id}})
-                    MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id}})
+                    MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id, tenant_id: $tenant_id}})
+                    MATCH (t:{NodeLabel.Turn.value} {{id: $turn_id, tenant_id: $tenant_id}})
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    {"fb_id": fb_id, "turn_id": turn_id},
+                    {"fb_id": fb_id, "turn_id": turn_id, "tenant_id": tenant_id},
                 )
             else:
                 # Find most recent turn in conversation and link
                 await graph_client.execute_write(
                     f"""
-                    MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id}})
-                    MATCH (c:{NodeLabel.Conversation.value} {{id: $conv_id}})-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
+                    MATCH (f:{NodeLabel.UserFeedback.value} {{id: $fb_id, tenant_id: $tenant_id}})
+                    MATCH (c:{NodeLabel.Conversation.value} {{id: $conv_id, tenant_id: $tenant_id}})-[:{RelationshipType.HAS_TURN.value}]->(t:{NodeLabel.Turn.value})
                     WITH f, t ORDER BY t.created_at DESC LIMIT 1
                     MERGE (f)-[:{RelationshipType.RATES.value}]->(t)
                     """,
-                    {"fb_id": fb_id, "conv_id": conversation_id},
+                    {"fb_id": fb_id, "conv_id": conversation_id, "tenant_id": tenant_id},
                 )
 
             logger.debug(f"Logged feedback {fb_id} to Context Graph")
@@ -219,7 +220,7 @@ class ContextGraphWriter:
             logger.warning(f"Failed to log feedback to Context Graph: {e}")
             return None
 
-    async def get_chunk_feedback_stats(self, chunk_id: str) -> dict[str, Any]:
+    async def get_chunk_feedback_stats(self, chunk_id: str, tenant_id: str = "") -> dict[str, Any]:
         """
         Get feedback statistics for a specific chunk.
 
@@ -234,12 +235,12 @@ class ContextGraphWriter:
 
             result = await graph_client.execute_read(
                 f"""
-                MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
+                MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id, tenant_id: $tenant_id}})
                 RETURN
                     sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
                     sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count
                 """,
-                {"chunk_id": chunk_id},
+                {"chunk_id": chunk_id, "tenant_id": tenant_id},
             )
 
             if result:

@@ -40,6 +40,7 @@ class GlobalSearchService:
         max_reports: int = 10,
         relevance_threshold: float = 0.5,
         tenant_config: dict | None = None,
+        allowed_doc_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Execute Global Search (Map Phase Only):
@@ -89,8 +90,11 @@ class GlobalSearchService:
         for report, points in zip(reports, map_results, strict=True):
             if not points or points.strip() == "NONE":
                 continue
-            
+
             origin_doc_id = origins_map.get(report.chunk_id, "unknown")
+            if allowed_doc_ids is not None and origin_doc_id not in allowed_doc_ids:
+                continue
+
             candidates.append({
                 "chunk_id": report.chunk_id,
                 "document_id": origin_doc_id,

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 
 export interface AuthState {
     apiKey: string | null
+    tenantId: string | null
     isAuthenticated: boolean
     isValidating: boolean
     permissions: string[]
@@ -20,6 +21,7 @@ export const useAuth = create<AuthState>()(
     persist(
         (set, get) => ({
             apiKey: null,
+            tenantId: null,
             isAuthenticated: false,
             isValidating: false,
             permissions: [],
@@ -27,6 +29,7 @@ export const useAuth = create<AuthState>()(
             error: null,
 
             setApiKey: async (key: string) => {
+                key = key.trim()
                 set({ isValidating: true, error: null })
 
                 const isValid = await get().validateKey(key)
@@ -40,9 +43,11 @@ export const useAuth = create<AuthState>()(
 
                         const info = await keysApi.me()
                         const isSuper = info.scopes.includes('super_admin')
+                        localStorage.setItem('user_name', info.name)
 
                         set({
                             apiKey: key,
+                            tenantId: info.tenant_id,
                             isAuthenticated: true,
                             isValidating: false,
                             permissions: info.scopes,
@@ -55,6 +60,7 @@ export const useAuth = create<AuthState>()(
                         // Fallback: key is valid but couldn't get scopes (shouldn't happen)
                         set({
                             apiKey: key,
+                            tenantId: null,
                             isAuthenticated: true,
                             isValidating: false,
                             error: null
@@ -72,8 +78,10 @@ export const useAuth = create<AuthState>()(
 
             clearApiKey: () => {
                 localStorage.removeItem('api_key')
+                localStorage.removeItem('user_name')
                 set({
                     apiKey: null,
+                    tenantId: null,
                     isAuthenticated: false,
                     permissions: [],
                     isSuperAdmin: false,
@@ -104,14 +112,22 @@ export const useAuth = create<AuthState>()(
                 try {
                     const { keysApi } = await import('@/lib/api-admin')
                     const info = await keysApi.me()
+                    localStorage.setItem('user_name', info.name)
                     set({
+                        tenantId: info.tenant_id,
                         permissions: info.scopes,
                         isSuperAdmin: info.scopes.includes('super_admin')
                     })
-                } catch (err) {
-                    console.error("Initial fetch failed", err)
-                    // If me() fails, key might be revoked, but we keep the session for now
-                    // clearApiKey() if we want to be strict
+                } catch (err: unknown) {
+                    const status = (err as { response?: { status?: number } })?.response?.status
+                    if (status === 401 || status === 403) {
+                        console.warn('Stored API key rejected — clearing session')
+                        localStorage.removeItem('api_key')
+                        localStorage.removeItem('user_name')
+                        set({ apiKey: null, tenantId: null, isAuthenticated: false, permissions: [], isSuperAdmin: false, error: null })
+                    } else {
+                        console.error('Initial fetch failed', err)
+                    }
                 }
             }
         }),
@@ -119,6 +135,7 @@ export const useAuth = create<AuthState>()(
             name: 'auth-storage',
             partialize: (state) => ({
                 apiKey: state.apiKey,
+                tenantId: state.tenantId,
                 isAuthenticated: state.isAuthenticated,
                 isSuperAdmin: state.isSuperAdmin,
                 permissions: state.permissions

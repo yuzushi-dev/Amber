@@ -12,10 +12,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session, verify_super_admin
 from src.core.admin_ops.domain.feedback import Feedback
 
-router = APIRouter(prefix="/chat", tags=["Admin - Chat History"])
+router = APIRouter(
+    prefix="/chat",
+    tags=["Admin - Chat History"],
+    dependencies=[Depends(verify_super_admin)],
+)
 
 
 # =============================================================================

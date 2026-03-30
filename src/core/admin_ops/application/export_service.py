@@ -30,7 +30,7 @@ class ExportService:
         self.session = session
         self.storage = storage
 
-    async def generate_single_conversation_zip(self, conversation_id: str) -> bytes:
+    async def generate_single_conversation_zip(self, conversation_id: str, tenant_id: str) -> bytes:
         """
         Generate a ZIP file containing a single conversation's export data.
 
@@ -47,9 +47,12 @@ class ExportService:
         """
         logger.info(f"Generating export for conversation {conversation_id}")
 
-        # Fetch conversation summary
+        # Fetch conversation summary — scoped to caller's tenant
         result = await self.session.execute(
-            select(ConversationSummary).where(ConversationSummary.id == conversation_id)
+            select(ConversationSummary).where(
+                ConversationSummary.id == conversation_id,
+                ConversationSummary.tenant_id == tenant_id,
+            )
         )
         conversation = result.scalar_one_or_none()
 
@@ -148,9 +151,11 @@ class ExportService:
             # Add metadata
             zf.writestr("metadata.json", json.dumps(export_metadata, indent=2))
 
-            # Add referenced documents
+            # Add referenced documents — only those belonging to this tenant
             if referenced_doc_ids:
-                await self._add_documents_to_zip(zf, list(referenced_doc_ids))
+                await self._add_documents_to_zip(
+                    zf, list(referenced_doc_ids), tenant_id=tenant_id
+                )
 
         zip_buffer.seek(0)
         return zip_buffer.getvalue()
@@ -310,13 +315,17 @@ class ExportService:
             )
 
     async def _add_documents_to_zip(
-        self, zf: zipfile.ZipFile, document_ids: list[str], folder_prefix: str = "documents"
+        self, zf: zipfile.ZipFile, document_ids: list[str],
+        folder_prefix: str = "documents", tenant_id: str | None = None
     ) -> None:
         """Fetch and add source documents to the ZIP."""
         for doc_id in document_ids:
             try:
-                # Fetch document metadata
-                result = await self.session.execute(select(Document).where(Document.id == doc_id))
+                # Fetch document metadata — optionally scoped to tenant
+                doc_query = select(Document).where(Document.id == doc_id)
+                if tenant_id:
+                    doc_query = doc_query.where(Document.tenant_id == tenant_id)
+                result = await self.session.execute(doc_query)
                 doc = result.scalar_one_or_none()
 
                 if not doc:

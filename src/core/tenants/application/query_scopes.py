@@ -1,0 +1,58 @@
+"""
+Query Scope Resolution
+======================
+
+Central resolver for the tenant scopes a request is allowed to query.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+DEFAULT_TENANT_ID = "default"
+
+
+@dataclass(frozen=True)
+class QueryScopes:
+    """Resolved data scopes for a request."""
+
+    effective_tenant_id: str
+    vector_scopes: list[str]
+    graph_scopes: list[str]
+    shared_document_owner_tenants: list[str]
+
+
+def resolve_query_scopes(tenant_id: str) -> QueryScopes:
+    """Resolve the allowed query scopes for a tenant.
+
+    Current policy:
+    - default queries only default
+    - non-default tenants query default + self
+    - no child tenant can query other child tenants
+    """
+    normalized_tenant_id = str(tenant_id or DEFAULT_TENANT_ID)
+
+    if normalized_tenant_id == DEFAULT_TENANT_ID:
+        return QueryScopes(
+            effective_tenant_id=DEFAULT_TENANT_ID,
+            vector_scopes=[DEFAULT_TENANT_ID],
+            graph_scopes=[DEFAULT_TENANT_ID],
+            shared_document_owner_tenants=[DEFAULT_TENANT_ID],
+        )
+
+    return QueryScopes(
+        effective_tenant_id=normalized_tenant_id,
+        vector_scopes=_dedupe([DEFAULT_TENANT_ID, normalized_tenant_id]),
+        graph_scopes=_dedupe([DEFAULT_TENANT_ID, normalized_tenant_id]),
+        shared_document_owner_tenants=[DEFAULT_TENANT_ID],
+    )
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered

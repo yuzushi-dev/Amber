@@ -88,6 +88,28 @@ def get_current_tenant_id(request: Request) -> str:
     return str(getattr(request.state, "tenant_id", "default"))
 
 
+def get_query_scopes(request: Request):
+    """
+    Dependency to retrieve the resolved query scopes for the current request.
+    """
+    from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+    scopes = getattr(request.state, "query_scopes", None)
+    if scopes is not None:
+        return scopes
+
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+
+    scopes = resolve_query_scopes(str(tenant_id))
+    request.state.query_scopes = scopes
+    return scopes
+
+
 async def verify_super_admin(request: Request):
     """
     Dependency to verify Super Admin privileges.

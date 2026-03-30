@@ -89,12 +89,14 @@ async def _export_all_conversations_async(job_id: str, tenant_id: str, task_id: 
     from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
     from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Fetch and update job status to RUNNING
             result = await session.execute(select(ExportJob).where(ExportJob.id == job_id))
             job = result.scalar_one_or_none()
@@ -150,12 +152,14 @@ async def _mark_export_failed(job_id: str, error: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(select(ExportJob).where(ExportJob.id == job_id))
             job = result.scalar_one_or_none()
 
