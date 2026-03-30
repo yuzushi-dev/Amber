@@ -9,7 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import build_metrics_collector
@@ -239,6 +239,77 @@ async def get_document_share_audit(
         for row in rows
     ]
 
+
+
+class TaxonomyBucketRow(BaseModel):
+    edition: str
+    audience: str
+    source_family: str
+    count: int
+
+
+class TaxonomyCorpusSummaryResponse(BaseModel):
+    total_stamped: int
+    total_unstamped: int
+    buckets: list[TaxonomyBucketRow]
+
+
+@router.get(
+    "/taxonomy/corpus-summary",
+    response_model=TaxonomyCorpusSummaryResponse,
+    summary="Get Taxonomy Corpus Distribution",
+    description="Show how many documents are stamped per taxonomy bucket (edition/audience/source_family).",
+)
+async def get_taxonomy_corpus_summary(
+    tenant_id: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+    from src.core.ingestion.domain.document import Document
+
+    where_clause = "WHERE metadata_ -> 'taxonomy' IS NOT NULL"
+    if tenant_id:
+        where_clause += f" AND tenant_id = :tenant_id"
+
+    bucket_sql = text(
+        f"""
+        SELECT
+            metadata_ -> 'taxonomy' ->> 'edition'      AS edition,
+            metadata_ -> 'taxonomy' ->> 'audience'     AS audience,
+            metadata_ -> 'taxonomy' ->> 'source_family' AS source_family,
+            COUNT(*)::int                                  AS cnt
+        FROM documents
+        {where_clause}
+        GROUP BY 1, 2, 3
+        ORDER BY cnt DESC
+        """
+    )
+    params = {"tenant_id": tenant_id} if tenant_id else {}
+    bucket_result = await session.execute(bucket_sql, params)
+    bucket_rows = bucket_result.fetchall()
+
+    unstamped_sql = text(
+        f"SELECT COUNT(*)::int FROM documents"
+        + (" WHERE tenant_id = :tenant_id" if tenant_id else "")
+        + " AND (metadata_ -> 'taxonomy' IS NULL)"
+    )
+    unstamped_result = await session.execute(unstamped_sql, params)
+    total_unstamped = unstamped_result.scalar() or 0
+
+    buckets = [
+        TaxonomyBucketRow(
+            edition=row.edition or "unknown",
+            audience=row.audience or "unknown",
+            source_family=row.source_family or "unknown",
+            count=row.cnt,
+        )
+        for row in bucket_rows
+    ]
+
+    return TaxonomyCorpusSummaryResponse(
+        total_stamped=sum(b.count for b in buckets),
+        total_unstamped=total_unstamped,
+        buckets=buckets,
+    )
 
 @router.get(
     "/health/deep",
