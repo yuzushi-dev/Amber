@@ -12,7 +12,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.api.config import settings
 from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.cache.result_cache import ResultCache, ResultCacheConfig
 from src.core.cache.semantic_cache import CacheConfig, SemanticCache
@@ -48,6 +47,7 @@ from src.core.tenants.application.active_vector_collection import resolve_active
 from src.core.tenants.application.query_scopes import QueryScopes, resolve_query_scopes
 from src.shared.kernel.models.query import QueryOptions, SearchMode
 from src.shared.kernel.observability import trace_span
+from src.shared.kernel.runtime import get_settings as _get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +321,7 @@ class RetrievalService:
         target_trace: list[dict[str, Any]] = []
 
         for scope_tenant_id in query_scopes.vector_scopes:
-            if scope_tenant_id != viewer_tenant_id and not settings.enable_acl_aware_vector_retrieval:
+            if scope_tenant_id != viewer_tenant_id and not _get_settings().enable_acl_aware_vector_retrieval:
                 target_trace.append(
                     {
                         "tenant_id": scope_tenant_id,
@@ -436,7 +436,7 @@ class RetrievalService:
         target_trace: list[dict[str, Any]] = []
 
         for scope_tenant_id in query_scopes.graph_scopes:
-            if scope_tenant_id != viewer_tenant_id and not settings.enable_acl_aware_graph_retrieval:
+            if scope_tenant_id != viewer_tenant_id and not _get_settings().enable_acl_aware_graph_retrieval:
                 target_trace.append(
                     {
                         "tenant_id": scope_tenant_id,
