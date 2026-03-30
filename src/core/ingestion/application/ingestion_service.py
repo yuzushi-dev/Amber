@@ -19,6 +19,7 @@ from src.core.generation.application.llm_steps import resolve_llm_step_config
 from src.core.graph.application.enrichment import GraphEnricher
 from src.core.graph.application.processor import GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.ports.content_extractor import (
     ContentExtractorPort,
@@ -35,7 +36,6 @@ from src.core.state.machine import DocumentStatus
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.context import set_current_tenant
-from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.shared.identifiers import DocumentId
 
 logger = logging.getLogger(__name__)
@@ -425,7 +425,7 @@ class IngestionService:
 
                 # Reduce batch size for Ollama to prevent runner crashes on large inputs
                 max_tokens = 2048 if res_prov == "ollama" else None
-                
+
                 embedding_service = EmbeddingService(
                     provider=factory.get_embedding_provider(
                         provider_name=res_prov,
@@ -435,7 +435,7 @@ class IngestionService:
                     dimensions=res_dims,
                     max_tokens_per_batch=max_tokens,
                 )
-                
+
                 sparse_service = SparseEmbeddingService()
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
@@ -476,7 +476,8 @@ class IngestionService:
 
                 # Callback for granular progress (60->70%)
                 async def _on_embedding_progress(completed: int, total: int):
-                    if total == 0: return
+                    if total == 0:
+                        return
                     # Scale 60 -> 70
                     progress = 60 + int((completed / total) * 10)
                     await self.event_dispatcher.emit_state_change(
@@ -490,7 +491,7 @@ class IngestionService:
                     )
 
                 embeddings, stats = await embedding_service.embed_texts(
-                    chunk_contents, 
+                    chunk_contents,
                     metadata={"document_id": document.id},
                     progress_callback=_on_embedding_progress
                 )
@@ -625,7 +626,7 @@ class IngestionService:
                         return
                     # Scale 70 -> 95 based on chunk completion
                     progress = 70 + int((completed / total) * 25)
-                    
+
                     await self.event_dispatcher.emit_state_change(
                         StateChangeEvent(
                             document_id=document.id,

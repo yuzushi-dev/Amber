@@ -1,4 +1,3 @@
-import pytest
 
 from src.core.tenants.application.query_scopes import QueryScopes, resolve_query_scopes
 

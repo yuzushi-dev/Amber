@@ -6,17 +6,18 @@ Revises: a1b2c3d4e5f6
 Create Date: 2026-01-12 12:23:44.545240
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'd7fe42b0ac1c'
-down_revision: Union[str, None] = 'a1b2c3d4e5f6'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'a1b2c3d4e5f6'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -72,7 +73,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('api_key_id', 'tenant_id')
     )
     op.drop_index(op.f('ix_benchmark_runs_status'), table_name='benchmark_runs')
-    
+
     # Safe add tenant_id to chunks
     op.add_column('chunks', sa.Column('tenant_id', sa.String(), nullable=True))
     op.execute("UPDATE chunks SET tenant_id = documents.tenant_id FROM documents WHERE chunks.document_id = documents.id")

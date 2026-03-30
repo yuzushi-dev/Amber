@@ -8,7 +8,7 @@ def get_type_color_id(type_str):
     return abs(hash_val)
 
 COMMUNITY_COLORS_LEN = 8
-# Colors: 
+# Colors:
 # 0: Amber
 # 1: Orange
 # 2: Cyan
@@ -26,15 +26,15 @@ print("-" * 50)
 for t in types:
     h = get_type_color_id(t)
     idx = abs(h) % COMMUNITY_COLORS_LEN
-    
+
     color = "UNKNOWN"
     if idx == 0: color = "Amber"
-    elif idx == 1: color = "Orange" 
+    elif idx == 1: color = "Orange"
     elif idx == 2: color = "Cyan"
     elif idx == 3: color = "VIOLET (PURPLE)"
     elif idx == 4: color = "Emerald"
     elif idx == 5: color = "Blue"
     elif idx == 6: color = "Pink"
     elif idx == 7: color = "Red"
-    
+
     print(f"{t:<20} | {h:<10} | {idx:<5} | {color}")

@@ -5,22 +5,23 @@ import sys
 # Add src to path
 sys.path.append(os.getcwd())
 
-from src.amber_platform.composition_root import platform, get_settings_lazy
+from src.amber_platform.composition_root import platform
+
 
 async def inspect_milvus():
     print("Initializing Platform/Milvus...")
     await platform.initialize()
     store = platform.milvus_vector_store
     await store.connect()
-    
+
     tenant_id = "default"
-    
+
     print(f"Checking vectors for tenant: '{tenant_id}'")
-    
+
     # 1. Count using query/count (if possible) or just num_entities
     stats = await store.get_stats()
     print(f"Collection Stats: {stats}")
-    
+
     # 2. Try explicit count query
     expr = f'{store.FIELD_TENANT_ID} == "{tenant_id}"'
     try:
@@ -46,9 +47,9 @@ async def inspect_milvus():
                 print(f"  Exported {count}...")
     except Exception as e:
         print(f"Export Failed: {e}")
-        
+
     print(f"Total Exported via Generator: {count}")
-    
+
     await platform.shutdown()
 
 if __name__ == "__main__":

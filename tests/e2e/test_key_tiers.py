@@ -14,7 +14,6 @@ from __future__ import annotations
 import httpx
 import pytest
 
-
 BASE = "http://127.0.0.1:8001"
 
 

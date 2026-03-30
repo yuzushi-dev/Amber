@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.ingestion.domain.ports.graph_client import GraphPort
@@ -21,8 +22,6 @@ from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
-
-from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -625,7 +624,9 @@ async def resolve_graph_document_id(session: AsyncSession, document_id: str) -> 
     Documents in non-default tenants share the knowledge graph with the default tenant
     (same filename, different IDs). Returns original document_id if no mapping found.
     """
-    from sqlalchemy import select as _select, text as _text
+    from sqlalchemy import select as _select
+    from sqlalchemy import text as _text
+
     from src.core.ingestion.domain.document import Document as _Document
 
     row = (

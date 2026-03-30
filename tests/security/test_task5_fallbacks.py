@@ -8,10 +8,10 @@ Verifies that:
 - use_cases_query.execute no longer has a "default_user" sentinel
 """
 
-import pytest
-from fastapi import HTTPException
 from unittest.mock import MagicMock
 
+import pytest
+from fastapi import HTTPException
 
 # ── Tenant ID: fail-closed helpers ───────────────────────────────────────────
 
@@ -137,6 +137,7 @@ def test_chat_get_user_id_raises_401_when_no_identity_available():
 def test_use_cases_query_execute_has_no_default_user():
     """execute() must not default user_id to 'default_user'."""
     import inspect
+
     from src.core.retrieval.application.use_cases_query import QueryUseCase
 
     sig = inspect.signature(QueryUseCase.execute)

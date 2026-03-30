@@ -373,7 +373,7 @@ class MilvusVectorStore:
 
         except TimeoutError:
             logger.error("Milvus upsert/flush timed out after 60 seconds")
-            raise RuntimeError("Milvus upsert timed out")
+            raise RuntimeError("Milvus upsert timed out") from None
         except Exception as e:
             logger.error(f"Failed to upsert chunks: {e}")
             raise

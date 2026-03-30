@@ -2,11 +2,14 @@
 import asyncio
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
+
 from src.api.config import settings
-from src.core.database.session import configure_database, async_session_maker
+from src.core.database.session import async_session_maker, configure_database
+
 
 async def test_conn():
     print(f"Connecting to {settings.db.database_url}")

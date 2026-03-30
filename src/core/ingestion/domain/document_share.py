@@ -6,7 +6,7 @@ Visibility grants for documents shared from the system corpus to tenant overlays
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -42,7 +42,7 @@ class DocumentShare(Base, TimestampMixin):
     share_mode: Mapped[str] = mapped_column(String, nullable=False, default="read")
 
 
-class DocumentVisibilityStatus(str, Enum):
+class DocumentVisibilityStatus(StrEnum):
     """Visibility classification for a document lookup."""
 
     VISIBLE = "visible"

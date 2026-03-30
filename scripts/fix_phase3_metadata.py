@@ -10,9 +10,9 @@ limitations in the upload endpoint.
 
 import argparse
 import asyncio
-import sys
 import json
 import logging
+import sys
 from pathlib import Path
 
 # Add project root to path
@@ -47,7 +47,7 @@ async def main():
 
     # Initialize Database
     from src.api.config import settings
-    from src.core.database.session import configure_database, async_session_maker
+    from src.core.database.session import async_session_maker, configure_database
 
     configure_database(
         database_url=settings.db.database_url,
@@ -69,16 +69,16 @@ async def main():
                 if filename.startswith(prefix):
                     rule_match = rule
                     break
-            
+
             if not rule_match:
                 continue
-            
+
             target_folder, product, audience, section = rule_match
-            
+
             # Check if update is needed
             needs_folder = folder_id != target_folder
             needs_meta = not metadata or metadata.get("product_context") != product
-            
+
             if needs_folder or needs_meta:
                 updates.append({
                     "id": doc_id,
@@ -114,7 +114,7 @@ async def main():
                 "audience": up["audience"],
                 "doc_section": up["section"]
             }
-            
+
             await session.execute(
                 text("""
                     UPDATE documents

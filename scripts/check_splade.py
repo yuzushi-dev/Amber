@@ -1,6 +1,6 @@
 
-import sys
 import logging
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ try:
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     print("Tokenizer loaded.")
-    
+
     print("Loading model...")
     model = AutoModelForMaskedLM.from_pretrained(model_name)
     print("Model loaded.")

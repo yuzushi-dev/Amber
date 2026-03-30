@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.config import settings
 from src.api.deps import get_db_session
 from src.api.schemas.query import (
     QueryRequest,
@@ -589,7 +588,7 @@ async def _query_stream_impl(
             if user_id:
                 try:
                     from src.core.generation.application.memory.manager import memory_manager
-                    
+
                     # 1. Facts
                     facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                     formatted_facts = "\n".join([f"- {f.content}" for f in facts])

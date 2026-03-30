@@ -13,7 +13,7 @@ from sqlalchemy import Column, DateTime, Enum, String, Text
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 
-class ExportStatus(str, enum.Enum):
+class ExportStatus(enum.StrEnum):
     """Status of an export job."""
 
     PENDING = "pending"

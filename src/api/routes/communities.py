@@ -1,8 +1,8 @@
-from src.api.deps import verify_tenant_admin
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.amber_platform.composition_root import platform
+from src.api.deps import verify_tenant_admin
 from src.shared.context import get_current_tenant as get_tenant_id
 
 _COMMUNITY_REFRESH_COOLDOWN_SECONDS = 300  # 5 min per tenant
@@ -90,6 +90,7 @@ async def trigger_community_refresh(
     # Per-tenant cooldown: reject rapid repeated refresh requests
     try:
         import redis.asyncio as redis_async
+
         from src.api.config import get_settings
         _settings = get_settings()
         _r = redis_async.from_url(_settings.db.redis_url, decode_responses=True)
@@ -114,7 +115,7 @@ async def trigger_community_refresh(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Rate limiting temporarily unavailable. Please try again later.",
-        )
+        ) from None
 
     from src.workers.tasks import process_communities
 

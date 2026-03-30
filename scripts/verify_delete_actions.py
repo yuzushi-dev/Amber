@@ -2,9 +2,10 @@
 import asyncio
 import logging
 import uuid
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
 from dotenv import load_dotenv
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 load_dotenv()
 
@@ -17,14 +18,14 @@ logger = logging.getLogger(__name__)
 
 async def verify_delete_actions():
     print("\n" + "="*50)
-    print(f"   VERIFY DELETE ACTIONS (Raw SQL)")
+    print("   VERIFY DELETE ACTIONS (Raw SQL)")
     print("="*50 + "\n")
 
     # 1. DB Connection
     db_url = settings.db.database_url
     if "postgres:5432" in db_url:
         db_url = db_url.replace("postgres:5432", "localhost:5433")
-    
+
     engine = create_async_engine(db_url)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -39,7 +40,7 @@ async def verify_delete_actions():
     async with async_session() as session:
         # --- TEST 1: FOLDER DELETION ---
         print("\n[TEST 1] Verifying Folder Deletion Safety")
-        
+
         # Create Dummy Folder
         test_tenant_id = settings.tenant_id or "default"
         folder_id = str(uuid.uuid4())
@@ -48,7 +49,7 @@ async def verify_delete_actions():
             text("INSERT INTO folders (id, tenant_id, name, created_at, updated_at) VALUES (:id, :tid, :name, NOW(), NOW())"),
             {"id": folder_id, "tid": test_tenant_id, "name": "VerifyDelete_Folder"}
         )
-        
+
         # Create Dummy Document in Folder
         doc_id = str(uuid.uuid4())
         await session.execute(
@@ -59,9 +60,9 @@ async def verify_delete_actions():
             {"id": doc_id, "tid": test_tenant_id, "name": "VerifyDelete_Doc.txt", "fid": folder_id}
         )
         await session.commit()
-        
+
         print(f" - Created folder {folder_id} and document {doc_id} inside it.")
-        
+
         # Simulate Folder Delete Logic: Unfile, then Delete
         # 1. Unfile
         await session.execute(
@@ -74,14 +75,14 @@ async def verify_delete_actions():
             {"id": folder_id}
         )
         await session.commit()
-        
+
         # Verify Document stats
         res = await session.execute(
             text("SELECT folder_id FROM documents WHERE id = :id"),
             {"id": doc_id}
         )
         doc_folder_id = res.scalar()
-        
+
         if doc_folder_id is None:
             print(" - FAILSAFE VERIFIED: Document exists and is unfiled.")
         else:
@@ -93,7 +94,7 @@ async def verify_delete_actions():
 
         # --- TEST 2: TENANT DELETION ---
         print("\n[TEST 2] Verifying Tenant Deletion Cleanup")
-        
+
         # Create Temporary Tenant
         temp_tenant_id = str(uuid.uuid4())
         await session.execute(
@@ -102,14 +103,14 @@ async def verify_delete_actions():
         )
         await session.commit()
         print(f" - Created temp tenant {temp_tenant_id}")
-        
+
         # Create Graph Node for this tenant
         await g_client.execute_write(
-            "CREATE (n:Entity {name: 'DeleteMe', tenant_id: $tid})", 
+            "CREATE (n:Entity {name: 'DeleteMe', tenant_id: $tid})",
             {"tid": temp_tenant_id}
         )
         print(" - Created graph node for tenant.")
-        
+
         # Delete Tenant (Simulate API: delete row)
         await session.execute(
             text("DELETE FROM tenants WHERE id = :id"),
@@ -117,19 +118,19 @@ async def verify_delete_actions():
         )
         await session.commit()
         print(" - Deleted tenant from Postgres.")
-        
+
         # Check Graph Node
         res = await g_client.execute_read(
-            "MATCH (n:Entity {tenant_id: $tid}) RETURN count(n) as c", 
+            "MATCH (n:Entity {tenant_id: $tid}) RETURN count(n) as c",
             {"tid": temp_tenant_id}
         )
         count = res[0]['c']
-        
+
         if count > 0:
             print(f" - FAILURE DETECTED: {count} graph nodes persist after tenant deletion.")
             # Cleanup manually
             await g_client.execute_write(
-                "MATCH (n {tenant_id: $tid}) DETACH DELETE n", 
+                "MATCH (n {tenant_id: $tid}) DETACH DELETE n",
                 {"tid": temp_tenant_id}
             )
             print(" - Manual cleanup performed.")

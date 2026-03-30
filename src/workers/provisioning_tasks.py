@@ -65,10 +65,10 @@ async def _provision_async(job_id: str, task_id: str) -> dict:
 
     deep_reset_singletons()
 
-    from src.api.config import settings
     from src.amber_platform.composition_root import build_vector_store_factory, platform
-    from src.core.admin_ops.domain.provisioning_job import ProvisioningJob, ProvisioningStatus
+    from src.api.config import settings
     from src.core.admin_ops.application.provisioning_service import ProvisioningService
+    from src.core.admin_ops.domain.provisioning_job import ProvisioningJob, ProvisioningStatus
 
     engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
     try:

@@ -2,8 +2,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from src.core.graph.application.concurrency_governor import ConcurrencyGovernor
 from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config

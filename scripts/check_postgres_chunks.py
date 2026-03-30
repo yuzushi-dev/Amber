@@ -2,17 +2,18 @@
 import asyncio
 import os
 import sys
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
+from src.api.config import settings
 from src.core.models.chunk import Chunk
 from src.core.models.document import Document
-from src.core.models.folder import Folder # Required for registry
-from src.api.config import settings
+
 
 async def check_chunks():
     engine = create_async_engine(settings.db.database_url)
@@ -27,14 +28,14 @@ async def check_chunks():
             return
 
         print(f"Document: {doc.filename} ({doc.id})")
-        
+
         # Check chunk statuses
         result = await session.execute(
             select(Chunk.embedding_status, func.count(Chunk.id))
             .where(Chunk.document_id == doc.id)
             .group_by(Chunk.embedding_status)
         )
-        
+
         print("\nChunk Status Distribution:")
         for status, count in result.all():
             print(f"  {status}: {count}")

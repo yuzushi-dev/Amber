@@ -193,6 +193,7 @@ def on_worker_ready(**kwargs):
     # Clean up stale community processing locks left by previous worker instances
     try:
         import redis as redis_lib
+
         from src.api.config import settings
 
         r = redis_lib.Redis.from_url(settings.db.redis_url)

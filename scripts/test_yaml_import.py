@@ -1,6 +1,5 @@
 
 import sys
-import os
 
 print(f"Python executable: {sys.executable}")
 print(f"Sys path before: {sys.path}")

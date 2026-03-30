@@ -8,9 +8,9 @@ Covers:
 """
 
 import inspect
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
+import pytest
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ def _non_admin_request():
 async def test_graph_editor_heal_requires_tenant_admin():
     """heal_node must reject non-admin callers with 403."""
     from fastapi import HTTPException
+
     from src.api.deps import verify_tenant_admin
 
     req = _non_admin_request()
@@ -143,7 +144,7 @@ def test_context_writer_log_turn_passes_tenant_to_link_query():
     import re
     # Find the params dict near the HAS_TURN MERGE call
     # After fix it should contain "tenant_id": tenant_id
-    has_turn_section = re.search(
+    re.search(
         r'HAS_TURN.*?"(conv_id|turn_id)".*?',
         source,
         re.DOTALL,

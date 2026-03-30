@@ -1,6 +1,6 @@
 
-import sys
 import os
+import sys
 
 # Ensure project root is in path
 sys.path.append(os.getcwd())
@@ -24,7 +24,7 @@ def stop_all_jobs():
         active = inspect.active() or {}
         if not active:
             print("No active tasks found (or no workers connected).")
-        
+
         for worker, tasks in active.items():
             print(f"Found {len(tasks)} active tasks on {worker}")
             for task in tasks:
@@ -44,7 +44,7 @@ def stop_all_jobs():
         print("Purging task queues...")
         purged_count = celery_app.control.purge()
         print(f"Purged {purged_count} tasks from queue.")
-        
+
     except Exception as e:
         print(f"Error stopping jobs: {e}")
 

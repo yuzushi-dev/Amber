@@ -7,7 +7,6 @@ Verifies that:
 - purge_community_tasks() with no tenant_id still purges all (global update path)
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -94,6 +93,7 @@ def test_config_update_passes_tenant_id_to_purge():
     rather than calling it with no arguments.
     """
     import inspect
+
     import src.api.routes.admin.config as cfg_module
     source = inspect.getsource(cfg_module.update_tenant_config)
     # The fixed code should call purge_community_tasks(tenant_id=...) or

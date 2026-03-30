@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
 
-
 # ─── Classification Rules ───────────────────────────────────────────────────
 
 def classify_document(filename: str) -> dict:

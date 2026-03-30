@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-
 DEFAULT_GRAPH_SYNC_PROFILE = "default"
 DEFAULT_GRAPH_SYNC_PROFILES: dict[str, dict[str, Any]] = {
     "default": {

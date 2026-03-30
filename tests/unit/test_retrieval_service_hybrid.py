@@ -148,6 +148,7 @@ async def test_hybrid_search_forwards_document_ids_to_graph_acl():
 async def test_taxonomy_routing_called_for_admin_query():
     """resolve_product_context is triggered and list_visible_document_ids_by_taxonomy is called."""
     from unittest.mock import AsyncMock, MagicMock, patch
+
     from src.core.retrieval.application.retrieval_service import RetrievalService
 
     vector_store = MagicMock()
@@ -213,6 +214,7 @@ async def test_taxonomy_routing_called_for_admin_query():
 async def test_taxonomy_explicit_filter_overrides_inference():
     """Explicit edition in filters dict overrides query-inferred context."""
     from unittest.mock import AsyncMock, MagicMock, patch
+
     from src.core.retrieval.application.retrieval_service import RetrievalService
 
     vector_store = MagicMock()

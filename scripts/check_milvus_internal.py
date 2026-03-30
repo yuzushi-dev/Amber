@@ -1,7 +1,8 @@
 
 import sys
+
 try:
-    from pymilvus import connections, Collection, utility
+    from pymilvus import Collection, connections, utility
 except ImportError:
     print("pymilvus not installed")
     sys.exit(1)

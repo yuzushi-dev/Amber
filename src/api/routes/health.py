@@ -138,7 +138,7 @@ async def readiness(silent: bool = False) -> ReadinessResponse:
             timestamp=datetime.now(UTC).isoformat(),
             dependencies=dependencies,
         )
-    except Exception as e:
+    except Exception:
         # Fallback if health checker itself fails (e.g. startup race conditions)
 
         response = ReadinessResponse(

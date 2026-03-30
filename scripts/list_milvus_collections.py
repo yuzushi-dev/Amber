@@ -1,14 +1,16 @@
 
 import asyncio
+
 from pymilvus import connections, utility
+
 
 async def main():
     connections.connect(host="localhost", port=19530)
     print("Connected to Milvus.")
-    
+
     collections = utility.list_collections()
     print(f"Collections found: {collections}")
-    
+
     for name in collections:
         print(f"\nCollection: {name}")
         try:

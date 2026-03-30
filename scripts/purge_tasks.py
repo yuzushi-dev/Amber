@@ -1,7 +1,7 @@
 
 from src.workers.celery_app import celery_app
 
-print(f"Purging celery queue...")
+print("Purging celery queue...")
 purged = celery_app.control.purge()
 print(f"Purged {purged} tasks.")
 

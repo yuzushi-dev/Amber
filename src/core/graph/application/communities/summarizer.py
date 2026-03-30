@@ -219,8 +219,8 @@ class CommunitySummarizer:
 
             sem = asyncio.Semaphore(current_concurrency)
 
-            async def _bounded_summarize(cid: str):
-                async with sem:
+            async def _bounded_summarize(cid: str, _sem=sem):
+                async with _sem:
                     try:
                         await self.summarize_community(cid, tenant_id, tenant_config)
                         return ("ok", cid, None)

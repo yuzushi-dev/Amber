@@ -16,12 +16,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
 
+from src.api.deps import verify_tenant_admin
 from src.core.admin_ops.domain.flag import Flag, FlagStatus
 from src.core.database.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
-from src.api.deps import verify_tenant_admin
+
 router = APIRouter(prefix="/curation", tags=["admin-curation"], dependencies=[Depends(verify_tenant_admin)])
 
 

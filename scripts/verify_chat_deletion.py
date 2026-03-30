@@ -1,17 +1,19 @@
 
 import asyncio
-import uuid
-import sys
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+import sys
+import uuid
+
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.append(os.getcwd())
 load_dotenv()
 
 from src.api.config import settings
-from src.core.generation.domain.memory_models import ConversationSummary
 from src.core.admin_ops.domain.feedback import Feedback
+from src.core.generation.domain.memory_models import ConversationSummary
+
 
 async def verify_deletion():
     print("="*50)
@@ -22,7 +24,7 @@ async def verify_deletion():
     db_url = settings.db.database_url
     if "postgres:5432" in db_url:
         db_url = db_url.replace("postgres:5432", "localhost:5433")
-    
+
     engine = create_async_engine(db_url)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -39,7 +41,7 @@ async def verify_deletion():
             summary="This is a test summary."
         )
         session.add(conv)
-        
+
         print(f"2. Creating Feedback {feedback_id} linked to {conv_id}")
         fb = Feedback(
             id=feedback_id,
@@ -61,7 +63,7 @@ async def verify_deletion():
 
         print("4. Checking Feedback existence...")
         fb_check = await session.get(Feedback, feedback_id)
-        
+
         if fb_check:
             print("❌ FAILURE: Feedback persisted! It is now an orphan.")
         else:

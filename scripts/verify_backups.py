@@ -1,11 +1,12 @@
 
 import asyncio
+import io
 import os
 import sys
 import zipfile
-import io
+
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 # Add src to path
@@ -37,7 +38,7 @@ async def verify_backups():
             .limit(2)
         )
         jobs = result.scalars().all()
-        
+
         if not jobs:
             print("No completed backups found.")
             return
@@ -53,21 +54,21 @@ async def verify_backups():
         )
 
         print(f"\nFound {len(jobs)} backups. Verifying contents...\n")
-        
+
         for job in jobs:
             print(f"=== Backup {job.scope.value} ({job.id}) ===")
             print(f"Size: {job.file_size} bytes")
             print(f"Path: {job.result_path}")
-            
+
             try:
                 print("Downloading file stream...")
                 file_bytes = storage.get_file(job.result_path)
-                
+
                 with zipfile.ZipFile(io.BytesIO(file_bytes), "r") as zf:
                     print("\n--- Content Listing ---")
                     for info in zf.infolist():
                         print(f"{info.filename:<50} {info.file_size:>10} bytes")
-                
+
                 # Check manifest specifically
                 with zipfile.ZipFile(io.BytesIO(file_bytes), "r") as zf:
                     if "manifest.json" in zf.namelist():
@@ -78,7 +79,7 @@ async def verify_backups():
 
             except Exception as e:
                 print(f"ERROR verifying backup: {e}")
-            
+
             print("\n" + "="*50 + "\n")
 
 if __name__ == "__main__":

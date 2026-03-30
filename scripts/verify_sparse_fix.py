@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import sys
-import os
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -10,11 +9,10 @@ logger = logging.getLogger(__name__)
 
 # Mock dependencies
 sys.path.append("/app")
-from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.graph.application.communities.embeddings import CommunityEmbeddingService
+from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore
-from src.api.config import settings
+
 
 # Mock Embedding Service (Dense)
 class MockEmbeddingService:
@@ -41,7 +39,7 @@ async def verify_sparse_embedding():
         dimensions=1536
     )
     vector_store = MilvusVectorStore(config=config)
-    
+
     # Initialize CommunityEmbeddingService with BOTH services
     logger.info("Initializing CommunityEmbeddingService...")
     comm_svc = CommunityEmbeddingService(

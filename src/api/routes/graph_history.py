@@ -12,12 +12,11 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from src.api.deps import verify_tenant_admin
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_tenant_id, get_db_session
+from src.api.deps import get_current_tenant_id, get_db_session, verify_tenant_admin
 
 router = APIRouter(prefix="/graph/history", tags=["Graph History"])
 logger = logging.getLogger(__name__)

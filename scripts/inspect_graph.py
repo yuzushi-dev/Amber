@@ -7,7 +7,7 @@ Queries Neo4j for counts of all nodes and relationships to identify what remains
 
 import asyncio
 import logging
-import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def inspect():
     print("\n" + "="*50)
-    print(f"   NEO4J GRAPH INSPECTION")
+    print("   NEO4J GRAPH INSPECTION")
     print("="*50 + "\n")
 
     # Connect to Neo4j
@@ -28,18 +28,18 @@ async def inspect():
     uri = settings.db.neo4j_uri
     if "neo4j:7687" in uri:
          uri = uri.replace("neo4j:7687", "localhost:7687")
-         
+
     print(f"Connecting to: {uri}")
-    
+
     client = Neo4jClient(
         uri=uri,
         user=settings.db.neo4j_user,
         password=settings.db.neo4j_password
     )
-    
+
     try:
         await client.connect()
-        
+
         # 1. Count All Nodes by Label
         print("\n--- Node Counts by Label ---")
         node_counts = await client.execute_read(
@@ -50,7 +50,7 @@ async def inspect():
         else:
             for record in node_counts:
                 print(f"{record['labels']}: {record['count']}")
-                
+
         # 2. Count All Relationships by Type
         print("\n--- Relationship Counts by Type ---")
         rel_counts = await client.execute_read(

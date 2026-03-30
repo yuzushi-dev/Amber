@@ -2,7 +2,9 @@
 import asyncio
 import logging
 import sys
+
 from sqlalchemy import text
+
 from src.api.deps import _async_session_maker
 
 # Setup logging
@@ -17,7 +19,7 @@ async def update_schema():
     """
     async with _async_session_maker() as session:
         logger.info("Checking database schema...")
-        
+
         # 1. Create folders table
         # We execute statements separately because asyncpg doesn't support multiple statements in one call
         logger.info("Creating 'folders' table...")
@@ -30,7 +32,7 @@ async def update_schema():
             updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc') NOT NULL
         )
         """))
-        
+
         await session.execute(text("CREATE INDEX IF NOT EXISTS ix_folders_id ON folders (id)"))
         await session.execute(text("CREATE INDEX IF NOT EXISTS ix_folders_tenant_id ON folders (tenant_id)"))
         logger.info("Ensured 'folders' table exists.")
@@ -49,7 +51,7 @@ async def update_schema():
             logger.info("Added 'folder_id' column.")
         else:
             logger.info("'folder_id' column already exists.")
-            
+
         await session.commit()
         logger.info("Schema update complete.")
 

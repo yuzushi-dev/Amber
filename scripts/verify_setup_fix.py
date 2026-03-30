@@ -7,7 +7,6 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 from src.api.services.setup_service import SetupService
-import logging
 
 logging.basicConfig(level=logging.INFO)
 

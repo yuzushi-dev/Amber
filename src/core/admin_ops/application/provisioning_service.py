@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.admin_ops.application.provisioning_policy import ensure_tenant_provisioning_enabled
-from src.core.admin_ops.domain.provisioning_job import ProvisioningJob, ProvisioningStatus
+from src.core.admin_ops.domain.provisioning_job import ProvisioningJob
 from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder

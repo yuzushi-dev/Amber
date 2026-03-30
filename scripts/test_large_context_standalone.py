@@ -1,7 +1,6 @@
-import urllib.request
 import json
-import ssl
 import time
+import urllib.request
 
 # Configuration
 OLLAMA_BASE_URL = "http://localhost:11434/v1/chat/completions"
@@ -21,7 +20,7 @@ def test_generation():
         print(f"\n--- Test: {name} (~{token_count} tokens) ---")
         long_input = generate_large_prompt(token_count)
         prompt = f"Summarize:\n\n{long_input}\n\nSummary:"
-        
+
         payload = {
             "model": MODEL,
             "messages": [{"role": "user", "content": prompt}],
@@ -29,7 +28,7 @@ def test_generation():
         }
         if options:
             payload["options"] = options
-        
+
         start_time = time.time()
         try:
             req = urllib.request.Request(OLLAMA_BASE_URL, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
@@ -50,7 +49,7 @@ def test_generation():
 
     # 2. Test 5000 tokens (Should fail if limit is 4096)
     run_test("5000 Tokens", 5000)
-    
+
     # 3. Test 5000 tokens with explicit num_ctx
     run_test("5000 Tokens (Explicit 16k Context)", 5000, options={"num_ctx": 16384})
 

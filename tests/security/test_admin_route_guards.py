@@ -5,9 +5,10 @@ Every admin sub-router that handles privileged operations must declare
 either verify_super_admin or verify_tenant_admin as a router-level
 dependency so no individual handler is reachable without the guard.
 """
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi import HTTPException
-from unittest.mock import MagicMock
 
 
 def _non_admin_req(tenant_id="t1"):
@@ -116,7 +117,6 @@ def test_tenants_create_delete_patch_require_super_admin():
     """
     tenant create/delete/patch must require verify_super_admin, not just verify_admin.
     """
-    import inspect
     import src.api.routes.admin.tenants as t_module
     from src.api.deps import verify_super_admin
 

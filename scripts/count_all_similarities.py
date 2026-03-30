@@ -7,6 +7,7 @@ import sys
 sys.path.append(os.getcwd())
 
 from src.amber_platform.composition_root import platform
+
 neo4j_client = platform.neo4j_client
 
 

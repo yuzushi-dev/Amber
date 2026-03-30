@@ -20,7 +20,6 @@ import time
 import httpx
 import pytest
 
-
 BASE = "http://127.0.0.1:8001"
 
 # Queries that should match the test document content

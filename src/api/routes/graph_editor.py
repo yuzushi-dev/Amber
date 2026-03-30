@@ -1,12 +1,12 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from src.api.deps import verify_tenant_admin
 from pydantic import BaseModel
 
 # from src.api.dependencies.auth import get_current_user_tenant_id # Removed invalid import
 from src.amber_platform.composition_root import build_vector_store_factory, platform
 from src.api.config import settings
+from src.api.deps import verify_tenant_admin
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 
 router = APIRouter(prefix="/graph/editor", tags=["Graph Editor"])

@@ -10,15 +10,15 @@ from src.core.ingestion.infrastructure.extraction.config import extraction_setti
 from src.core.ingestion.infrastructure.extraction.local.hybrid_extractor import (
     HybridMarkerExtractor,
 )
+from src.core.ingestion.infrastructure.extraction.local.kreuzberg_extractor import (
+    KreuzbergExtractor,
+)
 from src.core.ingestion.infrastructure.extraction.local.plaintext_extractor import (
     PlainTextExtractor,
 )
 from src.core.ingestion.infrastructure.extraction.local.pymupdf_extractor import PyMuPDFExtractor
 from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
     UnstructuredExtractor,
-)
-from src.core.ingestion.infrastructure.extraction.local.kreuzberg_extractor import (
-    KreuzbergExtractor,
 )
 
 

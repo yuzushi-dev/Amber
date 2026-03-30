@@ -1,5 +1,7 @@
 import asyncio
+
 from openai import AsyncOpenAI
+
 
 async def main():
     client = AsyncOpenAI(api_key="sk-or-test", base_url="https://openrouter.ai/api/v1", max_retries=0, timeout=5.0)

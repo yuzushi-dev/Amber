@@ -14,7 +14,7 @@ Examples:
 import logging
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from src.core.graph.domain.ports.graph_client import get_graph_client
@@ -22,7 +22,7 @@ from src.core.graph.domain.ports.graph_client import get_graph_client
 logger = logging.getLogger(__name__)
 
 
-class StructuredQueryType(str, Enum):
+class StructuredQueryType(StrEnum):
     """Types of structured queries that can be executed directly."""
 
     LIST_DOCUMENTS = "list_documents"

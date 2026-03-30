@@ -8,6 +8,7 @@ whether retrieved source documents match the expected product category.
 
 import json
 import sys
+
 import requests
 
 API_BASE = "http://localhost:8000/v1/query/stream"
@@ -62,7 +63,7 @@ def classify_source_title(title: str) -> str:
     if not title or title == "Untitled":
         return "UNKNOWN"
     t = title.lower()
-    
+
     # User guide detection
     if "user guide" in t or "user_guide" in t or "carbonio_user" in t or "user_docs" in t:
         return "USER"
@@ -79,7 +80,7 @@ def parse_sse_sources(response_text: str) -> tuple[list[dict], str]:
     """Parse SSE events to extract sources and answer."""
     sources = []
     answer_tokens = []
-    
+
     for line in response_text.split("\n"):
         line = line.strip()
         if line.startswith("event: "):
@@ -90,12 +91,12 @@ def parse_sse_sources(response_text: str) -> tuple[list[dict], str]:
                 data = json.loads(data_str)
             except (json.JSONDecodeError, TypeError):
                 continue
-            
+
             if current_event == "sources" and isinstance(data, list):
                 sources = data
             elif current_event == "token" and isinstance(data, str):
                 answer_tokens.append(data)
-    
+
     answer = "".join(answer_tokens)
     return sources, answer
 
@@ -104,17 +105,17 @@ def evaluate_match(expected: str, source_categories: list[str]) -> tuple[bool, s
     """Evaluate if retrieved sources match the expected category."""
     if not source_categories:
         return False, "NO_SOURCES"
-    
+
     counts = {}
     for cat in source_categories:
         if cat != "UNKNOWN":
             counts[cat] = counts.get(cat, 0) + 1
-    
+
     if not counts:
         return False, "UNKNOWN"
-        
+
     dominant = max(counts, key=counts.get)
-    
+
     if expected == "CE_OR_CARBONIO":
         return dominant in ("CE", "CARBONIO"), dominant
     return dominant == expected, dominant
@@ -126,11 +127,11 @@ def run_test(q: dict) -> dict:
     print(f"Q{q['id']}: {q['question'][:80]}")
     print(f"Expected: {q['expected_category']}")
     print(f"{'='*70}")
-    
+
     try:
         import time
         time.sleep(5)
-        
+
         # Use a fresh session and close connection to avoid reset
         session = requests.Session()
         resp = session.get(
@@ -141,21 +142,21 @@ def run_test(q: dict) -> dict:
             stream=True,
         )
 
-        
+
         if resp.status_code != 200:
             print(f"  ERROR: HTTP {resp.status_code}")
             return {"id": q["id"], "status": "ERROR"}
-        
+
         sources = []
         answer_tokens = []
         current_event = None
-        
+
         for line_bytes in resp.iter_lines():
             if not line_bytes:
                 continue
-                
+
             line = line_bytes.decode('utf-8').strip()
-            
+
             if not line or line.startswith(":"):
                 continue
             if line.startswith("event: "):
@@ -166,29 +167,29 @@ def run_test(q: dict) -> dict:
                     data = json.loads(data_str)
                 except (json.JSONDecodeError, TypeError):
                     continue
-                
+
                 if current_event == "sources" and isinstance(data, list):
                     sources = data
                 elif current_event == "token" and isinstance(data, str):
                     answer_tokens.append(data)
-        
+
         answer = "".join(answer_tokens)
 
-        
+
         print(f"\n  Answer: {answer[:150]}...")
         print(f"\n  Sources ({len(sources)}):")
-        
+
         source_categories = []
         for s in sources:
             title = s.get("title", "Untitled")
             cat = classify_source_title(title)
             source_categories.append(cat)
             print(f"    [{cat:>10}] {title[:70]}")
-        
+
         match, dominant = evaluate_match(q["expected_category"], source_categories)
         icon = "✅" if match else "❌"
         print(f"\n  {icon} expected={q['expected_category']}, dominant={dominant}")
-        
+
         return {
             "id": q["id"],
             "expected": q["expected_category"],
@@ -197,7 +198,7 @@ def run_test(q: dict) -> dict:
             "num_sources": len(sources),
             "categories": source_categories,
         }
-        
+
     except Exception as e:
         print(f"  ERROR: {e}")
         return {"id": q["id"], "status": "ERROR", "error": str(e)}
@@ -207,19 +208,19 @@ def main():
     print("=" * 70)
     print("GLOBAL RULES TEST: Document Retrieval Category Evaluation (SSE)")
     print("=" * 70)
-    
+
     results = []
     for q in QUESTIONS:
         result = run_test(q)
         results.append(result)
-    
+
     # Summary
     print("\n\n" + "=" * 70)
     print("SUMMARY")
     print("=" * 70)
     print(f"{'Q#':<5} {'Expected':<18} {'Dominant':<18} {'Result':<8} {'All Categories'}")
     print("-" * 70)
-    
+
     passed = 0
     total = 0
     for r in results:
@@ -232,7 +233,7 @@ def main():
             passed += 1
         cats = ", ".join(r.get("categories", []))
         print(f"Q{r['id']:<4} {r['expected']:<18} {r['dominant']:<18} {icon:<8} {cats}")
-    
+
     print("-" * 70)
     print(f"Score: {passed}/{total}")
     return 0 if passed == total else 1

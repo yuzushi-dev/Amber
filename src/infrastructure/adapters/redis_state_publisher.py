@@ -34,7 +34,7 @@ class RedisStatePublisher(StateChangePublisher):
 
         # Use the shared client
         client = _get_redis_client()
-        
+
         # publish returns the number of subscribers, we can ignore it
         # We do NOT close the client here so the pool remains active
         await client.publish(channel, json.dumps(message))
