@@ -188,6 +188,18 @@ class QueryUseCase:
                 query_metrics.shared_hits = share_metrics["shared_hits"]
                 query_metrics.acl_filtered_results = share_metrics["acl_filtered_results"]
 
+                tax_metrics = self._extract_taxonomy_metrics(retrieval_result.trace)
+                if tax_metrics:
+                    logger.info(
+                        "taxonomy_routing query_id=%s edition=%s audience=%s "
+                        "broadening_stage=%s strict_count=%s",
+                        query_id,
+                        tax_metrics.get("inferred_edition"),
+                        tax_metrics.get("inferred_audience"),
+                        tax_metrics.get("broadening_stage"),
+                        tax_metrics.get("strict_candidate_count"),
+                    )
+
                 for rt in retrieval_result.trace:
                     trace_steps.append(
                         TraceStep(
@@ -369,6 +381,19 @@ class QueryUseCase:
             "shared_hits": shared_hits,
             "acl_filtered_results": acl_filtered_results,
         }
+
+    @staticmethod
+    def _extract_taxonomy_metrics(retrieval_trace: list[dict]) -> dict | None:
+        """Extract taxonomy routing signal from the retrieval trace."""
+        for step in retrieval_trace or []:
+            if step.get("step") == "taxonomy_routing":
+                return {
+                    "inferred_edition": step.get("inferred_edition"),
+                    "inferred_audience": step.get("inferred_audience"),
+                    "broadening_stage": step.get("broadening_stage"),
+                    "strict_candidate_count": step.get("strict_candidate_count"),
+                }
+        return None
 
     def _update_metrics_from_generation(self, metrics, result, answer):
         metrics.tokens_used = result.tokens_used
