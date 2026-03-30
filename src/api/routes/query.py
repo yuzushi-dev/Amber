@@ -548,7 +548,7 @@ async def _query_stream_impl(
                 if not effective_model:
                     settings = get_settings()
                     tuning_service = TuningService(_get_async_session_maker())
-                    tenant_config = await tuning_service.get_tenant_config(tenant_id)
+                    tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
                     effective_model, _ = resolve_tenant_llm_model(
                         tenant_config,
                         settings,

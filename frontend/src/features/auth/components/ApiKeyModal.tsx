@@ -30,11 +30,15 @@ export default function ApiKeyModal({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        const success = await setApiKey(inputKey)
+        const success = await setApiKey(inputKey.trim())
         if (success) {
             setInputKey('')
             onSuccess?.()
             onClose?.()
+            // Route to admin panel for admin/super_admin keys, client chat for regular users
+            const { permissions } = useAuth.getState()
+            const isAdmin = permissions.some((p: string) => ['active_admin', 'admin', 'super_admin', 'root'].includes(p))
+            window.location.href = isAdmin ? '/admin/chat' : '/amber/chat'
         }
     }
 

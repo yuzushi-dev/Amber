@@ -12,6 +12,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from src.core.tenants.application.query_scopes import resolve_query_scopes
 from src.shared.context import set_current_tenant, set_permissions
 from src.shared.identifiers import TenantId
 from src.shared.security import mask_api_key
@@ -211,6 +212,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Store in request state for easy access
         request.state.tenant_id = tenant_id
+        request.state.query_scopes = resolve_query_scopes(str(tenant_id))
         request.state.permissions = permissions
         request.state.api_key_name = valid_key.name
         request.state.tenant_role = tenant_role

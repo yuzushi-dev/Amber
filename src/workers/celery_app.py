@@ -69,6 +69,7 @@ celery_app = Celery(
         "src.workers.tasks",
         "src.workers.export_tasks",
         "src.workers.backup_tasks",
+        "src.workers.provisioning_tasks",
     ],
 )
 
@@ -104,6 +105,7 @@ celery_app.conf.task_routes = {
     "src.workers.tasks.extraction.*": {"queue": "extraction"},
     "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
     # export_tasks uses default celery queue
+    "src.workers.provisioning_tasks.provision_tenant": {"queue": "low_priority"},
 }
 
 

@@ -25,6 +25,11 @@ from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.security.source_verifier import SourceVerifier
+from src.core.tenants.application.effective_config import (
+    DEFAULT_TENANT_ID,
+    merge_tenant_config,
+    resolve_rag_prompts,
+)
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.kernel.observability import trace_span
 
@@ -179,6 +184,49 @@ class GenerationService:
             llm_fallback_enabled=getattr(settings, "llm_fallback_enabled", True),
         )
 
+    async def _get_effective_tenant_config(self, tenant_id: str | None) -> dict[str, Any]:
+        """Resolve effective tenant config from default tenant plus local overrides."""
+        if not tenant_id or not self.tenant_repository:
+            return {}
+
+        try:
+            tenant_obj = await self.tenant_repository.get(tenant_id)
+            tenant_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
+
+            if tenant_id == DEFAULT_TENANT_ID:
+                return merge_tenant_config({}, tenant_config)
+
+            default_tenant = await self.tenant_repository.get(DEFAULT_TENANT_ID)
+            default_config = (
+                default_tenant.config if default_tenant and default_tenant.config else {}
+            )
+            return merge_tenant_config(default_config, tenant_config)
+        except Exception as e:
+            logger.warning(f"Failed to load tenant config for prompt override: {e}")
+            return {}
+
+    def _resolve_rag_prompt_templates(
+        self,
+        tenant_config: dict[str, Any],
+        rules_addendum: str,
+    ) -> tuple[str, str]:
+        """Resolve effective RAG prompts from registry defaults and tenant overrides."""
+        base_system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
+        base_user_prompt = self.registry.get_prompt("rag_user", self.config.prompt_version)
+        system_prompt, user_prompt_template = resolve_rag_prompts(
+            base_system_prompt=base_system_prompt,
+            base_user_prompt=base_user_prompt,
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
+
+        if tenant_config.get("rag_system_prompt"):
+            logger.debug("Applied tenant system prompt override")
+        if tenant_config.get("rag_user_prompt"):
+            logger.debug("Applied tenant user prompt override")
+
+        return system_prompt, user_prompt_template
+
     def _normalize_citations(self, text: str) -> str:
         if not text:
             return text
@@ -270,34 +318,11 @@ class GenerationService:
             except Exception as e:
                 logger.warning(f"Failed to retrieve memory: {e}")
 
-        # Step 2: Get prompts from registry
-        system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
-        user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-
-        # Append global rules to system prompt (highest priority instructions)
-        if rules_addendum:
-            system_prompt = system_prompt + rules_addendum
-
-        # Apply Tenant Overrides
-        tenant_config: dict[str, Any] = {}
-
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(tenant_id)
-                if tenant_obj and tenant_obj.config:
-                    t_conf = tenant_obj.config
-                    tenant_config = t_conf
-
-                    if t_conf.get("rag_system_prompt"):
-                        system_prompt = t_conf.get("rag_system_prompt")
-                        logger.debug(f"Applied tenant system prompt override for {tenant_id}")
-
-                    if t_conf.get("rag_user_prompt"):
-                        user_prompt_template = t_conf.get("rag_user_prompt")
-                        logger.debug(f"Applied tenant user prompt override for {tenant_id}")
-
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for prompt override: {e}")
+        tenant_config = await self._get_effective_tenant_config(tenant_id)
+        system_prompt, user_prompt_template = self._resolve_rag_prompt_templates(
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
 
         # Inject memory_context if not empty
         try:
@@ -578,28 +603,11 @@ class GenerationService:
         yield {"event": "sources", "data": cited_sources}
 
         # Step 4: Preparation
-        system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
-        user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-
-        # Append global rules to system prompt (highest priority instructions)
-        if rules_addendum:
-            system_prompt = system_prompt + rules_addendum
-
-        # Apply Tenant Overrides (Stream)
-        tenant_config: dict[str, Any] = {}
-
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(tenant_id)
-                if tenant_obj and tenant_obj.config:
-                    t_conf = tenant_obj.config
-                    tenant_config = t_conf
-                    if t_conf.get("rag_system_prompt"):
-                        system_prompt = t_conf.get("rag_system_prompt")
-                    if t_conf.get("rag_user_prompt"):
-                        user_prompt_template = t_conf.get("rag_user_prompt")
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for stream prompt override: {e}")
+        tenant_config = await self._get_effective_tenant_config(tenant_id)
+        system_prompt, user_prompt_template = self._resolve_rag_prompt_templates(
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
 
         try:
             user_prompt = user_prompt_template.format(
@@ -717,15 +725,10 @@ class GenerationService:
         from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
-        tenant_config: dict[str, Any] = {}
         tenant_id = get_current_tenant()
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(str(tenant_id))
-                if tenant_obj and tenant_obj.config:
-                    tenant_config = tenant_obj.config
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for agent completion: {e}")
+        tenant_config = await self._get_effective_tenant_config(
+            str(tenant_id) if tenant_id else None
+        )
 
         llm_cfg = resolve_llm_step_config(
             tenant_config=tenant_config,

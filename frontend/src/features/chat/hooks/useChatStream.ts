@@ -107,10 +107,10 @@ export function useChatStream() {
         }
 
         const apiKey = localStorage.getItem('api_key')
+        const userName = localStorage.getItem('user_name') || ''
 
         // Use relative path for SSE to leverage Vite proxy / Nginx
         const url = new URL('/api/v1/query/stream', window.location.origin)
-        url.searchParams.set('api_key', apiKey || '')
 
         // Reset streaming stats for diagnostics
         streamStatsRef.current = {
@@ -132,6 +132,8 @@ export function useChatStream() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-API-Key': apiKey || '',
+                    'X-User-ID': userName,
                 },
                 body: JSON.stringify({
                     query: finalQuery,

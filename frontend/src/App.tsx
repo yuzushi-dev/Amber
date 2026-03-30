@@ -31,7 +31,7 @@ function LoadingScreen({ message = "Amber is waking up..." }: { message?: string
 import { useEffect } from 'react'
 
 function AppContent() {
-  const { isAuthenticated, apiKey, initialFetch } = useAuth()
+  const { isAuthenticated, apiKey, initialFetch, isSuperAdmin } = useAuth()
   const { data: setupStatus, isLoading, isError, error, refetch } = useSetupStatus()
   const { clearApiKey } = useAuth()
 
@@ -61,7 +61,7 @@ function AppContent() {
 
   // 3. Setup not complete → Show Setup Wizard (if not complete OR db migration needed)
   const allFeaturesInstalled = setupStatus?.summary.installed === setupStatus?.summary.total
-  if (setupStatus && (!setupStatus.setup_complete && !allFeaturesInstalled || setupStatus.db_migration_needed)) {
+  if (isSuperAdmin && setupStatus && (!setupStatus.setup_complete && !allFeaturesInstalled || setupStatus.db_migration_needed)) {
     return (
       <SetupWizard
         onComplete={() => refetch()}

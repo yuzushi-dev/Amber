@@ -24,6 +24,7 @@ class GraphTraversalService:
         depth: int = 2,
         beam_width: int = 5,
         timeout_ms: int = 200,
+        allowed_doc_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Executes a bounded BFS (Beam Search) from seed entities.
@@ -41,6 +42,12 @@ class GraphTraversalService:
         try:
             # We use a single Cypher query to perform the traversal efficiently
             # This is often faster than multiple round-trips for small depths.
+
+            acl_clause = ""
+            params = {"seed_ids": seed_entity_ids, "tenant_id": tenant_id, "beam_width": beam_width}
+            if allowed_doc_ids is not None:
+                acl_clause = " AND c.document_id IN $allowed_doc_ids"
+                params["allowed_doc_ids"] = allowed_doc_ids
 
             query = """
             MATCH (start:Entity)
@@ -75,7 +82,7 @@ class GraphTraversalService:
             UNWIND final_entities as e
 
             MATCH (e)-[:MENTIONS]-(c:Chunk)
-            WHERE c.tenant_id = $tenant_id
+            WHERE c.tenant_id = $tenant_id{acl_clause}
 
             RETURN DISTINCT c.id as chunk_id, c.content as content, c.document_id as document_id
             LIMIT 50
@@ -83,10 +90,7 @@ class GraphTraversalService:
 
             # Using asyncio.wait_for to enforce timeout
             results = await asyncio.wait_for(
-                self.neo4j.execute_read(
-                    query,
-                    {"seed_ids": seed_entity_ids, "tenant_id": tenant_id, "beam_width": beam_width},
-                ),
+                self.neo4j.execute_read(query.format(acl_clause=acl_clause), params),
                 timeout=timeout_ms / 1000.0,
             )
 

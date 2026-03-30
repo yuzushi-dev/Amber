@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.core.retrieval.application.search.graph import GraphSearcher
+from src.core.retrieval.application.search.graph_traversal import GraphTraversalService
 from src.core.security.graph_traversal_guard import GraphTraversalGuard
 
 
@@ -71,3 +72,26 @@ class TestGraphSearcherSecurity:
 
         assert "neighbor.document_id IN $allowed_doc_ids" in query
         assert params["allowed_doc_ids"] == allowed_doc_ids
+
+
+
+    async def test_beam_search_with_acls(self):
+        mock_neo4j = MagicMock()
+        mock_neo4j.execute_read = AsyncMock(return_value=[])
+
+        service = GraphTraversalService(mock_neo4j)
+
+        await service.beam_search(
+            seed_entity_ids=["e1"],
+            tenant_id="tenant1",
+            depth=1,
+            beam_width=2,
+            allowed_doc_ids=["doc1", "doc2"],
+        )
+
+        call_args = mock_neo4j.execute_read.call_args
+        query = call_args[0][0]
+        params = call_args[0][1]
+
+        assert "c.document_id IN $allowed_doc_ids" in query
+        assert params["allowed_doc_ids"] == ["doc1", "doc2"]

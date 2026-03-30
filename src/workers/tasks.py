@@ -285,7 +285,7 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
             logger.info(f"Skipping community detection for tenant {tenant_id} (skip_detection=True)")
 
         tuning_service = TuningService(get_session_maker())
-        tenant_config = await tuning_service.get_tenant_config(tenant_id)
+        tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
         
         # Resolve Ollama URL from Tenant Config -> Settings
         res_ollama_url = tenant_config.get("ollama_base_url") or settings.ollama_base_url
