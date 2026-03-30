@@ -6,13 +6,13 @@ Request and response models for the query system, used by both API and Core.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class SearchMode(str, Enum):
+class SearchMode(StrEnum):
     """Available search strategies."""
 
     BASIC = "basic"  # Vector search only

@@ -9,13 +9,13 @@ from one tenant to another without re-running the ingestion pipeline).
 import enum
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 
-class ProvisioningStatus(str, enum.Enum):
+class ProvisioningStatus(enum.StrEnum):
     """Status of a provisioning job."""
 
     PENDING = "pending"

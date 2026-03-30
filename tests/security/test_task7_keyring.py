@@ -8,7 +8,6 @@ Verifies that:
 - Settings exposes SECRET_KEY_OLD for the secondary key
 """
 
-import pytest
 
 
 # ── Keyring: verify accepts primary-key hashes ───────────────────────────────
@@ -99,6 +98,7 @@ def test_settings_exposes_secret_key_old():
 def test_configure_security_accepts_secondary_key_param():
     """configure_security() must accept a secondary_key keyword argument."""
     import inspect
+
     from src.shared import security as sec_module
     sig = inspect.signature(sec_module.configure_security)
     assert "secondary_key" in sig.parameters, (

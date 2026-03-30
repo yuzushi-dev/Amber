@@ -1,13 +1,11 @@
 """
 Unit tests for ProductContextResolver — deterministic query-time taxonomy inference.
 """
-import pytest
 
 from src.core.retrieval.application.query.product_context_resolver import (
     ProductContext,
     resolve_product_context,
 )
-
 
 # ---------------------------------------------------------------------------
 # Admin / commercial defaults

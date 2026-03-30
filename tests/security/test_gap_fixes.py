@@ -14,9 +14,9 @@ Covers:
 """
 
 import inspect
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 # ── 1. chunks.py ─────────────────────────────────────────────────────────────
 
@@ -79,8 +79,10 @@ def test_get_feedback_raises_without_tenant():
     get_feedback must raise 401 when tenant_id is absent from request state.
     """
     import asyncio
-    import src.api.routes.feedback as feedback_module
+
     from fastapi import HTTPException
+
+    import src.api.routes.feedback as feedback_module
 
     req = MagicMock()
     del req.state.tenant_id
@@ -186,8 +188,10 @@ def test_events_document_status_stream_requires_auth():
     document_status_stream must raise 401 when request.state.tenant_id is absent.
     """
     import asyncio
-    import src.api.routes.events as events_module
+
     from fastapi import HTTPException
+
+    import src.api.routes.events as events_module
 
     req = MagicMock()
     req.state = MagicMock(spec=[])  # no tenant_id on state

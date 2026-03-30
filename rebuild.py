@@ -1,7 +1,10 @@
 import asyncio
-from src.workers.tasks import _process_communities_async
+
+from pymilvus import connections, utility
+
 from src.api.config import settings
-from pymilvus import utility, connections
+from src.workers.tasks import _process_communities_async
+
 
 async def run():
     print("Connecting to Milvus...")
@@ -10,7 +13,7 @@ async def run():
         utility.drop_collection("community_embeddings")
         print("Dropped community_embeddings collection.")
     connections.disconnect("default")
-    
+
     print("Re-running community detection and embeddings...")
     res = await _process_communities_async("default")
     print(res)

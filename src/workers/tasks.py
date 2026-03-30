@@ -16,7 +16,6 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
-from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
@@ -39,7 +38,6 @@ def _background_warmup():
 
 
 # Trigger background warmup on module load (worker startup)
-import threading
 # threading.Thread(target=_background_warmup, daemon=True).start()
 
 
@@ -258,7 +256,7 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
 
     deep_reset_singletons()
     configure_settings(settings)
-    
+
     from src.core.database.session import configure_database
     configure_database(settings.db.database_url)
 
@@ -286,7 +284,7 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
 
         tuning_service = TuningService(get_session_maker())
         tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
-        
+
         # Resolve Ollama URL from Tenant Config -> Settings
         res_ollama_url = tenant_config.get("ollama_base_url") or settings.ollama_base_url
 
@@ -313,7 +311,7 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         # Check tenant config for override, otherwise use global setting
         concurrency = tenant_config.get("community_summarization_concurrency") or settings.community_summarization_concurrency
         await summarizer.summarize_all_stale(
-            tenant_id, 
+            tenant_id,
             tenant_config=tenant_config,
             concurrency=int(concurrency)
         )
@@ -339,7 +337,7 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
             settings.embedding_dimensions or 1536,
             collection_name="community_embeddings",
         )
-        
+
         # Initialize Sparse Service
         sparse_svc = None
         try:
@@ -477,7 +475,6 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     # Move DB initialization earlier to fetch tenant config
     # ERROR FIX: Ensure domain models are imported before session usage to avoid Mapper errors
-    from src.core.ingestion.domain.chunk import Chunk  # noqa: F401
     from src.core.ingestion.domain.document import Document  # noqa: F401
 
     engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
@@ -522,9 +519,9 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         llm_fallback_enabled=settings.llm_fallback_enabled,
     )
 
+    from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
     from src.core.graph.domain.ports.graph_client import set_graph_client
     from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
-    from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
     from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
 
     graph_sync_config = resolve_graph_sync_runtime_config(

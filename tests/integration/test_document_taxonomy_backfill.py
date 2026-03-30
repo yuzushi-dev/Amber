@@ -5,8 +5,8 @@ Tests the classify + update logic using the real DB session,
 without invoking the CLI entrypoint.
 """
 import uuid
+
 import pytest
-from sqlalchemy import select
 
 from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.document import Document

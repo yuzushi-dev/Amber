@@ -28,7 +28,6 @@ import structlog
 
 from src.core.admin_ops.infrastructure.observability.tracer import get_current_request_id
 
-
 # -------------------------------------------------------------------------
 # Noisy loggers that should be silenced unless the user *really* wants them
 # -------------------------------------------------------------------------

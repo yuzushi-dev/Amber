@@ -5,8 +5,9 @@ Revises: 20260121_1237
 Create Date: 2026-01-28 08:00:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '20260128_0800'
@@ -84,15 +85,15 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index(op.f('ix_backup_schedules_tenant_id'), table_name='backup_schedules')
     op.drop_table('backup_schedules')
-    
+
     op.drop_index(op.f('ix_restore_jobs_user_id'), table_name='restore_jobs')
     op.drop_index(op.f('ix_restore_jobs_tenant_id'), table_name='restore_jobs')
     op.drop_table('restore_jobs')
-    
+
     op.drop_index(op.f('ix_backup_jobs_user_id'), table_name='backup_jobs')
     op.drop_index(op.f('ix_backup_jobs_tenant_id'), table_name='backup_jobs')
     op.drop_table('backup_jobs')
-    
+
     # Drop enum types
     op.execute('DROP TYPE IF EXISTS restoremode')
     op.execute('DROP TYPE IF EXISTS backupstatus')

@@ -8,8 +8,9 @@ Verifies that:
 - Source code no longer uses bare client.get() without delete
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 def _make_service(mock_redis):
@@ -81,6 +82,7 @@ def test_redeem_ticket_does_not_use_bare_get():
     A bare GET without subsequent DELETE leaves the ticket replayable.
     """
     import inspect
+
     from src.core.auth.application import ticket_service as ts_module
     source = inspect.getsource(ts_module.TicketService.redeem_ticket)
     assert "await client.get(" not in source, (

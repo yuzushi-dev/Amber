@@ -264,11 +264,10 @@ async def get_taxonomy_corpus_summary(
     tenant_id: str | None = None,
     session: AsyncSession = Depends(get_db_session),
 ):
-    from src.core.ingestion.domain.document import Document
 
     where_clause = "WHERE metadata -> 'taxonomy' IS NOT NULL"
     if tenant_id:
-        where_clause += f" AND tenant_id = :tenant_id"
+        where_clause += " AND tenant_id = :tenant_id"
 
     bucket_sql = text(
         f"""

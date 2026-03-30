@@ -1,16 +1,18 @@
 import asyncio
+
 from openai import AsyncOpenAI
-import os
+
 from src.api.config import settings
+
 
 async def main():
     try:
         api_key = settings.openrouter_api_key
         print(f"Key length: {len(api_key)}")
         client = AsyncOpenAI(
-            api_key=api_key, 
-            base_url="https://openrouter.ai/api/v1", 
-            max_retries=0, 
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            max_retries=0,
             timeout=10.0,
             default_headers={"HTTP-Referer": "https://amber.local", "X-Title": "Amber RAG"}
         )

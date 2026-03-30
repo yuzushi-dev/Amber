@@ -17,7 +17,6 @@ from src.core.state.machine import DocumentStatus
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.security import generate_api_key, hash_api_key
 
-
 TEST_DOC_PREFIX = "share-metrics-"
 TEST_KEY_NAME_PREFIX = "Share Metrics Test"
 

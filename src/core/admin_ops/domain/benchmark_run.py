@@ -13,7 +13,7 @@ from sqlalchemy import JSON, Column, DateTime, Enum, String
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 
-class BenchmarkStatus(str, enum.Enum):
+class BenchmarkStatus(enum.StrEnum):
     """Status of a benchmark run."""
 
     PENDING = "pending"

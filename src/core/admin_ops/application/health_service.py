@@ -8,14 +8,14 @@ Implements health checking for all system dependencies.
 import asyncio
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import httpx
 from redis.asyncio import Redis
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     """Health check status values."""
 
     UP = "up"

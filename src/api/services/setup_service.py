@@ -11,13 +11,13 @@ import importlib
 import logging
 import sys
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class FeatureStatus(str, Enum):
+class FeatureStatus(StrEnum):
     """Installation status for optional features."""
 
     NOT_INSTALLED = "not_installed"

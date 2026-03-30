@@ -5,11 +5,10 @@ OpenAI Provider
 LLM and Embedding provider implementations for OpenAI API.
 """
 
-import logging
 import time
+from typing import Any
 
 import structlog
-from typing import Any
 
 from src.core.generation.infrastructure.providers.base import (
     AuthenticationError,
@@ -62,8 +61,8 @@ _openai_clients: dict[tuple[str, str | None], Any] = {}
 
 
 def _get_openai_client(
-    api_key: str, 
-    base_url: str | None = None, 
+    api_key: str,
+    base_url: str | None = None,
     default_headers: dict | None = None,
     timeout: float | None = 60.0,
 ):

@@ -1,14 +1,16 @@
 import asyncio
-from openai import AsyncOpenAI
 import time
+
+from openai import AsyncOpenAI
+
 
 async def main():
     start = time.time()
     # Explicitly test the timeout behavior against NIM
     client = AsyncOpenAI(
-        api_key="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", 
-        base_url="https://integrate.api.nvidia.com/v1", 
-        max_retries=0, 
+        api_key="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",
+        base_url="https://integrate.api.nvidia.com/v1",
+        max_retries=0,
         timeout=10.0
     )
     try:

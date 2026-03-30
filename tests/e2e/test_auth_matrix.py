@@ -7,9 +7,8 @@ Verifies the full access-control matrix:
   - 2xx when correct tier is used
 """
 
-import pytest
 import httpx
-
+import pytest
 
 BASE = "http://127.0.0.1:8001"
 

@@ -5,10 +5,10 @@ Document State Machine
 Defines the valid states and transitions for document processing.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class DocumentStatus(str, Enum):
+class DocumentStatus(StrEnum):
     """Enumeration of valid document processing states."""
 
     INGESTED = "ingested"

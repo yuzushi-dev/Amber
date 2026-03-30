@@ -14,7 +14,7 @@ from sqlalchemy import Enum as SQLEnum
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 
-class FlagType(str, enum.Enum):
+class FlagType(enum.StrEnum):
     """Types of flags that can be reported."""
 
     WRONG_FACT = "wrong_fact"
@@ -26,7 +26,7 @@ class FlagType(str, enum.Enum):
     OTHER = "other"
 
 
-class FlagStatus(str, enum.Enum):
+class FlagStatus(enum.StrEnum):
     """Flag resolution status."""
 
     PENDING = "pending"

@@ -16,7 +16,6 @@ import asyncio
 import httpx
 import pytest
 
-
 BASE = "http://127.0.0.1:8001"
 QUERY = "What does QCP-001 mean?"
 
@@ -55,9 +54,6 @@ async def test_user_a_and_user_b_have_separate_histories(e2e_env):
     ) as c_a:
         r_hist_a = await c_a.get("/v1/chat/history")
     assert r_hist_a.status_code == 200
-    hist_a = r_hist_a.json()
-    convs_a = hist_a.get("conversations") or (hist_a if isinstance(hist_a, list) else [])
-    ids_a = {c.get("request_id") or c.get("id") for c in convs_a}
 
     # User B history should be different
     async with httpx.AsyncClient(

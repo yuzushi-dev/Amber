@@ -6,14 +6,13 @@ LLM-based answer generation with context injection and groundedness checks.
 """
 
 import os
-import logging
 import re
 import time
-
-import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+import structlog
 
 from src.core.generation.application.context_builder import ContextBuilder
 from src.core.generation.application.registry import PromptRegistry
@@ -157,20 +156,20 @@ class GenerationService:
         """
         if not self.factory:
             return None
-            
+
         if not tenant_config:
             return self.factory
-            
+
         t_ollama_url = tenant_config.get("ollama_base_url")
         if not t_ollama_url:
             return self.factory
-            
+
         # Tenant overrides URL - create scoped factory
         from src.core.generation.domain.ports.provider_factory import build_provider_factory
         from src.shared.kernel.runtime import get_settings
-        
+
         settings = get_settings()
-        
+
         return build_provider_factory(
             openai_api_key=settings.openai_api_key,
             anthropic_api_key=settings.anthropic_api_key,
@@ -649,7 +648,7 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
-        
+
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,

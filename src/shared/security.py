@@ -162,7 +162,7 @@ def decrypt_credentials(token: str) -> dict | None:
         dict | None: Decrypted credentials or None on failure.
     """
     try:
-        from cryptography.fernet import Fernet, InvalidToken
+        from cryptography.fernet import Fernet
         f = Fernet(_fernet_key())
         plaintext = f.decrypt(token.encode('utf-8'))
         return json.loads(plaintext.decode('utf-8'))

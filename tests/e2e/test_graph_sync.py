@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ── Graph data from processed document ────────────────────────────────────────
 
 @pytest.mark.asyncio

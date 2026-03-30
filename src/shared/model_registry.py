@@ -340,7 +340,7 @@ def parse_fallback_chain(
 def resolve_token_encoding(model: str | None) -> str | None:
     if not model:
         return None
-    
+
     # Strip tag (e.g. :latest) if present for lookup
     lookup_model = model
     if ":" in model:
@@ -348,7 +348,7 @@ def resolve_token_encoding(model: str | None) -> str | None:
 
     if model in TOKEN_ENCODING_BY_MODEL:
         return TOKEN_ENCODING_BY_MODEL[model]
-    
+
     if lookup_model in TOKEN_ENCODING_BY_MODEL:
         return TOKEN_ENCODING_BY_MODEL[lookup_model]
 
@@ -356,12 +356,12 @@ def resolve_token_encoding(model: str | None) -> str | None:
     if providers and len(providers) == 1:
         provider = next(iter(providers))
         return TOKEN_ENCODING_BY_PROVIDER.get(provider)
-    
+
     providers = EMBEDDING_MODEL_TO_PROVIDERS.get(lookup_model)
     if providers and len(providers) == 1:
         provider = next(iter(providers))
         return TOKEN_ENCODING_BY_PROVIDER.get(provider)
-    
+
     return None
 
 

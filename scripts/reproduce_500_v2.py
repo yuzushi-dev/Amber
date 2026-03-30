@@ -1,6 +1,5 @@
-import urllib.request
 import json
-import sys
+import urllib.request
 
 # Configuration
 # This script runs INSIDE the container, so use host.docker.internal
@@ -9,9 +8,9 @@ MODEL = "gemma3:27b-cloud"
 
 def test_generation(prompt_size, num_ctx=None):
     print(f"\n--- Testing with prompt size: {prompt_size} bytes, num_ctx: {num_ctx} ---")
-    
+
     prompt = "A" * prompt_size
-    
+
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -20,10 +19,10 @@ def test_generation(prompt_size, num_ctx=None):
             "num_ctx": num_ctx if num_ctx else 2048
         }
     }
-    
+
     data = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(OLLAMA_URL, data=data, headers={'Content-Type': 'application/json'})
-    
+
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             print(f"Status Code: {response.getcode()}")
