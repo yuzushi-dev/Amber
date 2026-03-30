@@ -22,6 +22,8 @@ from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
+
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
@@ -550,6 +552,10 @@ class UpdateDocumentUseCase:
         if request.folder_id is not None:
             if request.folder_id == "":
                 document.folder_id = None
+                # Clear taxonomy when folder is removed
+                _meta = dict(document.metadata_ or {})
+                _meta["taxonomy"] = classify_document_taxonomy(folder_name=None)
+                document.metadata_ = _meta
             else:
                 # Verify folder exists
                 folder = await self._session.get(Folder, request.folder_id)
@@ -563,6 +569,13 @@ class UpdateDocumentUseCase:
                         raise LookupError("Folder not found or invalid")
 
                 document.folder_id = request.folder_id
+                # Re-stamp taxonomy when folder changes
+                meta = dict(document.metadata_ or {})
+                meta["taxonomy"] = classify_document_taxonomy(
+                    folder_name=folder.name,
+                    document_title=document.filename,
+                )
+                document.metadata_ = meta
 
         await self._session.commit()
         await self._session.refresh(document)
