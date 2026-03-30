@@ -171,7 +171,6 @@ async def _get_visible_document_or_404(
             share_mode=None,
         )
 
-    from src.core.ingestion.domain.document_share import DocumentVisibilityStatus
     from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
         PostgresDocumentRepository,
     )
@@ -659,7 +658,6 @@ async def get_document(
     # I will check if I can modify `DocumentOutput` by searching for it.
 
     from src.core.ingestion.application.use_cases_documents import (
-        resolve_graph_document_id,
         DocumentOutput,
         GetDocumentRequest,
         GetDocumentUseCase,
@@ -827,8 +825,7 @@ async def get_document_communities(
 
     Returns communities with their entities, sorted by entity count.
     """
-    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
-    document = visible_document.document
+    await _get_visible_document_or_404(document_id, http_request, session)
 
     from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
@@ -1086,8 +1083,7 @@ async def get_document_entities(
         limit: Maximum number of entities to return (default: 100)
         offset: Number of entities to skip (default: 0)
     """
-    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
-    document = visible_document.document
+    await _get_visible_document_or_404(document_id, http_request, session)
 
     from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
@@ -1137,8 +1133,7 @@ async def get_document_relationships(
         limit: Maximum number of relationships to return (default: 100)
         offset: Number of relationships to skip (default: 0)
     """
-    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
-    document = visible_document.document
+    await _get_visible_document_or_404(document_id, http_request, session)
 
     from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 
@@ -1195,8 +1190,7 @@ async def get_document_chunks(
     """
     Get chunks for a document from PostgreSQL.
     """
-    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
-    doc = visible_document.document
+    await _get_visible_document_or_404(document_id, http_request, session)
 
     # 2. Fetch chunks from Postgres
     chunks_query = select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.index.asc())
@@ -1230,8 +1224,7 @@ async def get_document_similarities(
     """
     Get similarity relationships between chunks within the document.
     """
-    visible_document = await _get_visible_document_or_404(document_id, http_request, session)
-    document = visible_document.document
+    await _get_visible_document_or_404(document_id, http_request, session)
 
     from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
 

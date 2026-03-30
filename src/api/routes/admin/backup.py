@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
+from src.api.deps import verify_super_admin
 from src.core.admin_ops.domain.backup_job import (
     BackupJob,
     BackupSchedule,
@@ -26,7 +27,7 @@ from src.core.database import get_session_maker
 
 logger = logging.getLogger(__name__)
 
-from src.api.deps import verify_super_admin
+
 router = APIRouter(prefix="/backup", tags=["admin-backup"], dependencies=[Depends(verify_super_admin)])
 
 

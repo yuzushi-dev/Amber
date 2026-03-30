@@ -2,10 +2,8 @@
 Unit tests for DocumentTaxonomyClassifier
 """
 
-import pytest
 
 from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
-
 
 # ---------------------------------------------------------------------------
 # Folder-based rules

@@ -10,7 +10,6 @@ Phase 10 - Admin/Engineer UI Backend
 from fastapi import APIRouter
 
 from src.api.routes.admin import (
-    provisioning,
     backup,
     chat_history,
     config,
@@ -23,6 +22,7 @@ from src.api.routes.admin import (
     maintenance,
     observability,
     providers,
+    provisioning,
     ragas,
     retention,
     rules,

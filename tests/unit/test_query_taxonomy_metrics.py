@@ -2,7 +2,6 @@
 Unit tests for QueryUseCase._extract_taxonomy_metrics
 """
 
-import pytest
 
 from src.core.retrieval.application.use_cases_query import QueryUseCase
 

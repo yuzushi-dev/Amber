@@ -1,7 +1,9 @@
 import asyncio
-from src.core.generation.infrastructure.providers.factory import ProviderFactory
-from src.core.generation.domain.provider_models import ProviderTier
+
 from src.api.config import settings
+from src.core.generation.domain.provider_models import ProviderTier
+from src.core.generation.infrastructure.providers.factory import ProviderFactory
+
 
 async def main():
     factory = ProviderFactory(

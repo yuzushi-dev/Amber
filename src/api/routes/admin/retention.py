@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 
+from src.api.deps import verify_tenant_admin
 from src.core.database import get_session_maker
 from src.core.generation.application.memory.manager import memory_manager
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 
 logger = logging.getLogger(__name__)
 
-from src.api.deps import verify_tenant_admin
+
 router = APIRouter(prefix="/retention", tags=["admin-retention"], dependencies=[Depends(verify_tenant_admin)])
 
 

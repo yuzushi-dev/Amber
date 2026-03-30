@@ -27,10 +27,10 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Literal
-
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class LLMCapacitySettings:
     fail_open: bool = False  # When True, bypass on Redis error (legacy). Default: fail closed.
 
     @staticmethod
-    def from_env() -> "LLMCapacitySettings":
+    def from_env() -> LLMCapacitySettings:
         enabled_raw = os.getenv("OLLAMA_CAPACITY_ENABLED", "true").lower()
         enabled = enabled_raw in ("1", "true", "yes", "y", "on")
         fail_open_raw = os.getenv("LLM_CAPACITY_FAIL_OPEN", "false").lower()

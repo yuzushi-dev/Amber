@@ -7,9 +7,9 @@ Handles batching, retries, and provider failover.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Awaitable, Callable
 
 from tenacity import (
     retry,

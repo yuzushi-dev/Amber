@@ -9,9 +9,7 @@ Verifies:
 - config.py exposes app_database_url field
 """
 
-import inspect
 import pytest
-
 
 # ── DB role properties ────────────────────────────────────────────────────────
 
@@ -22,8 +20,9 @@ async def test_graphrag_app_role_is_non_superuser():
     graphrag_app role must be non-superuser and must not have BYPASSRLS.
     Without this, RLS policies are bypassed regardless of FORCE RLS.
     """
-    from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     from src.api.config import get_settings
     settings = get_settings()
 
@@ -50,8 +49,9 @@ async def test_graphrag_app_role_is_non_superuser():
 @pytest.mark.asyncio
 async def test_tenant_tables_have_rls_enabled():
     """Every tenant-scoped table must have row-level security enabled."""
-    from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     from src.api.config import get_settings
     settings = get_settings()
 
@@ -88,7 +88,7 @@ async def test_tenant_tables_have_rls_enabled():
 async def test_configure_worker_session_sets_super_admin():
     """configure_worker_session must SET app.is_super_admin = true in the DB session."""
     from unittest.mock import AsyncMock, MagicMock
-    from sqlalchemy import text
+
     from src.core.database.session import configure_worker_session
 
     session = MagicMock()

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import build_vector_store_factory, platform
 from src.api.config import settings
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session, verify_super_admin
 from src.api.schemas.base import ResponseSchema
 from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
 from src.core.ingestion.domain.document import Document
@@ -33,7 +33,7 @@ def _get_migration_service(db: AsyncSession) -> EmbeddingMigrationService:
     )
 
 
-from src.api.deps import verify_super_admin
+
 router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"], dependencies=[Depends(verify_super_admin)])
 
 # In-memory migration state (could use Redis for multi-worker)

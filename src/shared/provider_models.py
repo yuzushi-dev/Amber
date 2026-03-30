@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class ProviderTier(str, Enum):
+class ProviderTier(StrEnum):
     """Cost tier for model routing."""
 
     ECONOMY = "economy"

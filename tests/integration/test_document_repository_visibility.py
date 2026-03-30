@@ -15,8 +15,8 @@ def _clear_visibility_cache():
     PostgresDocumentRepository.invalidate_visible_document_ids_cache()
     yield
     PostgresDocumentRepository.invalidate_visible_document_ids_cache()
-from src.core.state.machine import DocumentStatus
-from src.core.tenants.domain.tenant import Tenant
+from src.core.state.machine import DocumentStatus  # noqa: E402
+from src.core.tenants.domain.tenant import Tenant  # noqa: E402
 
 
 async def _ensure_tenant(session, tenant_id: str, name: str) -> None:

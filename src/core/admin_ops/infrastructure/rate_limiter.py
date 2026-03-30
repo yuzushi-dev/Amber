@@ -8,14 +8,14 @@ Redis-backed sliding window rate limiting.
 import logging
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
 
-class RateLimitCategory(str, Enum):
+class RateLimitCategory(StrEnum):
     """Rate limit categories for different endpoint types."""
 
     GENERAL = "general"

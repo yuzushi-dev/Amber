@@ -1,4 +1,5 @@
 import time
+
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -359,8 +360,6 @@ class PostgresDocumentRepository(DocumentRepository):
         Only filters by a field when the parameter is explicitly provided (not None).
         unknown-edition/audience docs are excluded when a filter is active.
         """
-        from sqlalchemy import cast
-        from sqlalchemy.dialects.postgresql import JSONB
 
         if candidate_document_ids == []:
             return []

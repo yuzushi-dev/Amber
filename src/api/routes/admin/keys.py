@@ -26,7 +26,8 @@ def _assert_no_scope_escalation(caller_request, requested_scopes: list[str]) -> 
     caller_perms = set(getattr(caller_request.state, "permissions", []))
     escalated = _PRIVILEGED_SCOPES.intersection(requested_scopes)
     if escalated and not _PRIVILEGED_SCOPES.intersection(caller_perms):
-        from fastapi import HTTPException, status as _status
+        from fastapi import HTTPException
+        from fastapi import status as _status
 
         raise HTTPException(
             status_code=_status.HTTP_403_FORBIDDEN,

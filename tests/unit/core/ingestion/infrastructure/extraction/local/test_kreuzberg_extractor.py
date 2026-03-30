@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.core.ingestion.infrastructure.extraction.local.kreuzberg_extractor import (
     HAS_KREUZBERG,

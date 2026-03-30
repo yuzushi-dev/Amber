@@ -9,9 +9,9 @@ Covers:
 """
 
 import inspect
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch as mpatch
+from unittest.mock import MagicMock
 
+import pytest
 
 # ── Helper factories ─────────────────────────────────────────────────────────
 
@@ -47,6 +47,7 @@ async def test_chat_history_admin_rejects_non_admin():
     Any key that is not super_admin must be blocked.
     """
     from fastapi import HTTPException
+
     from src.api.deps import verify_super_admin
 
     req = _non_admin_request()

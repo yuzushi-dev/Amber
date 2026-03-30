@@ -8,10 +8,10 @@ Covers:
 - Setup _check_db_migration_status uses correct import path
 """
 
-import pytest
-from fastapi import HTTPException
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import HTTPException
 
 # ── RAGAS: super_admin guard ──────────────────────────────────────────────────
 
@@ -179,6 +179,7 @@ async def test_health_ready_error_field_is_sanitized():
 def test_setup_check_db_migration_import_is_correct():
     """_check_db_migration_status must import from src.api.config, not api.config."""
     import inspect
+
     from src.api.routes import setup as setup_module
 
     source = inspect.getsource(setup_module._check_db_migration_status)

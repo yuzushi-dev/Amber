@@ -5,11 +5,11 @@ Application Exceptions
 Structured exception hierarchy for the GraphRAG system.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Standard error codes for API responses."""
 
     # 4xx Client Errors

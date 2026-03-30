@@ -16,7 +16,6 @@ import asyncio
 import httpx
 import pytest
 
-
 BASE = "http://127.0.0.1:8001"
 
 TOPIC_QUERY = "What is the Quasar Configuration Protocol?"
@@ -160,7 +159,7 @@ async def test_tenant_a_admin_key_list_scoped_to_own_tenant(ta_client, e2e_env):
     # Tenant B admin key ID should not appear in Tenant A listing
     tb_admin_key_id = e2e_env["tenant_b"]["admin_key_id"]
     assert tb_admin_key_id not in key_ids, (
-        f"Tenant A sees Tenant B admin key in key list — cross-tenant key leak."
+        "Tenant A sees Tenant B admin key in key list — cross-tenant key leak."
     )
 
 

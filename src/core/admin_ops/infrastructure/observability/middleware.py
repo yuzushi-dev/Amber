@@ -5,7 +5,6 @@ Observability Middleware
 Middleware for request tracing and structured logging.
 """
 
-import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -68,13 +67,13 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
 
             latency = (time.perf_counter() - start_time) * 1000
 
-            log_kw = dict(
-                method=method,
-                path=path,
-                status_code=response.status_code,
-                latency_ms=round(latency, 2),
-                ip=request.client.host if request.client else None,
-            )
+            log_kw = {
+                "method": method,
+                "path": path,
+                "status_code": response.status_code,
+                "latency_ms": round(latency, 2),
+                "ip": request.client.host if request.client else None,
+            }
 
             # Log level depends on status code
             if response.status_code >= 500:

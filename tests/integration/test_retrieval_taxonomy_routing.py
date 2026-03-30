@@ -4,13 +4,11 @@ Integration tests for taxonomy-aware retrieval routing.
 These tests verify that the taxonomy resolver and document ID filtering
 are correctly wired into the retrieval pipeline.
 """
-import uuid
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.core.retrieval.application.retrieval_service import RetrievalService, RetrievalResult
-from src.core.retrieval.application.query.models import StructuredQuery
-from src.shared.kernel.models.query import QueryOptions, SearchMode
+import pytest
+
+from src.core.retrieval.application.retrieval_service import RetrievalService
 
 
 def _make_service(visible_ids_by_taxonomy=None):
@@ -72,7 +70,7 @@ async def test_admin_query_calls_taxonomy_filter_with_admin():
             vector_scopes=["default"],
             graph_scopes=["default"],
         )
-        result = await service.retrieve(
+        await service.retrieve(
             query="How do delegate admins work?",
             tenant_id="default",
             include_trace=True,
@@ -98,7 +96,7 @@ async def test_ce_query_calls_taxonomy_filter_with_ce_edition():
             vector_scopes=["default"],
             graph_scopes=["default"],
         )
-        result = await service.retrieve(
+        await service.retrieve(
             query="How do delegate admins work in CE?",
             tenant_id="default",
             include_trace=True,
@@ -186,7 +184,7 @@ async def test_explicit_filter_overrides_inferred_context():
             graph_scopes=["default"],
         )
         # Query sounds commercial, but explicit override says ce
-        result = await service.retrieve(
+        await service.retrieve(
             query="How do delegate admins work?",
             tenant_id="default",
             filters={"edition": "ce"},

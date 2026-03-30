@@ -8,7 +8,6 @@ default tenant to child tenants.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, select

@@ -101,7 +101,7 @@ class GlobalSearchService:
                 "content": f"Community Summary Findings:\n{points}",
                 "score": float(report.score) if hasattr(report, "score") else 1.0,
                 "metadata": {
-                    "title": f"Community Insight Context",
+                    "title": "Community Insight Context",
                     "original_community": report.chunk_id
                 }
             })
@@ -115,7 +115,7 @@ class GlobalSearchService:
         """
         if not self.neo4j_client or not community_ids:
             return {}
-            
+
         try:
             query = """
             MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(com:Community)
@@ -125,12 +125,12 @@ class GlobalSearchService:
             WITH community_id, collect(doc_id)[0] AS primary_doc_id
             RETURN community_id, primary_doc_id
             """
-            
+
             results = await self.neo4j_client.execute_read(
-                query, 
+                query,
                 {"community_ids": community_ids, "tenant_id": tenant_id}
             )
-            
+
             return {row["community_id"]: row["primary_doc_id"] for row in results if row.get("community_id")}
         except Exception as e:
             logger.warning(f"Failed to resolve community origins: {e}")

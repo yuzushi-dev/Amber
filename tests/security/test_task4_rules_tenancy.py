@@ -10,9 +10,9 @@ Verifies that:
 """
 
 import inspect
-import pytest
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 # ── 1. RulesService: DB query is tenant-scoped ────────────────────────────────
 

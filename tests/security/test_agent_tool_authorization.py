@@ -11,11 +11,10 @@ Run BEFORE applying the fix to see failures, AFTER to confirm all pass.
 
 import os
 import tempfile
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-from unittest.mock import AsyncMock, MagicMock
-
 
 # ── Feature flag defaults ─────────────────────────────────────────────────────
 

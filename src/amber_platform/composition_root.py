@@ -134,9 +134,9 @@ class PlatformRegistry:
         set_trace_span(infra_tracer.trace_span)
 
         # Neo4j
+        from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
         from src.core.graph.domain.ports.graph_client import set_graph_client
         from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
-        from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
         from src.core.graph.infrastructure.neo4j_client import Neo4jClient
         from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
 

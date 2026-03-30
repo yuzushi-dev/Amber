@@ -35,16 +35,15 @@ logger = logging.getLogger(__name__)
 
 async def _run(write: bool, tenant_id: str | None, show_unknown: bool):
     from sqlalchemy import select, update
-    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.api.config import settings
     from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
     from src.core.ingestion.domain.chunk import Chunk  # noqa: F401 — triggers mapper registration
     from src.core.ingestion.domain.document import Document
-    from src.core.ingestion.domain.folder import Folder
     from src.core.ingestion.domain.document_share import DocumentShare  # noqa: F401
+    from src.core.ingestion.domain.folder import Folder
 
     engine = create_async_engine(settings.db.database_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -130,7 +129,7 @@ async def _run(write: bool, tenant_id: str | None, show_unknown: bool):
             print(f"  ... and {len(unknown_docs) - 50} more")
 
     if not write:
-        print(f"\n[DRY-RUN] No changes written. Re-run with --write to apply.\n")
+        print("\n[DRY-RUN] No changes written. Re-run with --write to apply.\n")
         return
 
     if not updates:

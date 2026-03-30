@@ -82,7 +82,7 @@ class ContextBuilder:
 
             product = metadata.get("product_context")
             audience = metadata.get("audience")
-            
+
             if product:
                 header += f" [Product: {product}]"
             if audience:

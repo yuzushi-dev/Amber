@@ -14,7 +14,6 @@ from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.security import generate_api_key, hash_api_key
 
-
 TEST_DOC_PREFIX = "upload-share-targets-"
 TEST_KEY_NAME_PREFIX = "Upload Share Targets Test"
 EXTRA_TENANT_ID = "upload-share-target-beta"

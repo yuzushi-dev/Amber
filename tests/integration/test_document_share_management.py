@@ -8,13 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
 from src.core.admin_ops.domain.audit import AuditLog
 from src.core.database.session import configure_worker_session
-from src.core.ingestion.domain.document import Document
 from src.core.ingestion.application.document_sharing_service import DocumentSharingService
-from src.core.ingestion.infrastructure.repositories.postgres_document_repository import PostgresDocumentRepository
+from src.core.ingestion.domain.document import Document
+from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+    PostgresDocumentRepository,
+)
 from src.core.state.machine import DocumentStatus
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.security import generate_api_key, hash_api_key
-
 
 TEST_DOC_PREFIX = "share-management-"
 TEST_KEY_NAME_PREFIX = "Share Management Test"

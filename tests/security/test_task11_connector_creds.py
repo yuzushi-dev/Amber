@@ -10,16 +10,13 @@ Verifies that:
 """
 
 import inspect
-import json
-import pytest
-
 
 # ── encryption helpers ────────────────────────────────────────────────────────
 
 
 def test_encrypt_credentials_roundtrip():
     """encrypt then decrypt must return the original dict."""
-    from src.shared.security import encrypt_credentials, decrypt_credentials, configure_security
+    from src.shared.security import configure_security, decrypt_credentials, encrypt_credentials
 
     configure_security("test-secret-key-for-tests")
     data = {"api_token": "my-token", "subdomain": "acme", "email": "a@b.com"}
@@ -34,7 +31,7 @@ def test_encrypt_credentials_roundtrip():
 
 def test_encrypt_credentials_ciphertext_is_opaque():
     """The encrypted blob must not contain raw credential values."""
-    from src.shared.security import encrypt_credentials, configure_security
+    from src.shared.security import configure_security, encrypt_credentials
 
     configure_security("test-secret-key-for-tests")
     data = {"api_token": "super-secret-12345", "password": "hunter2"}
@@ -46,7 +43,7 @@ def test_encrypt_credentials_ciphertext_is_opaque():
 
 def test_decrypt_credentials_returns_none_on_garbage():
     """decrypt_credentials must return None (not raise) on invalid ciphertext."""
-    from src.shared.security import decrypt_credentials, configure_security
+    from src.shared.security import configure_security, decrypt_credentials
 
     configure_security("test-secret-key-for-tests")
     result = decrypt_credentials("this-is-not-valid-fernet")
@@ -55,7 +52,7 @@ def test_decrypt_credentials_returns_none_on_garbage():
 
 def test_decrypt_credentials_returns_none_wrong_key():
     """Credentials encrypted with one key must not decrypt with a different key."""
-    from src.shared.security import encrypt_credentials, decrypt_credentials, configure_security
+    from src.shared.security import configure_security, decrypt_credentials, encrypt_credentials
 
     configure_security("key-one")
     token = encrypt_credentials({"api_token": "secret"})
@@ -70,8 +67,8 @@ def test_decrypt_credentials_returns_none_wrong_key():
 
 def test_connector_state_model_has_encrypted_credentials_column():
     """ConnectorState ORM model must have an encrypted_credentials mapped column."""
+
     from src.core.ingestion.domain.connector_state import ConnectorState
-    import sqlalchemy as sa
 
     columns = {c.name: c for c in ConnectorState.__table__.columns}
     assert "encrypted_credentials" in columns, (

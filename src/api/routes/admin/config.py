@@ -641,8 +641,8 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
 
                     # Trigger task purge and re-queue for this specific tenant
                     from src.workers.task_management import (
-                        purge_community_tasks,
                         invalidate_and_retrigger_communities,
+                        purge_community_tasks,
                     )
 
                     # 1. Purge active tasks for this tenant only
@@ -691,8 +691,8 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 # If LLM config changed, purge and re-trigger
                 if llm_update:
                     from src.workers.task_management import (
-                        purge_community_tasks,
                         invalidate_and_retrigger_communities,
+                        purge_community_tasks,
                     )
 
                     # 1. Purge active tasks for this tenant only

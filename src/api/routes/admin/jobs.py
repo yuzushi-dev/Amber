@@ -9,16 +9,17 @@ Stage 10.1 - Pipeline Control Dashboard Backend
 
 import logging
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.api.deps import verify_super_admin
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-from src.api.deps import verify_super_admin
+
 router = APIRouter(prefix="/jobs", tags=["admin-jobs"], dependencies=[Depends(verify_super_admin)])
 
 
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/jobs", tags=["admin-jobs"], dependencies=[Depends(ve
 # =============================================================================
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Celery task states."""
 
     PENDING = "PENDING"

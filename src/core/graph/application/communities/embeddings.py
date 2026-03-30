@@ -75,7 +75,7 @@ class CommunityEmbeddingService:
         Searches for communities semantically similar to the query.
         """
         filters = {"level": level} if level is not None else None
-        
+
         # Check if vector store supports hybrid search (MilvusVectorStore) and we have sparse service
         if (
             hasattr(self.vector_store, "hybrid_search")
