@@ -44,6 +44,18 @@ class QueryFilters(BaseModel):
         None,
         description="Filter by document tags",
     )
+    edition: str | None = Field(
+        None,
+        description="Explicit taxonomy edition override (commercial | ce)",
+    )
+    audience: str | None = Field(
+        None,
+        description="Explicit taxonomy audience override (admin | user)",
+    )
+    source_family: str | None = Field(
+        None,
+        description="Explicit taxonomy source_family override (admin_guide | ce_guide | user_guide | zendesk_kb)",
+    )
 
 
 class QueryOptions(BaseModel):
