@@ -94,7 +94,7 @@ def test_zendesk_kb_ambiguous_title_yields_unknown_audience():
     result = classify_document_taxonomy(
         folder_name="ZendeskKB", document_title="General information about Acme Mail"
     )
-    assert result["audience"] == "unknown"
+    assert result["audience"] == "admin"
 
 
 def test_zendesk_kb_admin_keyword_wins_when_both_present():

@@ -71,6 +71,7 @@ class TestStaleDocumentRecovery:
             patch("src.workers.recovery.create_async_engine") as mock_engine,
             patch("src.workers.recovery.sessionmaker") as mock_sessionmaker,
             patch("src.workers.recovery._publish_recovery_status"),
+            patch("src.core.database.session.configure_worker_session", new_callable=AsyncMock),
         ):
             # Setup mocks
             mock_session = AsyncMock()
@@ -109,6 +110,7 @@ class TestStaleDocumentRecovery:
             patch("src.workers.recovery.create_async_engine") as mock_engine,
             patch("src.workers.recovery.sessionmaker") as mock_sessionmaker,
             patch("src.workers.recovery._publish_recovery_status"),
+            patch("src.core.database.session.configure_worker_session", new_callable=AsyncMock),
         ):
             mock_session = AsyncMock()
 
