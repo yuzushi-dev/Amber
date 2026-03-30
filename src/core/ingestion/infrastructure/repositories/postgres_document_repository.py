@@ -10,6 +10,7 @@ from src.core.ingestion.domain.document_share import (
     DocumentVisibilityStatus,
     VisibleDocument,
 )
+from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 
 
@@ -337,3 +338,8 @@ class PostgresDocumentRepository(DocumentRepository):
             visible_from_tenant_id=viewer_tenant_id,
             share_mode=share_mode if is_shared else None,
         )
+
+    async def get_folder_name(self, folder_id: str) -> str | None:
+        """Return the display name of a folder by its ID, or None if not found."""
+        folder = await self._session.get(Folder, folder_id)
+        return folder.name if folder else None
