@@ -343,3 +343,61 @@ class PostgresDocumentRepository(DocumentRepository):
         """Return the display name of a folder by its ID, or None if not found."""
         folder = await self._session.get(Folder, folder_id)
         return folder.name if folder else None
+
+    async def list_visible_document_ids_by_taxonomy(
+        self,
+        viewer_tenant_id: str,
+        owner_tenant_id: str,
+        candidate_document_ids: list[str] | None = None,
+        edition: str | None = None,
+        audience: str | None = None,
+        source_family: str | None = None,
+    ) -> list[str]:
+        """List visible document IDs filtered by taxonomy fields stored in metadata JSONB.
+
+        Reuses the existing ACL visibility logic and adds JSONB taxonomy predicates.
+        Only filters by a field when the parameter is explicitly provided (not None).
+        unknown-edition/audience docs are excluded when a filter is active.
+        """
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        if candidate_document_ids == []:
+            return []
+
+        stmt = (
+            select(Document.id)
+            .outerjoin(
+                DocumentShare,
+                and_(
+                    DocumentShare.document_id == Document.id,
+                    DocumentShare.target_tenant_id == viewer_tenant_id,
+                ),
+            )
+            .where(Document.tenant_id == owner_tenant_id)
+        )
+
+        if candidate_document_ids is not None:
+            stmt = stmt.where(Document.id.in_(candidate_document_ids))
+
+        if owner_tenant_id != viewer_tenant_id:
+            stmt = stmt.where(DocumentShare.target_tenant_id == viewer_tenant_id)
+
+        if edition is not None:
+            stmt = stmt.where(
+                Document.metadata_["taxonomy"]["edition"].astext == edition
+            )
+
+        if audience is not None:
+            stmt = stmt.where(
+                Document.metadata_["taxonomy"]["audience"].astext == audience
+            )
+
+        if source_family is not None:
+            stmt = stmt.where(
+                Document.metadata_["taxonomy"]["source_family"].astext == source_family
+            )
+
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
