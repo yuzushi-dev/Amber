@@ -39,6 +39,9 @@ class QueryMetrics:
     chunks_retrieved: int = 0
     chunks_used: int = 0
     cache_hit: bool = False
+    local_hits: int = 0
+    shared_hits: int = 0
+    acl_filtered_results: int = 0
 
     # Generation stats
     tokens_used: int = 0
@@ -74,6 +77,9 @@ class QueryMetrics:
             "chunks_retrieved": self.chunks_retrieved,
             "chunks_used": self.chunks_used,
             "cache_hit": self.cache_hit,
+            "local_hits": self.local_hits,
+            "shared_hits": self.shared_hits,
+            "acl_filtered_results": self.acl_filtered_results,
             # Generation (flat)
             "tokens_used": self.tokens_used,
             "input_tokens": self.input_tokens,
@@ -148,6 +154,7 @@ class MetricsCollector:
         # In-memory buffer for recent metrics
         self._buffer: list[QueryMetrics] = []
         self._buffer_size = 1000
+        self._counters: dict[tuple[str, str], int] = {}
 
     async def _get_client(self):
         """Get or create Redis client."""
@@ -239,6 +246,36 @@ class MetricsCollector:
 
         except Exception as e:
             logger.warning(f"Failed to persist metrics: {e}")
+
+    async def increment_counter(self, name: str, tenant_id: str, amount: int = 1) -> None:
+        """Increment an operational counter, persisting to Redis when available."""
+        key = (name, tenant_id)
+        self._counters[key] = self._counters.get(key, 0) + amount
+
+        client = await self._get_client()
+        if not client:
+            return
+
+        try:
+            redis_key = f"metrics:counter:{name}:{tenant_id}"
+            await client.incrby(redis_key, amount)
+            await client.expire(redis_key, self.retention_days * 86400)
+        except Exception as e:
+            logger.warning(f"Failed to persist counter {name} for tenant {tenant_id}: {e}")
+
+    async def get_counter(self, name: str, tenant_id: str) -> int:
+        """Read an operational counter for a tenant."""
+        client = await self._get_client()
+        if client:
+            try:
+                redis_key = f"metrics:counter:{name}:{tenant_id}"
+                value = await client.get(redis_key)
+                if value is not None:
+                    return int(value)
+            except Exception as e:
+                logger.warning(f"Failed to read counter {name} for tenant {tenant_id}: {e}")
+
+        return self._counters.get((name, tenant_id), 0)
 
     async def get_aggregated(
         self,
@@ -343,6 +380,9 @@ class MetricsCollector:
                             chunks_retrieved=d.get("chunks_retrieved", 0),
                             chunks_used=d.get("chunks_used", 0),
                             cache_hit=d.get("cache_hit", False),
+                            local_hits=d.get("local_hits", 0),
+                            shared_hits=d.get("shared_hits", 0),
+                            acl_filtered_results=d.get("acl_filtered_results", 0),
                             tokens_used=d.get("tokens_used", 0),
                             input_tokens=d.get("input_tokens", 0),
                             output_tokens=d.get("output_tokens", 0),

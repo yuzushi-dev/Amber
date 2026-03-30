@@ -17,6 +17,7 @@ import {
     Outlet,
     redirect
 } from '@tanstack/react-router'
+import { useAuth } from './features/auth'
 import MainLayout from './components/layout/MainLayout'
 import ClientLayout from './components/layout/ClientLayout'
 import ChatContainer from './features/chat/components/ChatContainer'
@@ -64,7 +65,9 @@ const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
     beforeLoad: () => {
-        throw redirect({ to: '/amber/chat' })
+        const { permissions } = useAuth.getState()
+        const isAdmin = permissions.some((p: string) => ['active_admin', 'admin', 'super_admin', 'root'].includes(p))
+        throw redirect({ to: isAdmin ? '/admin/chat' : '/amber/chat' })
     },
 })
 
@@ -96,6 +99,18 @@ const clientIndexRoute = createRoute({
         throw redirect({ to: '/amber/chat' })
     },
 })
+// Client document routes (read-only, same components — API is open to active_user)
+const clientDocumentsRoute = createRoute({
+    getParentRoute: () => clientLayoutRoute,
+    path: '/data/documents',
+    component: () => <DocumentLibrary />,
+})
+
+const clientDocumentDetailRoute = createRoute({
+    getParentRoute: () => clientLayoutRoute,
+    path: '/data/documents/',
+    component: () => <DocumentDetailPage />,
+})
 
 // =============================================================================
 // Admin/Analyst Routes (with MainLayout - Dock + Context Sidebar)
@@ -104,6 +119,13 @@ const clientIndexRoute = createRoute({
 const adminLayoutRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/admin',
+    beforeLoad: () => {
+        const { permissions } = useAuth.getState()
+        const isAdmin = permissions.some(p => ['active_admin', 'admin', 'super_admin', 'root'].includes(p))
+        if (!isAdmin) {
+            throw redirect({ to: '/amber/chat' })
+        }
+    },
     component: () => (
         <MainLayout>
             <Outlet />
@@ -225,12 +247,24 @@ const settingsConnectorDetailRoute = createRoute({
 const settingsTenantsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/tenants',
+    beforeLoad: () => {
+        const { permissions } = useAuth.getState()
+        if (!permissions.includes('super_admin')) {
+            throw redirect({ to: '/admin/chat' })
+        }
+    },
     component: () => <TenantsPage />,
 })
 
 const settingsDataRetentionRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/data-retention',
+    beforeLoad: () => {
+        const { permissions } = useAuth.getState()
+        if (!permissions.includes('super_admin')) {
+            throw redirect({ to: '/admin/chat' })
+        }
+    },
     component: () => <DataRetentionPage />,
 })
 
@@ -243,6 +277,12 @@ const settingsRulesRoute = createRoute({
 const settingsBackupRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/backup',
+    beforeLoad: () => {
+        const { permissions } = useAuth.getState()
+        if (!permissions.includes('super_admin')) {
+            throw redirect({ to: '/admin/chat' })
+        }
+    },
     component: () => <BackupPage />,
 })
 
@@ -378,7 +418,7 @@ const legacyCurationRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
     indexRoute,
-    clientLayoutRoute.addChildren([clientIndexRoute, clientChatRoute]),
+    clientLayoutRoute.addChildren([clientIndexRoute, clientChatRoute, clientDocumentsRoute, clientDocumentDetailRoute]),
     adminLayoutRoute.addChildren([
         adminIndexRoute,
         adminChatRoute,

@@ -23,6 +23,7 @@ from src.core.admin_ops.domain.api_key import ApiKey
 from src.core.tenants.domain.tenant import Tenant
 from src.core.ingestion.domain.connector_state import ConnectorState
 from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document_share import DocumentShare
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.folder import Folder
 from src.core.admin_ops.domain.benchmark_run import BenchmarkRun
@@ -31,6 +32,7 @@ from src.core.admin_ops.domain.flag import Flag
 from src.core.generation.domain.memory_models import UserFact, ConversationSummary
 from src.core.admin_ops.domain.audit import AuditLog
 from src.core.admin_ops.domain.feedback import Feedback
+from src.core.admin_ops.domain.provisioning_job import ProvisioningJob
 # Candidate in src/core/retrieval/domain/candidate.py is not a SQLAlchemy model (no Base)
 
 # Alembic Config object

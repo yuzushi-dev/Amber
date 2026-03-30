@@ -173,4 +173,29 @@ describe('useUploadStore', () => {
 
         await new Promise(resolve => setTimeout(resolve, 50))
     })
+
+    it('includes shared_with_tenant_ids in multipart payload when provided', async () => {
+        const file = new File(['content'], 'shared.pdf', { type: 'application/pdf' })
+
+        vi.mocked(apiClient.post).mockImplementation((url) => {
+            if (url === '/documents') {
+                return Promise.resolve({ data: { document_id: 'doc-123', events_url: '/v1/documents/doc-123/events' } })
+            }
+            if (url === '/auth/ticket') {
+                return Promise.resolve({ data: { ticket: 'ticket-123' } })
+            }
+            return Promise.resolve({})
+        })
+
+        await act(async () => {
+            await useUploadStore.getState().enqueueFiles([file], { sharedWithTenantIds: ['sales', 'marketing'] })
+        })
+
+        await new Promise(resolve => setTimeout(resolve, 50))
+
+        const uploadCall = vi.mocked(apiClient.post).mock.calls.find(call => call[0] === '/documents')
+        expect(uploadCall).toBeTruthy()
+        const formData = uploadCall?.[1] as FormData
+        expect(formData.get('shared_with_tenant_ids')).toBe('["sales","marketing"]')
+    })
 })

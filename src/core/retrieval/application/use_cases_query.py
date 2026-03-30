@@ -66,6 +66,12 @@ class QueryUseCase:
         """
         start_time = time.perf_counter()
 
+        from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+        query_scopes = getattr(http_request_state, "query_scopes", None)
+        if query_scopes is None:
+            query_scopes = resolve_query_scopes(tenant_id)
+
         # Options
         include_trace = request.options.include_trace if request.options else False
         max_chunks = request.options.max_chunks if request.options else 10
@@ -169,12 +175,18 @@ class QueryUseCase:
                     include_trace=include_trace,
                     options=request.options,
                     history=None,
+                    query_scopes=query_scopes,
                 )
 
                 retrieval_ms = (time.perf_counter() - step_start) * 1000
                 query_metrics.retrieval_latency_ms = retrieval_ms
                 query_metrics.chunks_retrieved = len(retrieval_result.chunks)
                 query_metrics.cache_hit = retrieval_result.cache_hit
+
+                share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
+                query_metrics.local_hits = share_metrics["local_hits"]
+                query_metrics.shared_hits = share_metrics["shared_hits"]
+                query_metrics.acl_filtered_results = share_metrics["acl_filtered_results"]
 
                 for rt in retrieval_result.trace:
                     trace_steps.append(
@@ -327,6 +339,36 @@ class QueryUseCase:
             "- The query doesn't match available content\n"
             "- Try rephrasing your question"
         )
+
+    @staticmethod
+    def _extract_share_metrics(tenant_id: str, retrieval_trace: list[dict]) -> dict[str, int]:
+        """Summarize local/shared hit counts and ACL-filtered results from retrieval trace."""
+        local_hits = 0
+        shared_hits = 0
+        acl_filtered_results = 0
+
+        for step in retrieval_trace or []:
+            targets = step.get("targets")
+            if not isinstance(targets, list):
+                continue
+
+            if step.get("step") in {"vector_search", "global_search"}:
+                for target in targets:
+                    results_count = int(target.get("results_count") or 0)
+                    if str(target.get("tenant_id")) == tenant_id:
+                        local_hits += results_count
+                    else:
+                        shared_hits += results_count
+
+            if step.get("step") in {"resolve_vector_targets", "resolve_graph_targets"}:
+                for target in targets:
+                    acl_filtered_results += int(target.get("acl_filtered_out_count") or 0)
+
+        return {
+            "local_hits": local_hits,
+            "shared_hits": shared_hits,
+            "acl_filtered_results": acl_filtered_results,
+        }
 
     def _update_metrics_from_generation(self, metrics, result, answer):
         metrics.tokens_used = result.tokens_used

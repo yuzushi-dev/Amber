@@ -16,7 +16,7 @@ from src.api.services.setup_service import get_setup_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/setup", tags=["admin-setup"], dependencies=[Depends(verify_super_admin)])
+router = APIRouter(prefix="/setup", tags=["admin-setup"])
 
 
 class SetupStatusResponse(BaseModel):
@@ -89,7 +89,7 @@ async def get_setup_status():
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.post("/install", response_model=dict[str, Any])
+@router.post("/install", response_model=dict[str, Any], dependencies=[Depends(verify_super_admin)])
 async def install_features(request: BatchInstallRequest):
     """Install optional features."""
     try:
@@ -101,7 +101,7 @@ async def install_features(request: BatchInstallRequest):
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.post("/skip")
+@router.post("/skip", dependencies=[Depends(verify_super_admin)])
 async def skip_setup():
     """Mark the setup wizard as complete."""
     try:
@@ -113,7 +113,7 @@ async def skip_setup():
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.get("/install/events")
+@router.get("/install/events", dependencies=[Depends(verify_super_admin)])
 async def install_events_stream(feature_ids: str):
     """
     SSE endpoint for streaming installation progress.
@@ -156,7 +156,7 @@ async def install_events_stream(feature_ids: str):
 # =============================================================================
 
 
-@router.get("/db/status")
+@router.get("/db/status", dependencies=[Depends(verify_super_admin)])
 async def get_db_status():
     """
     Check if the database is up to date with migrations.
@@ -217,7 +217,7 @@ async def get_db_status():
         return {"status": "error", "error": str(e), "up_to_date": False}
 
 
-@router.post("/db/migrate")
+@router.post("/db/migrate", dependencies=[Depends(verify_super_admin)])
 async def run_db_migration():
     """
     Run database migrations (alembic upgrade head).

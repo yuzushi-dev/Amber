@@ -10,29 +10,40 @@ import {
     Box,
     Users,
     Share2,
-    Calendar
+    Calendar,
+    CheckSquare,
+    X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import EmptyState from '@/components/ui/EmptyState'
 import { useUploadStore } from '@/features/documents/stores/useUploadStore'
+import { useAuth } from '@/features/auth'
 import { ConfirmDialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { useFuzzySearch } from '@/hooks/useFuzzySearch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import LiveStatusBadge from './LiveStatusBadge'
+import DocumentShareDialog from './DocumentShareDialog'
+import BulkDocumentShareDialog from './BulkDocumentShareDialog'
 import { PageSkeleton } from '@/features/admin/components/PageSkeleton'
 
 interface Document {
     id: string
     filename: string
-    title: string  // Alias for filename from backend
+    title: string
     status: string
     created_at: string
     source_type?: string
     error_message?: string
+    tenant_id: string
+    is_shared?: boolean
+    owner_tenant_id?: string | null
+    visible_from_tenant_id?: string | null
+    share_mode?: string | null
 }
 
 type ConfirmAction =
@@ -40,9 +51,55 @@ type ConfirmAction =
     | { type: 'delete-all' }
     | null
 
+function BulkShareActionBar({
+    count,
+    onClear,
+    onManage,
+}: {
+    count: number
+    onClear: () => void
+    onManage: () => void
+}) {
+    return (
+        <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+        >
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-full bg-primary/10 p-2 text-primary">
+                            <CheckSquare className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <p className="text-sm font-medium text-foreground">{count} document{count === 1 ? '' : 's'} selected</p>
+                            <p className="text-xs text-muted-foreground">Apply tenant access changes to the current selection.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={onClear}>
+                            <X className="mr-2 h-4 w-4" />
+                            Clear
+                        </Button>
+                        <Button size="sm" onClick={onManage}>
+                            <Share2 className="mr-2 h-4 w-4" />
+                            Manage Access
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </motion.div>
+    )
+}
+
 export default function DocumentLibrary() {
     const setUploadOpen = useUploadStore(state => state.setOpen)
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
+    const [shareDialogDocument, setShareDialogDocument] = useState<{ id: string; title: string } | null>(null)
+    const [bulkShareDialogOpen, setBulkShareDialogOpen] = useState(false)
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
     const [searchQuery, setSearchQuery] = useState('')
     const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -56,17 +113,70 @@ export default function DocumentLibrary() {
         }
     })
 
+    const { tenantId, permissions } = useAuth()
+    const isSuperAdmin = permissions.includes('super_admin')
+    const isAdmin = permissions.includes('admin')
+    const canManageShares = isSuperAdmin || (tenantId === 'default' && isAdmin)
+
     const { data: stats } = useQuery({
         queryKey: ['maintenance-stats'],
         queryFn: () => maintenanceApi.getStats(),
         refetchInterval: 30000,
+        enabled: isSuperAdmin,
     })
 
-    // Apply fuzzy search directly
     const filteredDocuments = useFuzzySearch(documents || [], searchQuery, {
         keys: ['title', 'filename', 'source_type'],
         threshold: 0.4,
     })
+
+    useEffect(() => {
+        if (!documents) return
+
+        const validDocumentIds = new Set(documents.map((document) => document.id))
+
+        setSelectedDocumentIds((current) => {
+            const next = new Set([...current].filter((documentId) => validDocumentIds.has(documentId)))
+            return next.size === current.size ? current : next
+        })
+    }, [documents])
+
+    const allDocuments = documents || []
+    const shareableDocuments = filteredDocuments.filter(
+        (document) => (document.owner_tenant_id ?? document.tenant_id) === 'default'
+    )
+    const selectedDocuments = allDocuments.filter((document) => selectedDocumentIds.has(document.id))
+    const allVisibleShareableSelected =
+        shareableDocuments.length > 0 &&
+        shareableDocuments.every((document) => selectedDocumentIds.has(document.id))
+
+    const toggleDocumentSelection = (documentId: string, checked: boolean) => {
+        setSelectedDocumentIds((current) => {
+            const next = new Set(current)
+            if (checked) {
+                next.add(documentId)
+            } else {
+                next.delete(documentId)
+            }
+            return next
+        })
+    }
+
+    const toggleSelectAllVisible = (checked: boolean) => {
+        setSelectedDocumentIds((current) => {
+            const next = new Set(current)
+            if (checked) {
+                shareableDocuments.forEach((document) => next.add(document.id))
+            } else {
+                shareableDocuments.forEach((document) => next.delete(document.id))
+            }
+            return next
+        })
+    }
+
+    const clearSelectedDocuments = () => {
+        setSelectedDocumentIds(new Set())
+    }
 
     const getDeleteErrorMessage = (error: unknown, fallback: string) => {
         if (error && typeof error === 'object') {
@@ -79,7 +189,6 @@ export default function DocumentLibrary() {
         return fallback
     }
 
-    // Delete single document mutation
     const deleteDocumentMutation = useMutation({
         mutationFn: async (documentId: string) => {
             await apiClient.delete(`/documents/${documentId}`)
@@ -97,7 +206,6 @@ export default function DocumentLibrary() {
         }
     })
 
-    // Delete all documents mutation
     const deleteAllDocumentsMutation = useMutation({
         mutationFn: async () => {
             if (!documents) return
@@ -136,8 +244,10 @@ export default function DocumentLibrary() {
     }
 
     const isDeleting = deleteDocumentMutation.isPending || deleteAllDocumentsMutation.isPending
+    const listGridClass = canManageShares
+        ? 'grid-cols-[40px_2fr_120px_150px_60px]'
+        : 'grid-cols-[2fr_120px_150px_60px]'
 
-    // Render empty state with actionable CTAs
     const renderEmptyState = () => (
         <EmptyState
             icon={<FileText className="w-12 h-12 text-muted-foreground" />}
@@ -192,7 +302,18 @@ export default function DocumentLibrary() {
                 </Alert>
             )}
 
-            {/* Glass Stats Cards */}
+            {canManageShares && (
+                <AnimatePresence>
+                    {selectedDocuments.length > 0 && (
+                        <BulkShareActionBar
+                            count={selectedDocuments.length}
+                            onClear={clearSelectedDocuments}
+                            onManage={() => setBulkShareDialogOpen(true)}
+                        />
+                    )}
+                </AnimatePresence>
+            )}
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                     {
@@ -244,13 +365,12 @@ export default function DocumentLibrary() {
             </div>
 
             <div className="space-y-4">
-                {/* Filter Bar */}
                 <div className="p-2 rounded-xl border border-white/5 bg-background/20 backdrop-blur-md flex justify-between items-center shadow-inner">
                     <div className="relative w-full max-w-md">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                         <Input
                             type="text"
-                            placeholder="Filter documents\u2026"
+                            placeholder="Filter documents…"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             name="document-filter"
@@ -277,10 +397,18 @@ export default function DocumentLibrary() {
                 {documents?.length === 0 ? (
                     renderEmptyState()
                 ) : (
-                    /* Premium Glass List */
                     <div className="space-y-2">
-                        {/* Header Row */}
-                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 px-6 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider opacity-60">
+                        <div className={cn("grid gap-4 px-6 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider opacity-60", listGridClass)}>
+                            {canManageShares && (
+                                <div className="flex justify-center">
+                                    <Checkbox
+                                        aria-label="Select all shareable documents"
+                                        checked={allVisibleShareableSelected}
+                                        disabled={shareableDocuments.length === 0}
+                                        onCheckedChange={toggleSelectAllVisible}
+                                    />
+                                </div>
+                            )}
                             <div>Document</div>
                             <div>Status</div>
                             <div>Uploaded</div>
@@ -289,81 +417,113 @@ export default function DocumentLibrary() {
 
                         <ul className="space-y-2">
                             <AnimatePresence mode='popLayout'>
-                                {filteredDocuments.map((doc, idx) => (
-                                    <motion.li
-                                        key={doc.id}
-                                        layout
-                                        initial={{ opacity: 0, x: -10 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        exit={{ opacity: 0, scale: 0.95 }}
-                                        transition={{ duration: 0.2, delay: idx * 0.03 }}
-                                        className="group"
-                                    >
-                                        <div className="grid grid-cols-[2fr_120px_150px_60px] gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-border/60 hover:shadow-lg transition-[background-color,border-color,box-shadow] duration-300 ease-out">
-                                            {/* Column 1: Title & Icon */}
-                                            <div className="flex items-center gap-4 min-w-0">
-                                                <div className="p-2.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shrink-0">
-                                                    <FileText className="w-5 h-5" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <Link
-                                                        to="/admin/data/documents/$documentId"
-                                                        params={{ documentId: doc.id }}
-                                                        className="font-medium text-base hover:text-primary transition-colors block truncate"
-                                                    >
-                                                        {doc.title}
-                                                    </Link>
-                                                    <div className="text-xs text-muted-foreground truncate opacity-70">
-                                                        {doc.filename}
+                                {filteredDocuments.map((doc, idx) => {
+                                    const isShareableDocument = (doc.owner_tenant_id ?? doc.tenant_id) === 'default'
+
+                                    return (
+                                        <motion.li
+                                            key={doc.id}
+                                            layout
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            transition={{ duration: 0.2, delay: idx * 0.03 }}
+                                            className="group"
+                                        >
+                                            <div className={cn("grid gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-border/60 hover:shadow-lg transition-[background-color,border-color,box-shadow] duration-300 ease-out", listGridClass)}>
+                                                {canManageShares && (
+                                                    <div className="flex justify-center">
+                                                        {isShareableDocument ? (
+                                                            <Checkbox
+                                                                aria-label={`Select ${doc.title}`}
+                                                                checked={selectedDocumentIds.has(doc.id)}
+                                                                onCheckedChange={(checked) => toggleDocumentSelection(doc.id, checked)}
+                                                            />
+                                                        ) : (
+                                                            <div className="h-4 w-4" />
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <div className="flex items-center gap-4 min-w-0">
+                                                    <div className="p-2.5 rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shrink-0">
+                                                        <FileText className="w-5 h-5" />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        {isAdmin ? (
+                                                            <Link
+                                                                to="/admin/data/documents/$documentId"
+                                                                params={{ documentId: doc.id }}
+                                                                className="font-medium text-base hover:text-primary transition-colors block truncate"
+                                                            >
+                                                                {doc.title}
+                                                            </Link>
+                                                        ) : (
+                                                            <Link
+                                                                to="/amber/data/documents/$documentId"
+                                                                params={{ documentId: doc.id }}
+                                                                className="font-medium text-base hover:text-primary transition-colors block truncate"
+                                                            >
+                                                                {doc.title}
+                                                            </Link>
+                                                        )}
+                                                        <div className="text-xs text-muted-foreground truncate opacity-70">
+                                                            {doc.filename}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
 
-                                            {/* Column 2: Status */}
-                                            <div>
-                                                <LiveStatusBadge
-                                                    documentId={doc.id}
-                                                    initialStatus={doc.status}
-                                                    errorMessage={doc.error_message}
-                                                    onComplete={() => {
-                                                        refetch()
-                                                        queryClient.invalidateQueries({ queryKey: ['documents'] });
-                                                        queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
-                                                        queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
-                                                    }}
-                                                />
-                                            </div>
+                                                <div>
+                                                    <LiveStatusBadge
+                                                        documentId={doc.id}
+                                                        initialStatus={doc.status}
+                                                        errorMessage={doc.error_message}
+                                                        onComplete={() => {
+                                                            refetch()
+                                                            queryClient.invalidateQueries({ queryKey: ['documents'] });
+                                                            queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
+                                                            queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
+                                                        }}
+                                                    />
+                                                </div>
 
-                                            {/* Column 3: Date */}
-                                            <div className="flex items-center text-sm text-muted-foreground">
-                                                <Calendar className="w-3.5 h-3.5 mr-2 opacity-50" />
-                                                {new Date(doc.created_at).toLocaleDateString()}
-                                            </div>
+                                                <div className="flex items-center text-sm text-muted-foreground">
+                                                    <Calendar className="w-3.5 h-3.5 mr-2 opacity-50" />
+                                                    {new Date(doc.created_at).toLocaleDateString()}
+                                                </div>
 
-                                            {/* Column 4: Actions */}
-                                            <div className="text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
-                                                    className="w-8 h-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                                    title="Delete document"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {canManageShares && isShareableDocument && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => setShareDialogDocument({ id: doc.id, title: doc.title })}
+                                                            className="w-8 h-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                                            title="Manage access"
+                                                        >
+                                                            <Share2 className="w-4 h-4" />
+                                                        </Button>
+                                                    )}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => setConfirmAction({ type: 'delete-single', documentId: doc.id, documentTitle: doc.title })}
+                                                        className="w-8 h-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                                        title="Delete document"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </motion.li>
-                                ))}
+                                        </motion.li>
+                                    )
+                                })}
                             </AnimatePresence>
                         </ul>
                     </div>
                 )}
             </div>
 
-
-
-            {/* Delete Confirmation Dialog */}
             <ConfirmDialog
                 open={confirmAction !== null}
                 onOpenChange={(open) => !open && setConfirmAction(null)}
@@ -378,6 +538,31 @@ export default function DocumentLibrary() {
                 variant="destructive"
                 loading={isDeleting}
             />
+
+            {shareDialogDocument && (
+                <DocumentShareDialog
+                    open={shareDialogDocument !== null}
+                    onOpenChange={(open) => !open && setShareDialogDocument(null)}
+                    documentId={shareDialogDocument.id}
+                    documentTitle={shareDialogDocument.title}
+                    onSaved={() => {
+                        queryClient.invalidateQueries({ queryKey: ['documents'] })
+                    }}
+                />
+            )}
+
+            {selectedDocuments.length > 0 && (
+                <BulkDocumentShareDialog
+                    open={bulkShareDialogOpen}
+                    onOpenChange={setBulkShareDialogOpen}
+                    documentIds={selectedDocuments.map((document) => document.id)}
+                    documentTitles={selectedDocuments.map((document) => document.title)}
+                    onSaved={() => {
+                        queryClient.invalidateQueries({ queryKey: ['documents'] })
+                        clearSelectedDocuments()
+                    }}
+                />
+            )}
         </div>
     )
 }

@@ -10,6 +10,7 @@ Phase 10 - Admin/Engineer UI Backend
 from fastapi import APIRouter
 
 from src.api.routes.admin import (
+    provisioning,
     backup,
     chat_history,
     config,
@@ -20,6 +21,7 @@ from src.api.routes.admin import (
     jobs,
     keys,
     maintenance,
+    observability,
     providers,
     ragas,
     retention,
@@ -34,6 +36,7 @@ router.include_router(jobs.router)
 router.include_router(config.router)
 router.include_router(curation.router)
 router.include_router(maintenance.router)
+router.include_router(observability.router)
 router.include_router(chat_history.router)
 router.include_router(ragas.router)
 router.include_router(keys.router)
@@ -45,3 +48,4 @@ router.include_router(retention.router)
 router.include_router(embeddings.router)
 router.include_router(providers.router)
 router.include_router(backup.router)
+router.include_router(provisioning.router)
