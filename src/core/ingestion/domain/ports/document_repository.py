@@ -79,3 +79,16 @@ class DocumentRepository(Protocol):
     async def get_folder_name(self, folder_id: str) -> str | None:
         """Return the display name of a folder by its ID, or None if not found."""
         ...
+
+    async def list_visible_document_ids_by_taxonomy(
+        self,
+        viewer_tenant_id: str,
+        owner_tenant_id: str,
+        candidate_document_ids: list[str] | None = None,
+        edition: str | None = None,
+        audience: str | None = None,
+        source_family: str | None = None,
+    ) -> list[str]:
+        """List visible document IDs filtered by taxonomy (edition/audience/source_family)."""
+        ...
+
