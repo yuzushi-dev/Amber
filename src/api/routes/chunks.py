@@ -105,6 +105,14 @@ async def update_chunk(
     """
     Update a chunk's content and regenerate its embedding.
     """
+    # 0. Verify parent document belongs to this tenant
+    doc_stmt = select(Document).where(
+        Document.id == document_id, Document.tenant_id == tenant_id
+    )
+    doc_result = await session.execute(doc_stmt)
+    if not doc_result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
     # 1. Verify chunk exists
     stmt = select(Chunk).where(Chunk.id == chunk_id, Chunk.document_id == document_id)
     result = await session.execute(stmt)
@@ -185,6 +193,14 @@ async def delete_chunk(
     """
     Delete a chunk from Postgres, Milvus, and Neo4j.
     """
+    # 0. Verify parent document belongs to this tenant
+    doc_stmt = select(Document).where(
+        Document.id == document_id, Document.tenant_id == tenant_id
+    )
+    doc_result = await session.execute(doc_stmt)
+    if not doc_result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
     # 1. Get Chunk
     stmt = select(Chunk).where(Chunk.id == chunk_id, Chunk.document_id == document_id)
     result = await session.execute(stmt)
@@ -207,7 +223,8 @@ async def delete_chunk(
     # 3. Delete from Neo4j
     try:
         await platform.neo4j_client.execute_write(
-            "MATCH (c:Chunk {id: $chunk_id}) DETACH DELETE c", {"chunk_id": chunk_id}
+            "MATCH (c:Chunk {id: $chunk_id, tenant_id: $tenant_id}) DETACH DELETE c",
+            {"chunk_id": chunk_id, "tenant_id": tenant_id},
         )
     except Exception as e:
         logger.error(f"Failed to delete from Neo4j: {e}")

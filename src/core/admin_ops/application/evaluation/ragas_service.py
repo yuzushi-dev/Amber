@@ -232,7 +232,7 @@ class RagasService:
             tenant_id = get_current_tenant()
             if tenant_id:
                 try:
-                    tenant_config = await TuningService(async_session_maker).get_tenant_config(
+                    tenant_config = await TuningService(async_session_maker).get_effective_tenant_config(
                         str(tenant_id)
                     )
                 except Exception as e:
@@ -280,7 +280,7 @@ class RagasService:
             tenant_id = get_current_tenant()
             if tenant_id:
                 try:
-                    tenant_config = await TuningService(async_session_maker).get_tenant_config(
+                    tenant_config = await TuningService(async_session_maker).get_effective_tenant_config(
                         str(tenant_id)
                     )
                 except Exception as e:

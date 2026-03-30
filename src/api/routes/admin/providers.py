@@ -10,7 +10,7 @@ import logging
 from importlib.util import find_spec
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from urllib.parse import urlparse
 
@@ -23,7 +23,8 @@ from src.shared.model_registry import EMBEDDING_MODELS, LLM_MODELS
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/providers", tags=["admin-providers"])
+from src.api.deps import verify_super_admin
+router = APIRouter(prefix="/providers", tags=["admin-providers"], dependencies=[Depends(verify_super_admin)])
 
 
 # =============================================================================

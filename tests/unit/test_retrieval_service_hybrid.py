@@ -70,3 +70,203 @@ async def test_hybrid_search_uses_tenant_weights():
         query_type=options.search_mode,
         tenant_config={"vector": 0.9, "graph": 0.1},
     )
+
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_forwards_document_ids_to_graph_acl():
+    vector_store = MagicMock()
+    graph_store = MagicMock()
+    document_repository = MagicMock()
+    document_repository.get_chunks = AsyncMock(return_value=[])
+
+    mock_factory = MagicMock()
+    mock_factory.get_embedding_provider.return_value = MagicMock()
+    mock_factory.get_llm_provider.return_value = MagicMock()
+
+    with (
+        patch(
+            "src.core.retrieval.application.retrieval_service.build_provider_factory",
+            return_value=mock_factory,
+        ),
+        patch("src.core.retrieval.application.retrieval_service.SemanticCache"),
+        patch("src.core.retrieval.application.retrieval_service.ResultCache"),
+    ):
+        service = RetrievalService(
+            document_repository=document_repository,
+            vector_store=vector_store,
+            neo4j_client=graph_store,
+            openai_api_key="sk-test",
+        )
+
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 8)
+    service.vector_searcher.search = AsyncMock(return_value=[])
+    service.entity_searcher.search = AsyncMock(
+        return_value=[{"entity_id": "entity-1", "score": 0.9}]
+    )
+    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
+    service.graph_traversal.beam_search = AsyncMock(return_value=[])
+    service.reranker = None
+
+    structured_query = StructuredQuery(original_query="q", cleaned_query="q")
+    options = QueryOptions(search_mode=SearchMode.BASIC)
+    trace: list[dict] = []
+
+    await service._execute_hybrid_search(
+        structured_query=structured_query,
+        tenant_id="tenant-1",
+        document_ids=["doc-1"],
+        filters={},
+        top_k=5,
+        options=options,
+        trace=trace,
+        collection_name="amber_tenant_1",
+        tenant_config=None,
+    )
+
+    service.graph_searcher.search_by_entities.assert_awaited_once_with(
+        entity_ids=["entity-1"],
+        tenant_id="tenant-1",
+        limit=service.config.initial_k,
+        allowed_doc_ids=["doc-1"],
+    )
+    service.graph_traversal.beam_search.assert_awaited_once_with(
+        seed_entity_ids=["entity-1"],
+        tenant_id="tenant-1",
+        depth=1,
+        beam_width=3,
+        allowed_doc_ids=["doc-1"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Taxonomy routing unit tests (appended — do not overwrite existing tests)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_taxonomy_routing_called_for_admin_query():
+    """resolve_product_context is triggered and list_visible_document_ids_by_taxonomy is called."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from src.core.retrieval.application.retrieval_service import RetrievalService
+
+    vector_store = MagicMock()
+    graph_store = MagicMock()
+    document_repository = MagicMock()
+    document_repository.get_chunks = AsyncMock(return_value=[])
+    document_repository.list_visible_document_ids = AsyncMock(return_value=[])
+    document_repository.list_visible_document_ids_by_taxonomy = AsyncMock(return_value=["doc-admin"])
+
+    mock_factory = MagicMock()
+    mock_factory.get_embedding_provider.return_value = MagicMock()
+    mock_factory.get_llm_provider.return_value = MagicMock()
+
+    with (
+        patch(
+            "src.core.retrieval.application.retrieval_service.build_provider_factory",
+            return_value=mock_factory,
+        ),
+        patch("src.core.retrieval.application.retrieval_service.SemanticCache"),
+        patch("src.core.retrieval.application.retrieval_service.ResultCache"),
+    ):
+        service = RetrievalService(
+            document_repository=document_repository,
+            vector_store=vector_store,
+            neo4j_client=graph_store,
+            openai_api_key="sk-test",
+        )
+
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 8)
+    service.vector_searcher.search = AsyncMock(return_value=[])
+    service.entity_searcher.search = AsyncMock(return_value=[])
+    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
+    service.graph_traversal.beam_search = AsyncMock(return_value=[])
+    service.reranker = None
+    service.result_cache.get = AsyncMock(return_value=None)
+    service.result_cache.set = AsyncMock(return_value=None)
+    service.embedding_cache.get = AsyncMock(return_value=None)
+    service.embedding_cache.set = AsyncMock(return_value=None)
+
+    with (
+        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
+        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
+    ):
+        mock_scopes.return_value = MagicMock(
+            effective_tenant_id="default",
+            vector_scopes=["default"],
+            graph_scopes=["default"],
+        )
+        result = await service.retrieve(
+            query="How do delegate admins work?",
+            tenant_id="default",
+            include_trace=True,
+        )
+
+    document_repository.list_visible_document_ids_by_taxonomy.assert_called()
+    # Verify trace contains taxonomy_routing step
+    taxonomy_steps = [s for s in result.trace if s.get("step") == "taxonomy_routing"]
+    assert taxonomy_steps, "taxonomy_routing step missing from trace"
+    assert taxonomy_steps[0]["inferred_audience"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_taxonomy_explicit_filter_overrides_inference():
+    """Explicit edition in filters dict overrides query-inferred context."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from src.core.retrieval.application.retrieval_service import RetrievalService
+
+    vector_store = MagicMock()
+    graph_store = MagicMock()
+    document_repository = MagicMock()
+    document_repository.get_chunks = AsyncMock(return_value=[])
+    document_repository.list_visible_document_ids = AsyncMock(return_value=[])
+    document_repository.list_visible_document_ids_by_taxonomy = AsyncMock(return_value=["doc-ce"])
+
+    mock_factory = MagicMock()
+    mock_factory.get_embedding_provider.return_value = MagicMock()
+    mock_factory.get_llm_provider.return_value = MagicMock()
+
+    with (
+        patch(
+            "src.core.retrieval.application.retrieval_service.build_provider_factory",
+            return_value=mock_factory,
+        ),
+        patch("src.core.retrieval.application.retrieval_service.SemanticCache"),
+        patch("src.core.retrieval.application.retrieval_service.ResultCache"),
+    ):
+        service = RetrievalService(
+            document_repository=document_repository,
+            vector_store=vector_store,
+            neo4j_client=graph_store,
+            openai_api_key="sk-test",
+        )
+
+    service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 8)
+    service.vector_searcher.search = AsyncMock(return_value=[])
+    service.entity_searcher.search = AsyncMock(return_value=[])
+    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
+    service.graph_traversal.beam_search = AsyncMock(return_value=[])
+    service.reranker = None
+    service.result_cache.get = AsyncMock(return_value=None)
+    service.result_cache.set = AsyncMock(return_value=None)
+    service.embedding_cache.get = AsyncMock(return_value=None)
+    service.embedding_cache.set = AsyncMock(return_value=None)
+
+    with (
+        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
+        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
+    ):
+        mock_scopes.return_value = MagicMock(
+            effective_tenant_id="default",
+            vector_scopes=["default"],
+            graph_scopes=["default"],
+        )
+        # Query text alone would infer commercial, but explicit override says ce
+        await service.retrieve(
+            query="How do delegate admins work?",
+            tenant_id="default",
+            filters={"edition": "ce"},
+        )
+
+    call_kwargs = document_repository.list_visible_document_ids_by_taxonomy.call_args
+    assert call_kwargs.kwargs.get("edition") == "ce"

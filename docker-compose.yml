@@ -23,8 +23,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
 
-    ports:
-      - "3000:3000"
+    # ports:            # Handled by deploy/nginx — see nginx service below.
+    #   - "3000:3000"
     environment:
       - VITE_API_TARGET=http://api:8000
     volumes:
@@ -45,14 +45,17 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
 
-    ports:
-      - "${API_PORT:-8000}:8000"
+    # ports:            # Handled by deploy/nginx — see nginx service below.
+    #   - "${API_PORT:-8000}:8000"
     environment:
       - API_HOST=${API_HOST:-0.0.0.0}
       - API_PORT=8000
       - PYTHONPATH=/app:/app/src:/app/.packages
       - DEBUG=${DEBUG:-false}
       - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
+      - DEV_API_KEY=${DEV_API_KEY:-amber-dev-key-2024}
+      - APP_DATABASE_URL=${APP_DATABASE_URL:-}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
@@ -96,7 +99,6 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - AMBER_RUNTIME=docker
-      - IGNORE_EMBEDDING_MISMATCH=true
     volumes:
       - ./src:/app/src:ro
       - ./tests:/app/tests:ro
@@ -140,6 +142,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
+      - APP_DATABASE_URL=${APP_DATABASE_URL:-}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
@@ -364,6 +368,45 @@ services:
     restart: unless-stopped
     networks:
       - graphrag-network
+
+  # ---------------------------------------------------------------------------
+  # Nginx — Edge Proxy and Cutover Switch
+  # ---------------------------------------------------------------------------
+  # Nginx takes over host ports :8000 (API) and :3000 (frontend) so that
+  # traffic can be switched atomically between live and canary deployments.
+  #
+  # Activate nginx (one-time, ~15s interruption to reassign host ports):
+  #   docker compose up -d nginx api frontend
+  #
+  # Verify after activation:
+  #   bash scripts/smoke_production_readonly.sh
+  #
+  # Switch traffic to canary:
+  #   bash deploy/cutover.sh --to canary
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: amber2-nginx-1
+    ports:
+      - "8000:80"    # API traffic (was: direct from api service)
+      - "3000:3000"  # Frontend traffic (was: direct from frontend service)
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d  # NOT :ro — cutover.sh writes upstream.conf
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
 
 # -----------------------------------------------------------------------------
 # Networks

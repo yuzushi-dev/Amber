@@ -9,7 +9,7 @@ Allows for listing and deletion of stored data (GDPR/Privacy control).
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 
@@ -19,7 +19,8 @@ from src.core.generation.domain.memory_models import ConversationSummary, UserFa
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/retention", tags=["admin-retention"])
+from src.api.deps import verify_tenant_admin
+router = APIRouter(prefix="/retention", tags=["admin-retention"], dependencies=[Depends(verify_tenant_admin)])
 
 
 # Schemas

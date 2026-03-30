@@ -157,15 +157,9 @@ class RateLimiter:
                 reset_at=now + window,
             )
 
-        except Exception as e:
-            # On Redis failure, allow the request but log
-            logger.error(f"Rate limiter error: {e}. Allowing request.")
-            return RateLimitResult(
-                allowed=True,
-                limit=limit,
-                remaining=limit - 1,
-                reset_at=now + window,
-            )
+        except Exception:
+            # Re-raise so the middleware can decide fail-open vs fail-closed
+            raise
 
     async def check_concurrency(
         self,

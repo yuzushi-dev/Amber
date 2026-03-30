@@ -1,3 +1,4 @@
+import { useAuth } from '@/features/auth'
 import { useCitationStore, Citation } from '../store/citationStore'
 import { useChatStore } from '../store'
 import { cn } from '@/lib/utils'
@@ -179,6 +180,8 @@ function CitationCard({
     variants: Variants
 }) {
     // Retrieve content from chat store
+    const { permissions } = useAuth()
+    const docBasePath = permissions.includes('admin') ? '/admin/data/documents' : '/amber/data/documents'
     const activeMessageId = useCitationStore(s => s.activeMessageId)
     const message = useChatStore(s => s.messages.find(m => m.id === activeMessageId))
     const source = message?.sources?.find(s => {
@@ -285,7 +288,7 @@ function CitationCard({
                             if (source.document_id?.startsWith('rule_doc_')) {
                                 window.open('/admin/settings/rules', '_blank');
                             } else {
-                                window.open(`/admin/data/documents/${source.document_id}`, '_blank');
+                                window.open(`${docBasePath}/${source.document_id}`, '_blank');
                             }
                         }}
                     >

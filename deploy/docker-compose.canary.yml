@@ -1,0 +1,172 @@
+# Canary deployment overlay for Amber2
+#
+# Starts api-canary and worker-canary sharing the same backing services
+# (postgres, redis, neo4j, milvus, garage) as the live stack.
+#
+# Usage (from /root/amber2):
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.canary.yml \
+#       up -d api-canary worker-canary
+#
+# Smoke test canary directly (before nginx cutover):
+#   bash scripts/smoke_production_readonly.sh --base-url http://127.0.0.1:8001
+#
+# Nginx cutover (after canary passes smoke tests):
+#   bash deploy/cutover.sh --to canary --dry-run
+#   bash deploy/cutover.sh --to canary
+#
+# Rollback:
+#   bash deploy/cutover.sh --to live
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.canary.yml \
+#       stop api-canary worker-canary
+
+services:
+  api-canary:
+    image: amber2-api:latest
+    container_name: amber2-api-canary-1
+    ports:
+      - "8001:8000"  # Direct host port for pre-cutover smoke testing.
+                     # nginx routes :8000 to api-canary when canary is active.
+    environment:
+      # All ${VAR} expressions are expanded from .env in the project root.
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=8000
+      - PYTHONPATH=/app:/app/src:/app/.packages
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY}
+      - TENANT_ID=${TENANT_ID:-default}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag123}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_FALLBACK_ENABLED=${LLM_FALLBACK_ENABLED:-true}
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
+      - NVIDIA_NIM_BASE_URL=${NVIDIA_NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_NUM_CTX=${OLLAMA_NUM_CTX:-32768}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
+      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-garage}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-3900}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY}
+      - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
+      - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - AMBER_RUNTIME=docker
+      - AMBER_CANARY=true
+      - IGNORE_EMBEDDING_MISMATCH=true
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads
+      - pip-packages:/app/.packages
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - graphrag-network
+
+  worker-canary:
+    image: amber2-worker:latest
+    container_name: amber2-worker-canary-1
+    # Canary worker uses separate queue names to avoid interfering with live tasks.
+    # For smoke-test-only canary deployments, the canary worker is optional and
+    # can be omitted from the `up` command.
+    command: celery -A src.workers.celery_app worker --loglevel=info -Q canary_high_priority,canary_celery,canary_ingestion,canary_extraction,canary_evaluation,canary_low_priority
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY}
+      - TENANT_ID=${TENANT_ID:-default}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - PYTHONPATH=/app:/app/src:/app/.packages
+      - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag123}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_FALLBACK_ENABLED=${LLM_FALLBACK_ENABLED:-true}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-}
+      - DEFAULT_EMBEDDING_PROVIDER=${DEFAULT_EMBEDDING_PROVIDER:-ollama}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
+      - OBJECT_STORAGE_HOST=${OBJECT_STORAGE_HOST:-garage}
+      - OBJECT_STORAGE_PORT=${OBJECT_STORAGE_PORT:-3900}
+      - OBJECT_STORAGE_ACCESS_KEY=${OBJECT_STORAGE_ACCESS_KEY}
+      - OBJECT_STORAGE_SECRET_KEY=${OBJECT_STORAGE_SECRET_KEY}
+      - OBJECT_STORAGE_SECURE=${OBJECT_STORAGE_SECURE:-false}
+      - OBJECT_STORAGE_BUCKET_NAME=${OBJECT_STORAGE_BUCKET_NAME:-documents}
+      - COMMUNITY_SUMMARIZATION_CONCURRENCY=${COMMUNITY_SUMMARIZATION_CONCURRENCY:-1}
+      - AMBER_RUNTIME=docker
+      - AMBER_CANARY=true
+      - HF_HOME=/home/appuser/.cache/huggingface
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads
+      - pip-packages:/app/.packages
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - graphrag-network
+
+networks:
+  graphrag-network:
+    external: true
+    name: amber2_graphrag-network
+
+volumes:
+  graphrag-uploads:
+    external: true
+    name: amber2_graphrag-uploads
+  pip-packages:
+    external: true
+    name: amber2_pip-packages

@@ -6,11 +6,13 @@ Unified retrieval pipeline combining vector search, caching, and reranking.
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.api.config import settings
 from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.cache.result_cache import ResultCache, ResultCacheConfig
 from src.core.cache.semantic_cache import CacheConfig, SemanticCache
@@ -24,6 +26,9 @@ from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.query.decomposer import QueryDecomposer
 from src.core.retrieval.application.query.hyde import HyDEService
 from src.core.retrieval.application.query.models import StructuredQuery
+from src.core.retrieval.application.query.product_context_resolver import (
+    resolve_product_context,
+)
 from src.core.retrieval.application.query.parser import QueryParser
 from src.core.retrieval.application.query.rewriter import QueryRewriter
 from src.core.retrieval.application.query.router import QueryRouter
@@ -40,6 +45,7 @@ from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
 from src.core.retrieval.domain.ports.vector_store_port import SearchResult, VectorStorePort
 from src.core.system.circuit_breaker import CircuitBreaker
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
+from src.core.tenants.application.query_scopes import QueryScopes, resolve_query_scopes
 from src.shared.kernel.models.query import QueryOptions, SearchMode
 from src.shared.kernel.observability import trace_span
 
@@ -57,6 +63,23 @@ class RetrievalResult:
     cache_hit: bool = False
     reranked: bool = False
     trace: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class VectorSearchTarget:
+    """Resolved vector search target for a tenant-owned collection."""
+
+    tenant_id: str
+    collection_name: str
+    document_ids: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class GraphSearchTarget:
+    """Resolved graph search target for a tenant-owned graph scope."""
+
+    tenant_id: str
+    allowed_doc_ids: list[str] | None = None
 
 
 @dataclass
@@ -228,13 +251,300 @@ class RetrievalService:
         self.tuning = tuning_service
         # or TuningService(session_factory=async_session_maker) - REMOVED DEFAULT
 
+    async def _get_effective_tenant_config(self, tenant_id: str) -> dict[str, Any]:
+        """Resolve effective tenant config, preserving compatibility with older test stubs."""
+        if not self.tuning:
+            return {}
+
+        effective_getter = getattr(self.tuning, "get_effective_tenant_config", None)
+        if callable(effective_getter):
+            return await effective_getter(tenant_id)
+
+        return await self.tuning.get_tenant_config(tenant_id)
+
     async def _resolve_active_collection(self, tenant_id: str) -> str:
         """Resolve the active vector collection for a tenant."""
         if self.tuning:
-            config = await self.tuning.get_tenant_config(tenant_id)
+            config = await self._get_effective_tenant_config(tenant_id)
             return resolve_active_vector_collection(tenant_id, config)
         logger.warning("TuningService not provided; falling back to default active collection")
         return resolve_active_vector_collection(tenant_id, {})
+
+    async def _list_visible_document_ids(
+        self,
+        viewer_tenant_id: str,
+        owner_tenant_id: str,
+        candidate_document_ids: list[str] | None,
+    ) -> list[str]:
+        """List visible document IDs for a viewer, failing closed for shared scopes if unsupported."""
+        visibility_getter = getattr(self.document_repository, "list_visible_document_ids", None)
+        if not callable(visibility_getter):
+            if owner_tenant_id == viewer_tenant_id:
+                return candidate_document_ids or []
+            logger.warning(
+                "DocumentRepository does not implement list_visible_document_ids; denying shared vector scope owner=%s viewer=%s",
+                owner_tenant_id,
+                viewer_tenant_id,
+            )
+            return []
+
+        result = visibility_getter(
+            viewer_tenant_id=viewer_tenant_id,
+            owner_tenant_id=owner_tenant_id,
+            candidate_document_ids=candidate_document_ids,
+        )
+        if inspect.isawaitable(result):
+            return await result
+        if isinstance(result, list):
+            return result
+
+        if owner_tenant_id == viewer_tenant_id:
+            return candidate_document_ids or []
+
+        logger.warning(
+            "DocumentRepository visibility getter returned non-awaitable unsupported value; denying shared vector scope owner=%s viewer=%s",
+            owner_tenant_id,
+            viewer_tenant_id,
+        )
+        return []
+
+    async def _resolve_vector_targets(
+        self,
+        viewer_tenant_id: str,
+        query_scopes: QueryScopes,
+        candidate_document_ids: list[str] | None,
+        include_trace: bool = False,
+        trace: list[dict[str, Any]] | None = None,
+    ) -> list[VectorSearchTarget]:
+        """Resolve the vector collections and document ACL filters for the current query."""
+        targets: list[VectorSearchTarget] = []
+        target_trace: list[dict[str, Any]] = []
+
+        for scope_tenant_id in query_scopes.vector_scopes:
+            if scope_tenant_id != viewer_tenant_id and not settings.enable_acl_aware_vector_retrieval:
+                target_trace.append(
+                    {
+                        "tenant_id": scope_tenant_id,
+                        "collection": None,
+                        "document_ids_count": None,
+                        "requested_document_ids_count": len(candidate_document_ids) if candidate_document_ids is not None else None,
+                        "acl_filtered_out_count": None,
+                        "skipped": True,
+                        "reason": "shared_vector_retrieval_disabled",
+                    }
+                )
+                continue
+
+            scope_document_ids: list[str] | None = None
+
+            if candidate_document_ids is not None:
+                scope_document_ids = await self._list_visible_document_ids(
+                    viewer_tenant_id=viewer_tenant_id,
+                    owner_tenant_id=scope_tenant_id,
+                    candidate_document_ids=candidate_document_ids,
+                )
+                if not scope_document_ids:
+                    continue
+            elif scope_tenant_id != viewer_tenant_id:
+                scope_document_ids = await self._list_visible_document_ids(
+                    viewer_tenant_id=viewer_tenant_id,
+                    owner_tenant_id=scope_tenant_id,
+                    candidate_document_ids=None,
+                )
+                if not scope_document_ids:
+                    continue
+
+            collection_name = await self._resolve_active_collection(scope_tenant_id)
+            targets.append(
+                VectorSearchTarget(
+                    tenant_id=scope_tenant_id,
+                    collection_name=collection_name,
+                    document_ids=scope_document_ids,
+                )
+            )
+            requested_document_ids_count = len(candidate_document_ids) if candidate_document_ids is not None else None
+            acl_filtered_out_count = None
+            if requested_document_ids_count is not None and scope_document_ids is not None:
+                acl_filtered_out_count = max(requested_document_ids_count - len(scope_document_ids), 0)
+
+            target_trace.append(
+                {
+                    "tenant_id": scope_tenant_id,
+                    "collection": collection_name,
+                    "document_ids_count": len(scope_document_ids) if scope_document_ids is not None else None,
+                    "requested_document_ids_count": requested_document_ids_count,
+                    "acl_filtered_out_count": acl_filtered_out_count,
+                }
+            )
+
+        if include_trace and trace is not None:
+            trace.append({"step": "resolve_vector_targets", "targets": target_trace})
+
+        return targets
+
+    async def _search_vector_targets(
+        self,
+        query_vector: list[float],
+        vector_targets: list[VectorSearchTarget],
+        limit: int,
+        filters: dict[str, Any],
+    ) -> tuple[list[Any], list[dict[str, Any]]]:
+        """Search all resolved vector targets and merge the results."""
+        merged_results: list[Any] = []
+        target_trace: list[dict[str, Any]] = []
+
+        for target in vector_targets:
+            logger.debug(
+                "Searching vector store collection=%s owner_tenant=%s allowed_docs=%s",
+                target.collection_name,
+                target.tenant_id,
+                len(target.document_ids) if target.document_ids is not None else "all",
+            )
+
+            target_results = await self.vector_searcher.search(
+                query_vector=query_vector,
+                tenant_id=target.tenant_id,
+                document_ids=target.document_ids,
+                limit=limit,
+                score_threshold=self.config.score_threshold,
+                filters=filters,
+                collection_name=target.collection_name,
+            )
+            merged_results.extend(target_results)
+            target_trace.append(
+                {
+                    "tenant_id": target.tenant_id,
+                    "collection": target.collection_name,
+                    "document_ids_count": len(target.document_ids) if target.document_ids is not None else None,
+                    "results_count": len(target_results),
+                }
+            )
+
+        merged_results.sort(key=lambda candidate: candidate.score, reverse=True)
+        return merged_results, target_trace
+
+    async def _resolve_graph_targets(
+        self,
+        viewer_tenant_id: str,
+        query_scopes: QueryScopes,
+        candidate_document_ids: list[str] | None,
+        include_trace: bool = False,
+        trace: list[dict[str, Any]] | None = None,
+    ) -> list[GraphSearchTarget]:
+        """Resolve the graph scopes and document ACL filters for the current query."""
+        targets: list[GraphSearchTarget] = []
+        target_trace: list[dict[str, Any]] = []
+
+        for scope_tenant_id in query_scopes.graph_scopes:
+            if scope_tenant_id != viewer_tenant_id and not settings.enable_acl_aware_graph_retrieval:
+                target_trace.append(
+                    {
+                        "tenant_id": scope_tenant_id,
+                        "document_ids_count": None,
+                        "requested_document_ids_count": len(candidate_document_ids) if candidate_document_ids is not None else None,
+                        "acl_filtered_out_count": None,
+                        "skipped": True,
+                        "reason": "shared_graph_retrieval_disabled",
+                    }
+                )
+                continue
+
+            allowed_doc_ids: list[str] | None = None
+
+            if candidate_document_ids is not None:
+                allowed_doc_ids = await self._list_visible_document_ids(
+                    viewer_tenant_id=viewer_tenant_id,
+                    owner_tenant_id=scope_tenant_id,
+                    candidate_document_ids=candidate_document_ids,
+                )
+                if not allowed_doc_ids:
+                    continue
+            elif scope_tenant_id != viewer_tenant_id:
+                allowed_doc_ids = await self._list_visible_document_ids(
+                    viewer_tenant_id=viewer_tenant_id,
+                    owner_tenant_id=scope_tenant_id,
+                    candidate_document_ids=None,
+                )
+                if not allowed_doc_ids:
+                    continue
+
+            targets.append(
+                GraphSearchTarget(
+                    tenant_id=scope_tenant_id,
+                    allowed_doc_ids=allowed_doc_ids,
+                )
+            )
+            requested_document_ids_count = len(candidate_document_ids) if candidate_document_ids is not None else None
+            acl_filtered_out_count = None
+            if requested_document_ids_count is not None and allowed_doc_ids is not None:
+                acl_filtered_out_count = max(requested_document_ids_count - len(allowed_doc_ids), 0)
+
+            target_trace.append(
+                {
+                    "tenant_id": scope_tenant_id,
+                    "document_ids_count": len(allowed_doc_ids) if allowed_doc_ids is not None else None,
+                    "requested_document_ids_count": requested_document_ids_count,
+                    "acl_filtered_out_count": acl_filtered_out_count,
+                }
+            )
+
+        if include_trace and trace is not None:
+            trace.append({"step": "resolve_graph_targets", "targets": target_trace})
+
+        return targets
+
+    async def _execute_global_search(
+        self,
+        query_text: str,
+        viewer_tenant_id: str,
+        graph_targets: list[GraphSearchTarget],
+        tenant_config: dict[str, Any] | None,
+        trace: list[dict[str, Any]],
+    ) -> RetrievalResult:
+        """Execute ACL-aware global search across graph scopes."""
+        merged_candidates: list[dict[str, Any]] = []
+        seen_candidate_ids: set[str] = set()
+        target_trace: list[dict[str, Any]] = []
+
+        for target in graph_targets:
+            result = await self.global_search.search(
+                query=query_text,
+                tenant_id=target.tenant_id,
+                tenant_config=tenant_config,
+                allowed_doc_ids=target.allowed_doc_ids,
+            )
+            candidates = result.get("candidates", [])
+            target_trace.append(
+                {
+                    "tenant_id": target.tenant_id,
+                    "document_ids_count": len(target.allowed_doc_ids) if target.allowed_doc_ids is not None else None,
+                    "results_count": len(candidates),
+                }
+            )
+
+            for candidate in candidates:
+                candidate_id = candidate.get("chunk_id") or f"{candidate.get('document_id')}::{candidate.get('content')}"
+                if candidate_id in seen_candidate_ids:
+                    continue
+                seen_candidate_ids.add(candidate_id)
+                merged_candidates.append(candidate)
+
+        merged_candidates.sort(key=lambda item: float(item.get("score", 0) or 0), reverse=True)
+        trace.append(
+            {
+                "step": "global_search",
+                "targets": target_trace,
+                "sources": [candidate.get("chunk_id") for candidate in merged_candidates if candidate.get("chunk_id")],
+            }
+        )
+
+        return RetrievalResult(
+            chunks=merged_candidates,
+            query=query_text,
+            tenant_id=viewer_tenant_id,
+            latency_ms=0,
+            trace=trace,
+        )
 
     def _resolve_embedding_service(self, tenant_config: dict[str, Any] | None) -> EmbeddingService:
         """Resolve embedding service based on tenant config."""
@@ -295,6 +605,7 @@ class RetrievalService:
         history: list[dict] | None = None,
         global_rules: list[str] | None = None,
         memory_context: str | None = None,
+        query_scopes: QueryScopes | None = None,
     ) -> RetrievalResult:
         """
         Retrieve relevant chunks for a query with Phase 5 analysis.
@@ -314,10 +625,18 @@ class RetrievalService:
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
-        tenant_config: dict[str, Any] = {}
-        if self.tuning:
-            tenant_config = await self.tuning.get_tenant_config(tenant_id)
-        active_collection = await self._resolve_active_collection(tenant_id)
+        resolved_scopes = query_scopes or resolve_query_scopes(tenant_id)
+        resolved_tenant_id = resolved_scopes.effective_tenant_id
+        if include_trace:
+            trace.append(
+                {
+                    "step": "resolve_query_scopes",
+                    "effective_tenant_id": resolved_scopes.effective_tenant_id,
+                    "vector_scopes": resolved_scopes.vector_scopes,
+                    "graph_scopes": resolved_scopes.graph_scopes,
+                }
+            )
+        tenant_config = await self._get_effective_tenant_config(resolved_tenant_id)
 
         # Step 1: Contextual Rewriting
         processed_query = query
@@ -340,6 +659,79 @@ class RetrievalService:
             all_filters["tags"] = structured_query.tags
         # Date range filters could be added here
 
+        # Taxonomy Routing: resolve edition/audience context and pre-filter document IDs
+        # Explicit filter overrides take precedence over query-inferred context.
+        _explicit_edition = all_filters.pop("edition", None)
+        _explicit_audience = all_filters.pop("audience", None)
+        _explicit_source_family = all_filters.pop("source_family", None)
+
+        _tax_ctx = resolve_product_context(structured_query.cleaned_query)
+        _tax_edition = _explicit_edition or (_tax_ctx.edition if _tax_ctx.edition != "unknown" else None)
+        _tax_audience = _explicit_audience or (_tax_ctx.audience if _tax_ctx.audience != "unknown" else None)
+        _tax_source_family = _explicit_source_family
+
+        _taxonomy_doc_ids: list[str] | None = None
+        _broadening_stage = "none"
+
+        _has_taxonomy_signal = bool(_tax_edition or _tax_audience or _tax_source_family)
+        if _has_taxonomy_signal and hasattr(self.document_repository, "list_visible_document_ids_by_taxonomy"):
+            _primary_scope = resolved_scopes.effective_tenant_id
+
+            # Stage 1: strict (edition + audience + source_family)
+            _strict_ids = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                viewer_tenant_id=_primary_scope,
+                owner_tenant_id=_primary_scope,
+                candidate_document_ids=all_document_ids or None,
+                edition=_tax_edition,
+                audience=_tax_audience,
+                source_family=_tax_source_family,
+            )
+
+            if _strict_ids:
+                _taxonomy_doc_ids = _strict_ids
+                _broadening_stage = "strict"
+            elif _tax_edition and _tax_audience:
+                # Stage 2: same edition, any audience
+                _broad2 = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                    viewer_tenant_id=_primary_scope,
+                    owner_tenant_id=_primary_scope,
+                    candidate_document_ids=all_document_ids or None,
+                    edition=_tax_edition,
+                )
+                if _broad2:
+                    _taxonomy_doc_ids = _broad2
+                    _broadening_stage = "edition_only"
+                else:
+                    # Stage 3: any edition, same audience
+                    _broad3 = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                        viewer_tenant_id=_primary_scope,
+                        owner_tenant_id=_primary_scope,
+                        candidate_document_ids=all_document_ids or None,
+                        audience=_tax_audience,
+                    )
+                    if _broad3:
+                        _taxonomy_doc_ids = _broad3
+                        _broadening_stage = "audience_only"
+                    else:
+                        # Stage 4: unfiltered fallback (low confidence or empty corpus)
+                        _broadening_stage = "unfiltered"
+
+            if include_trace:
+                trace.append({
+                    "step": "taxonomy_routing",
+                    "inferred_edition": _tax_ctx.edition,
+                    "inferred_audience": _tax_ctx.audience,
+                    "explicit_edition": _explicit_edition,
+                    "explicit_audience": _explicit_audience,
+                    "confidence": _tax_ctx.confidence,
+                    "broadening_stage": _broadening_stage,
+                    "strict_candidate_count": len(_strict_ids) if _has_taxonomy_signal else None,
+                    "taxonomy_doc_ids_count": len(_taxonomy_doc_ids) if _taxonomy_doc_ids else 0,
+                })
+
+        if _taxonomy_doc_ids is not None:
+            all_document_ids = _taxonomy_doc_ids
+
         # Step 3: Query Routing
         search_mode = await self.router.route(
             structured_query.cleaned_query,
@@ -347,62 +739,82 @@ class RetrievalService:
             tenant_config=tenant_config,
         )
 
+        vector_targets: list[VectorSearchTarget] = []
+        graph_targets: list[GraphSearchTarget] = []
+
         # Step 4 & 5: Search Execution based on Mode
         # For now, most modes fall back to vector search with optional HyDE/Decomposition
         # Phase 6 will implement specialized Global and DRIFT strategies.
 
         try:
             if search_mode == SearchMode.GLOBAL:
-                res = await self.global_search.search(
-                    query=structured_query.cleaned_query,
-                    tenant_id=tenant_id,
-                    tenant_config=tenant_config,
+                graph_targets = await self._resolve_graph_targets(
+                    viewer_tenant_id=resolved_tenant_id,
+                    query_scopes=resolved_scopes,
+                    candidate_document_ids=all_document_ids or None,
+                    include_trace=include_trace,
+                    trace=trace,
                 )
-                result = RetrievalResult(
-                    chunks=res.get("candidates", []),
-                    query=query,
-                    tenant_id=tenant_id,
-                    latency_ms=0,
-                    trace=trace + [{"step": "global_search", "sources": [c["chunk_id"] for c in res.get("candidates", [])]}],
+                result = await self._execute_global_search(
+                    query_text=structured_query.cleaned_query,
+                    viewer_tenant_id=resolved_tenant_id,
+                    graph_targets=graph_targets,
+                    tenant_config=tenant_config,
+                    trace=trace,
                 )
             elif search_mode == SearchMode.DRIFT:
                 res = await self.drift_search.search(
                     query=structured_query.cleaned_query,
-                    tenant_id=tenant_id,
+                    tenant_id=resolved_tenant_id,
                     tenant_config=tenant_config,
                 )
                 result = RetrievalResult(
                     chunks=res["candidates"],
                     query=query,
-                    tenant_id=tenant_id,
+                    tenant_id=resolved_tenant_id,
                     latency_ms=0,
                 )
             else:
+                vector_targets = await self._resolve_vector_targets(
+                    viewer_tenant_id=resolved_tenant_id,
+                    query_scopes=resolved_scopes,
+                    candidate_document_ids=all_document_ids or None,
+                    include_trace=include_trace,
+                    trace=trace,
+                )
                 # Use simple vector search for BASIC/LOCAL
                 # (Hybrid search disabled until entity_embeddings collection is set up)
                 result = await self._execute_vector_search(
                     structured_query=structured_query,
-                    tenant_id=tenant_id,
+                    tenant_id=resolved_tenant_id,
                     document_ids=all_document_ids,
                     filters=all_filters,
                     top_k=top_k,
                     options=options,
                     trace=trace,
-                    collection_name=active_collection,
+                    vector_targets=vector_targets,
                     tenant_config=tenant_config,
                 )
         except Exception as e:
             logger.error(f"Retrieval failed for mode {search_mode}: {e}")
             # Fallback to simple vector search
+            if not vector_targets:
+                vector_targets = await self._resolve_vector_targets(
+                    viewer_tenant_id=resolved_tenant_id,
+                    query_scopes=resolved_scopes,
+                    candidate_document_ids=all_document_ids or None,
+                    include_trace=include_trace,
+                    trace=trace,
+                )
             result = await self._execute_vector_search(
                 structured_query=structured_query,
-                tenant_id=tenant_id,
+                tenant_id=resolved_tenant_id,
                 document_ids=all_document_ids,
                 filters=all_filters,
                 top_k=top_k,
                 options=options,
                 trace=trace,
-                collection_name=active_collection,
+                vector_targets=vector_targets,
             )
 
         # Record latency for circuit breaker
@@ -475,7 +887,10 @@ class RetrievalService:
         if entity_results:
             entity_ids = [e["entity_id"] for e in entity_results]
             graph_results = await self.graph_searcher.search_by_entities(
-                entity_ids=entity_ids, tenant_id=tenant_id, limit=self.config.initial_k
+                entity_ids=entity_ids,
+                tenant_id=tenant_id,
+                limit=self.config.initial_k,
+                allowed_doc_ids=document_ids,
             )
 
             # 3. Optional Multi-hop Traversal (if not degraded)
@@ -485,6 +900,7 @@ class RetrievalService:
                     tenant_id=tenant_id,
                     depth=1,  # Keep it shallow for performance
                     beam_width=3,
+                    allowed_doc_ids=document_ids,
                 )
                 graph_results.extend(traversal_results)
 
@@ -556,7 +972,7 @@ class RetrievalService:
         top_k: int,
         options: QueryOptions,
         trace: list[dict],
-        collection_name: str | None,
+        vector_targets: list[VectorSearchTarget],
         tenant_config: dict[str, Any] | None = None,
     ) -> RetrievalResult:
         """Helper to execute vector search with HyDE and Decomposition support."""
@@ -644,32 +1060,20 @@ class RetrievalService:
             if search_results is None:
                 step_start = time.perf_counter()
 
-                target_collection = collection_name or resolve_active_vector_collection(
-                    tenant_id, {}
-                )
-                logger.debug(
-                    "Searching vector store collection=%s tenant=%s",
-                    target_collection,
-                    tenant_id,
-                )
-
-                search_results = await self.vector_searcher.search(
+                search_results, target_search_trace = await self._search_vector_targets(
                     query_vector=query_embedding,
-                    tenant_id=tenant_id,
-                    document_ids=document_ids,
+                    vector_targets=vector_targets,
                     limit=self.config.initial_k if self.reranker else top_k,
-                    score_threshold=self.config.score_threshold,
                     filters=filters,
-                    collection_name=target_collection,
                 )
-                logger.debug("Vector search returned %d results", len(search_results))
+                logger.debug("Vector search returned %d merged results", len(search_results))
                 trace.append(
                     {
                         "step": "vector_search",
                         "duration_ms": (time.perf_counter() - step_start) * 1000,
                         "results_count": len(search_results),
                         "mode": "dense",
-                        "collection": target_collection,
+                        "targets": target_search_trace,
                     }
                 )
             else:

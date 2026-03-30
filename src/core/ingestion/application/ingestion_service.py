@@ -35,6 +35,7 @@ from src.core.state.machine import DocumentStatus
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.context import set_current_tenant
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.shared.identifiers import DocumentId
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,16 @@ class IngestionService:
         doc_metadata = {"original_filename": filename, "content_type": content_type}
         if metadata_:
             doc_metadata.update(metadata_)
+
+        # Stamp taxonomy from folder name
+        if folder_id:
+            folder_name = await self.document_repository.get_folder_name(folder_id)
+        else:
+            folder_name = None
+        doc_metadata["taxonomy"] = classify_document_taxonomy(
+            folder_name=folder_name,
+            document_title=filename,
+        )
 
         # 5. Create DB Record
         new_doc = Document(

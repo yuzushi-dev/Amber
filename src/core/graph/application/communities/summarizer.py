@@ -99,7 +99,7 @@ class CommunitySummarizer:
             summary_content = self._parse_json(result.text)
 
             # 5. Persist back to Neo4j
-            await self._persist_summary(community_id, summary_content)
+            await self._persist_summary(community_id, summary_content, tenant_id)
 
             return summary_content
 
@@ -112,8 +112,8 @@ class CommunitySummarizer:
             logger.error(f"Failed to summarize community {community_id}: {e}")
             # Set a failure status on the node
             await self.graph.execute_write(
-                "MATCH (c:Community {id: $id}) SET c.status = 'failed', c.error = $error",
-                {"id": community_id, "error": str(e)},
+                "MATCH (c:Community {id: $id, tenant_id: $tenant_id}) SET c.status = 'failed', c.error = $error",
+                {"id": community_id, "tenant_id": tenant_id, "error": str(e)},
             )
             return {}
 
@@ -268,13 +268,13 @@ class CommunitySummarizer:
         """
         # Fetch entities directly belonging to this community
         entity_query = """
-        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
+        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         RETURN e.name as name, e.type as type, e.description as description
         """
 
         # Fetch relationships between entities in this community
         rel_query = """
-        MATCH (e1:Entity)-[:BELONGS_TO]->(c:Community {id: $id}),
+        MATCH (e1:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id}),
               (e2:Entity)-[:BELONGS_TO]->(c),
               (e1)-[r]->(e2)
         WHERE NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
@@ -283,7 +283,7 @@ class CommunitySummarizer:
 
         # Fetch child community summaries (if any)
         child_query = """
-        MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id})
+        MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE child.summary IS NOT NULL
         RETURN child.title as title, child.summary as summary
         """
@@ -292,16 +292,17 @@ class CommunitySummarizer:
         # We find chunks that MENTION entities in this community.
         # We limit to top 10 distinct chunks to avoid blowing up context window.
         chunk_query = """
-        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
+        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
         WITH DISTINCT c_chunk LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
-        entities = await self.graph.execute_read(entity_query, {"id": community_id})
-        relationships = await self.graph.execute_read(rel_query, {"id": community_id})
-        child_summaries = await self.graph.execute_read(child_query, {"id": community_id})
-        text_units = await self.graph.execute_read(chunk_query, {"id": community_id})
+        params = {"id": community_id, "tenant_id": tenant_id}
+        entities = await self.graph.execute_read(entity_query, params)
+        relationships = await self.graph.execute_read(rel_query, params)
+        child_summaries = await self.graph.execute_read(child_query, params)
+        text_units = await self.graph.execute_read(chunk_query, params)
 
         return {
             "entities": entities,
@@ -348,10 +349,10 @@ class CommunitySummarizer:
                 return json.loads(match.group(1), strict=False)
             raise
 
-    async def _persist_summary(self, community_id: str, summary: dict[str, Any]):
+    async def _persist_summary(self, community_id: str, summary: dict[str, Any], tenant_id: str = ""):
         """Updates the Community node with the generated summary fields."""
         query = """
-        MATCH (c:Community {id: $id})
+        MATCH (c:Community {id: $id, tenant_id: $tenant_id})
         SET c.title = $title,
             c.summary = $summary,
             c.rating = $rating,
@@ -363,6 +364,7 @@ class CommunitySummarizer:
         """
         params = {
             "id": community_id,
+            "tenant_id": tenant_id,
             "title": summary.get("title", "Untitled Community"),
             "summary": summary.get("summary", ""),
             "rating": summary.get("rating", 0),

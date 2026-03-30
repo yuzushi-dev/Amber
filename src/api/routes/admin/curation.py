@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, func
 from sqlalchemy.future import select
@@ -21,7 +21,8 @@ from src.core.database.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/curation", tags=["admin-curation"])
+from src.api.deps import verify_tenant_admin
+router = APIRouter(prefix="/curation", tags=["admin-curation"], dependencies=[Depends(verify_tenant_admin)])
 
 
 # =============================================================================
@@ -195,7 +196,7 @@ async def list_flags(
 
     except Exception as e:
         logger.error(f"Failed to list flags: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list flags: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/flags/{flag_id}", response_model=FlagDetail)
@@ -238,11 +239,11 @@ async def get_flag(flag_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to get flag {flag_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get flag: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.put("/flags/{flag_id}", response_model=FlagDetail)
-async def resolve_flag(flag_id: str, resolution: FlagResolution):
+async def resolve_flag(flag_id: str, resolution: FlagResolution, request: Request = None):
     """
     Resolve a flag with an action.
 
@@ -281,7 +282,7 @@ async def resolve_flag(flag_id: str, resolution: FlagResolution):
                 flag.status = FlagStatus.REJECTED
 
             flag.resolved_at = now.isoformat()
-            flag.resolved_by = "admin"  # TODO: Get from auth context
+            flag.resolved_by = getattr(request.state, "api_key_name", "admin") if request else "admin"
             flag.resolution_notes = resolution.notes
 
             session.add(flag)
@@ -296,7 +297,7 @@ async def resolve_flag(flag_id: str, resolution: FlagResolution):
         raise
     except Exception as e:
         logger.error(f"Failed to resolve flag {flag_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to resolve flag: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/flags")
@@ -329,7 +330,7 @@ async def create_flag(request: FlagCreateRequest):
 
     except Exception as e:
         logger.error(f"Failed to create flag: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create flag: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/stats", response_model=CurationStats)
@@ -398,4 +399,4 @@ async def get_curation_stats():
 
     except Exception as e:
         logger.error(f"Failed to get curation stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e

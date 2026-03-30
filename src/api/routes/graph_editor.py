@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from src.api.deps import verify_tenant_admin
 from pydantic import BaseModel
 
 # from src.api.dependencies.auth import get_current_user_tenant_id # Removed invalid import
@@ -14,10 +15,14 @@ logger = logging.getLogger(__name__)
 
 # Dependency to get tenant_id
 def get_current_user_tenant_id(request: Request) -> str:
-    """Resolve tenant ID from request context or default settings."""
-    if hasattr(request.state, "tenant_id"):
-        return str(request.state.tenant_id)
-    return settings.tenant_id
+    """Resolve tenant ID from request context. Raises 401 if not authenticated."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
 
 
 # Request Models
@@ -96,7 +101,11 @@ async def get_node_neighborhood(
 
 
 @router.post("/heal", response_model=list[HealingSuggestion])
-async def heal_node(request: HealRequest, tenant_id: str = Depends(get_current_user_tenant_id)):
+async def heal_node(
+    request: HealRequest,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
     """
     Suggest connections for a node based on Native Contextual Healing.
     Strategy:
@@ -191,11 +200,15 @@ async def heal_node(request: HealRequest, tenant_id: str = Depends(get_current_u
 
     except Exception as e:
         logger.error(f"Healing failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/nodes/merge")
-async def merge_nodes(request: MergeRequest, tenant_id: str = Depends(get_current_user_tenant_id)):
+async def merge_nodes(
+    request: MergeRequest,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
     """Merge source nodes into target node."""
     success = await platform.neo4j_client.merge_nodes(
         request.target_id, request.source_ids, tenant_id
@@ -208,7 +221,11 @@ async def merge_nodes(request: MergeRequest, tenant_id: str = Depends(get_curren
 
 
 @router.post("/edge")
-async def create_edge(request: EdgeRequest, tenant_id: str = Depends(get_current_user_tenant_id)):
+async def create_edge(
+    request: EdgeRequest,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
     """Create a relationship."""
     query = """
     MATCH (s:Entity {name: $source, tenant_id: $tenant_id})
@@ -231,7 +248,11 @@ async def create_edge(request: EdgeRequest, tenant_id: str = Depends(get_current
 
 
 @router.delete("/edge")
-async def delete_edge(request: EdgeRequest, tenant_id: str = Depends(get_current_user_tenant_id)):
+async def delete_edge(
+    request: EdgeRequest,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
     """Delete a relationship."""
     query = """
     MATCH (s:Entity {name: $source, tenant_id: $tenant_id})-[r]->(t:Entity {name: $target, tenant_id: $tenant_id})
@@ -244,7 +265,11 @@ async def delete_edge(request: EdgeRequest, tenant_id: str = Depends(get_current
 
 
 @router.delete("/node/{node_id}")
-async def delete_node(node_id: str, tenant_id: str = Depends(get_current_user_tenant_id)):
+async def delete_node(
+    node_id: str,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
     """Delete a node and its relationships."""
     query = """
     MATCH (n:Entity {name: $node_id, tenant_id: $tenant_id})

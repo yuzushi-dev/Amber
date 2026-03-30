@@ -15,13 +15,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.deps import get_current_tenant_id, verify_admin
+from src.api.deps import get_current_tenant_id, verify_super_admin
 
 logger = logging.getLogger(__name__)
 
 # Fix: Protect maintenance routes with admin check
 router = APIRouter(
-    prefix="/maintenance", tags=["admin-maintenance"], dependencies=[Depends(verify_admin)]
+    prefix="/maintenance", tags=["admin-maintenance"], dependencies=[Depends(verify_super_admin)]
 )
 
 
@@ -218,7 +218,7 @@ async def get_query_metrics(limit: int = 100, tenant_id: str | None = None):
 
     except Exception as e:
         logger.error(f"Failed to get query metrics: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get query metrics: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/stats", response_model=SystemStats)
@@ -242,7 +242,7 @@ async def get_system_stats(tenant_id: str = Depends(get_current_tenant_id)):
 
     except Exception as e:
         logger.error(f"Failed to get system stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/cache/clear", response_model=MaintenanceResult)
@@ -291,7 +291,7 @@ async def clear_cache(pattern: str | None = None):
         raise HTTPException(status_code=500, detail="Redis not available") from e
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/prune/orphans", response_model=MaintenanceResult)
@@ -354,7 +354,7 @@ async def prune_orphans():
 
     except Exception as e:
         logger.error(f"Failed to prune orphans: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to prune orphans: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/prune/stale-communities", response_model=MaintenanceResult)
@@ -385,7 +385,7 @@ async def prune_stale_communities(max_age_days: int = 30):
 
     except Exception as e:
         logger.error(f"Failed to prune stale communities: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to prune: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/reconciliation", response_model=ReconciliationStatus)
@@ -411,7 +411,7 @@ async def get_reconciliation_status():
 
     except Exception as e:
         logger.error(f"Failed to get reconciliation status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/reindex", response_model=MaintenanceResult)
@@ -442,7 +442,7 @@ async def trigger_reindex(collection: str | None = None):
 
     except Exception as e:
         logger.error(f"Failed to trigger reindex: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to trigger reindex: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 class VectorCollectionInfo(BaseModel):
@@ -559,7 +559,7 @@ async def get_vector_collections():
         raise HTTPException(status_code=500, detail="Milvus client not installed") from e
     except Exception as e:
         logger.error(f"Failed to get vector collections: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get collections: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.delete("/vectors/collections/{collection_name}", response_model=MaintenanceResult)
@@ -613,7 +613,7 @@ async def delete_vector_collection(collection_name: str):
         raise HTTPException(status_code=500, detail="Milvus client not installed") from e
     except Exception as e:
         logger.error(f"Failed to delete collection: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 # =============================================================================
