@@ -169,7 +169,9 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 ### Generation & Quality
 
 #### Multi-Provider LLM Support
-- **OpenAI**, **Anthropic**, **Ollama**: you name it!
+- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus/Haiku
+- **Ollama**: Local LLM support (Llama 3, Mistral, DeepSeek, Phi-3, Qwen, etc.)
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
@@ -229,7 +231,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Stop All Jobs**: Emergency termination of all running tasks
 
 #### Backup & Restore (`/admin/backup`)
-- **Full System Backup**: Complete archive of PostgreSQL (metadata), Neo4j (graph), Milvus (vectors), and MinIO (files)
+- **Full System Backup**: Complete archive of PostgreSQL (metadata), Neo4j (graph), Milvus (vectors), and Garage (files)
 - **User Data Backup**: Lightweight portability scope (Vectors, Graph, Chunks) sans system configs
 - **Point-in-Time Recovery**: Restore capability with "Merge" or "Replace" strategies
 - **Scheduled Backups**: Automated daily/weekly snapshots with retention policies
@@ -348,7 +350,7 @@ Amber follows a microservices architecture designed for scalability, resilience,
 │  └──────────────┘  └──────────────┘  └──────────────┘         │
 │                                                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │    Redis     │  │    MinIO     │  │  etcd (Milvus│         │
+│  │    Redis     │  │    Garage    │  │  etcd (Milvus│         │
 │  │   (Cache &   │  │   (Object    │  │   metadata)  │         │
 │  │    Broker)   │  │   Storage)   │  │              │         │
 │  │              │  │              │  │              │         │
@@ -386,7 +388,7 @@ Amber follows a microservices architecture designed for scalability, resilience,
 |                | Graph            | Neo4j 5 Community         | Property graph with Cypher queries        |
 |                | Vector           | Milvus 2.5+               | Hybrid search (Dense + Sparse)            |
 |                | Cache            | Redis 7                   | In-memory cache & message broker          |
-|                | Object Storage   | MinIO                     | S3-compatible file storage                |
+|                | Object Storage   | Garage (S3-compatible)    | S3-compatible file storage                |
 | **Processing** | Task Queue       | Celery 5.3+               | Distributed async task processing         |
 |                | Broker           | Redis                     | Task queue backend                        |
 |                | Migrations       | Alembic                   | Database schema versioning                |
@@ -544,7 +546,7 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    - `neo4j` - Graph database (ports 7474, 7687)
    - `milvus` - Vector database (port 19530)
    - `redis` - Cache & broker (port 6379)
-   - `minio` - Object storage (ports 9000, 9001)
+   - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
 
    > **Note (v1.1.0+):** nginx owns host ports `:8000` and `:3000`. The API and frontend containers no longer bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
 
@@ -560,9 +562,8 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    - **Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
      - Username: `neo4j`
      - Password: (from `.env` NEO4J_PASSWORD)
-   - **MinIO Console**: [http://localhost:9001](http://localhost:9001)
-     - Username: `minioadmin` (default)
-     - Password: `minioadmin` (default)
+   - **Garage Admin API**: [http://localhost:3903](http://localhost:3903)
+     - Credentials: (from `.env` `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`)
 
 6. **Verify Health**
    ```bash
@@ -810,7 +811,7 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 
 1. **Start Infrastructure**
    ```bash
-   docker compose up -d postgres neo4j milvus redis minio etcd
+   docker compose up -d postgres neo4j milvus redis garage etcd
    ```
 
 2. **Backend**
@@ -921,7 +922,7 @@ The ingestion pipeline transforms raw documents into queryable knowledge represe
 ```
 Document Upload
     ↓
-[1] Storage (MinIO)
+[1] Storage (Garage)
     ↓
 [2] Format Detection & Extraction
     ↓
@@ -944,7 +945,7 @@ Document Ready
 
 **Implementation**: [src/core/ingestion/infrastructure/storage/storage_client.py](src/core/ingestion/infrastructure/storage/storage_client.py)
 
-- Raw documents stored in **MinIO** (S3-compatible object storage)
+- Raw documents stored in **Garage** (S3-compatible object storage)
 - Content-addressed storage using SHA-256 hashing
 - Automatic deduplication at upload time
 - Tenant-isolated buckets: `{tenant_id}/{document_id}/filename`
