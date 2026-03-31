@@ -56,7 +56,7 @@ flowchart TD
 
 ### Agent Orchestrator
 
-**File**: [src/core/agent/orchestrator.py](../src/core/agent/orchestrator.py)
+**File**: [src/core/generation/application/agent/orchestrator.py](../src/core/generation/application/agent/orchestrator.py)
 
 The brain of the system. Implements the ReAct loop:
 
@@ -127,9 +127,13 @@ The system supports two distinct operational modes, controlled via the
 ### Knowledge Agent (Default)
 
 - **Role**: `knowledge`
-- **Tools**: `RetrievalTool`, `GraphTool`
+- **Tools**: `RetrievalTool` (always); `GraphTool` only when `ENABLE_AGENT_GRAPH_TOOL=true`
 - **Use Case**: Safe Q&A over ingested documents and code. No filesystem access.
 - **Security**: Cannot read arbitrary files or execute code.
+
+> **Note:** The graph query tool (`GraphTool`) is **disabled by default**
+> (`ENABLE_AGENT_GRAPH_TOOL=false`). Enable it explicitly when direct Cypher
+> access to the knowledge graph is required.
 
 ### Maintainer Agent
 
@@ -182,7 +186,7 @@ The `RetrievalService` now implements a **Resilient Fallback**:
 2. If so, fetch the missing content from PostgreSQL (`Chunk` table).
 3. Enrich the results before returning to the agent.
 
-**File**: [src/core/services/retrieval.py](../src/core/services/retrieval.py#L576)
+**File**: [src/core/retrieval/application/retrieval_service.py](../src/core/retrieval/application/retrieval_service.py#L576)
 
 ### Observability
 
@@ -218,12 +222,12 @@ answered correctly without any awareness of the recovery.
 
 | Component         | File                                                                |
 | ----------------- | ------------------------------------------------------------------- |
-| Orchestrator      | [src/core/agent/orchestrator.py](../src/core/agent/orchestrator.py) |
-| System Prompts    | [src/core/agent/prompts.py](../src/core/agent/prompts.py)           |
+| Orchestrator      | [src/core/generation/application/agent/orchestrator.py](../src/core/generation/application/agent/orchestrator.py) |
+| System Prompts    | [src/core/generation/application/agent/prompts.py](../src/core/generation/application/agent/prompts.py)           |
 | Retrieval Tool    | [src/core/tools/retrieval.py](../src/core/tools/retrieval.py)       |
 | Graph Tool        | [src/core/tools/graph.py](../src/core/tools/graph.py)               |
 | FileSystem Tools  | [src/core/tools/filesystem.py](../src/core/tools/filesystem.py)     |
-| Retrieval Service | [src/core/services/retrieval.py](../src/core/services/retrieval.py) |
+| Retrieval Service | [src/core/retrieval/application/retrieval_service.py](../src/core/retrieval/application/retrieval_service.py) |
 | Query API         | [src/api/routes/query.py](../src/api/routes/query.py)               |
 | Query Schema      | [src/api/schemas/query.py](../src/api/schemas/query.py)             |
 
