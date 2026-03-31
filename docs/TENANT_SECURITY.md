@@ -26,8 +26,8 @@ Amber implements a **dual-layer authentication and authorization system** that p
 
 | Field        | Value       |
 | ------------ | ----------- |
-| Version      | 1.0.0       |
-| Last Updated | 2026-01-22  |
+| Version      | 1.2.0       |
+| Last Updated | 2026-03-31  |
 | Status       | Implemented |
 
 ## Table of Contents
@@ -39,6 +39,7 @@ Amber implements a **dual-layer authentication and authorization system** that p
 - [Capability Matrix](#capability-matrix)
 - [Implementation Details](#implementation-details)
 - [Privacy & Data Redaction](#privacy--data-redaction)
+- [Security Hardening (v1.1.0)](#security-hardening-v110)
 - [API Integration Guide](#api-integration-guide)
 - [Testing](#testing)
 - [Migration Guide](#migration-guide)
@@ -311,6 +312,123 @@ Tenant Admins can only view feedback-associated chats within their own tenant. T
 2. **Middleware**: `request.state.tenant_id` is always set.
 3. **Query Filters**: Explicit `WHERE tenant_id = :current_tenant` in queries.
 
+## Security Hardening (v1.1.0)
+
+### Database-Layer Row Level Security
+
+Amber enforces tenant isolation at the PostgreSQL level so that even a
+compromised application user cannot read cross-tenant data.
+
+**Application role (`graphrag_app`)** — A non-owner, non-superuser Postgres
+role is created by migration `20260325_1600`. The application connects as this
+role via `APP_DATABASE_URL`. Because the role has `NOBYPASSRLS`, it can never
+skip RLS policies regardless of what SQL it runs.
+
+```sql
+CREATE ROLE graphrag_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+  NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '<from env>';
+```
+
+**FORCE ROW LEVEL SECURITY** is enabled on all 8 tenant-scoped tables so that
+even the table owner cannot bypass policies:
+
+| Table | Policy condition |
+|---|---|
+| `documents` | `tenant_id = app.current_tenant` or `app.is_super_admin = true` |
+| `chunks` | same |
+| `feedbacks` | same |
+| `folders` | same |
+| `audit_logs` | same |
+| `connector_states` | same |
+| `conversation_summaries` | same |
+| `graph_edit_history` | same |
+
+**Session variable injection** — At the start of every request the middleware
+and unit-of-work call:
+
+```sql
+SELECT set_config('app.current_tenant', :tenant_id, false);
+```
+
+This value is read by every RLS policy. Super-admin requests additionally set
+`app.is_super_admin = true`.
+
+---
+
+### Connector Credential Encryption
+
+Connector credentials (API tokens, passwords) are stored encrypted in the
+`connector_states.encrypted_credentials` column. They are never stored in
+plaintext.
+
+**Algorithm**: Fernet (AES-128-CBC + HMAC-SHA256)
+
+**Key derivation**: `SHA-256(SECRET_KEY)` → URL-safe base64 → Fernet key.
+Rotating `SECRET_KEY` in `.env` invalidates all stored tokens; affected
+connectors must re-authenticate.
+
+Implementation: `src/shared/security.py` — `encrypt_credentials()` /
+`decrypt_credentials()`.
+
+---
+
+### Dual-Secret Keyring (Key Rotation)
+
+API key hashes are computed with HMAC-SHA256 using `SECRET_KEY` as the salt.
+To support zero-downtime key rotation a secondary secret is accepted during a
+transition window.
+
+**Environment variables**:
+
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Primary secret; all new hashes use this. |
+| `SECRET_KEY_OLD` | Previous secret; old hashes remain valid until cleared. |
+
+`verify_api_key()` in `src/shared/security.py` tries the primary key first,
+then the secondary, using constant-time comparison throughout.
+
+**Rotation procedure:**
+1. Set `SECRET_KEY_OLD=<current SECRET_KEY>` and `SECRET_KEY=<new value>`.
+2. Redeploy. Existing keys continue working via the old hash.
+3. Re-issue or re-hash keys as needed.
+4. Clear `SECRET_KEY_OLD` once all keys have been rotated.
+
+---
+
+### Fail-Closed Rate Limiting
+
+Both rate-limiting layers default to **fail-closed**: if Redis is unavailable,
+requests are rejected (HTTP 503) rather than allowed through unchecked.
+
+| Limiter | Env var | Default | Fail-closed behaviour |
+|---|---|---|---|
+| Per-key HTTP rate limiter | *(none — always fail-closed)* | `fail_open=False` | Returns 503; Redis outage cannot bypass limiting |
+| LLM capacity limiter | `LLM_CAPACITY_FAIL_OPEN` | `false` | Denies capacity slot; Redis error cannot unlock unbounded LLM calls |
+
+Set `LLM_CAPACITY_FAIL_OPEN=true` only in development environments where Redis
+reliability is not guaranteed. **Never set this in production.**
+
+---
+
+### SSE One-Time-Use Tickets
+
+Server-Sent Events (SSE) connections cannot carry custom headers; passing an
+API key as a URL query parameter would expose it in server logs and browser
+history. Amber instead uses short-lived tickets.
+
+**Flow** (`src/core/auth/application/ticket_service.py`):
+
+1. Client authenticates normally (`X-API-Key` header) and calls
+   `POST /v1/auth/ticket`.
+2. Server generates a `secrets.token_urlsafe(32)` token, stores it in Redis
+   with a **30-second TTL**, and returns it to the client.
+3. Client opens the SSE stream with `?ticket=<token>`.
+4. Middleware calls `GETDEL` on the ticket key — atomic get-and-delete ensures
+   **one-time use**; replaying the ticket within the TTL window is rejected.
+
+The raw API key never appears in a URL.
+
 ## API Integration Guide
 
 ### Request Headers
@@ -365,14 +483,31 @@ curl -X POST https://api.amber.example/v1/chat \
 | `tests/unit/test_security.py`         | API key generation, hashing, verification (12 tests).                 |
 | `tests/unit/test_role_enforcement.py` | `verify_super_admin`, `verify_tenant_admin`, privacy logic (6 tests). |
 
+### v1.1.0 Security Hardening Tests (103 tests)
+
+The v1.1.0 security hardening introduced a dedicated suite covering all new
+layers:
+
+| Test module | Coverage |
+|---|---|
+| `tests/unit/test_rls_policies.py` | RLS policy enforcement per table, super-admin bypass, cross-tenant denial |
+| `tests/unit/test_credential_encryption.py` | Fernet encrypt/decrypt round-trip, key rotation, tamper detection |
+| `tests/unit/test_dual_keyring.py` | Primary/secondary key acceptance, constant-time comparison |
+| `tests/unit/test_rate_limit_fail_closed.py` | Redis-unavailable 503 path, `LLM_CAPACITY_FAIL_OPEN` flag |
+| `tests/unit/test_sse_tickets.py` | Ticket creation, one-time use, 30s TTL expiry, replay rejection |
+
 ### Running Tests
 
 ```bash
-# All security tests
+# Original security tests
 pytest tests/unit/test_security.py tests/unit/test_role_enforcement.py -v
-
-# Expected output:
 # 18 passed
+
+# Full v1.1.0 security suite
+pytest tests/unit/test_rls_policies.py tests/unit/test_credential_encryption.py \
+       tests/unit/test_dual_keyring.py tests/unit/test_rate_limit_fail_closed.py \
+       tests/unit/test_sse_tickets.py -v
+# 103 passed
 ```
 
 ### Test Cases for Role Enforcement
@@ -446,4 +581,3 @@ Authenticated: tenant=my-tenant, key=my-key-name, role=admin, super_admin=False,
 
 - [Amber Tenant Role Model Proposal](../amber_tenant_role_model_proposal.md)
 - [API Endpoints Documentation](./API_ENDPOINTS.md)
-- Implementation Plan (local): `/home/daniele/.gemini/antigravity/brain/b2a04822-ce58-4470-abd6-bd03f3c80919/implementation_plan.md`
