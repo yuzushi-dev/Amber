@@ -169,9 +169,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 ### Generation & Quality
 
 #### Multi-Provider LLM Support
-- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus/Haiku
-- **Ollama**: Local LLM support (Llama 3, Mistral, DeepSeek, Phi-3, Qwen, etc.)
+- **OpenAI**, **Anthropic**, **Ollama**: you name it!
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
