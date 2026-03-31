@@ -33,13 +33,20 @@ configuration.
   by provider
 - **Max Graph Depth**: 2 hops (configurable per query)
 
-## Storage Migration Limits
+## Object Storage Limits (Garage)
 
-- **Cutover Precondition**: Final MinIO->SeaweedFS manifest compare must report
-  `missing_in_dst=0` and `mismatched=0`.
-- **Write Freeze Window**: Stop `api`, `worker`, and `milvus` during final sync
-  to avoid object drift.
-- **Rollback Retention**: Keep MinIO available for at least 7 days (recommended
-  14) after production cutover.
-- **Daily Reconciliation**: Run manifest comparison once per day during rollback
-  window, preferably via `scripts/seaweed_reconcile_tidy.sh`.
+Garage (dxflrs/garage:v1.1.0) is the live S3-compatible object storage.
+
+- **Max Object Size**: Limited by available disk; no hard upper bound in Garage itself.
+- **Backup precondition**: Both `amber2_graphrag-garage-data` and
+  `amber2_graphrag-garage-meta` volumes must be snapshotted together from the
+  same point in time (see `scripts/backup_preflight.sh` Step 9).
+- **Restore precondition**: Restore both volumes together; restoring only one
+  will leave Garage's SQLite metadata out of sync with stored objects.
+
+## Database Connection Pool
+
+- **pool_size**: 20 (SQLAlchemy base pool)
+- **max_overflow**: 20 (additional connections above pool_size)
+- **Max concurrent DB connections**: 40 (pool_size + max_overflow)
+- **Bottleneck**: Shared with all API workers; reduce if running many replicas.
