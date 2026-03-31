@@ -254,19 +254,21 @@ class MyServiceConnector(BaseConnector):
 
 ## Connector State Management
 
-Connector state is stored in the `connector_states` table. In the current
-implementation, `sync_cursor` is also used to persist connector credentials for
-background operations (not encrypted; use a secrets manager in production).
+Connector state is stored in the `connector_states` table. Credentials are
+stored in the dedicated `encrypted_credentials` column using Fernet encryption
+(AES-128-CBC + HMAC-SHA256, key derived from `SECRET_KEY`). `sync_cursor`
+holds only pagination state.
 
-| Field            | Description                          |
-| ---------------- | ------------------------------------ |
-| `id`             | Connector state ID                   |
-| `tenant_id`      | Tenant identifier                    |
-| `connector_type` | Unique identifier (e.g., "carbonio") |
-| `status`         | `idle`, `syncing`, or `error`        |
-| `last_sync_at`   | Timestamp of last successful sync    |
-| `sync_cursor`    | Pagination state + credentials (MVP) |
-| `error_message`  | Last error, if any                   |
+| Field                    | Description                                          |
+| ------------------------ | ---------------------------------------------------- |
+| `id`                     | Connector state ID                                   |
+| `tenant_id`              | Tenant identifier                                    |
+| `connector_type`         | Unique identifier (e.g., "carbonio")                 |
+| `status`                 | `idle`, `syncing`, or `error`                        |
+| `last_sync_at`           | Timestamp of last successful sync                    |
+| `sync_cursor`            | Pagination/incremental sync cursor (no credentials)  |
+| `encrypted_credentials`  | Fernet-encrypted credential dict (set on `/auth`)    |
+| `error_message`          | Last error, if any                                   |
 
 ## UI Integration
 
