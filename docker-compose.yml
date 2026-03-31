@@ -54,7 +54,7 @@ services:
       - DEBUG=${DEBUG:-false}
       - SECRET_KEY=${SECRET_KEY}
       - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
-      - DEV_API_KEY=${DEV_API_KEY:-amber-dev-key-2024}
+      - DEV_API_KEY=${DEV_API_KEY}
       - APP_DATABASE_URL=${APP_DATABASE_URL:-}
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -63,7 +63,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag123}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - MILVUS_HOST=milvus
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -152,7 +152,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag123}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - MILVUS_HOST=milvus
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -240,7 +240,7 @@ services:
       - "5433:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-graphrag}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-graphrag}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB:-graphrag}
     volumes:
       - graphrag-postgres:/var/lib/postgresql/data
@@ -264,7 +264,7 @@ services:
       - "7474:7474" # HTTP
       - "7687:7687" # Bolt
     environment:
-      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-graphrag123}
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
