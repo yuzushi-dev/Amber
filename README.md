@@ -169,8 +169,8 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 ### Generation & Quality
 
 #### Multi-Provider LLM Support
-- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus/Haiku
+- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4.1-mini, GPT-4.1-nano, GPT-4-turbo, o1
+- **Anthropic**: Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
 - **Ollama**: Local LLM support (Llama 3, Mistral, DeepSeek, Phi-3, Qwen, etc.)
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
@@ -416,7 +416,9 @@ Amber's ingestion pipeline moves beyond simple text splitting by employing **str
 *   **Domain-Adaptive Sizing**: Chunk sizes and overlaps are automatically optimized based on document type (defined in `src/core/generation/application/intelligence/strategies.py`):
     *   **General** (Default): 600 tokens / 50 overlap
     *   **Technical** (Code/Manuals): 800 tokens / 50 overlap
-    *   **Scientific/Legal**: 1000 tokens / 100 overlap
+    *   **Financial** (Reports/Tables): 800 tokens / 50 overlap
+    *   **Scientific** (Research Papers): 1000 tokens / 100 overlap
+    *   **Legal** (Contracts/Clauses): 1000 tokens / 100 overlap
     *   **Conversational**: 500 tokens / 100 overlap
 *   **Token-Aware Overlap**: Rather than character-based overlap, tokens from the *end* of the previous chunk are prepended to the next to ensure semantic continuity.
 *   **Chunk Quality Filtering**: Implements a helper "Quality Coloring" system (`ChunkQualityScorer`) that grades every chunk (0-1) based on text density, fragmentation, and OCR artifacts.
@@ -428,9 +430,9 @@ Amber's ingestion pipeline moves beyond simple text splitting by employing **str
 We don't just dump text into Neo4j; we construct a meaningful graph using **Iterative Extraction** and **Community Detection**.
 
 *   **Entity Definition**: Entities are defined via flexible Pydantic models, supporting over 30+ domain-specific types alongside standard named entities.
-    *   **Core Types**: `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, `CONCEPT`, `DOCUMENT`, `DATE`, `MONEY`.
-    *   **Infrastructure Types**: `COMPONENT`, `SERVICE`, `NODE`, `DOMAIN`, `RESOURCE`, `STORAGE_OBJECT`, `BACKUP_OBJECT`.
-    *   **Operational Types**: `ACCOUNT`, `ROLE`, `POLICY`, `TASK`, `PROCEDURE`, `CLI_COMMAND`, `API_OBJECT`, `CERTIFICATE`, `SECURITY_FEATURE`.
+    *   **Core Types**: `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, `CONCEPT`, `DOCUMENT`, `TECHNOLOGY`, `PRODUCT`, `DATE`, `MONEY`, `ARTICLE`.
+    *   **Infrastructure Types**: `COMPONENT`, `SERVICE`, `NODE`, `DOMAIN`, `CLASS_OF_SERVICE`, `RESOURCE`, `QUOTA_OBJECT`, `STORAGE_OBJECT`, `BACKUP_OBJECT`, `ITEM`.
+    *   **Operational Types**: `ACCOUNT`, `ACCOUNT_TYPE`, `ROLE`, `TASK`, `PROCEDURE`, `MIGRATION_PROCEDURE`, `CLI_COMMAND`, `API_OBJECT`, `CONFIG_OPTION`, `CERTIFICATE`, `SECURITY_FEATURE`.
     *   **Schema**: Every extracted entity includes a `name` (capitalized), `type`, `description` (self-contained summary).
     *   **Relationships**: `source`, `target`, `type` (e.g., `DEPENDS_ON`, `PROTECTS`, `RUNS_ON`), and `weight` (1-10 strength score).
 *   **Generation Mechanism (Dynamic Ontology Injection)**:
@@ -454,7 +456,7 @@ Retrieval is handled by a sophisticated orchestration layer that combines determ
 *   **Fusion (Hybrid Search)**: We employ **Reciprocal Rank Fusion (RRF)** to combine results from Milvus (Vector) and Neo4j (Keyword/Graph).
     *   **Milvus Hybrid**: Within Milvus itself, we combine **Dense Vectors** (Semantic) and **Sparse Vectors** (SPLADE/Keyword) to find the most relevant chunks.
     *   **Graph Fusion**: These results are then fused with graph traversals.
-    *   Formula: `score = sum(weight / (k + rank))`
+    *   Formula: `score = Σ(1 / (k + rank + 1))`
     *   This ensures that a document appearing in *both* top-lists is ranked significantly higher than one appearing in only one.
 *   **Drift Search (Agentic)**: Defined in `DriftSearchService` (`src/core/retrieval/application/search/drift_search.py`), this is our most powerful retrieval mode:
     1.  **Primer**: Performs an initial standard retrieval (Top-5) to get a baseline context.
@@ -538,13 +540,15 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
    ```
 
-   This starts 8 services:
+   This starts 10 services:
    - `nginx` - Edge proxy (ports 8000 and 3000 — owns all external traffic)
    - `api` - FastAPI backend (internal; exposed through nginx)
+   - `frontend` - React frontend (internal; served through nginx)
    - `worker` - Celery workers
-   - `postgres` - Metadata database (port 5432)
+   - `postgres` - Metadata database (host port 5433 → container 5432)
    - `neo4j` - Graph database (ports 7474, 7687)
    - `milvus` - Vector database (port 19530)
+   - `etcd` - Milvus metadata store (internal)
    - `redis` - Cache & broker (port 6379)
    - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
 
@@ -1009,7 +1013,7 @@ Level 4: Sentences (.!?)
 **Configuration**:
 ```python
 ChunkingStrategy(
-    chunk_size=512,      # Target tokens per chunk
+    chunk_size=600,      # Target tokens per chunk (General default)
     chunk_overlap=50,    # Overlap tokens for context
 )
 ```
@@ -1175,24 +1179,27 @@ for iteration in range(max_gleaning_steps):  # default: 1
 **Collection Schema**:
 ```python
 # Chunk embeddings collection
-Collection: "amber_{tenant_id}"
+Collection: "amber_{collection_name}"  # per-tenant, prefix "amber_"
 Fields:
   - chunk_id: VARCHAR (primary key)
   - document_id: VARCHAR
-  - embedding: FLOAT_VECTOR(1536)  # text-embedding-3-small
+  - embedding: FLOAT_VECTOR(dims)  # configurable; default 1536 (text-embedding-3-small) or 768 (nomic-embed-text)
+  - sparse_embedding: SPARSE_FLOAT_VECTOR  # SPLADE vectors for hybrid search
   - content: TEXT
   - metadata: JSON
 
-Index: IVF_FLAT
-  - nlist: 1024
-  - metric_type: IP (Inner Product ≈ Cosine for normalized vectors)
+Dense index: HNSW
+  - M: 16, efConstruction: 256
+  - metric_type: COSINE
+Sparse index: SPARSE_INVERTED_INDEX
+  - metric_type: IP
 ```
 
 **Search Parameters**:
 ```python
 search_params = {
-    "metric_type": "IP",
-    "params": {"nprobe": 16}  # Search 16 clusters
+    "metric_type": "COSINE",
+    "params": {"ef": 128}  # HNSW search-time parameter
 }
 
 results = collection.search(
@@ -1761,7 +1768,7 @@ def reciprocal_rank_fusion(
     """
     Fuse multiple ranked lists using RRF.
 
-    RRF Score = Σ(1 / (k + rank_i))
+    RRF Score = Σ(1 / (k + rank_i + 1))
     """
     scores = defaultdict(float)
 
