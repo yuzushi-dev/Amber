@@ -7,7 +7,7 @@
 Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/release-v1.0.0a-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.0.0a)
+[![Release](https://img.shields.io/badge/release-v1.2.0-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-blue.svg)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com)
@@ -16,6 +16,7 @@ Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generatio
 
 ## Table of Contents
 
+- [What's New](#whats-new)
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [System Architecture](#system-architecture)
@@ -30,6 +31,29 @@ Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generatio
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
+
+---
+
+## What's New
+
+### v1.2.0 — Shared GraphRAG (March 2026)
+- **Shared Corpus Architecture**: The `default` tenant acts as the enterprise knowledge base. Tenants inherit shared Acme Mail content without duplication, while tenant-local data remains fully isolated.
+- **Document Sharing & ACL**: Documents owned by `default` can be explicitly shared to specific tenants at upload time or later via the admin UI. Vector retrieval, global search, and graph traversal are all ACL-aware.
+- **Share Management UI**: Bulk share workflows, upload-time visibility selection, audit integration, and observability endpoints for share events.
+- **Runtime Kill Switches**: Operators can disable share management, vector ACL retrieval, and graph ACL retrieval independently without a code deployment.
+
+### v1.1.0 — Security Hardening (March 2026)
+- **DB-Layer Tenant Isolation**: New `graphrag_app` Postgres role (`NOBYPASSRLS`) with `FORCE ROW LEVEL SECURITY` on 8 tenant tables. Celery workers bypass RLS via an explicit super-admin session flag.
+- **Connector Credential Encryption**: OAuth tokens and passwords are encrypted at rest with Fernet (AES-128-CBC derived from `SECRET_KEY`) instead of being stored in plain JSONB.
+- **Dual-Secret Keyring**: Zero-downtime `SECRET_KEY` rotation via `SECRET_KEY_OLD` fallback. SSE auth tickets are now one-time-use via atomic `GETDEL`.
+- **Fail-Closed Operations**: Rate limiter, LLM capacity guard, and per-tenant community refresh throttle all fail-closed (HTTP 503) when Redis is unavailable.
+- **Zero-Downtime Canary Lane**: nginx 1.27 edge proxy owns ports `:8000`/`:3000`; `deploy/cutover.sh` switches traffic between live and canary with automatic smoke-test rollback.
+- **Scope**: 164 API routes audited, 103 security tests written, 81 end-to-end integration tests validated before promotion to live.
+
+### Recent (March 2026)
+- **Document Taxonomy Routing**: Documents are classified at ingestion (`AdminGuide`, `CEGuide`, `UserGuide`, `ZendeskKB`). Retrieval resolves the audience from query text via a deterministic `ProductContextResolver` and applies a 4-stage broadening fallback (strict → edition-only → audience-only → unfiltered).
+- **Global Search Provenance**: Community reports in Global Search are now traced back to their original source documents, enabling complete citation chains for broad-scope answers.
+- **RAG Context & Rules Tooling**: Product-context tagging on documents, improved query-analysis prompts, and per-tenant global rules with admin-UI management.
 
 ---
 
@@ -82,6 +106,13 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Query Routing**: Automatically selects the best search strategy
 - **Structured Query Detection**: Bypasses RAG for simple list/count queries
 
+#### Document Taxonomy & Audience Routing
+- **Automatic Classification**: Documents stamped with a taxonomy label (`AdminGuide`, `CEGuide`, `UserGuide`, `ZendeskKB`) at ingestion time based on folder name and keyword heuristics
+- **Product Context Resolution**: Deterministic `ProductContextResolver` maps CE/admin/user terminology in the query to edition and audience — no LLM call needed
+- **Taxonomy-Aware Retrieval**: Pre-filters the candidate pool by taxonomy before vector/graph search, with a 4-stage broadening fallback (strict → edition-only → audience-only → unfiltered) to guarantee recall
+- **Observability**: Taxonomy routing decisions are recorded in the execution trace and surfaced through the observability admin endpoint
+- **Backfill Script**: `scripts/backfill_document_taxonomy.py` re-classifies existing documents without re-ingestion
+
 ### Advanced Knowledge Graph
 
 #### Entity & Relationship Extraction
@@ -101,6 +132,13 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Maintenance operations**: deduplication, enrichment, summarization
 - **Graph statistics** and health monitoring
 - **Tenant isolation** for multi-tenant deployments
+
+#### Shared GraphRAG & Document ACL
+- **Shared Corpus**: `default` tenant acts as the enterprise knowledge base; other tenants consume shared content without duplication via explicit ACL grants
+- **ACL-Enforced Retrieval**: Vector search, graph traversal, and global search all filter by document-share visibility; non-shared `default` documents are invisible to other tenants
+- **Document Shares API**: Share documents to specific tenants at upload time or via the document library; bulk workflows available in the admin UI
+- **Short-Lived Cache**: Visible shared document ID set is cached in Redis with explicit invalidation on share mutations for low-latency ACL checks
+- **Runtime Kill Switches**: Operators can independently disable share management, vector ACL, or graph ACL without a code deployment
 
 ### Robust Document Processing Pipeline
 
@@ -221,10 +259,17 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 ### Security & Reliability
 
 #### Authentication & Authorization
-- **API Key Management**: SHA-256 hashed keys stored in PostgreSQL
-- **Tenant Isolation**: Complete data separation between tenants
-- **Rate Limiting**: Per-tenant request and upload limits
+- **API Key Management**: SHA-256 hashed keys stored in PostgreSQL; tiered scopes (`user`, `tenant_admin`, `super_admin`)
+- **Tenant Isolation**: Complete data separation; fail-closed 401 when tenant context is absent (no default fallback)
+- **DB-Layer RLS**: `FORCE ROW LEVEL SECURITY` on 8 tenant tables via a dedicated `graphrag_app` Postgres role (`NOBYPASSRLS`); workers use a super-admin session flag to bypass legitimately
+- **Rate Limiting**: Per-tenant request and upload limits — fail-closed (HTTP 503) when Redis is unavailable
 - **Upload Size Limits**: Configurable max file sizes
+
+#### Secret Management & Credential Security
+- **Dual-Secret Keyring**: Zero-downtime `SECRET_KEY` rotation via `SECRET_KEY_OLD` fallback; tokens signed under the old key remain valid during the rotation window
+- **Connector Credential Encryption**: OAuth tokens, passwords, and subdomain strings are encrypted at rest with Fernet (AES-128-CBC, key derived from `SECRET_KEY`) — never stored in plain JSONB
+- **SSE Ticket One-Time Use**: Auth tickets consumed atomically via Redis `GETDEL`; replay within the TTL window is no longer possible
+- **Exception Sanitization**: HTTP 500 responses no longer include DB hostnames, connection strings, or raw exception text
 
 #### Error Handling & Resilience
 - **Circuit Breakers**: Prevent cascade failures
@@ -232,13 +277,16 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Retry Logic**: Automatic retries with exponential backoff
 - **Structured Logging**: JSON logs with request IDs
 - **Health Checks**: Liveness and readiness probes
+- **Fail-Closed Capacity Guard**: LLM capacity limiter fails closed when Redis is absent (`LLM_CAPACITY_FAIL_OPEN=false` default)
 
 #### Observability
 - **Request Tracing**: Request IDs for end-to-end tracking
 - **Timing Metrics**: Detailed latency breakdowns (retrieval, generation, etc.)
 - **Cache Hit Rates**: Monitor cache effectiveness
-- **Query Metrics**: Track input/output tokens, costs, latency breakdowns (retrieval vs generation), and success/error rates per query.
+- **Query Metrics**: Track input/output tokens, costs, latency breakdowns (retrieval vs generation), and success/error rates per query
+- **Taxonomy Routing Metrics**: Per-query taxonomy resolution stage and document pre-filter stats
 - **Event Stream**: Real-time processing events via WebSockets
+- **Audit Trail**: Config changes and curation actions record the actual caller identity in the audit log
 
 ---
 
@@ -490,14 +538,17 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
    ```
 
-   This starts 7 services:
-   - `api` - FastAPI backend (port 8000)
+   This starts 8 services:
+   - `nginx` - Edge proxy (ports 8000 and 3000 — owns all external traffic)
+   - `api` - FastAPI backend (internal; exposed through nginx)
    - `worker` - Celery workers
    - `postgres` - Metadata database (port 5432)
    - `neo4j` - Graph database (ports 7474, 7687)
    - `milvus` - Vector database (port 19530)
    - `redis` - Cache & broker (port 6379)
    - `minio` - Object storage (ports 9000, 9001)
+
+   > **Note (v1.1.0+):** nginx owns host ports `:8000` and `:3000`. The API and frontend containers no longer bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
 
 4. **Run Database Migrations** (Critical!)
    ```bash
@@ -624,6 +675,19 @@ RATE_LIMIT_REQUESTS_PER_MINUTE=60
 RATE_LIMIT_REQUESTS_PER_HOUR=1000
 RATE_LIMIT_QUERIES_PER_MINUTE=20
 RATE_LIMIT_UPLOADS_PER_HOUR=50
+```
+
+#### Security & Isolation (v1.1.0+)
+```ini
+# Application DB role — enforces Row-Level Security (non-superuser)
+# Docker network name required (not localhost); omit to fall back to superuser connection
+APP_DATABASE_URL=postgresql+asyncpg://graphrag_app:<password>@postgres:5432/graphrag
+
+# Secret key rotation — set OLD value during rotation window, then remove after
+SECRET_KEY_OLD=previous-secret-key-here
+
+# LLM capacity guard behaviour (default: fail-closed; set true to allow requests through when Redis is absent)
+LLM_CAPACITY_FAIL_OPEN=false
 ```
 
 ---
@@ -1920,6 +1984,11 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit m
 - [x] Multi-tenant UI
 - [x] Conversation memory
 - [x] Export functionality (Backup & Restore)
+- [x] Enterprise security hardening (DB-layer RLS, credential encryption, fail-closed ops)
+- [x] Shared GraphRAG corpus with ACL-enforced document sharing
+- [x] Document taxonomy-aware retrieval routing
+- [x] Zero-downtime canary deployment lane (nginx edge proxy)
+- [x] Global Search Provenance (citation chain to source documents)
 - [ ] Plugin system
 
 ---
