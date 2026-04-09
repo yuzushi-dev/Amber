@@ -69,7 +69,7 @@ interface DocumentDetail {
 }
 
 export default function DocumentDetailPage() {
-    const { documentId } = useParams({ from: '/admin/data/documents/$documentId' });
+    const { documentId } = useParams({ strict: false });
     const navigate = useNavigate();
     const { tenantId, permissions } = useAuth();
 
