@@ -108,7 +108,7 @@ const clientDocumentsRoute = createRoute({
 
 const clientDocumentDetailRoute = createRoute({
     getParentRoute: () => clientLayoutRoute,
-    path: '/data/documents/',
+    path: '/data/documents/$documentId',
     component: () => <DocumentDetailPage />,
 })
 
