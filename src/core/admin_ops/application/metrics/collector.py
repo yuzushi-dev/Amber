@@ -340,11 +340,30 @@ class MetricsCollector:
             return relevant[:limit]
 
         try:
-            # Use tenant-specific list if provided
-            list_key = f"metrics:queries:{tenant_id}" if tenant_id else "metrics:queries:default"
-
-            # Fetch most recent query IDs
-            query_ids = await client.lrange(list_key, 0, limit - 1)
+            # Collect query IDs from relevant tenant list(s)
+            if tenant_id:
+                # Single tenant: read directly from its list
+                query_ids = await client.lrange(f"metrics:queries:{tenant_id}", 0, limit - 1)
+            else:
+                # All tenants: scan for all metrics:queries:* keys and merge
+                all_ids: list[str] = []
+                cursor = 0
+                while True:
+                    cursor, keys = await client.scan(
+                        cursor, match="metrics:queries:*", count=100
+                    )
+                    for key in keys:
+                        ids = await client.lrange(key, 0, limit - 1)
+                        all_ids.extend(ids)
+                    if cursor == 0:
+                        break
+                # Deduplicate preserving order, then take the most recent `limit`
+                seen: set[str] = set()
+                query_ids = []
+                for qid in all_ids:
+                    if qid not in seen:
+                        seen.add(qid)
+                        query_ids.append(qid)
 
             if not query_ids:
                 return []
@@ -400,7 +419,9 @@ class MetricsCollector:
                         logger.warning(f"Failed to parse metric: {e}")
                         continue
 
-            return results
+            # Sort by timestamp descending (important when merging multiple tenants)
+            results.sort(key=lambda m: m.timestamp, reverse=True)
+            return results[:limit]
 
         except Exception as e:
             logger.error(f"Failed to get recent metrics from Redis: {e}")
