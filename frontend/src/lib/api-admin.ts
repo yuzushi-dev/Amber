@@ -1256,3 +1256,48 @@ export const backupApi = {
         return response.data
     },
 }
+
+
+// =============================================================================
+// Usage Metrics API (cross-tenant, super admin only)
+// =============================================================================
+
+export interface TenantUsageRow {
+    tenant_id: string
+    tenant_name: string | null
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    cost: number
+    call_count: number
+}
+
+export interface UsageTotals {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    cost: number
+    call_count: number
+}
+
+export interface UsageMetricsResponse {
+    tenants: TenantUsageRow[]
+    totals: UsageTotals
+}
+
+export interface UsageMetricsParams {
+    tenant_id?: string
+    start_date?: string   // ISO datetime
+    end_date?: string     // ISO datetime
+    operation?: string    // 'generation' | 'embedding'
+}
+
+export const usageMetricsApi = {
+    getTokenUsage: async (params?: UsageMetricsParams): Promise<UsageMetricsResponse> => {
+        const response = await apiClient.get<UsageMetricsResponse>(
+            '/admin/observability/usage/tokens',
+            { params }
+        )
+        return response.data
+    },
+}
