@@ -345,3 +345,84 @@ async def deep_health_check():
         status_report["neo4j"] = f"error: {str(e)}"
 
     return status_report
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant usage metrics
+# ---------------------------------------------------------------------------
+
+class TenantUsageRowResponse(BaseModel):
+    tenant_id: str
+    tenant_name: str | None = None
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cost: float
+    call_count: int
+
+
+class UsageTotalsResponse(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cost: float
+    call_count: int
+
+
+class UsageMetricsResponse(BaseModel):
+    tenants: list[TenantUsageRowResponse]
+    totals: UsageTotalsResponse
+
+
+@router.get(
+    "/usage/tokens",
+    response_model=UsageMetricsResponse,
+    summary="Get Cross-Tenant Token Usage",
+    description=(
+        "Aggregate LLM token usage and costs from all tenants. "
+        "Super admin only. Supports filtering by tenant, date range, and operation type."
+    ),
+)
+async def get_usage_tokens(
+    tenant_id: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    operation: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+    from src.core.admin_ops.application.usage_metrics_service import (
+        UsageMetricsFilter,
+        UsageMetricsService,
+    )
+
+    service = UsageMetricsService(session)
+    result = await service.get_tenant_aggregates(
+        UsageMetricsFilter(
+            tenant_id=tenant_id,
+            start_date=start_date,
+            end_date=end_date,
+            operation=operation,
+        )
+    )
+
+    return UsageMetricsResponse(
+        tenants=[
+            TenantUsageRowResponse(
+                tenant_id=r.tenant_id,
+                tenant_name=r.tenant_name,
+                input_tokens=r.input_tokens,
+                output_tokens=r.output_tokens,
+                total_tokens=r.total_tokens,
+                cost=r.cost,
+                call_count=r.call_count,
+            )
+            for r in result.tenants
+        ],
+        totals=UsageTotalsResponse(
+            input_tokens=result.totals.input_tokens,
+            output_tokens=result.totals.output_tokens,
+            total_tokens=result.totals.total_tokens,
+            cost=result.totals.cost,
+            call_count=result.totals.call_count,
+        ),
+    )
