@@ -1,42 +1,322 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# backup.sh — Amber2 production backup.
+#
+# Replaces the legacy MinIO-era backup.sh (2026-04-17 audit, P0-5):
+# aligned to the current stack (Garage instead of MinIO, amber2-* container
+# names, Postgres roles from .env, etcd snapshot, Redis BGSAVE).
+#
+# SAFE TO RUN ON PRODUCTION: does not stop or restart containers.
+# All captures are online (pg_dump, BGSAVE, etcdctl snapshot) or crash-
+# consistent volume tars while the service keeps running.
+#
+# Usage:
+#   bash scripts/backup.sh                      # real run, default destination
+#   bash scripts/backup.sh --dry-run            # print plan, write nothing
+#   bash scripts/backup.sh --destination=/opt/backups/amber --retention=7
+#   bash scripts/backup.sh --skip=milvus,uploads
+#   bash scripts/backup.sh --include=postgres,neo4j,garage
+#
+# Run from anywhere; resolves repo root relative to this script.
 
-# Configuration
-BACKUP_DIR="./backups"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-POSTGRES_CONTAINER="graphrag-postgres"
-NEO4J_CONTAINER="graphrag-neo4j"
-MINIO_VOLUME="graphrag-minio"
-UPLOADS_VOLUME="graphrag-uploads"
+set -euo pipefail
+IFS=$'\n\t'
 
-# Create backup directory
-mkdir -p "$BACKUP_DIR/$TIMESTAMP"
+# ── Defaults ──────────────────────────────────────────────────────────────────
+DRY_RUN=false
+DESTINATION="/opt/backups/amber"
+RETENTION=7
+SKIP_COMPONENTS=""
+INCLUDE_COMPONENTS=""
+MIN_FREE_GB=10
 
-echo "Starting backup at $TIMESTAMP..."
+usage() {
+    sed -n '2,25p' "$0"
+    exit "${1:-0}"
+}
 
-# 1. Postgres Backup (Logical)
-echo "Backing up Postgres..."
-docker exec "$POSTGRES_CONTAINER" pg_dump -U graphrag graphrag > "$BACKUP_DIR/$TIMESTAMP/postgres.sql"
+# ── Arg parsing ───────────────────────────────────────────────────────────────
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run)            DRY_RUN=true ;;
+        --destination=*)      DESTINATION="${arg#*=}" ;;
+        --retention=*)        RETENTION="${arg#*=}" ;;
+        --skip=*)             SKIP_COMPONENTS="${arg#*=}" ;;
+        --include=*)          INCLUDE_COMPONENTS="${arg#*=}" ;;
+        -h|--help)            usage 0 ;;
+        *)                    echo "Unknown arg: $arg"; usage 1 ;;
+    esac
+done
 
-# 2. Neo4j Backup (Logical Cypher Export)
-# Requires APOC to be enabled and configured
-echo "Backing up Neo4j..."
-docker exec "$NEO4J_CONTAINER" cypher-shell -u neo4j -p changeme \
-    "CALL apoc.export.cypher.all(null, {format: 'cypher-shell', stream: true, useOptimizations: {type: 'UNWIND_BATCH', unwindBatchSize: 20}})" > "$BACKUP_DIR/$TIMESTAMP/neo4j.cypher"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="${DESTINATION}/backup_${TIMESTAMP}"
+MANIFEST="${BACKUP_DIR}/MANIFEST.txt"
 
-# 3. MinIO Data (Volume Backup)
-# We use a temporary container to tar the volume content
-echo "Backing up MinIO volume..."
-docker run --rm \
-    -v "$MINIO_VOLUME":/data \
-    -v "$(pwd)/$BACKUP_DIR/$TIMESTAMP":/backup \
-    alpine tar czf /backup/minio_data.tar.gz -C /data .
+ALL_COMPONENTS=(postgres neo4j redis milvus etcd garage uploads config)
 
-# 4. Uploads (Volume Backup)
-echo "Backing up Uploads volume..."
-docker run --rm \
-    -v "$UPLOADS_VOLUME":/data \
-    -v "$(pwd)/$BACKUP_DIR/$TIMESTAMP":/backup \
-    alpine tar czf /backup/uploads.tar.gz -C /data .
+# ── Logging helpers (mirror backup_preflight.sh style) ────────────────────────
+if "${DRY_RUN}"; then
+    log()  { echo "[DRY-RUN $(date +%T)] $*"; }
+    run()  { echo "[DRY-RUN] WOULD RUN: $*"; }
+    fail() { echo "[DRY-RUN FAIL] $*" >&2; exit 1; }
+else
+    log()  { echo "[$(date +%T)] $*" | tee -a "${MANIFEST}" >/dev/null 2>&1 || echo "[$(date +%T)] $*"; }
+    run()  { "$@"; }
+    fail() {
+        echo "[$(date +%T)] FAIL: $*" >&2
+        touch "${BACKUP_DIR}/FAILED" 2>/dev/null || true
+        exit 1
+    }
+fi
 
-echo "Backup completed successfully at $BACKUP_DIR/$TIMESTAMP"
+# Component selection helper.
+want() {
+    local c="$1"
+    if [ -n "${INCLUDE_COMPONENTS}" ]; then
+        [[ ",${INCLUDE_COMPONENTS}," == *",${c},"* ]]
+        return
+    fi
+    [[ ",${SKIP_COMPONENTS}," != *",${c},"* ]]
+}
+
+# ── Preflight ─────────────────────────────────────────────────────────────────
+log "============================================================"
+log "Amber2 backup — ${TIMESTAMP}"
+log "Repo root:    ${REPO_ROOT}"
+log "Destination:  ${BACKUP_DIR}"
+log "Retention:    ${RETENTION} (0 = keep all)"
+log "Dry run:      ${DRY_RUN}"
+log "============================================================"
+
+# Check required tools.
+for tool in docker tar gzip sha256sum; do
+    command -v "$tool" >/dev/null 2>&1 || fail "Missing required tool: $tool"
+done
+
+# Check free space on destination filesystem (on real run).
+if ! "${DRY_RUN}"; then
+    parent="${DESTINATION}"
+    while [ ! -d "$parent" ] && [ "$parent" != "/" ]; do parent="$(dirname "$parent")"; done
+    avail_gb=$(df -BG "$parent" | awk 'NR==2 { gsub("G","",$4); print $4 }')
+    if [ "${avail_gb:-0}" -lt "${MIN_FREE_GB}" ]; then
+        fail "Only ${avail_gb}GB free on $(df -h "$parent" | awk 'NR==2{print $6}'); need >= ${MIN_FREE_GB}GB"
+    fi
+    log "Available space on ${parent}: ${avail_gb}GB"
+fi
+
+# Check containers are running (required for logical dumps).
+REQUIRED_CONTAINERS=(amber2-postgres-1 amber2-neo4j-1 amber2-redis-1 amber2-etcd-1 amber2-milvus-1 amber2-garage-1)
+for c in "${REQUIRED_CONTAINERS[@]}"; do
+    if docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null | grep -q true; then
+        log "Container ${c}: running"
+    else
+        fail "Container ${c} is not running"
+    fi
+done
+
+# Load .env for credentials (Neo4j password especially).
+if [ -f "${REPO_ROOT}/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${REPO_ROOT}/.env"
+    set +a
+    log ".env loaded"
+else
+    fail ".env not found at ${REPO_ROOT}/.env"
+fi
+
+: "${POSTGRES_USER:=graphrag}"
+: "${POSTGRES_DB:=graphrag}"
+: "${NEO4J_USER:=neo4j}"
+: "${NEO4J_PASSWORD:?NEO4J_PASSWORD missing in .env}"
+
+# Create backup directory (real run only).
+if ! "${DRY_RUN}"; then
+    mkdir -p "${BACKUP_DIR}"
+    : > "${MANIFEST}"
+    log "Created ${BACKUP_DIR}"
+fi
+
+# Helper: tar a named volume read-only via an ephemeral alpine container.
+tar_volume() {
+    local vol="$1" out="$2"
+    log "  tar volume ${vol} → ${out}"
+    run docker run --rm \
+        -v "${vol}:/src:ro" \
+        -v "${BACKUP_DIR}:/dst" \
+        alpine sh -c "tar czf /dst/$(basename "$out") -C /src ."
+}
+
+# Helper: record checksum for a produced file.
+checksum() {
+    local f="$1"
+    if ! "${DRY_RUN}" && [ -f "$f" ]; then
+        (cd "$(dirname "$f")" && sha256sum "$(basename "$f")") >> "${BACKUP_DIR}/SHA256SUMS"
+    fi
+}
+
+# ── Components ────────────────────────────────────────────────────────────────
+
+# 1) Postgres — logical dump, custom format (compressed).
+if want postgres; then
+    log ""
+    log "--- [1/8] Postgres"
+    out="${BACKUP_DIR}/postgres.dump"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: docker exec amber2-postgres-1 pg_dump -Fc -U ${POSTGRES_USER} ${POSTGRES_DB} > ${out}"
+    else
+        docker exec amber2-postgres-1 pg_dump -Fc -U "${POSTGRES_USER}" "${POSTGRES_DB}" > "${out}"
+        checksum "${out}"
+        log "  size: $(du -h "${out}" | cut -f1)"
+    fi
+fi
+
+# 2) Neo4j — APOC cypher export; falls back to volume tar if APOC refuses.
+if want neo4j; then
+    log ""
+    log "--- [2/8] Neo4j"
+    out="${BACKUP_DIR}/neo4j.cypher"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: docker exec amber2-neo4j-1 cypher-shell -u ${NEO4J_USER} 'CALL apoc.export.cypher.all(...)' > ${out}"
+        log "  WOULD FALLBACK: tar_volume amber2_graphrag-neo4j ${out%.cypher}.tar.gz"
+    else
+        if docker exec amber2-neo4j-1 cypher-shell -u "${NEO4J_USER}" -p "${NEO4J_PASSWORD}" \
+            "CALL apoc.export.cypher.all(null, {format:'cypher-shell', stream:true, useOptimizations:{type:'UNWIND_BATCH', unwindBatchSize:20}}) YIELD cypherStatements RETURN cypherStatements" \
+            > "${out}" 2>/dev/null && [ -s "${out}" ]; then
+            checksum "${out}"
+            log "  APOC export OK, size: $(du -h "${out}" | cut -f1)"
+        else
+            log "  APOC export unavailable; falling back to volume tar"
+            rm -f "${out}"
+            tar_volume amber2_graphrag-neo4j "${BACKUP_DIR}/neo4j.tar.gz"
+            checksum "${BACKUP_DIR}/neo4j.tar.gz"
+        fi
+    fi
+fi
+
+# 3) Redis — trigger BGSAVE, wait for completion, then volume tar.
+if want redis; then
+    log ""
+    log "--- [3/8] Redis"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: docker exec amber2-redis-1 redis-cli BGSAVE && wait LASTSAVE"
+        log "  WOULD RUN: tar_volume amber2_graphrag-redis redis.tar.gz"
+    else
+        last_before=$(docker exec amber2-redis-1 redis-cli LASTSAVE)
+        docker exec amber2-redis-1 redis-cli BGSAVE >/dev/null
+        # Poll LASTSAVE for up to 60s.
+        for _ in $(seq 1 60); do
+            sleep 1
+            last_after=$(docker exec amber2-redis-1 redis-cli LASTSAVE)
+            [ "${last_after}" != "${last_before}" ] && break
+        done
+        tar_volume amber2_graphrag-redis "${BACKUP_DIR}/redis.tar.gz"
+        checksum "${BACKUP_DIR}/redis.tar.gz"
+    fi
+fi
+
+# 4) Milvus — volume tar (Milvus has no simple logical export for the whole cluster).
+if want milvus; then
+    log ""
+    log "--- [4/8] Milvus"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: tar_volume amber2_graphrag-milvus milvus.tar.gz"
+    else
+        tar_volume amber2_graphrag-milvus "${BACKUP_DIR}/milvus.tar.gz"
+        checksum "${BACKUP_DIR}/milvus.tar.gz"
+    fi
+fi
+
+# 5) Etcd — hot snapshot (preserves Milvus metadata coherency on restore).
+if want etcd; then
+    log ""
+    log "--- [5/8] Etcd"
+    snap="/tmp/etcd_${TIMESTAMP}.snap"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: docker exec amber2-etcd-1 etcdctl snapshot save ${snap}"
+    else
+        docker exec amber2-etcd-1 etcdctl snapshot save "${snap}" >/dev/null
+        docker cp "amber2-etcd-1:${snap}" "${BACKUP_DIR}/etcd.snap"
+        docker exec amber2-etcd-1 rm -f "${snap}"
+        checksum "${BACKUP_DIR}/etcd.snap"
+        log "  size: $(du -h "${BACKUP_DIR}/etcd.snap" | cut -f1)"
+    fi
+fi
+
+# 6) Garage — tar the data and meta volumes.
+if want garage; then
+    log ""
+    log "--- [6/8] Garage"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: tar_volume amber2_graphrag-garage-data garage-data.tar.gz"
+        log "  WOULD RUN: tar_volume amber2_graphrag-garage-meta garage-meta.tar.gz"
+    else
+        tar_volume amber2_graphrag-garage-data "${BACKUP_DIR}/garage-data.tar.gz"
+        tar_volume amber2_graphrag-garage-meta "${BACKUP_DIR}/garage-meta.tar.gz"
+        checksum "${BACKUP_DIR}/garage-data.tar.gz"
+        checksum "${BACKUP_DIR}/garage-meta.tar.gz"
+    fi
+fi
+
+# 7) Uploads — legacy volume, retained for older document refs.
+if want uploads; then
+    log ""
+    log "--- [7/8] Uploads"
+    if "${DRY_RUN}"; then
+        log "  WOULD RUN: tar_volume amber2_graphrag-uploads uploads.tar.gz"
+    else
+        tar_volume amber2_graphrag-uploads "${BACKUP_DIR}/uploads.tar.gz"
+        checksum "${BACKUP_DIR}/uploads.tar.gz"
+    fi
+fi
+
+# 8) Config snapshots and manifests.
+if want config; then
+    log ""
+    log "--- [8/8] Config + manifests"
+    if "${DRY_RUN}"; then
+        log "  WOULD COPY: .env, docker-compose.yml, docker-compose.prod.yml, config/settings.yaml, docker/garage/garage.toml"
+        log "  WOULD WRITE: git.txt, containers.txt, images.txt, volumes.txt"
+    else
+        mkdir -p "${BACKUP_DIR}/config"
+        for f in .env docker-compose.yml docker-compose.prod.yml config/settings.yaml docker/garage/garage.toml; do
+            if [ -f "${REPO_ROOT}/${f}" ]; then
+                cp "${REPO_ROOT}/${f}" "${BACKUP_DIR}/config/$(basename "$f").snapshot"
+            fi
+        done
+        (cd "${REPO_ROOT}" && git rev-parse HEAD 2>/dev/null;  git status --short 2>/dev/null;  git log -5 --oneline 2>/dev/null) \
+            > "${BACKUP_DIR}/git.txt" || true
+        docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' > "${BACKUP_DIR}/containers.txt"
+        docker image ls > "${BACKUP_DIR}/images.txt"
+        docker volume ls > "${BACKUP_DIR}/volumes.txt"
+    fi
+fi
+
+# ── Retention — delete old backups beyond RETENTION count ─────────────────────
+if ! "${DRY_RUN}" && [ "${RETENTION}" -gt 0 ]; then
+    log ""
+    log "--- Retention (keep newest ${RETENTION})"
+    count=$(find "${DESTINATION}" -maxdepth 1 -type d -name 'backup_*' | wc -l)
+    if [ "${count}" -gt "${RETENTION}" ]; then
+        find "${DESTINATION}" -maxdepth 1 -type d -name 'backup_*' -printf '%T@ %p\n' \
+            | sort -n \
+            | head -n $((count - RETENTION)) \
+            | awk '{print $2}' \
+            | while read -r d; do
+                log "  deleting ${d}"
+                rm -rf "${d}"
+            done
+    fi
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+log ""
+log "============================================================"
+if "${DRY_RUN}"; then
+    log "DRY-RUN complete. No files written."
+else
+    total_size=$(du -sh "${BACKUP_DIR}" | cut -f1)
+    log "Backup complete at ${BACKUP_DIR} (${total_size})"
+fi
+log "============================================================"
