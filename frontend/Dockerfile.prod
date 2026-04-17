@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1.6
+# Production frontend build: static assets served by nginx.
+# Replaces the Vite dev server that docker-compose.yml mounts for development.
+
+ARG NODE_VERSION=20-alpine
+ARG NGINX_VERSION=1.27-alpine
+
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION} AS build
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+
+# API target is handled at runtime by the edge nginx (amber2-nginx-1),
+# so the built bundle only needs relative paths.
+ARG VITE_API_TARGET=/
+ENV VITE_API_TARGET=${VITE_API_TARGET}
+
+RUN npm run build
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM nginx:${NGINX_VERSION} AS runtime
+
+# Replace the distro default with our SPA-aware config.
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx.prod.conf /etc/nginx/conf.d/default.conf
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 3000
+
+# nginx image already sets CMD ["nginx", "-g", "daemon off;"]; no override needed.
