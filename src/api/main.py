@@ -108,6 +108,22 @@ async def lifespan(app: FastAPI):
 
         configure_security(settings.secret_key, secondary_key=settings.secret_key_old)
         logger.info("Security module configured")
+
+        # Guardrail: refuse to accept known non-entropic dev defaults as the
+        # rotation-fallback secret in production. These values defeat the
+        # purpose of the dual-key keyring and leave legacy hashes forgeable.
+        _DEV_SECRETS = {"amber-dev-key-2024", "default-insecure-key"}
+        if (
+            not settings.debug
+            and settings.secret_key_old
+            and settings.secret_key_old in _DEV_SECRETS
+        ):
+            logger.warning(
+                "SECRET_KEY_OLD is set to a known dev default (%s). "
+                "Complete the rotation and unset SECRET_KEY_OLD, or replace "
+                "it with the actual previous secret being retired.",
+                settings.secret_key_old[:12] + "…",
+            )
     except Exception as e:
         logger.error(f"Failed to configure security: {e}")
 
@@ -397,7 +413,19 @@ app = FastAPI(
 # =============================================================================
 
 # CORS middleware (outermost)
-cors_origins = settings.cors_origins or ["*"]
+# Fallback to permissive "*" is allowed only in debug mode. In production
+# (DEBUG=false) a missing CORS_ORIGINS configuration is a misconfiguration
+# and we refuse to boot with a wildcard origin.
+if settings.cors_origins:
+    cors_origins = settings.cors_origins
+elif settings.debug:
+    cors_origins = ["*"]
+    logger.warning("CORS_ORIGINS unset; defaulting to '*' (debug mode only)")
+else:
+    raise RuntimeError(
+        "CORS_ORIGINS is required when DEBUG=false. Set it in .env to the "
+        "comma-separated list of allowed origins (e.g. https://amber.example.com)."
+    )
 allow_credentials = "*" not in cors_origins
 app.add_middleware(
     CORSMiddleware,
