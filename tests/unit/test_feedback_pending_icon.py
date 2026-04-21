@@ -10,6 +10,12 @@ import pytest
 from src.core.admin_ops.domain.feedback import Feedback
 
 
+def _make_request(is_super_admin: bool = False):
+    req = MagicMock()
+    req.state.is_super_admin = is_super_admin
+    return req
+
+
 @pytest.mark.asyncio
 async def test_pending_feedback_includes_is_positive():
     """Each item in the pending feedback list must expose is_positive."""
@@ -42,7 +48,7 @@ async def test_pending_feedback_includes_is_positive():
     mock_db.execute.return_value = mock_result
 
     with patch("src.api.routes.admin.feedback.get_current_tenant", return_value="t1"):
-        response = await get_pending_feedback(skip=0, limit=50, db=mock_db)
+        response = await get_pending_feedback(request=_make_request(), skip=0, limit=50, db=mock_db)
 
     items = response.data
     assert len(items) == 2
@@ -75,7 +81,7 @@ async def test_pending_feedback_positive_and_negative_both_appear():
     mock_db.execute.return_value = mock_result
 
     with patch("src.api.routes.admin.feedback.get_current_tenant", return_value="t1"):
-        response = await get_pending_feedback(skip=0, limit=50, db=mock_db)
+        response = await get_pending_feedback(request=_make_request(), skip=0, limit=50, db=mock_db)
 
     items = response.data
     positives = [i for i in items if i.get("is_positive") is True]
