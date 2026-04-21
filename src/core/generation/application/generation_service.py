@@ -299,19 +299,14 @@ class GenerationService:
                 # But simple sequential await is fine for now
                 from src.core.generation.application.memory.manager import memory_manager
 
-                # 1. Facts
+                # Long-term user facts only — cross-session summaries are intentionally
+                # excluded to prevent context bleed across separate conversations (ZTD-1820).
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 formatted_facts = "\n".join([f"- {f.content}" for f in facts])
-
-                # 2. Summaries
-                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
 
                 parts = []
                 if formatted_facts:
                     parts.append(f"USER FACTS:\n{formatted_facts}")
-                if formatted_summaries:
-                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
 
                 memory_context = "\n\n".join(parts)
             except Exception as e:
@@ -542,24 +537,14 @@ class GenerationService:
             try:
                 from src.core.generation.application.memory.manager import memory_manager
 
-                # Retrieve facts and summaries
+                # Long-term user facts only — cross-session summaries excluded (ZTD-1820).
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
-
-                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                logger.debug(
-                    f"Generation - Retrieved {len(summaries)} summaries for user {user_id}"
-                )
 
                 parts = []
                 if facts:
                     formatted_facts = "\n".join([f"- {f.content}" for f in facts])
                     parts.append(f"USER FACTS:\n{formatted_facts}")
-                if summaries:
-                    formatted_summaries = "\n".join(
-                        [f"- {s.title}: {s.summary}" for s in summaries]
-                    )
-                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
 
                 memory_context = "\n\n".join(parts)
                 if memory_context:
