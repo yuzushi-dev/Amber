@@ -19,7 +19,7 @@ import {
     CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { FormatDate } from '@/components/ui/date-format'
-import { ThumbsUp, Check, X, Download, Loader2, MessageSquare, ChevronDown, Trash2, BookOpen } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Check, X, Download, Loader2, MessageSquare, ChevronDown, Trash2, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
@@ -181,8 +181,15 @@ export default function FeedbackPage() {
                                         {item.query || "No query text"}
                                     </h4>
                                 </div>
-                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
-                                    <ThumbsUp className="w-3 h-3" />
+                                <span className={cn(
+                                    "flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full ring-1",
+                                    item.is_positive
+                                        ? "bg-primary/10 text-primary ring-primary/20"
+                                        : "bg-destructive/10 text-destructive ring-destructive/20"
+                                )}>
+                                    {item.is_positive
+                                        ? <ThumbsUp className="w-3 h-3" />
+                                        : <ThumbsDown className="w-3 h-3" />}
                                 </span>
                             </div>
 
