@@ -76,6 +76,7 @@ async def get_pending_feedback(skip: int = 0, limit: int = 50, db: AsyncSession 
             {
                 "id": feedback.id,
                 "request_id": feedback.request_id,
+                "is_positive": feedback.is_positive,
                 "comment": feedback.comment,
                 "created_at": feedback.created_at,
                 "score": feedback.score,
