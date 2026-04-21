@@ -33,6 +33,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
+import { DocumentViewer } from '../components/DocumentViewer'
+
 // Import existing tabs to reuse as modal content
 import ChunksTab from '../components/DocumentTabs/ChunksTab';
 import EntitiesTab from '../components/DocumentTabs/EntitiesTab';
@@ -164,6 +166,10 @@ export default function DocumentDetailPage() {
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    <DocumentViewer
+                        documentId={documentId}
+                        filename={document.title || document.filename}
+                    />
                     {canManageShares && isDefaultOwnedDocument && (
                         <Button
                             variant="outline"
