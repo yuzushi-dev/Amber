@@ -7,6 +7,7 @@ Endpoints for capturing user feedback on RAG responses.
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -83,17 +84,56 @@ async def create_feedback(
         )
 
     try:
-        feedback = Feedback(
-            tenant_id=tenant_id,
-            request_id=data.request_id,
-            is_positive=data.is_positive,
-            score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
-            comment=data.comment,
-            correction=data.correction,
-            metadata_json=data.metadata,
-            golden_status="PENDING",
+        from sqlalchemy import select
+
+        # Look for an existing PENDING/NONE record for this (request_id, tenant_id).
+        # VERIFIED and REJECTED records are never modified.
+        existing_stmt = select(Feedback).where(
+            Feedback.request_id == data.request_id,
+            Feedback.tenant_id == tenant_id,
+            Feedback.golden_status.in_(["NONE", "PENDING"]),
         )
-        db.add(feedback)
+        existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+
+        # existing is only a PENDING/NONE record (VERIFIED/REJECTED excluded by query)
+        if existing is not None and existing.is_positive == data.is_positive:
+            # Same polarity: update in place
+            existing.comment = data.comment
+            existing.correction = data.correction
+            existing.score = data.score if data.score is not None else existing.score
+            if data.metadata:
+                existing.metadata_json = {**(existing.metadata_json or {}), **data.metadata}
+            feedback = existing
+        elif existing is not None:
+            # Polarity flip: remove old PENDING/NONE record, create fresh PENDING
+            await db.delete(existing)
+            feedback = Feedback(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                request_id=data.request_id,
+                is_positive=data.is_positive,
+                score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
+                comment=data.comment,
+                correction=data.correction,
+                metadata_json=data.metadata,
+                golden_status="PENDING",
+            )
+            db.add(feedback)
+        else:
+            # No editable record (none exists or only VERIFIED/REJECTED): create new PENDING
+            feedback = Feedback(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                request_id=data.request_id,
+                is_positive=data.is_positive,
+                score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
+                comment=data.comment,
+                correction=data.correction,
+                metadata_json=data.metadata,
+                golden_status="PENDING",
+            )
+            db.add(feedback)
+
         await db.commit()
         await db.refresh(feedback)
 
