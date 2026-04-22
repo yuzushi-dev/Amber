@@ -122,7 +122,7 @@ export const FeedbackButtons = ({
                             submitted === 1 && "text-primary bg-primary/10"
                         )}
                         onClick={handleThumbsUp}
-                        disabled={loading || submitted !== null}
+                        disabled={loading}
                         title="Helpful"
                     >
                         {loading && submitted === 1 ? (
@@ -142,7 +142,7 @@ export const FeedbackButtons = ({
                             submitted === -1 && "text-destructive bg-destructive/10"
                         )}
                         onClick={handleThumbsDown}
-                        disabled={loading || submitted !== null}
+                        disabled={loading}
                         title="Not Helpful"
                     >
                         {loading && submitted === -1 ? (

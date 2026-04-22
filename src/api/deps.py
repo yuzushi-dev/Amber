@@ -47,11 +47,15 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
             from src.shared.context import get_current_tenant
 
             tenant_id = get_current_tenant()
-            if tenant_id:
-                await session.execute(
-                    text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
-                    {"tenant_id": str(tenant_id)},
-                )
+            # Always set app.current_tenant, even to an empty string when no
+            # tenant is bound to this request. RLS policies on tenant tables
+            # read this GUC unconditionally (`current_setting('app.current_tenant')`
+            # without missing_ok), so failing to set it raises
+            # `unrecognized configuration parameter` 42704 on the first query.
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+                {"tenant_id": str(tenant_id) if tenant_id else ""},
+            )
 
             # Check for super admin privilege from request state
             permissions = getattr(request.state, "permissions", [])
