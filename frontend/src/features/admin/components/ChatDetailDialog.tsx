@@ -131,6 +131,29 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
                                         )}
                                     </div>
                                 </div>
+
+                                {/* Sources */}
+                                {detail.sources && detail.sources.length > 0 && (
+                                    <div className="space-y-2 mt-6">
+                                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                            <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                                            <span>Sources</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {detail.sources.map((source, idx) => (
+                                                <div key={idx} className="bg-muted/20 p-3 rounded-lg border border-border/50 text-xs">
+                                                    <div className="font-semibold mb-1 flex items-center justify-between">
+                                                        <span>{source.title || `Source ${idx + 1}`}</span>
+                                                        {source.index && <Badge variant="secondary" className="text-[10px] h-4 leading-tight">[{source.index}]</Badge>}
+                                                    </div>
+                                                    <div className="text-muted-foreground line-clamp-2">
+                                                        {source.content_preview || source.text}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </ScrollArea>
                     ) : (
