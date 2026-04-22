@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { X, FileText, ExternalLink, Sparkles, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence, type Variants } from 'framer-motion'
 
 export default function CitationExplorer() {
@@ -20,6 +20,7 @@ export default function CitationExplorer() {
     } = useCitationStore()
 
     const listRef = useRef<HTMLDivElement>(null)
+    const scrollContainerRef = useRef<HTMLDivElement>(null)
 
     const rawCitations = useMemo(() =>
         activeMessageId ? citations.get(activeMessageId) || [] : [],
@@ -32,23 +33,35 @@ export default function CitationExplorer() {
         [rawCitations]
     )
 
-    // Scroll to selected citation
+    // Scroll to selected citation — uses manual scroll offset instead of
+    // scrollIntoView to avoid a Chrome/Windows bug where scrollIntoView
+    // scrolls overflow:hidden ancestor containers, pushing cards out of view.
+    const scrollToCard = useCallback((citationId: string) => {
+        const container = scrollContainerRef.current
+        const el = document.getElementById(`citation-card-${citationId}`)
+        if (!container || !el) return
+
+        const containerRect = container.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        const offsetTop = elRect.top - containerRect.top + container.scrollTop
+
+        container.scrollTo({
+            top: Math.max(0, offsetTop - 16),
+            behavior: 'smooth'
+        })
+    }, [])
+
     useEffect(() => {
-        if (selectedCitationId && listRef.current) {
+        if (selectedCitationId) {
             const selectedRawCitation = rawCitations.find(c => c.id === selectedCitationId)
             if (selectedRawCitation) {
                 const targetCitation = activeCitations.find(c => c.value === selectedRawCitation.value)
                 if (targetCitation) {
-                    setTimeout(() => {
-                        const el = document.getElementById(`citation-card-${targetCitation.id}`)
-                        if (el) {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
-                        }
-                    }, 100)
+                    setTimeout(() => scrollToCard(targetCitation.id), 100)
                 }
             }
         }
-    }, [selectedCitationId, rawCitations, activeCitations])
+    }, [selectedCitationId, rawCitations, activeCitations, scrollToCard])
 
     // Framer Motion Variants
     const containerVariants: Variants = {
@@ -93,7 +106,7 @@ export default function CitationExplorer() {
                     animate="visible"
                     exit="exit"
                     variants={containerVariants}
-                    className="h-full flex flex-col bg-background/80 backdrop-blur-xl border-l border-border shadow-2xl z-40 overflow-hidden whitespace-nowrap"
+                    className="h-full flex flex-col bg-background/80 backdrop-blur-xl border-l border-border shadow-2xl z-40 overflow-clip whitespace-nowrap"
                     style={{ willChange: 'width, transform, opacity' }}
                 >
                     <div className="w-[450px] shrink-0 h-full flex flex-col">
@@ -118,7 +131,7 @@ export default function CitationExplorer() {
                             </Button>
                         </header>
 
-                        <ScrollArea className="flex-1 px-2">
+                        <ScrollArea className="flex-1 px-2" ref={scrollContainerRef}>
                             <div className="space-y-4 p-4 pb-20" ref={listRef}>
                                 <AnimatePresence mode="popLayout">
                                     {activeCitations.length === 0 ? (
