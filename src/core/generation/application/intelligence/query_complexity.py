@@ -40,6 +40,7 @@ class ComplexitySignals:
     has_synthesis: bool
     has_all_docs_signal: bool
     has_risk_compliance: bool
+    has_multi_task: bool
     # RAG context signals
     num_distinct_documents: int
     num_chunks: int
@@ -95,6 +96,39 @@ def _matches_any(text: str, keywords: set[str]) -> bool:
     return any(kw in text for kw in keywords)
 
 
+def _has_multi_task(text: str) -> bool:
+    """
+    True when the query contains 3+ distinct sub-tasks.
+
+    Patterns detected:
+    - "for: A, B, C"  /  "for A, B, and C"  (colon-list or enumeration after "for")
+    - "how to X, how to Y, how to Z"  (repeated how-to)
+    - 3+ comma-separated noun phrases after action verbs (configure, enable, set up)
+    """
+    import re
+
+    # Pattern 1: "for: item1, item2, item3" or "for item1, item2, and item3"
+    colon_list = re.search(r"\bfor\s*:\s*[^.?!,]+,\s*[^.?!,]+,", text)
+    if colon_list:
+        return True
+
+    # Pattern 2: action verb + 3+ comma items
+    # "configure X for autoprovisioning, authentication, external GAL"
+    action_list = re.search(
+        r"\b(?:configure|enable|set up|install|setup|integrate|deploy)\b"
+        r"(?:.{1,60}),(?:.{1,60}),",
+        text,
+    )
+    if action_list:
+        return True
+
+    # Pattern 3: three or more "how to" occurrences
+    if len(re.findall(r"\bhow\s+to\b", text)) >= 2:
+        return True
+
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Scoring weights
 # ---------------------------------------------------------------------------
@@ -104,6 +138,7 @@ _W_COMPARISON = 20          # explicit compare/contrast intent
 _W_SYNTHESIS = 25           # planning/development intent
 _W_ALL_DOCS = 20            # "all documents / tutti i documenti"
 _W_RISK = 10                # risk or compliance keywords
+_W_MULTI_TASK = 17          # 3+ sub-tasks in a single query
 
 _W_DOCS_2 = 10              # 2+ distinct docs
 _W_DOCS_3 = 10              # 3+ distinct docs (cumulative)
@@ -183,6 +218,7 @@ def _compute_signals(
     has_synthesis = _matches_any(q, _SYNTHESIS_IT | _SYNTHESIS_EN)
     has_all_docs = _matches_any(q, _ALL_DOCS_IT | _ALL_DOCS_EN)
     has_risk = _matches_any(q, _RISK_IT | _RISK_EN)
+    has_mt = _has_multi_task(q)
 
     num_docs = _count_distinct_documents(candidates)
     num_chunks = len(candidates)
@@ -198,6 +234,8 @@ def _compute_signals(
         score += _W_ALL_DOCS
     if has_risk:
         score += _W_RISK
+    if has_mt:
+        score += _W_MULTI_TASK
 
     if num_docs >= 2:
         score += _W_DOCS_2
@@ -224,6 +262,7 @@ def _compute_signals(
         has_synthesis=has_synthesis,
         has_all_docs_signal=has_all_docs,
         has_risk_compliance=has_risk,
+        has_multi_task=has_mt,
         num_distinct_documents=num_docs,
         num_chunks=num_chunks,
         context_tokens=context_tokens,
