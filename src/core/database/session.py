@@ -132,7 +132,7 @@ async def close_database() -> None:
 
 
 
-async def configure_worker_session(session: AsyncSession) -> None:
+async def configure_worker_session(session: AsyncSession, tenant_id: str = "") -> None:
     """
     Mark a DB session as a privileged worker session.
 
@@ -142,6 +142,10 @@ async def configure_worker_session(session: AsyncSession) -> None:
     """
     await session.execute(
         text("SELECT set_config('app.is_super_admin', 'true', false)")
+    )
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :tid, false)"),
+        {"tid": tenant_id},
     )
 
 def reset_engine() -> None:
