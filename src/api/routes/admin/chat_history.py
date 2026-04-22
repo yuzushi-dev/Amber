@@ -167,11 +167,7 @@ async def list_chat_history(
             response_text = metadata.get("answer")
             model = metadata.get("model", "default")
 
-            # PRIVACY REDACTION: Only show content if conversation has feedback
             has_feedback = conv.id in conversations_with_feedback
-            if not has_feedback:
-                query_text = "[REDACTED - PRIVACY]"
-                response_text = "[REDACTED - PRIVACY]"
 
             # Create preview
             response_preview = None
@@ -179,10 +175,8 @@ async def list_chat_history(
                 response_preview = (
                     response_text[:100] + "..." if len(response_text) > 100 else response_text
                 )
-            elif conv.summary and has_feedback:
+            elif conv.summary:
                 response_preview = conv.summary[:100]
-            elif not has_feedback:
-                response_preview = "[REDACTED - PRIVACY]"
 
             # Get metrics from lookup
             conv_metrics = metrics_by_conv.get(conv.id, {})
@@ -196,7 +190,7 @@ async def list_chat_history(
                 ChatHistoryItem(
                     request_id=conv.id,
                     tenant_id=conv.tenant_id,
-                    query_text=query_text or conv.title if has_feedback else "[REDACTED - PRIVACY]",
+                    query_text=query_text or conv.title,
                     response_preview=response_preview,
                     model=model,
                     provider=provider,
@@ -234,12 +228,10 @@ async def get_conversation_detail(
     request_id: str,
     request: Request,
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """
     Get full details for a specific conversation.
-
-    Privacy Rules:
-    - Query/Response content is REDACTED unless the conversation has user feedback.
     """
     from src.core.generation.domain.memory_models import ConversationSummary
 
@@ -268,11 +260,6 @@ async def get_conversation_detail(
     query_text = metadata.get("query")
     response_text = metadata.get("answer")
     model = metadata.get("model", "default")
-
-    # PRIVACY REDACTION: Only show content if conversation has feedback
-    if not has_feedback:
-        query_text = "[REDACTED - PRIVACY]"
-        response_text = "[REDACTED - PRIVACY]"
 
     return ConversationDetail(
         request_id=conv.id,
