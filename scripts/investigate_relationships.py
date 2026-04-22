@@ -1,8 +1,9 @@
 
 import asyncio
 import logging
-import sys
 import os
+import sys
+
 from dotenv import load_dotenv
 
 sys.path.append(os.getcwd())
@@ -46,7 +47,7 @@ async def investigate_relationships():
     # 3. Check for Orphan Islands (Entities connected ONLY to other Entities, not reachable from valid Chunks)
     # This is expensive to check perfectly, but we can check if they are part of a 'valid' path.
     # Simpler check: Are there relationships where source/target are NOT connected to any Chunk?
-    
+
     # Let's check a sample of these relationships
     query_sample = """
     MATCH (a)-[r]->(b)

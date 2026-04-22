@@ -83,7 +83,7 @@ async def test_generate_uses_tenant_prompt_overrides():
     assert call_args is not None
     kwargs = call_args.kwargs
 
-    assert kwargs.get("system_prompt") == "CUSTOM_SYSTEM_PROMPT"
+    assert kwargs.get("system_prompt").startswith("CUSTOM_SYSTEM_PROMPT")
     assert "CUSTOM_USER_PROMPT" in kwargs.get("prompt")
     assert "Test Query" in kwargs.get("prompt")
 
@@ -142,3 +142,199 @@ async def test_generate_uses_default_prompts_when_no_override():
     # but we can check it's NOT the custom one)
     assert kwargs.get("system_prompt") != "CUSTOM_SYSTEM_PROMPT"
     assert "CUSTOM_USER_PROMPT" not in kwargs.get("prompt")
+
+
+@pytest.mark.asyncio
+async def test_generate_injects_global_rules_into_system_prompt():
+    """Global rules from RulesService must be appended to the system prompt."""
+    # Setup Mocks
+    mock_tenant_repo = AsyncMock(spec=TenantRepository)
+    mock_tenant = MagicMock()
+    mock_tenant.config = {}
+    mock_tenant_repo.get.return_value = mock_tenant
+
+    mock_llm = AsyncMock(spec=LLMProviderPort)
+    mock_llm.model_name = "mock-model"
+    mock_usage = MagicMock()
+    mock_usage.total_tokens = 100
+    mock_usage.input_tokens = 50
+    mock_usage.output_tokens = 50
+    mock_response = MagicMock(
+        content="Mock Response", text="Mock Response", usage=mock_usage, cost_estimate=0.0
+    )
+    mock_llm.generate.return_value = mock_response
+
+    # Mock RulesService
+    mock_rules_service = AsyncMock()
+    mock_rules_service.get_active_rules.return_value = [
+        "If the user does not specify CE or User Guide, treat the question as Admin Carbonio Guide."
+    ]
+    mock_rules_service.build_system_prompt_addendum.return_value = (
+        "\n\n## DOMAIN RULES\n"
+        "The following rules MUST be considered when answering questions:\n"
+        "- If the user does not specify CE or User Guide, treat the question as Admin Carbonio Guide.\n"
+    )
+
+    with (
+        patch(
+            "src.core.generation.application.generation_service.build_provider_factory"
+        ) as mock_build,
+        patch(
+            "src.core.generation.application.generation_service.ContextBuilder"
+        ) as MockContextBuilder,
+        patch(
+            "src.core.admin_ops.application.rules_service.get_rules_service",
+            return_value=mock_rules_service,
+        ),
+    ):
+        mock_factory = MagicMock()
+        mock_build.return_value = mock_factory
+        mock_factory.get_llm_provider.return_value = mock_llm
+
+        service = GenerationService(
+            tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
+        )
+        service.llm = mock_llm
+
+        mock_ctx_builder_instance = MockContextBuilder.return_value
+        mock_context_result = MagicMock()
+        mock_context_result.content = "Mock Context"
+        mock_ctx_builder_instance.build.return_value = mock_context_result
+
+        # Execute
+        await service.generate(
+            query="How to configure mailstore?",
+            candidates=[MagicMock()],
+            options={"tenant_id": "tenant-123"},
+        )
+
+    # Verify: system prompt must contain the DOMAIN RULES section
+    call_args = mock_llm.generate.call_args
+    assert call_args is not None
+    kwargs = call_args.kwargs
+
+    system_prompt = kwargs.get("system_prompt")
+    assert "## DOMAIN RULES" in system_prompt, "Global rules were not injected into system prompt"
+    assert "Admin Carbonio Guide" in system_prompt, "Rule content missing from system prompt"
+
+
+
+
+@pytest.mark.asyncio
+async def test_generate_inherits_default_tenant_prompt_overrides():
+    mock_tenant_repo = AsyncMock(spec=TenantRepository)
+    default_tenant = MagicMock()
+    default_tenant.config = {
+        'rag_system_prompt': 'DEFAULT_SYSTEM_PROMPT',
+        'rag_user_prompt': 'DEFAULT_USER_PROMPT: {query}',
+    }
+    child_tenant = MagicMock()
+    child_tenant.config = {
+        'rag_user_prompt': 'TENANT_USER_PROMPT: {query}',
+    }
+
+    async def _get(tenant_id: str):
+        if tenant_id == 'default':
+            return default_tenant
+        if tenant_id == 'tenant-123':
+            return child_tenant
+        return None
+
+    mock_tenant_repo.get.side_effect = _get
+
+    mock_llm = AsyncMock(spec=LLMProviderPort)
+    mock_llm.model_name = 'mock-model'
+    mock_usage = MagicMock()
+    mock_usage.total_tokens = 100
+    mock_response = MagicMock(
+        content='Mock Response', text='Mock Response', usage=mock_usage, cost_estimate=0.0
+    )
+    mock_llm.generate.return_value = mock_response
+
+    with (
+        patch('src.core.generation.application.generation_service.build_provider_factory') as mock_build,
+        patch('src.core.generation.application.generation_service.ContextBuilder') as MockContextBuilder,
+    ):
+        mock_factory = MagicMock()
+        mock_build.return_value = mock_factory
+        mock_factory.get_llm_provider.return_value = mock_llm
+
+        service = GenerationService(
+            tenant_repository=mock_tenant_repo, default_llm_provider='mock_provider'
+        )
+        service.llm = mock_llm
+
+        mock_ctx_builder_instance = MockContextBuilder.return_value
+        mock_context_result = MagicMock()
+        mock_context_result.content = 'Mock Context'
+        mock_ctx_builder_instance.build.return_value = mock_context_result
+
+        await service.generate(
+            query='Test Query', candidates=[MagicMock()], options={'tenant_id': 'tenant-123'}
+        )
+
+    kwargs = mock_llm.generate.call_args.kwargs
+    assert kwargs.get('system_prompt').startswith('DEFAULT_SYSTEM_PROMPT')
+    assert 'TENANT_USER_PROMPT' in kwargs.get('prompt')
+
+
+@pytest.mark.asyncio
+async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
+    mock_tenant_repo = AsyncMock(spec=TenantRepository)
+    mock_tenant = MagicMock()
+    mock_tenant.config = {
+        'rag_system_prompt': 'CUSTOM_SYSTEM_PROMPT',
+    }
+    mock_tenant_repo.get.return_value = mock_tenant
+
+    mock_llm = AsyncMock(spec=LLMProviderPort)
+    mock_llm.model_name = 'mock-model'
+    mock_usage = MagicMock()
+    mock_usage.total_tokens = 100
+    mock_usage.input_tokens = 50
+    mock_usage.output_tokens = 50
+    mock_response = MagicMock(
+        content='Mock Response', text='Mock Response', usage=mock_usage, cost_estimate=0.0
+    )
+    mock_llm.generate.return_value = mock_response
+
+    mock_rules_service = AsyncMock()
+    mock_rules_service.get_active_rules.return_value = ['Always answer with domain context.']
+    mock_rules_service.build_system_prompt_addendum.return_value = (
+        '\n\n## DOMAIN RULES\n'
+        'The following rules MUST be considered when answering questions:\n'
+        '- Always answer with domain context.\n'
+    )
+
+    with (
+        patch('src.core.generation.application.generation_service.build_provider_factory') as mock_build,
+        patch('src.core.generation.application.generation_service.ContextBuilder') as MockContextBuilder,
+        patch(
+            'src.core.admin_ops.application.rules_service.get_rules_service',
+            return_value=mock_rules_service,
+        ),
+    ):
+        mock_factory = MagicMock()
+        mock_build.return_value = mock_factory
+        mock_factory.get_llm_provider.return_value = mock_llm
+
+        service = GenerationService(
+            tenant_repository=mock_tenant_repo, default_llm_provider='mock_provider'
+        )
+        service.llm = mock_llm
+
+        mock_ctx_builder_instance = MockContextBuilder.return_value
+        mock_context_result = MagicMock()
+        mock_context_result.content = 'Mock Context'
+        mock_ctx_builder_instance.build.return_value = mock_context_result
+
+        await service.generate(
+            query='How to configure mailstore?',
+            candidates=[MagicMock()],
+            options={'tenant_id': 'tenant-123'},
+        )
+
+    system_prompt = mock_llm.generate.call_args.kwargs.get('system_prompt')
+    assert system_prompt.startswith('CUSTOM_SYSTEM_PROMPT')
+    assert '## DOMAIN RULES' in system_prompt
+    assert 'Always answer with domain context.' in system_prompt

@@ -1,9 +1,8 @@
 
 import asyncio
+import logging
 import os
 import sys
-import logging
-from contextlib import asynccontextmanager
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -14,8 +13,8 @@ os.environ["LOG_LEVEL"] = "DEBUG"
 # Configure basic logging to ensuring we see it
 logging.basicConfig(level=logging.DEBUG)
 
-import pytest
 from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 from src.core.database.session import close_database
 
@@ -24,30 +23,31 @@ SUPER_ADMIN_KEY = "amber-dev-key-2024"
 
 async def verify_isolation():
     print("starting tenant isolation verification...")
-    
+
     # 1. Setup Test Client & Lifespan
     transport = ASGITransport(app=app)
-    
+
     # Ensure app startup events run (database config, etc.)
     async with app.router.lifespan_context(app):
         # PATCH: Mock MinIO to avoid local credentials issue
         from unittest.mock import MagicMock
+
         from src.amber_platform.composition_root import platform
-        
+
         mock_minio = MagicMock()
         mock_minio.upload_file.return_value = "documents/mock_file"
         mock_minio.ensure_bucket_exists.return_value = None
         # In case it checks bucket existence
         platform._minio_client = mock_minio
-        
+
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            
+
             # 2. Create Tenants (A and B) with random suffix
             import uuid
             run_id = uuid.uuid4().hex[:6]
-            
+
             print(f"\n[Admin] Creating Tenants (Run ID: {run_id})...")
-            
+
             # Tenant A
             tenant_a_id = f"tenant-a-{run_id}"
             prefix_a = f"a_{run_id}"
@@ -62,7 +62,7 @@ async def verify_isolation():
             )
             assert resp.status_code == 200, f"Failed to create Tenant A: {resp.text}"
             tenant_a_data = resp.json()
-            tenant_a_id = tenant_a_data["id"] 
+            tenant_a_id = tenant_a_data["id"]
             print(f"  - Created Tenant A ({tenant_a_id})")
 
             # Tenant B
@@ -82,7 +82,7 @@ async def verify_isolation():
 
             # 3. Create API Keys and Link them
             print("\n[Admin] Creating API Keys...")
-            
+
             # Key A
             resp = await client.post(
                 "/v1/admin/keys",
@@ -95,7 +95,7 @@ async def verify_isolation():
             key_a_data = resp.json()
             KEY_A = key_a_data.get("key")
             key_a_id = key_a_data.get("id")
-            
+
             # Link Key A to Tenant A
             resp = await client.post(
                 f"/v1/admin/keys/{key_a_id}/tenants",
@@ -144,7 +144,7 @@ async def verify_isolation():
                 f"/v1/documents/{doc_a_id}",
                 headers={"X-API-Key": KEY_B}
             )
-            
+
             if resp.status_code == 404:
                 print("  - SUCCESS: Tenant B got 404 (Document not found)")
             elif resp.status_code == 403:

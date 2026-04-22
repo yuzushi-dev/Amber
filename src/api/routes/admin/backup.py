@@ -9,11 +9,12 @@ import io
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
+from src.api.deps import verify_super_admin
 from src.core.admin_ops.domain.backup_job import (
     BackupJob,
     BackupSchedule,
@@ -26,7 +27,8 @@ from src.core.database import get_session_maker
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/backup", tags=["admin-backup"])
+
+router = APIRouter(prefix="/backup", tags=["admin-backup"], dependencies=[Depends(verify_super_admin)])
 
 
 # ===== Schemas =====

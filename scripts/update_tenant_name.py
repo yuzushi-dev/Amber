@@ -1,14 +1,15 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from src.core.models.api_key import ApiKey
-from src.core.models.tenant import Tenant
-from src.core.database.session import async_session_maker
 from sqlalchemy import select
+
+from src.core.database.session import async_session_maker
+from src.core.models.tenant import Tenant
+
 
 async def main():
     try:
@@ -16,7 +17,7 @@ async def main():
             # Check if default tenant exists
             result = await session.execute(select(Tenant).where(Tenant.id == 'default'))
             tenant = result.scalar_one_or_none()
-            
+
             if tenant:
                 print(f"Updating tenant 'default' name from '{tenant.name}' to 'Global Admin'...")
                 tenant.name = 'Global Admin'
@@ -25,7 +26,7 @@ async def main():
                 print("Tenant 'default' updated successfully.")
             else:
                 print("Tenant 'default' not found. Cannot update.")
-                
+
     except Exception as e:
         print(f"Error: {e}")
         import traceback

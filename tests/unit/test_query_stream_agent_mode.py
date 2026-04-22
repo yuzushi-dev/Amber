@@ -65,6 +65,8 @@ def _build_post_request() -> Request:
     }
     request = Request(scope)
     request.state.tenant_id = "tenant-test"
+    request.state.api_key_name = "test-key"
+    request.state.is_super_admin = True
     return request
 
 
@@ -116,6 +118,10 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
     monkeypatch.setattr(
         "src.core.generation.domain.memory_models.ConversationSummary",
         StubConversationSummary,
+    )
+    monkeypatch.setattr("src.api.config.settings.enable_agent_mode", True, raising=False)
+    monkeypatch.setattr(
+        "src.api.config.settings.enable_maintainer_tools", True, raising=False
     )
 
     request = QueryRequest(

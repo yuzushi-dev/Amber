@@ -1,19 +1,16 @@
 
 import asyncio
 import sys
-import os
 import time
 from pathlib import Path
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.core.services.retrieval import RetrievalService, RetrievalConfig
-from src.core.services.generation import GenerationService
 from src.api.config import settings
-from src.api.schemas.query import QueryRequest, QueryOptions, SearchMode
 from src.api.routes.query import query as query_endpoint
-from fastapi import Request
+from src.api.schemas.query import QueryOptions, QueryRequest
+
 
 # Mock Request
 class MockRequest:
@@ -36,34 +33,34 @@ QUERIES = [
 
 async def run_benchmark():
     print("Initializing Services for Agent Benchmark...")
-    
+
     # We can invoke the endpoint function directly to test the integration
     # Ideally we should spin up the server, but direct invocation is faster for testing logic.
-    
+
     print("\n--- Starting Agent Benchmark ---\n")
-    
+
     results = []
-    
+
     for item in QUERIES:
         q = item["question"]
         print(f"Question ({item['type']}): {q}")
-        
+
         start_time = time.perf_counter()
-        
+
         request = QueryRequest(
             query=q,
             options=QueryOptions(agent_mode=True) # ENABLE AGENT MODE
         )
         http_request = MockRequest(settings.tenant_id)
-        
+
         try:
             response = await query_endpoint(request, http_request)
-            
+
             elapsed = (time.perf_counter() - start_time) * 1000
-            
+
             print(f"Answer: {response.answer[:150]}...")
             print(f"Time: {elapsed:.2f}ms")
-            
+
             # Print Trace steps if any
             if response.trace:
                 for t in response.trace:
@@ -71,14 +68,14 @@ async def run_benchmark():
                     if "tool_call" in t.step:
                          print(f"     Args: {t.details.get('args', '')}")
                          print(f"     Output: {t.details.get('output', '')[:100]}...")
-            
+
         except Exception as e:
             print(f"Error: {e}")
             response = None
             elapsed = 0
 
         print("-" * 50)
-        
+
         results.append({
             "question": q,
             "type": item["type"],
@@ -91,10 +88,10 @@ async def run_benchmark():
         f.write("# Benchmark Results (Agent Phase 1)\n\n")
         f.write("| Type | Question | Latency (ms) | Answer Quality |\n")
         f.write("| :--- | :--- | :--- | :--- |\n")
-        
+
         for r in results:
             f.write(f"| {r['type']} | {r['question']} | {r['latency_ms']:.1f} | {r['answer'].replace(chr(10), ' ')} |\n")
-            
+
     print("\nBenchmark Complete. Results saved to benchmark_results_agent.md")
 
 if __name__ == "__main__":

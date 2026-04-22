@@ -1,19 +1,23 @@
 /**
  * ClientLayout.tsx
  * ================
- * 
+ *
  * A focused, distraction-free layout for the Client persona.
- * Used for /amber/chat – full-screen chat with no sidebar.
- * Maintains visual consistency with the main app theme.
+ * Used for /amber/chat – full-screen chat with history panel toggle.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { History } from 'lucide-react'
+import { ChatHistoryPanel } from '@/features/chat/components/ChatHistoryPanel'
 
 interface ClientLayoutProps {
     children: React.ReactNode
 }
 
 export default function ClientLayout({ children }: ClientLayoutProps) {
+    const [historyOpen, setHistoryOpen] = useState(false)
+
     return (
         <div className="flex flex-col h-screen bg-background">
             <a
@@ -22,10 +26,23 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
             >
                 Skip to content
             </a>
-            {/* Minimal header for branding consistency */}
-            <header className="h-14 border-b bg-card flex items-center px-6 shrink-0">
+
+            {/* Header */}
+            <header className="h-14 border-b bg-card flex items-center px-4 shrink-0 gap-3">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                    onClick={() => setHistoryOpen(true)}
+                    title="Conversation history"
+                >
+                    <History className="h-4 w-4" />
+                </Button>
                 <h1 className="text-lg font-bold tracking-tight text-primary">Amber</h1>
             </header>
+
+            {/* History slide-in panel */}
+            <ChatHistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
             {/* Full-height main content */}
             <main id="main-content" className="flex-1 overflow-hidden">

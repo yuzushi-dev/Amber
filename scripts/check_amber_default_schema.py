@@ -1,6 +1,8 @@
 
 import asyncio
-from pymilvus import connections, Collection
+
+from pymilvus import Collection, connections
+
 
 async def main():
     connections.connect(host="localhost", port=19530)

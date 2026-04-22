@@ -2,6 +2,7 @@ from typing import Protocol
 
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document_share import VisibleDocument
 
 
 class DocumentRepository(Protocol):
@@ -26,6 +27,25 @@ class DocumentRepository(Protocol):
         self, tenant_id: str, limit: int = 100, offset: int = 0
     ) -> list[Document]:
         """List documents for a tenant."""
+        ...
+
+    async def list_visible_by_tenant(
+        self, tenant_id: str, limit: int = 100, offset: int = 0
+    ) -> list[VisibleDocument]:
+        """List documents visible to a tenant, including shared ones."""
+        ...
+
+    async def get_visible(self, document_id: str, tenant_id: str) -> VisibleDocument | None:
+        """Get a document visible to a tenant, including shared ones."""
+        ...
+
+    async def list_visible_document_ids(
+        self,
+        viewer_tenant_id: str,
+        owner_tenant_id: str,
+        candidate_document_ids: list[str] | None = None,
+    ) -> list[str]:
+        """List visible document IDs for a viewer, scoped to a specific owner tenant."""
         ...
 
     async def find_by_content_hash(self, tenant_id: str, content_hash: str) -> Document | None:
@@ -54,3 +74,21 @@ class DocumentRepository(Protocol):
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
         ...
+
+
+    async def get_folder_name(self, folder_id: str) -> str | None:
+        """Return the display name of a folder by its ID, or None if not found."""
+        ...
+
+    async def list_visible_document_ids_by_taxonomy(
+        self,
+        viewer_tenant_id: str,
+        owner_tenant_id: str,
+        candidate_document_ids: list[str] | None = None,
+        edition: str | None = None,
+        audience: str | None = None,
+        source_family: str | None = None,
+    ) -> list[str]:
+        """List visible document IDs filtered by taxonomy (edition/audience/source_family)."""
+        ...
+

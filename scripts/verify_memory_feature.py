@@ -1,16 +1,15 @@
 import asyncio
-import sys
-import os
 import logging
+import os
+import sys
 
 # Add src to path
 sys.path.append(os.getcwd())
 
+from src.api.config import settings
 from src.core.memory.extractor import memory_extractor
 from src.core.memory.manager import memory_manager
-from src.core.models.memory import UserFact
 from src.core.providers.factory import init_providers
-from src.api.config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,23 +31,23 @@ except Exception as e:
 
 async def test_pii_redaction():
     logger.info("--- TEST 1: PII Redaction ---")
-    
+
     # Input with PII
     text = "My name is John Doe, my email is john@example.com and my SSN is 123-45-6789. I like Python."
-    
+
     logger.info(f"Input: {text}")
-    
+
     # Run extraction (should scrub PII before sending to LLM, and prompt should ignore it)
     facts = await memory_extractor.extract_and_save_facts(TENANT_ID, USER_ID, text)
-    
+
     logger.info(f"Extracted Facts: {facts}")
-    
+
     # Verify no PII in facts
     for fact in facts:
         if "John" in fact or "Doe" in fact or "john@example.com" in fact or "123-45-6789" in fact:
             logger.error("❌ PII LEAKED into facts!")
             return False
-            
+
     if "Python" in str(facts) or "user likes Python" in str(facts).lower():
          logger.info("✅ Valid fact extracted (User likes Python)")
     else:
@@ -59,14 +58,14 @@ async def test_pii_redaction():
 
 async def test_fact_persistence():
     logger.info("--- TEST 2: Fact Persistence ---")
-    
+
     # manually add a fact to ensure DB works
     await memory_manager.add_user_fact(TENANT_ID, USER_ID, "User is testing memory features", importance=1.0)
-    
+
     # Retrieve
     stored_facts = await memory_manager.get_user_facts(TENANT_ID, USER_ID)
     logger.info(f"Stored Facts from DB: {[f.content for f in stored_facts]}")
-    
+
     found = any("User is testing memory features" in f.content for f in stored_facts)
     if found:
         logger.info("✅ Fact persisted and retrieved successfully")
@@ -77,23 +76,23 @@ async def test_fact_persistence():
 
 async def test_summarization():
     logger.info("--- TEST 3: Summarization ---")
-    
+
     history = [
         {"role": "user", "content": "How do I configure VS Code for Python?"},
         {"role": "assistant", "content": "You need to install the Python extension and select your interpreter."},
         {"role": "user", "content": "That worked, thanks! I prefer using black for formatting."},
         {"role": "assistant", "content": "Great! You can configure black in settings.json."}
     ]
-    
+
     summary = await memory_extractor.summarize_and_save_conversation(
         TENANT_ID, USER_ID, "conv_123", history
     )
-    
+
     logger.info(f"Generated Summary: {summary}")
-    
+
     if summary and len(summary) > 10:
         logger.info("✅ Summary generated")
-        
+
         # Verify persistence
         recent = await memory_manager.get_recent_summaries(TENANT_ID, USER_ID)
         if recent and recent[0].id == "conv_123":
@@ -112,7 +111,7 @@ async def cleanup():
     facts = await memory_manager.get_user_facts(TENANT_ID, USER_ID)
     for f in facts:
         await memory_manager.delete_user_fact(TENANT_ID, f.id)
-        
+
     # Delete summary
     await memory_manager.delete_conversation_summary(TENANT_ID, "conv_123")
     logger.info("Cleanup complete")

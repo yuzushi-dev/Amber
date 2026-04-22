@@ -45,8 +45,8 @@ class CommunitySummarizer:
 
         # 1. Fetch data for community
         data = await self._fetch_community_data(community_id, tenant_id)
-        if not data["entities"] and not data["child_communities"]:
-            logger.warning(f"Community {community_id} has no members. Skipping.")
+        if not data["entities"] and not data["child_summaries"]:
+            logger.warning(f"Community {community_id} has no entities and no child summaries. Skipping.")
             return {}
 
         # 2. Format for LLM
@@ -99,7 +99,7 @@ class CommunitySummarizer:
             summary_content = self._parse_json(result.text)
 
             # 5. Persist back to Neo4j
-            await self._persist_summary(community_id, summary_content)
+            await self._persist_summary(community_id, summary_content, tenant_id)
 
             return summary_content
 
@@ -112,8 +112,8 @@ class CommunitySummarizer:
             logger.error(f"Failed to summarize community {community_id}: {e}")
             # Set a failure status on the node
             await self.graph.execute_write(
-                "MATCH (c:Community {id: $id}) SET c.status = 'failed', c.error = $error",
-                {"id": community_id, "error": str(e)},
+                "MATCH (c:Community {id: $id, tenant_id: $tenant_id}) SET c.status = 'failed', c.error = $error",
+                {"id": community_id, "tenant_id": tenant_id, "error": str(e)},
             )
             return {}
 
@@ -131,30 +131,55 @@ class CommunitySummarizer:
         - retry those communities in the next batch
         - optionally reduce concurrency by 1 when rate limiting is significant
         """
-        # 1. Fetch ALL candidate IDs
-        # For 15k communities, fetching just IDs is fine (~1MB RAM).
+        # 1. Fetch candidate IDs, grouped by level.
+        # Level 0 communities have direct entity members.
+        # Level 1+ communities only have child community summaries.
+        # We MUST process level 0 first so child summaries exist when level 1+ is processed.
         query = """
         MATCH (c:Community)
         WHERE c.tenant_id = $tenant_id
           AND (c.summary IS NULL OR c.is_stale = true)
-        RETURN c.id as id
+        RETURN c.id as id, coalesce(c.level, 0) as level
         ORDER BY c.level ASC
         """
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
 
-        community_ids = [r["id"] for r in results]
-        total = len(community_ids)
+        level_0_ids = [r["id"] for r in results if r["level"] == 0]
+        higher_level_ids = [r["id"] for r in results if r["level"] > 0]
+        total = len(level_0_ids) + len(higher_level_ids)
         current_concurrency = max(1, int(concurrency))
         logger.info(
-            f"Found {total} communities needing summarization for tenant {tenant_id}. "
+            f"Found {total} communities needing summarization for tenant {tenant_id} "
+            f"(level 0: {len(level_0_ids)}, level 1+: {len(higher_level_ids)}). "
             f"Concurrency: {current_concurrency}"
         )
 
-        if not community_ids:
+        if not total:
             return
 
-        # 2. Process in Batches
-        # This prevents creating 15k coroutines at once which would blow up memory.
+        # Process in two passes: level 0 first, then level 1+
+        for pass_label, community_ids in [("level 0", level_0_ids), ("level 1+", higher_level_ids)]:
+            if not community_ids:
+                logger.info(f"No {pass_label} communities to summarize. Skipping pass.")
+                continue
+            logger.info(f"Starting {pass_label} pass: {len(community_ids)} communities")
+            await self._process_community_batch(
+                community_ids=community_ids,
+                tenant_id=tenant_id,
+                batch_size=batch_size,
+                concurrency=current_concurrency,
+                tenant_config=tenant_config,
+            )
+
+    async def _process_community_batch(
+        self,
+        community_ids: list[str],
+        tenant_id: str,
+        batch_size: int,
+        concurrency: int,
+        tenant_config: dict[str, Any] | None = None,
+    ):
+        """Process a list of community IDs in batches with rate-limit handling."""
         from collections import deque
 
         # "Many 429s" threshold: reduce concurrency by 1 for the NEXT batch.
@@ -167,7 +192,9 @@ class CommunitySummarizer:
 
         carry_over: deque[str] = deque()
         cursor = 0
+        total = len(community_ids)
         batch_num = 0
+        current_concurrency = max(1, concurrency)
 
         while cursor < total or carry_over:
             batch_num += 1
@@ -192,8 +219,8 @@ class CommunitySummarizer:
 
             sem = asyncio.Semaphore(current_concurrency)
 
-            async def _bounded_summarize(cid: str):
-                async with sem:
+            async def _bounded_summarize(cid: str, _sem=sem):
+                async with _sem:
                     try:
                         await self.summarize_community(cid, tenant_id, tenant_config)
                         return ("ok", cid, None)
@@ -241,13 +268,13 @@ class CommunitySummarizer:
         """
         # Fetch entities directly belonging to this community
         entity_query = """
-        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
+        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         RETURN e.name as name, e.type as type, e.description as description
         """
 
         # Fetch relationships between entities in this community
         rel_query = """
-        MATCH (e1:Entity)-[:BELONGS_TO]->(c:Community {id: $id}),
+        MATCH (e1:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id}),
               (e2:Entity)-[:BELONGS_TO]->(c),
               (e1)-[r]->(e2)
         WHERE NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
@@ -256,7 +283,7 @@ class CommunitySummarizer:
 
         # Fetch child community summaries (if any)
         child_query = """
-        MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id})
+        MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE child.summary IS NOT NULL
         RETURN child.title as title, child.summary as summary
         """
@@ -265,16 +292,17 @@ class CommunitySummarizer:
         # We find chunks that MENTION entities in this community.
         # We limit to top 10 distinct chunks to avoid blowing up context window.
         chunk_query = """
-        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id})
+        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
         WITH DISTINCT c_chunk LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
-        entities = await self.graph.execute_read(entity_query, {"id": community_id})
-        relationships = await self.graph.execute_read(rel_query, {"id": community_id})
-        child_summaries = await self.graph.execute_read(child_query, {"id": community_id})
-        text_units = await self.graph.execute_read(chunk_query, {"id": community_id})
+        params = {"id": community_id, "tenant_id": tenant_id}
+        entities = await self.graph.execute_read(entity_query, params)
+        relationships = await self.graph.execute_read(rel_query, params)
+        child_summaries = await self.graph.execute_read(child_query, params)
+        text_units = await self.graph.execute_read(chunk_query, params)
 
         return {
             "entities": entities,
@@ -313,18 +341,18 @@ class CommunitySummarizer:
         text = text.strip()
 
         try:
-            return json.loads(text)
+            return json.loads(text, strict=False)
         except json.JSONDecodeError:
             # Try to find JSON block with regex
             match = re.search(r"(\{.*\})", text, re.DOTALL)
             if match:
-                return json.loads(match.group(1))
+                return json.loads(match.group(1), strict=False)
             raise
 
-    async def _persist_summary(self, community_id: str, summary: dict[str, Any]):
+    async def _persist_summary(self, community_id: str, summary: dict[str, Any], tenant_id: str = ""):
         """Updates the Community node with the generated summary fields."""
         query = """
-        MATCH (c:Community {id: $id})
+        MATCH (c:Community {id: $id, tenant_id: $tenant_id})
         SET c.title = $title,
             c.summary = $summary,
             c.rating = $rating,
@@ -336,6 +364,7 @@ class CommunitySummarizer:
         """
         params = {
             "id": community_id,
+            "tenant_id": tenant_id,
             "title": summary.get("title", "Untitled Community"),
             "summary": summary.get("summary", ""),
             "rating": summary.get("rating", 0),

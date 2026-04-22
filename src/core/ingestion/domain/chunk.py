@@ -5,7 +5,7 @@ Chunk Model
 Database model for document chunks.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from src.core.ingestion.domain.document import Document
 
 
-class EmbeddingStatus(str, Enum):
+class EmbeddingStatus(StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"

@@ -9,18 +9,19 @@ Usage:
     PYTHONPATH=. python scripts/cleanup_orphans.py [--dry-run]
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
-from sqlalchemy import select, func, text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
 from dotenv import load_dotenv
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 load_dotenv()
 
 from src.api.config import settings
 from src.core.graph.infrastructure.neo4j_client import Neo4jClient
-from src.core.retrieval.infrastructure.vector_store.milvus import MilvusVectorStore, MilvusConfig
+
 # Removed mapped class imports to avoid validation issues
 # from src.core.ingestion.domain.document import Document
 # from src.core.ingestion.domain.chunk import Chunk
@@ -32,7 +33,7 @@ async def cleanup(dry_run=True, force_all=False):
     print("\n" + "="*50)
     print(f"   ORPHAN CLEANUP {'(DRY RUN)' if dry_run else ''} {'(FORCE ALL)' if force_all else ''}")
     print("="*50 + "\n")
-    
+
     # Debug credentials
     # print(f"Neo4j URI: {settings.db.neo4j_uri}")
 
@@ -54,7 +55,7 @@ async def cleanup(dry_run=True, force_all=False):
                 return
 
         # Neo4j WIPE
-        print(f"Neo4j: Wiping database...")
+        print("Neo4j: Wiping database...")
         if not dry_run:
              await g_client.execute_write("MATCH (n) DETACH DELETE n", {})
              print("Neo4j: All nodes deleted.")
@@ -82,7 +83,7 @@ async def cleanup(dry_run=True, force_all=False):
         finally:
              if connections.has_connection('default'):
                 connections.disconnect('default')
-        
+
         print("\nFORCE CLEANUP COMPLETE")
         return
 
@@ -91,19 +92,19 @@ async def cleanup(dry_run=True, force_all=False):
     # Use host port if running locally outside docker (safety check)
     if "postgres:5432" in db_url:
         db_url = db_url.replace("postgres:5432", "localhost:5433")
-    
+
     engine = create_async_engine(db_url)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
-    
+
     async with async_session() as session:
         # Get all valid IDs using raw SQL to avoid ORM issues in script context
         res_docs = await session.execute(text("SELECT id FROM documents"))
         valid_doc_ids = set(res_docs.scalars().all())
-        
+
         res_chunks = await session.execute(text("SELECT id FROM chunks"))
         valid_chunk_ids = set(res_chunks.scalars().all())
-        
-    print(f"Postgres Source of Truth:")
+
+    print("Postgres Source of Truth:")
     print(f" - Valid Documents: {len(valid_doc_ids)}")
     print(f" - Valid Chunks:    {len(valid_chunk_ids)}\n")
 
@@ -114,19 +115,19 @@ async def cleanup(dry_run=True, force_all=False):
         password=settings.db.neo4j_password
     )
     await g_client.connect()
-    
+
     # A. Find orphaned Documents
     neo_docs = await g_client.execute_read("MATCH (d:Document) RETURN d.id as id", {})
     orphan_neo_docs = [d['id'] for d in neo_docs if d['id'] not in valid_doc_ids]
-    
-    print(f"Neo4j Audit - Documents:")
+
+    print("Neo4j Audit - Documents:")
     print(f" - Found {len(orphan_neo_docs)} orphaned Document nodes.")
-    
+
     if not dry_run and orphan_neo_docs:
         for doc_id in orphan_neo_docs:
             print(f"   Deleting Document {doc_id}...")
             await g_client.execute_write(
-                "MATCH (d:Document {id: $id}) DETACH DELETE d", 
+                "MATCH (d:Document {id: $id}) DETACH DELETE d",
                 {"id": doc_id}
             )
 
@@ -135,11 +136,11 @@ async def cleanup(dry_run=True, force_all=False):
     neo_chunks = await g_client.execute_read("MATCH (c:Chunk) RETURN c.id as id", {})
     neo_chunk_ids = set([c['id'] for c in neo_chunks])
     orphan_chunk_ids = neo_chunk_ids - valid_chunk_ids
-    
-    print(f"Neo4j Audit - Chunks:")
+
+    print("Neo4j Audit - Chunks:")
     print(f" - Total Chunks in Graph: {len(neo_chunk_ids)}")
     print(f" - Orphan Chunks:         {len(orphan_chunk_ids)}")
-    
+
     if not dry_run and orphan_chunk_ids:
         print(f"   Deleting {len(orphan_chunk_ids)} orphaned chunks...")
         # Batch delete for efficiency
@@ -159,9 +160,9 @@ async def cleanup(dry_run=True, force_all=False):
         "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-(:Chunk) RETURN count(e) as c", {}
     )
     orphan_count = orphaned_entities[0].get('c', 0)
-    print(f"Neo4j Audit - Entities:")
+    print("Neo4j Audit - Entities:")
     print(f" - Found {orphan_count} orphaned Entity nodes (no mentions).")
-    
+
     if not dry_run and orphan_count > 0:
         print(f"   Deleting {orphan_count} orphaned entities...")
         await g_client.execute_write(
@@ -197,5 +198,5 @@ if __name__ == '__main__':
     parser.add_argument('--dry-run', action='store_true', default=False)
     parser.add_argument('--force-all', action='store_true', default=False, help="Delete EVERYTHING in Graph and Milvus regardless of Postgres state")
     args = parser.parse_args()
-    
+
     asyncio.run(cleanup(dry_run=args.dry_run, force_all=args.force_all))

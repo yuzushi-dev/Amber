@@ -1,12 +1,13 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add src to pythonpath
 sys.path.append(os.getcwd())
 
 from src.api.deps import _async_session_maker
 from src.core.admin_ops.application.api_key_service import ApiKeyService
+
 
 async def main():
     try:

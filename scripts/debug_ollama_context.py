@@ -1,13 +1,14 @@
+
 import requests
-import json
+
 
 def test_ollama_limit(model_name="gemma3:27b-cloud", num_tokens=5000):
     base_url = "http://host.docker.internal:11434/v1/chat/completions"
-    
+
     # Simulate a large prompt roughly. 1 word approx 1.3 tokens usually, but let's just make a long repeating string.
-    # 4 chars per token roughly. 
+    # 4 chars per token roughly.
     prompt_text = "entity relationship " * (num_tokens // 2)
-    
+
     payload = {
         "model": model_name,
         "messages": [
@@ -16,7 +17,7 @@ def test_ollama_limit(model_name="gemma3:27b-cloud", num_tokens=5000):
         ],
         "temperature": 0.0
     }
-    
+
     print(f"Testing {model_name} with approx {num_tokens} tokens...")
     try:
         response = requests.post(base_url, json=payload, timeout=120)

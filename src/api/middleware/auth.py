@@ -12,6 +12,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from src.core.tenants.application.query_scopes import resolve_query_scopes
 from src.shared.context import set_current_tenant, set_permissions
 from src.shared.identifiers import TenantId
 from src.shared.security import mask_api_key
@@ -114,13 +115,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if not api_key:
             api_key = request.headers.get("X-API-Key")
 
-        # 3. Fallback: Legacy Query Param for SSE (Deprecated but kept for compat if needed,
-        #    but we prefer Ticket now. We can log a warning if used.)
-        if not api_key and is_sse_path:
-            api_key = request.query_params.get("api_key")
-            if api_key:
-                logger.warning(f"Legacy query param auth used for {path}. migrate to ticket auth.")
-
         if not api_key:
             logger.warning(f"Missing API key for {request.method} {path}")
             return _cors_error_response(
@@ -218,6 +212,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Store in request state for easy access
         request.state.tenant_id = tenant_id
+        request.state.query_scopes = resolve_query_scopes(str(tenant_id))
         request.state.permissions = permissions
         request.state.api_key_name = valid_key.name
         request.state.tenant_role = tenant_role

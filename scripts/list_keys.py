@@ -4,10 +4,11 @@ import sys
 
 sys.path.append(os.getcwd())
 
-from sqlalchemy import select, update, text
+from sqlalchemy import select
+
 from src.api.deps import _async_session_maker
-from src.core.models.api_key import ApiKey, ApiKeyTenant
-from src.core.models.tenant import Tenant
+from src.core.models.api_key import ApiKey
+
 
 async def list_keys():
     async with _async_session_maker() as session:

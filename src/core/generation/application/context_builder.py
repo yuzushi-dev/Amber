@@ -74,6 +74,20 @@ class ContextBuilder:
             if title:
                 header += f" [Document: {title}]"
 
+            # Add context metadata if available (Phase 2 - Context Disambiguation)
+            metadata = candidate.metadata if hasattr(candidate, "metadata") else candidate.get("metadata", {})
+            if not metadata and isinstance(candidate, dict):
+                 # Fallback for flattened dicts
+                 metadata = candidate
+
+            product = metadata.get("product_context")
+            audience = metadata.get("audience")
+
+            if product:
+                header += f" [Product: {product}]"
+            if audience:
+                header += f" [Audience: {audience}]"
+
             formatted_part = f"{header}\n{content.strip()}"
 
             # Count tokens

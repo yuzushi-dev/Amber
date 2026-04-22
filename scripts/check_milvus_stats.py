@@ -9,15 +9,16 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.api.config import settings
 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore
 
+
 async def check_milvus():
     print("Checking Milvus stats...")
-    
+
     milvus_config = MilvusConfig(
         host=settings.db.milvus_host,
         port=settings.db.milvus_port,
         collection_name=f"amber_{settings.tenant_id}"
     )
-    
+
     store = MilvusVectorStore(milvus_config)
     try:
         await store.connect()
@@ -26,7 +27,7 @@ async def check_milvus():
         print(f"Entity Count: {stats.get('num_entities')}")
         if "error" in stats:
             print(f"Error details: {stats['error']}")
-        
+
     except Exception as e:
         print(f"Error checking Milvus: {e}")
     finally:

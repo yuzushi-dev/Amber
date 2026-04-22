@@ -56,7 +56,7 @@ async def test_backfill_route_updates_missing(monkeypatch):
     response = await config_module.backfill_active_vector_collection()
 
     assert response["updated"] == 2
-    assert tenants[0].config["active_vector_collection"] == "amber_default"
+    assert tenants[0].config["active_vector_collection"] == "document_chunks"
     assert tenants[1].config["active_vector_collection"] == "amber_t_1"
     assert tenants[2].config["active_vector_collection"] == "amber_custom"
     assert fake_session.committed is True

@@ -29,6 +29,7 @@ export interface UploadItem {
     id: string
     fileMeta: FileMeta
     fileKey: string // IDB key
+    sharedWithTenantIds?: string[]
     status: UploadStatus
     uploadProgress: number
     stageProgress: number
@@ -53,7 +54,7 @@ interface UploadState {
 
     // Actions
     setOpen: (open: boolean) => void
-    enqueueFiles: (files: File[]) => Promise<void>
+    enqueueFiles: (files: File[], options?: { sharedWithTenantIds?: string[] }) => Promise<void>
     retry: (id: string) => Promise<void>
     remove: (id: string) => Promise<void>
     dismiss: (id: string) => void // Just remove from list if terminal
@@ -138,7 +139,7 @@ export const useUploadStore = create<UploadState>()(
             setOpen: (open) => set({ isOpen: open }),
             // ... (rest of the store body is inside, we just removed the wrapper)
 
-            enqueueFiles: async (files) => {
+            enqueueFiles: async (files, options) => {
                 const newItems: UploadItem[] = []
                 for (const file of files) {
                     const id = uuidv4()
@@ -156,6 +157,9 @@ export const useUploadStore = create<UploadState>()(
                             lastModified: file.lastModified
                         },
                         fileKey,
+                        sharedWithTenantIds: options?.sharedWithTenantIds?.length
+                            ? [...options.sharedWithTenantIds]
+                            : undefined,
                         status: 'queued',
                         uploadProgress: 0,
                         stageProgress: 0,
@@ -325,8 +329,12 @@ const processItemUpload = async (itemId: string, file: File) => {
     abortControllers.set(itemId, controller)
 
     try {
+        const item = useUploadStore.getState().items.find((candidate) => candidate.id === itemId)
         const formData = new FormData()
         formData.append('file', file)
+        if (item?.sharedWithTenantIds && item.sharedWithTenantIds.length > 0) {
+            formData.append('shared_with_tenant_ids', JSON.stringify(item.sharedWithTenantIds))
+        }
 
         const res = await apiClient.post<DocumentUploadResponse>('/documents', formData, {
             signal: controller.signal,
@@ -440,7 +448,19 @@ const handleSSEMessage = (itemId: string, data: UploadStatusEvent) => {
         'completed': 100
     }
 
-    const progress = (data as any).progress ?? STAGE_WEIGHTS[data.status] ?? 0
+    const defaultProgress = STAGE_WEIGHTS[data.status] ?? 0
+    let progress = (data as any).progress
+
+    // If progress is missing (e.g. from polling), and we are in the same stage,
+    // preserve the current granular progress instead of reverting to default.
+    const currentItem = useUploadStore.getState().items.find(i => i.id === itemId)
+    if (progress === undefined) {
+        if (currentItem && currentItem.currentStage === data.status) {
+            progress = currentItem.stageProgress
+        } else {
+            progress = defaultProgress
+        }
+    }
     let newStatus: UploadStatus = 'processing'
 
     if (data.status === 'ready' || data.status === 'completed') newStatus = 'ready'

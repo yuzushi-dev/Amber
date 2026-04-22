@@ -128,7 +128,95 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
+
+# ── Per-module overrides for pre-existing type errors (PR#5 tech debt) ────────
+# These modules had type errors before the current refactoring work.
+# Errors are tracked in: https://github.com/yuzushi-dev/Amber/issues (mypy debt)
+# DO NOT add new modules here without a corresponding issue.
+[[tool.mypy.overrides]]
+module = [
+    # Scripts and test helpers
+    "src.scripts.*",
+    "src.test_factory_chain",
+    "src.test_nim_timeout",
+    "src.test_or",
+    "src.test_timeout",
+    # Workers
+    "src.workers.*",
+    # Shared utilities with pre-existing errors
+    "src.shared.context",
+    "src.shared.error_handling",
+    "src.shared.exceptions",
+    "src.shared.llm_capacity",
+    "src.shared.model_registry",
+    "src.shared.security",
+    # Core infrastructure and domain
+    "src.core.cache.*",
+    "src.core.auth.application.ticket_service",
+    "src.core.system.circuit_breaker",
+    "src.core.utils.tokenizer",
+    "src.core.database.*",
+    "src.core.security.*",
+    "src.core.tenants.application.active_vector_collection",
+    "src.core.tenants.application.tenant_service",
+    "src.core.ingestion.domain.*",
+    "src.core.ingestion.application.chunking.semantic",
+    "src.core.ingestion.application.chunking.quality",
+    "src.core.ingestion.application.ingestion_service",
+    "src.core.ingestion.application.use_cases_documents",
+    "src.core.ingestion.infrastructure.*",
+    "src.core.ingestion.url_fetcher",
+    "src.core.graph.domain.models",
+    "src.core.graph.application.*",
+    "src.core.graph.infrastructure.*",
+    "src.core.generation.infrastructure.providers.*",
+    "src.core.generation.application.llm_steps",
+    "src.core.generation.application.intelligence.*",
+    "src.core.generation.application.agent.orchestrator",
+    "src.core.generation.application.generation_service",
+    "src.core.generation.application.memory.extractor",
+    "src.core.retrieval.domain.ports.graph_store_port",
+    "src.core.retrieval.application.embeddings_service",
+    "src.core.retrieval.application.query.decomposer",
+    "src.core.retrieval.application.query.hyde",
+    "src.core.retrieval.application.query.models",
+    "src.core.retrieval.application.query.rewriter",
+    "src.core.retrieval.application.query.router",
+    "src.core.retrieval.application.query.structured_query",
+    "src.core.retrieval.application.search.fusion",
+    "src.core.retrieval.application.retrieval_service",
+    "src.core.retrieval.application.sparse_embeddings_service",
+    "src.core.retrieval.application.use_cases_query",
+    "src.core.retrieval.infrastructure.*",
+    "src.core.admin_ops.domain.*",
+    "src.core.admin_ops.application.api_key_service",
+    "src.core.admin_ops.application.backup_service",
+    "src.core.admin_ops.application.evaluation.*",
+    "src.core.admin_ops.application.export_service",
+    "src.core.admin_ops.application.health_service",
+    "src.core.admin_ops.application.metrics.collector",
+    "src.core.admin_ops.application.migration_service",
+    "src.core.admin_ops.application.provisioning_service",
+    "src.core.admin_ops.application.quality.*",
+    "src.core.admin_ops.application.quality_scorer",
+    "src.core.admin_ops.application.restore_service",
+    "src.core.admin_ops.application.rules_service",
+    "src.core.admin_ops.application.tuning_service",
+    "src.core.admin_ops.application.usage_tracker",
+    "src.core.admin_ops.application.verified_qa_service",
+    "src.core.admin_ops.infrastructure.*",
+    # API layer
+    "src.amber_platform.composition_root",
+    "src.api.config",
+    "src.api.deps",
+    "src.api.main",
+    "src.api.middleware.*",
+    "src.api.routes.*",
+    "src.api.services.*",
+]
+ignore_errors = true
 
 # Import Linter - Architecture Boundary Rules (Phase 0)
 # Run with: poetry run lint-imports

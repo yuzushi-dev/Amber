@@ -1,28 +1,28 @@
 import asyncio
-import sys
 import os
-import json
-from datetime import datetime, timedelta
+import sys
+from datetime import datetime
 from uuid import uuid4
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from src.core.database.session import async_session_maker, configure_database
-from src.core.admin_ops.domain.usage import UsageLog
-from src.api.routes.admin.maintenance import get_query_metrics
 from src.api.config import settings
+from src.api.routes.admin.maintenance import get_query_metrics
+from src.core.admin_ops.domain.usage import UsageLog
+from src.core.database.session import async_session_maker, configure_database
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
+
 
 async def verify_ingestion_aggregation():
     # Configure DB
     configure_database(settings.db.database_url)
-    
+
     tenant_id = "test_tenant_metrics"
     doc_id = f"doc_{uuid4().hex[:8]}"
-    
+
     print(f"Setting up test data for document: {doc_id}")
-    
+
     # 1. Insert Mock Usage Logs
     async with async_session_maker() as session:
         # Create 3 chunk embedding logs
@@ -42,7 +42,7 @@ async def verify_ingestion_aggregation():
                 created_at=datetime.utcnow()
             )
             logs.append(log)
-        
+
         session.add_all(logs)
         await session.commit()
         print("Inserted 3 usage logs.")
@@ -51,7 +51,7 @@ async def verify_ingestion_aggregation():
     print("Fetching metrics...")
     try:
         metrics = await get_query_metrics(limit=50, tenant_id=tenant_id)
-        
+
         # 3. Verify Results
         found = False
         for m in metrics:
@@ -60,25 +60,25 @@ async def verify_ingestion_aggregation():
             if m.operation == "ingestion" and m.query_id == f"ingest_{doc_id}":
                 found = True
                 print(f"Found Ingestion Metric: {m}")
-                
+
                 # Check Totals
                 if m.tokens_used == 300:
                     print("✅ Total Tokens Correct (300)")
                 else:
                     print(f"❌ Total Tokens Mismatch: {m.tokens_used} != 300")
-                    
+
                 # float comparison with small epsilon
                 if abs(m.cost_estimate - 0.00006) < 0.000001:
                     print(f"✅ Total Cost Correct ({m.cost_estimate})")
                 else:
                     print(f"❌ Total Cost Mismatch: {m.cost_estimate} != 0.00006")
-                    
+
                 if m.conversation_id == doc_id:
                      print(f"✅ Document ID Correct ({m.conversation_id})")
                 else:
-                     print(f"❌ Document ID Mismatch")
+                     print("❌ Document ID Mismatch")
                 break
-        
+
         if not found:
             print("❌ Failed to find aggregated ingestion metric for document.")
             # Print all for debugging

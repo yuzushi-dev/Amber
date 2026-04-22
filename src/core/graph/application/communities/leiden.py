@@ -35,6 +35,11 @@ class CommunityDetector:
         """
         logger.info(f"Starting community detection for tenant {tenant_id}")
 
+        # 0. Clean up previous community graph so we start fresh each run.
+        #    Each Leiden run generates new UUID-based community IDs, so without
+        #    this step old nodes accumulate indefinitely.
+        await self._cleanup_old_communities(tenant_id)
+
         # 1. Fetch L0 Graph (Entity-Entity)
         nodes, edges = await self._fetch_l0_graph(tenant_id)
         if not nodes:
@@ -245,6 +250,67 @@ class CommunityDetector:
             current_level_uuids = new_level_uuids
 
         return results
+
+    async def _cleanup_old_communities(self, tenant_id: str) -> None:
+        """
+        Removes all existing Community nodes and their relationships for a tenant.
+
+        Called before each Leiden detection run so that stale communities from
+        previous runs do not accumulate. Operates in batches to avoid Neo4j
+        memory pressure on large graphs.
+        """
+        logger.info(f"Cleaning up old communities for tenant {tenant_id}")
+        batch_size = 5000
+
+        # 1. Delete BELONGS_TO edges (Entity -> Community)
+        while True:
+            result = await self.graph.execute_write(
+                """
+                MATCH (e:Entity)-[b:BELONGS_TO]->(c:Community {tenant_id: $tenant_id})
+                WITH b LIMIT $batch_size
+                DELETE b
+                RETURN count(*) AS deleted
+                """,
+                {"tenant_id": tenant_id, "batch_size": batch_size},
+            )
+            deleted = result[0]["deleted"] if result else 0
+            if deleted == 0:
+                break
+            logger.debug(f"Deleted {deleted} BELONGS_TO edges for tenant {tenant_id}")
+
+        # 2. Delete PARENT_OF edges (Community -> Community)
+        while True:
+            result = await self.graph.execute_write(
+                """
+                MATCH (c:Community {tenant_id: $tenant_id})-[p:PARENT_OF]->()
+                WITH p LIMIT $batch_size
+                DELETE p
+                RETURN count(*) AS deleted
+                """,
+                {"tenant_id": tenant_id, "batch_size": batch_size},
+            )
+            deleted = result[0]["deleted"] if result else 0
+            if deleted == 0:
+                break
+            logger.debug(f"Deleted {deleted} PARENT_OF edges for tenant {tenant_id}")
+
+        # 3. Delete Community nodes
+        while True:
+            result = await self.graph.execute_write(
+                """
+                MATCH (c:Community {tenant_id: $tenant_id})
+                WITH c LIMIT $batch_size
+                DETACH DELETE c
+                RETURN count(*) AS deleted
+                """,
+                {"tenant_id": tenant_id, "batch_size": batch_size},
+            )
+            deleted = result[0]["deleted"] if result else 0
+            if deleted == 0:
+                break
+            logger.debug(f"Deleted {deleted} Community nodes for tenant {tenant_id}")
+
+        logger.info(f"Old community cleanup complete for tenant {tenant_id}")
 
     async def _persist_communities(self, tenant_id: str, communities: list[dict[str, Any]]):
         """

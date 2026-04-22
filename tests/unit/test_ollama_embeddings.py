@@ -5,7 +5,8 @@ Ollama Embedding Provider Tests
 Tests for the OllamaEmbeddingProvider class.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,8 +18,25 @@ from src.core.generation.infrastructure.providers.base import (
 from src.core.generation.infrastructure.providers.ollama import OllamaEmbeddingProvider
 
 
+class _NoOpLimiter:
+    """A no-op capacity limiter for unit tests (no Redis needed)."""
+
+    @asynccontextmanager
+    async def hold(self, *, work_class="ingestion"):
+        yield
+
+
 class TestOllamaEmbeddingProvider:
     """Tests for OllamaEmbeddingProvider."""
+
+    @pytest.fixture(autouse=True)
+    def mock_capacity_limiter(self):
+        """Bypass the Redis-backed capacity limiter in unit tests."""
+        with patch(
+            "src.core.generation.infrastructure.providers.ollama.get_ollama_capacity_limiter",
+            return_value=_NoOpLimiter(),
+        ):
+            yield
 
     @pytest.fixture
     def test_config(self):

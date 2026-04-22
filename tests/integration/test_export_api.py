@@ -11,6 +11,12 @@ import pytest
 # The conftest.py api_key fixture properly registers the key in the database
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limit(monkeypatch):
+    """Disable rate limiting for these tests to avoid Redis event loop errors."""
+    monkeypatch.setattr("src.api.config.settings.enable_rate_limiting", False)
+
+
 @pytest.mark.asyncio
 class TestSingleConversationExport:
     """Tests for single conversation export endpoint."""

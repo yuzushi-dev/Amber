@@ -33,7 +33,7 @@ graph LR
 
 **Responsibilities**:
 - Document registration and deduplication
-- File storage (MinIO)
+- File storage (Garage)
 - Text extraction (PDF, Markdown, etc.)
 - Document classification  
 - Semantic chunking
@@ -46,7 +46,7 @@ graph LR
 - `folders` table
 
 **External Dependencies**:
-- MinIO (storage)
+- Garage (S3-compatible object storage, port 3900)
 - Milvus (vectors via port)
 - Neo4j (graph via port)
 
@@ -113,7 +113,7 @@ graph LR
 - Memory management
 
 **Owns Data**:
-- `conversation_memory` table
+- `conversation_summaries` table
 - `generation_logs` (optional)
 
 **External Dependencies**:
@@ -192,15 +192,21 @@ Cross-cutting concerns used by multiple contexts:
 
 | Table                 | Owner Context |
 | --------------------- | ------------- |
-| `documents`           | Ingestion     |
-| `chunks`              | Ingestion     |
-| `folders`             | Ingestion     |
-| `tenants`             | Tenants       |
-| `api_keys`            | Admin/Ops     |
-| `usage_records`       | Admin/Ops     |
-| `feedback`            | Admin/Ops     |
-| `flags`               | Admin/Ops     |
-| `conversation_memory` | Generation    |
+| `documents`              | Ingestion     |
+| `chunks`                 | Ingestion     |
+| `folders`                | Ingestion     |
+| `connector_states`       | Ingestion     |
+| `document_shares`        | Ingestion     |
+| `tenants`                | Tenants       |
+| `api_keys`               | Admin/Ops     |
+| `api_key_tenants`        | Admin/Ops     |
+| `usage_logs`             | Admin/Ops     |
+| `feedbacks`              | Admin/Ops     |
+| `flags`                  | Admin/Ops     |
+| `audit_logs`             | Admin/Ops     |
+| `graph_edit_history`     | Admin/Ops     |
+| `conversation_summaries` | Generation    |
+| `user_facts`             | Generation    |
 
 ---
 

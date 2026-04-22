@@ -1,8 +1,9 @@
 
 import asyncio
 import logging
-import sys
 import os
+import sys
+
 from dotenv import load_dotenv
 
 sys.path.append(os.getcwd())
@@ -31,7 +32,7 @@ async def verify_stale_communities():
     # GraphRAG structure: Community -> HAS_MEMBER -> Entity (or sub-community?)
     # Usually: Community -> HAS_MEMBER -> Entity.
     # Hierarchical: Community -> PARENT_OF -> Community.
-    
+
     # Check if communities strictly have NO members.
     query_empty_comms = """
     MATCH (c:Community)
@@ -40,11 +41,11 @@ async def verify_stale_communities():
     """
     res = await g_client.execute_read(query_empty_comms)
     print(f"Communities with no Entity members: {res[0]['empty_count']}")
-    
+
     # 2. Total Communities
     res_total = await g_client.execute_read("MATCH (c:Community) RETURN count(c) as total")
     print(f"Total Communities: {res_total[0]['total']}")
-    
+
     await g_client.close()
 
 if __name__ == "__main__":

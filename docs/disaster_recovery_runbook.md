@@ -4,191 +4,264 @@
 
 ## Overview
 
-This document outlines the procedures for backing up and restoring the Amber
-system data. The system relies on the following stateful components:
+This document covers backup and restore procedures for the Amber2 production
+stack. For exact per-service restore commands and the active snapshot reference,
+see [`docs/ROLLBACK_ASSETS.md`](ROLLBACK_ASSETS.md).
 
-- **Postgres**: Stores relational metadata (Tenants, Users, Document
-  references).
-- **Neo4j**: Stores the knowledge graph (Entities, Relationships).
-- **MinIO**: Current/legacy S3-compatible storage for raw documents and Milvus
-  object data.
-- **SeaweedFS**: Target S3-compatible storage during MinIO migration and after
-  cutover.
-- **Milvus**: Stores vector embeddings (data persisted in object storage and
-  Etcd).
+### Stateful Components
 
-## Backup Procedure
+| Service | What it holds | Backup method |
+|---|---|---|
+| **PostgreSQL** | Tenants, users, documents, ACLs, RLS policies | Online `pg_dump` (consistent) |
+| **Neo4j** | Knowledge graph — entities and relationships | Crash-consistent volume tar |
+| **Milvus** | Vector embeddings (HNSW dense + SPLADE sparse) | Crash-consistent volume tar |
+| **etcd** | Milvus metadata — must match Milvus data volume | Crash-consistent volume tar |
+| **Garage** | Raw documents and Milvus object data (S3-compatible) | Crash-consistent volume tars (data + meta) |
+| **Redis** | Rate-limit state, session cache | `BGSAVE` + `docker cp` (point-in-time RDB) |
+| **uploads** | Local file staging area | Crash-consistent volume tar |
 
-### Automated Backup
+> **Garage** is the live S3-compatible object storage (dxflrs/garage:v1.1.0).
+> It uses a SQLite metadata backend split across two Docker volumes:
+> `amber2_graphrag-garage-data` (objects) and `amber2_graphrag-garage-meta`
+> (SQLite). Both volumes must always be restored together from the same
+> snapshot.
 
-Run the backup script to create a timestamped backup of all components.
+---
 
-```bash
-./scripts/backup.sh
-```
+## Backup
 
-**Output Location**: `./backups/YYYYMMDD_HHMMSS/`
+### Script: `scripts/backup_preflight.sh`
 
-**Contents**:
+This is the single canonical backup tool. It is **safe to run on a live
+production stack**: PostgreSQL and Redis use online capture methods; all other
+components use crash-consistent volume tars that do not require stopping any
+service.
 
-- `postgres.sql`: Logical dump of Postgres database.
-- `neo4j.cypher`: Logical Cypher export of Neo4j graph.
-- `minio_data.tar.gz`: Compressed archive of MinIO data volume.
-- `seaweed_data.tar.gz` (optional during migration): Compressed archive of
-  SeaweedFS data volume.
-- `uploads.tar.gz`: Compressed archive of local uploads directory.
-
-### Migration Mode (MinIO -> SeaweedFS)
-
-When both storages are running in parallel:
-
-- Treat **MinIO as source of truth** until production cutover is complete.
-- Run periodic object manifests for both endpoints and compare before cutover.
-- Keep MinIO online for rollback until reconciliation remains clean for the
-  defined rollback window.
-
-### Migration Verification Commands
-
-Use the migration helpers to sync and validate object parity:
+**Always dry-run first:**
 
 ```bash
-# 1) Source manifest (MinIO)
-python3 scripts/storage_manifest.py \
-  --endpoint localhost:9000 \
-  --access-key "$MINIO_ROOT_USER" \
-  --secret-key "$MINIO_ROOT_PASSWORD" \
-  --out /tmp/minio-manifest.jsonl
-
-# 2) Copy source -> destination (idempotent, can be re-run)
-bash scripts/storage_sync.sh \
-  --src-endpoint localhost:9000 \
-  --src-access "$MINIO_ROOT_USER" \
-  --src-secret "$MINIO_ROOT_PASSWORD" \
-  --dst-endpoint localhost:8333 \
-  --dst-access "$OBJECT_STORAGE_ACCESS_KEY" \
-  --dst-secret "$OBJECT_STORAGE_SECRET_KEY"
-
-# 3) Destination manifest (SeaweedFS)
-python3 scripts/storage_manifest.py \
-  --endpoint localhost:8333 \
-  --access-key "$OBJECT_STORAGE_ACCESS_KEY" \
-  --secret-key "$OBJECT_STORAGE_SECRET_KEY" \
-  --out /tmp/seaweed-manifest.jsonl
-
-# 4) Drift report (exit code 1 if mismatch/missing/extra)
-python3 scripts/storage_compare.py \
-  --src /tmp/minio-manifest.jsonl \
-  --dst /tmp/seaweed-manifest.jsonl
+cd /root/amber2
+bash scripts/backup_preflight.sh --dry-run
 ```
 
-### Production Cutover (Write Freeze Required)
-
-1. Take a fresh snapshot with `./scripts/backup.sh`.
-2. Enter write freeze by stopping writers:
-   - `docker compose stop api worker`
-   - `docker compose stop milvus`
-3. Run one final sync and manifest compare (`missing=0`, `mismatched=0` are
-   mandatory).
-4. Switch runtime endpoints:
-   - App/worker: `OBJECT_STORAGE_HOST/PORT/ACCESS_KEY/SECRET_KEY` -> SeaweedFS
-   - Milvus: `MINIO_ADDRESS=seaweed-s3:8333` with matching credentials
-5. Restart in order:
-   - `docker compose up -d seaweed-master seaweed-volume seaweed-filer seaweed-s3`
-   - `docker compose up -d milvus`
-   - `docker compose up -d api worker`
-6. Run smoke checks (upload/download, query flow, export, backup).
-
-If any gate fails, rollback immediately (see below).
-
-### Rollback Procedure (Post-Cutover)
-
-1. Stop writers and Milvus:
-   - `docker compose stop api worker milvus`
-2. Repoint app/worker + Milvus storage settings back to MinIO.
-3. Start services:
-   - `docker compose up -d minio milvus api worker`
-4. Confirm upload/download and query flow before reopening traffic.
-
-### Rollback Window and Decommission
-
-- Keep MinIO online in read-only/standby mode for **7-14 days** after cutover.
-- Run daily manifest reconciliation (`storage_manifest.py` + `storage_compare.py`).
-- Decommission MinIO only after rollback window completes with zero drift.
-
-### Automated Daily Reconciliation + Tidy
-
-Use the maintenance wrapper to run reconciliation and Seaweed test-bucket tidy
-in one command:
+Inspect the output. If everything looks correct, run for real:
 
 ```bash
-bash scripts/seaweed_reconcile_tidy.sh --apply-tidy
+bash scripts/backup_preflight.sh
 ```
 
-If you want automatic healing when drift is detected, enable auto-sync:
+**Output location:** `backups/preflight_<YYYYMMDD_HHMMSS>/`
+
+### What the script captures (11 steps)
+
+| Step | Artifact | Location |
+|---|---|---|
+| 1 | Git state (HEAD commit, dirty files) | `backups/manifests/<ts>-git.txt` |
+| 2 | Container and image manifest (with custom image SHAs) | `backups/manifests/<ts>-containers.txt`, `-images.txt` |
+| 3 | Docker volume inventory | `backups/manifests/<ts>-volumes.txt` |
+| 4 | Config snapshots (`.env`, `docker-compose.yml`, `garage.toml`) | `backups/preflight_<ts>/config/` |
+| 5 | PostgreSQL dump — online, gzip-compressed | `postgres_<ts>.sql.gz` |
+| 6 | Redis RDB snapshot — `BGSAVE` then `docker cp` | `redis_<ts>.rdb` |
+| 7 | Neo4j volume tar (crash-consistent) | `neo4j_volume_<ts>.tar.gz` |
+| 8 | Milvus + etcd volume tars (crash-consistent, captured together) | `milvus_volume_<ts>.tar.gz`, `etcd_volume_<ts>.tar.gz` |
+| 9 | Garage data + meta volume tars (crash-consistent, captured together) | `garage-data_volume_<ts>.tar.gz`, `garage-meta_volume_<ts>.tar.gz` |
+| 10 | Uploads volume tar | `uploads_volume_<ts>.tar.gz` |
+| 11 | Live health evidence (container states, `/health/ready`) | `backups/manifests/<ts>-health.txt` |
+
+### Preflight guards
+
+The script aborts the real run (dry-run just warns) if:
+
+- Less than **20 GB** free disk space on the repo partition.
+- Any of the 8 required containers (`amber2-api-1`, `amber2-worker-1`,
+  `amber2-postgres-1`, `amber2-redis-1`, `amber2-neo4j-1`, `amber2-milvus-1`,
+  `amber2-etcd-1`, `amber2-garage-1`) is not in `running` state.
+- `POSTGRES_USER` or `POSTGRES_DB` cannot be read from `.env`.
+
+### Custom image tarballs
+
+Custom images (`amber2-api`, `amber2-worker`, `amber2-frontend`) are **not**
+saved by default (~3 GB). Save them manually when needed for offline rollback:
 
 ```bash
-bash scripts/seaweed_reconcile_tidy.sh --auto-sync --apply-tidy
+docker save amber2-api amber2-worker amber2-frontend \
+  | gzip > /root/amber2/backups/preflight_<ts>/custom_images_<ts>.tar.gz
 ```
 
-Example cron (daily at 02:15 UTC, logs to `/var/log/amber`):
+To roll back to a prior image by digest:
+
+```bash
+docker tag sha256:<digest> amber2-api:latest
+cd /root/amber2 && docker compose up -d api
+```
+
+Image SHAs at the last successful snapshot are recorded in
+[`docs/ROLLBACK_ASSETS.md`](ROLLBACK_ASSETS.md) under **Custom Image Digests**.
+
+### Scheduling backups
+
+Run daily at 02:00 UTC (adapt path if the project root moves):
 
 ```cron
-15 2 * * * cd /home/daniele/Amber_2.0 && \
-  bash scripts/seaweed_reconcile_tidy.sh --auto-sync --apply-tidy \
-  >> /var/log/amber/seaweed-maintenance.log 2>&1
+0 2 * * * cd /root/amber2 && bash scripts/backup_preflight.sh >> /var/log/amber/backup.log 2>&1
 ```
 
-### Manual Verification
+---
 
-After backup, verify the contents:
+## Restore
+
+> **Warning:** Restoring overwrites live data. Always confirm the snapshot is
+> valid before proceeding. Stop writers (`api`, `worker`) before any restore
+> step to prevent in-flight writes corrupting the target.
+
+For exact, copy-pasteable restore commands for each service, see
+[`docs/ROLLBACK_ASSETS.md`](ROLLBACK_ASSETS.md). That document records the
+active snapshot timestamp and all restore commands against it.
+
+### Full stack rollback order
+
+If a deployment fails and a full rollback is required, execute in this order:
+
+1. Reverse traffic (re-run `deploy/cutover.sh` pointing to the prior lane, or
+   restore `nginx` config).
+2. Restore config files (`.env`, `docker-compose.yml`, `garage.toml`) from
+   `backups/preflight_<ts>/config/`.
+3. Restore PostgreSQL.
+4. Restore Redis.
+5. Restore etcd + Milvus **together** from the same snapshot window.
+6. Restore Neo4j.
+7. Restore Garage **data + meta together** from the same snapshot window.
+8. Roll back custom images to the prior digest (if new images were deployed).
+9. Restart the full stack:
+
+   ```bash
+   cd /root/amber2 && docker compose up -d
+   ```
+
+10. Verify:
+
+    ```bash
+    curl -sf http://127.0.0.1:8000/health/ready
+    ```
+
+### Partial restore
+
+To restore a single component, copy the relevant `docker stop / tar / docker
+start` block from `ROLLBACK_ASSETS.md` for that service only.
+
+### Restore drill
+
+After every backup, run an isolated drill to confirm the PostgreSQL dump is
+restorable without touching production:
 
 ```bash
-ls -lh ./backups/<timestamp>/
+# Spin up a temporary container, load the dump, verify row counts, tear down
+docker run -d --name pg-restore-drill \
+  -e POSTGRES_PASSWORD=drillpass -e POSTGRES_DB=drilldb \
+  postgres:16-alpine
+sleep 5
+zcat backups/preflight_<ts>/postgres_<ts>.sql.gz \
+  | docker exec -i pg-restore-drill psql -U postgres -d drilldb -q
+docker exec pg-restore-drill psql -U postgres -d drilldb \
+  -c "SELECT count(*) FROM documents;"
+docker rm -f pg-restore-drill
 ```
 
-Ensure files are non-empty.
+A passing drill is logged in `ROLLBACK_ASSETS.md` under **Restore drill
+verified**.
 
-## Restore Procedure
-
-> **Warning:** Restoring will **OVERWRITE** existing data in the containers.
-> Ensure you have a backup of the current state if effective data exists.
-
-### Full System Restore
-
-1. Stop the application (optional but recommended to prevent writes).
-2. Ensure stateful services are running (`postgres`, `neo4j`, and the active
-   object storage backend: `minio` or `seaweed-s3`).
-3. Run the restore script:
-
-   ```bash
-   ./scripts/restore.sh ./backups/YYYYMMDD_HHMMSS
-   ```
-
-4. You will be prompted to confirm. Type `y`.
-5. Restart services to ensure volume changes are picked up correctly
-   (especially object storage + Milvus).
-
-   ```bash
-   docker-compose restart
-   ```
-
-### Partial Restore
-
-If you only need to restore specific components, you can manually run the
-commands found in `scripts/restore.sh` for the specific service.
+---
 
 ## Troubleshooting
 
-- **Neo4j Restore Fails**: Ensure APOC plugin is enabled and `apoc.export.*`
-  settings are configured in `docker-compose.yml`.
-- **MinIO/Milvus Inconsistency**: If vectors are missing after restore, ensure
-  both `minio_data.tar.gz` was restored AND `etcd` volume matches. *Note:
-  Current script backs up MinIO data but not Etcd directly. For full Milvus DR,
-  it is recommended to stop the stack and backup all volumes, but MinIO restore
-  often suffices for data recovery if Etcd is rebuilt (though indexing might
-  need regeneration).*
-- **SeaweedFS/Milvus Inconsistency**: If Milvus is configured against
-  `seaweed-s3`, validate SeaweedFS filer + S3 services are healthy and ensure
-  SeaweedFS data volume plus Etcd are restored from the same backup window.
-- **Permission Errors**: Ensure the script is run with user permissions that
-  can access Docker.
+### PostgreSQL won't start after restore
+
+Check that the schema was dropped cleanly before loading the dump:
+
+```bash
+docker exec -i amber2-postgres-1 psql -U graphrag -d graphrag \
+  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+```
+
+Then re-apply the dump. If the restore was interrupted, the database may be in
+a partial state — drop and recreate the schema, then reload.
+
+### Milvus/etcd inconsistency after restore
+
+Milvus and etcd are paired — etcd holds all Milvus collection metadata. If only
+one is restored, Milvus will fail to start or report missing collections.
+Always restore both volumes from the **same** snapshot timestamp. If the data
+is unrecoverable, re-index from scratch:
+
+```bash
+cd /root/amber2
+docker compose up -d
+# Then re-trigger ingestion for all documents via the API
+```
+
+### Garage object storage inconsistency
+
+Garage uses SQLite as its metadata backend (stored in the `garage-meta`
+volume). If data and meta volumes are out of sync, objects may appear present
+but be unreadable, or buckets may disappear. Always restore both volumes
+together. After restore, verify:
+
+```bash
+docker exec amber2-garage-1 /garage bucket list
+docker exec amber2-garage-1 /garage stats
+```
+
+### Neo4j fails to start after restore
+
+Neo4j Community does not support online consistent backup. The volume tar is
+crash-consistent. On first start after restore, Neo4j runs automatic
+transaction log recovery — this is expected and benign. If Neo4j still fails,
+try:
+
+```bash
+docker exec amber2-neo4j-1 neo4j-admin dbms check-consistency \
+  --database=neo4j 2>/dev/null
+```
+
+For a fully consistent graph backup, stop Neo4j first:
+
+```bash
+docker stop amber2-api-1 amber2-worker-1 amber2-neo4j-1
+docker exec amber2-neo4j-1 neo4j-admin database dump --to-path=/backups neo4j
+```
+
+### Permission errors
+
+All Docker volume operations require a user with access to the Docker socket
+(typically `root` or a member of the `docker` group). Run `backup_preflight.sh`
+as `root` from `/root/amber2`.
+
+### Not enough disk space
+
+The script aborts if less than 20 GB is free. Check:
+
+```bash
+df -h /root/amber2
+```
+
+Old backup directories can be deleted once the restore drill for the current
+snapshot has passed and the entry in `ROLLBACK_ASSETS.md` has been updated.
+
+---
+
+## Deprecated Scripts
+
+The following scripts predate v1.1.0 and reference container names, paths, and
+storage backends that no longer exist. **Do not use them:**
+
+| Script | Reason |
+|---|---|
+| `scripts/backup.sh` | Old MinIO-based backup; references non-existent MinIO container |
+| `scripts/restore.sh` | Old MinIO-based restore; incorrect container names |
+| `scripts/backup_amber.sh` | Legacy wrapper; superseded by `backup_preflight.sh` |
+| `scripts/storage_manifest.py` | MinIO manifest tool; no equivalent needed for Garage |
+| `scripts/storage_sync.sh` | MinIO→SeaweedFS sync tool; migration never deployed |
+| `scripts/storage_compare.py` | Migration drift checker; no longer applicable |
+| `scripts/seaweed_reconcile_tidy.sh` | SeaweedFS reconciliation; SeaweedFS was never deployed |
+
+Use `scripts/backup_preflight.sh` exclusively.

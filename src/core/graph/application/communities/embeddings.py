@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,11 @@ class CommunityEmbeddingService:
         self,
         embedding_service: EmbeddingService,
         vector_store: VectorStorePort,
+        sparse_embedding_service: SparseEmbeddingService | None = None,
     ):
         self.embedding_service = embedding_service
         self.vector_store = vector_store
+        self.sparse_embedding_service = sparse_embedding_service
 
     async def embed_and_store_community(self, community_data: dict[str, Any]):
         """
@@ -37,20 +40,29 @@ class CommunityEmbeddingService:
         text_to_embed = f"{community_data['title']}: {community_data['summary']}"
         embedding = await self.embedding_service.embed_single(text_to_embed)
 
+        # Generate sparse vector if service available
+        sparse_vector = None
+        if self.sparse_embedding_service:
+            try:
+                sparse_vector = self.sparse_embedding_service.embed_sparse(text_to_embed)
+            except Exception as e:
+                logger.warning(f"Failed to generate sparse embedding for community {community_data['id']}: {e}")
+
+        payload = {
+            "chunk_id": community_data["id"],
+            "document_id": community_data["id"],
+            "tenant_id": community_data["tenant_id"],
+            "content": community_data["summary"],
+            "embedding": embedding,
+            "title": community_data["title"],
+            "level": community_data["level"],
+        }
+
+        if sparse_vector:
+            payload["sparse_vector"] = sparse_vector
+
         try:
-            await self.vector_store.upsert_chunks(
-                [
-                    {
-                        "chunk_id": community_data["id"],
-                        "document_id": community_data["id"],
-                        "tenant_id": community_data["tenant_id"],
-                        "content": community_data["summary"],
-                        "embedding": embedding,
-                        "title": community_data["title"],
-                        "level": community_data["level"],
-                    }
-                ]
-            )
+            await self.vector_store.upsert_chunks([payload])
             logger.info(f"Stored embedding for community {community_data['id']}")
         except Exception as e:
             logger.error(f"Failed to store community embedding: {e}")
@@ -63,6 +75,24 @@ class CommunityEmbeddingService:
         Searches for communities semantically similar to the query.
         """
         filters = {"level": level} if level is not None else None
+
+        # Check if vector store supports hybrid search (MilvusVectorStore) and we have sparse service
+        if (
+            hasattr(self.vector_store, "hybrid_search")
+            and self.sparse_embedding_service
+        ):
+            # Generate sparse query vector (sync call but fast enough for now)
+            # Ideally should be async or thread-pooled if model is heavy
+            try:
+                # Text isn't passed here, query_vector is pre-computed elsewhere usually.
+                # But here search_communities takes query_vector (dense).
+                # We can't easily regenerate sparse vector from dense vector.
+                # The caller should ideally provide text or both vectors.
+                # For now, we fallback to dense search as we don't have the query text here.
+                pass
+            except Exception:
+                pass
+
         results = await self.vector_store.search(
             query_vector=query_vector,
             tenant_id=tenant_id,

@@ -10,8 +10,11 @@ Handles orchestration of:
 """
 
 import logging
+import os
 import time
 from typing import Any
+
+from fastapi import HTTPException
 
 from src.core.admin_ops.application.metrics.collector import MetricsCollector
 from src.core.generation.application.generation_service import GenerationService
@@ -26,6 +29,11 @@ from src.shared.kernel.models.query import (
 )
 
 logger = logging.getLogger(__name__)
+
+def _agent_flag(name: str) -> bool:
+    """Read agent feature-flag from env (mirrors src.api.config defaults of False)."""
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
 
 
 class QueryUseCase:
@@ -48,7 +56,7 @@ class QueryUseCase:
         request: QueryRequest,
         tenant_id: str,
         http_request_state: Any = None,  # For permissions/context if needed, or extract needed data
-        user_id: str = "default_user",
+        user_id: str = "",
     ) -> QueryResponse | StructuredQueryResponse:
         """
         Execute the query pipeline.
@@ -63,6 +71,12 @@ class QueryUseCase:
             QueryResponse or StructuredQueryResponse.
         """
         start_time = time.perf_counter()
+
+        from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+        query_scopes = getattr(http_request_state, "query_scopes", None)
+        if query_scopes is None:
+            query_scopes = resolve_query_scopes(tenant_id)
 
         # Options
         include_trace = request.options.include_trace if request.options else False
@@ -105,8 +119,28 @@ class QueryUseCase:
 
         # 2. AGENTIC MODE
         if request.options and request.options.agent_mode:
+            # ── Privilege checks (must be outside the broad except below) ──────
+            if not _agent_flag("ENABLE_AGENT_MODE"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Agent mode is disabled on this server.",
+                )
+
+            agent_role = request.options.agent_role if request.options else "knowledge"
+            if agent_role == "maintainer":
+                is_super = getattr(http_request_state, "is_super_admin", False)
+                if not is_super:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="agent_role='maintainer' requires super_admin privileges.",
+                    )
+            # ── End privilege checks ─────────────────────────────────────────
             try:
-                return await self._execute_agent(request, tenant_id, start_time)
+                return await self._execute_agent(
+                    request, tenant_id, start_time, http_request_state
+                )
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}")
                 # Fallback to standard RAG
@@ -145,12 +179,30 @@ class QueryUseCase:
                     include_trace=include_trace,
                     options=request.options,
                     history=None,
+                    query_scopes=query_scopes,
                 )
 
                 retrieval_ms = (time.perf_counter() - step_start) * 1000
                 query_metrics.retrieval_latency_ms = retrieval_ms
                 query_metrics.chunks_retrieved = len(retrieval_result.chunks)
                 query_metrics.cache_hit = retrieval_result.cache_hit
+
+                share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
+                query_metrics.local_hits = share_metrics["local_hits"]
+                query_metrics.shared_hits = share_metrics["shared_hits"]
+                query_metrics.acl_filtered_results = share_metrics["acl_filtered_results"]
+
+                tax_metrics = self._extract_taxonomy_metrics(retrieval_result.trace)
+                if tax_metrics:
+                    logger.info(
+                        "taxonomy_routing query_id=%s edition=%s audience=%s "
+                        "broadening_stage=%s strict_count=%s",
+                        query_id,
+                        tax_metrics.get("inferred_edition"),
+                        tax_metrics.get("inferred_audience"),
+                        tax_metrics.get("broadening_stage"),
+                        tax_metrics.get("strict_candidate_count"),
+                    )
 
                 for rt in retrieval_result.trace:
                     trace_steps.append(
@@ -244,7 +296,13 @@ class QueryUseCase:
             follow_up_questions=follow_ups,
         )
 
-    async def _execute_agent(self, request: QueryRequest, tenant_id: str, start_time: float):
+    async def _execute_agent(
+        self,
+        request: QueryRequest,
+        tenant_id: str,
+        start_time: float,
+        http_request_state: Any = None,
+    ):
         from src.core.generation.application.agent.orchestrator import AgentOrchestrator
         from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
         from src.core.tools.filesystem import create_filesystem_tools
@@ -256,12 +314,12 @@ class QueryUseCase:
         tool_schemas = [retrieval_tool_def["schema"]]
 
         agent_role = request.options.agent_role
-        if agent_role == "maintainer":
+        if agent_role == "maintainer" and _agent_flag("ENABLE_MAINTAINER_TOOLS"):
             fs_tools = create_filesystem_tools(base_path=".")
             for t in fs_tools:
                 tool_map[t["name"]] = t["func"]
                 tool_schemas.append(t["schema"])
-        else:
+        elif _agent_flag("ENABLE_AGENT_GRAPH_TOOL"):
             from src.core.tools.graph import GRAPH_TOOLS, query_graph
 
             tool_map["query_graph"] = query_graph
@@ -296,6 +354,49 @@ class QueryUseCase:
             "- The query doesn't match available content\n"
             "- Try rephrasing your question"
         )
+
+    @staticmethod
+    def _extract_share_metrics(tenant_id: str, retrieval_trace: list[dict]) -> dict[str, int]:
+        """Summarize local/shared hit counts and ACL-filtered results from retrieval trace."""
+        local_hits = 0
+        shared_hits = 0
+        acl_filtered_results = 0
+
+        for step in retrieval_trace or []:
+            targets = step.get("targets")
+            if not isinstance(targets, list):
+                continue
+
+            if step.get("step") in {"vector_search", "global_search"}:
+                for target in targets:
+                    results_count = int(target.get("results_count") or 0)
+                    if str(target.get("tenant_id")) == tenant_id:
+                        local_hits += results_count
+                    else:
+                        shared_hits += results_count
+
+            if step.get("step") in {"resolve_vector_targets", "resolve_graph_targets"}:
+                for target in targets:
+                    acl_filtered_results += int(target.get("acl_filtered_out_count") or 0)
+
+        return {
+            "local_hits": local_hits,
+            "shared_hits": shared_hits,
+            "acl_filtered_results": acl_filtered_results,
+        }
+
+    @staticmethod
+    def _extract_taxonomy_metrics(retrieval_trace: list[dict]) -> dict | None:
+        """Extract taxonomy routing signal from the retrieval trace."""
+        for step in retrieval_trace or []:
+            if step.get("step") == "taxonomy_routing":
+                return {
+                    "inferred_edition": step.get("inferred_edition"),
+                    "inferred_audience": step.get("inferred_audience"),
+                    "broadening_stage": step.get("broadening_stage"),
+                    "strict_candidate_count": step.get("strict_candidate_count"),
+                }
+        return None
 
     def _update_metrics_from_generation(self, metrics, result, answer):
         metrics.tokens_used = result.tokens_used

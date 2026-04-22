@@ -10,8 +10,8 @@ from sqlalchemy import select
 
 from src.api.config import settings
 from src.core.database.session import async_session_maker, configure_database
-from src.core.tenants.domain.tenant import Tenant
 from src.core.tenants.application.llm_model_backfill import backfill_llm_model_config
+from src.core.tenants.domain.tenant import Tenant
 
 
 def _parse_args() -> argparse.Namespace:

@@ -9,16 +9,18 @@ Stage 10.1 - Pipeline Control Dashboard Backend
 
 import logging
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.api.deps import verify_super_admin
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/jobs", tags=["admin-jobs"])
+
+router = APIRouter(prefix="/jobs", tags=["admin-jobs"], dependencies=[Depends(verify_super_admin)])
 
 
 # =============================================================================
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/jobs", tags=["admin-jobs"])
 # =============================================================================
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Celery task states."""
 
     PENDING = "PENDING"
@@ -170,7 +172,7 @@ async def list_jobs(
 
     except Exception as e:
         logger.error(f"Failed to list jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/{task_id}", response_model=JobInfo)
@@ -212,7 +214,7 @@ async def get_job(task_id: str):
 
     except Exception as e:
         logger.error(f"Failed to get job {task_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get job: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/{task_id}/cancel", response_model=CancelResponse)
@@ -249,7 +251,7 @@ async def cancel_job(
 
     except Exception as e:
         logger.error(f"Failed to cancel job {task_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/cancel-all", response_model=CancelAllResponse)
@@ -330,7 +332,7 @@ async def cancel_all_jobs():
 
     except Exception as e:
         logger.error(f"Failed to cancel all jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel all jobs: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/queues/status", response_model=QueuesResponse)
@@ -423,7 +425,7 @@ async def get_queue_status():
 
     except Exception as e:
         logger.error(f"Failed to get queue status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 # =============================================================================

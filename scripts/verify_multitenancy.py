@@ -1,7 +1,8 @@
 import asyncio
-import httpx
 import os
 import sys
+
+import httpx
 
 # Ensure we're in project root for imports if needed, though this test hits the API
 sys.path.append(os.getcwd())
@@ -83,7 +84,7 @@ async def run():
             res = await clientB.get(f"{BASE_URL}/folders")
             if res.status_code != 200:
                 print(f"Key B list failed: {res.text}")
-                
+
             folders = res.json()
             assert len(folders) == 0, f"Key B saw folders! {folders}"
             print("Key B sees 0 folders (Correct)")
@@ -93,7 +94,7 @@ async def run():
             f2 = await clientB.post(f"{BASE_URL}/folders", json={"name": "SecretFolderB"})
             assert f2.status_code == 201
             print("Key B created SecretFolderB")
-            
+
         # Key A again - Should still see only 1
         async with httpx.AsyncClient(headers={"X-API-Key": k1['key']}, timeout=10) as clientA:
             print("Key A checking again...")
@@ -102,7 +103,7 @@ async def run():
             assert len(folders) == 1
             assert folders[0]['name'] == "SecretFolderA"
             print("Key A still sees only SecretFolderA (Correct)")
-        
+
         print("VERIFICATION PASSED!")
 
     except AssertionError as e:
@@ -113,10 +114,10 @@ async def run():
         # 3. Cleanup
         print("Cleaning up...")
         async with httpx.AsyncClient(headers=admin_headers, timeout=10) as client:
-            # Delete tenants (RLS might block deletion if we don't have cascade delete? Admin bypass RLS? 
+            # Delete tenants (RLS might block deletion if we don't have cascade delete? Admin bypass RLS?
             # Admin API uses same session. Admin user usually bypasses RLS if `bypassrls` role, but `graphrag` user might not strictly be superuser.
             # But `verify_admin` usually uses `default` tenant? Wait.
-            # Admin routes `TenantService` bypasses RLS? 
+            # Admin routes `TenantService` bypasses RLS?
             # `TenantService` uses `Tenant` model which does NOT have RLS.
             # But Deleting tenant should delete folders. `Tenant` model probably doesn't have cascade relationship to `Folder` yet?
             # Folders don't have FK to Tenants table?
@@ -124,7 +125,7 @@ async def run():
             # So deleting tenant won't delete folders automatically.
             # And `delete_tenant` in `TenantService` just deletes the tenant row.
             # So "SecretFolderA" will remain orphaned. That's fine for test cleanup, but in prod we might want cleanup.
-            
+
             await client.delete(f"{BASE_URL}/admin/tenants/{t1['id']}")
             await client.delete(f"{BASE_URL}/admin/tenants/{t2['id']}")
             await client.delete(f"{BASE_URL}/admin/keys/{k1['id']}")

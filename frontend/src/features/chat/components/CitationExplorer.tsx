@@ -1,3 +1,4 @@
+import { useAuth } from '@/features/auth'
 import { useCitationStore, Citation } from '../store/citationStore'
 import { useChatStore } from '../store'
 import { cn } from '@/lib/utils'
@@ -179,6 +180,8 @@ function CitationCard({
     variants: Variants
 }) {
     // Retrieve content from chat store
+    const { permissions } = useAuth()
+    const docBasePath = permissions.includes('admin') ? '/admin/data/documents' : '/amber/data/documents'
     const activeMessageId = useCitationStore(s => s.activeMessageId)
     const message = useChatStore(s => s.messages.find(m => m.id === activeMessageId))
     const source = message?.sources?.find(s => {
@@ -275,25 +278,27 @@ function CitationCard({
                     )}
                 </div>
 
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-[10px] px-2 gap-1.5 text-primary hover:text-primary hover:bg-primary/10 transition-[background-color,color] duration-200 ease-out font-medium uppercase tracking-wide"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (source?.document_id?.startsWith('rule_doc_')) {
-                            window.open('/admin/settings/rules', '_blank');
-                        } else if (source?.document_id) {
-                            window.open(`/admin/data/documents/${source.document_id}`, '_blank');
-                        }
-                    }}
-                >
-                    {source?.document_id?.startsWith('rule_doc_') ? (
-                        <>View Global Rules <Sparkles className="w-2.5 h-2.5" /></>
-                    ) : (
-                        <>View Document <ExternalLink className="w-2.5 h-2.5" /></>
-                    )}
-                </Button>
+                {source?.document_id && source.document_id !== 'unknown' && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 gap-1.5 text-primary hover:text-primary hover:bg-primary/10 transition-[background-color,color] duration-200 ease-out font-medium uppercase tracking-wide"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (source.document_id?.startsWith('rule_doc_')) {
+                                window.open('/admin/settings/rules', '_blank');
+                            } else {
+                                window.open(`${docBasePath}/${source.document_id}`, '_blank');
+                            }
+                        }}
+                    >
+                        {source.document_id.startsWith('rule_doc_') ? (
+                            <>View Global Rules <Sparkles className="w-2.5 h-2.5" /></>
+                        ) : (
+                            <>View Document <ExternalLink className="w-2.5 h-2.5" /></>
+                        )}
+                    </Button>
+                )}
             </div>
 
 

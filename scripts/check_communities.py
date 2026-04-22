@@ -7,6 +7,7 @@ sys.path.append(os.getcwd())
 
 from src.amber_platform.composition_root import platform
 
+
 async def main():
     try:
         await platform.neo4j_client.connect()
@@ -16,7 +17,7 @@ async def main():
         print("Community Status Counts:")
         for res in results:
             print(f"- {res['status']}: {res['count']}")
-        
+
         # Query total communities
         total_query = "MATCH (c:Community) RETURN count(c) as total"
         total_res = await platform.neo4j_client.execute_read(total_query, {})

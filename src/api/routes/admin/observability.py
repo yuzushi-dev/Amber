@@ -5,18 +5,80 @@ Observability Admin Routes
 Endpoints for monitoring system health and business metrics.
 """
 
-from fastapi import APIRouter
+from datetime import datetime
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import build_metrics_collector
+from src.api.config import settings
+from src.api.deps import get_db_session, verify_super_admin
 from src.core.admin_ops.application.metrics.collector import AggregatedMetrics
+from src.core.admin_ops.domain.audit import AuditLog
+from src.core.ingestion.domain.document_share import DocumentShare
+from src.core.tenants.domain.tenant import Tenant
 
-router = APIRouter(prefix="/observability", tags=["observability"])
+router = APIRouter(
+    prefix="/observability",
+    tags=["observability"],
+    dependencies=[Depends(verify_super_admin)],
+)
 
 
 class MetricsResponse(BaseModel):
     aggregated: AggregatedMetrics
     recent_queries: list[dict]
+
+
+class DocumentShareFlagsResponse(BaseModel):
+    enable_document_share_management: bool
+    enable_upload_time_document_shares: bool
+    enable_acl_aware_vector_retrieval: bool
+    enable_acl_aware_graph_retrieval: bool
+
+
+class DocumentShareTenantSummaryResponse(BaseModel):
+    tenant_id: str
+    tenant_name: str | None = None
+    share_row_count: int
+    shared_document_count: int
+    denied_visibility_count: int = 0
+    not_found_visibility_count: int = 0
+
+
+class DocumentShareTotalsResponse(BaseModel):
+    share_row_count: int
+    shared_document_count: int
+    share_add_audit_count: int
+    share_replace_audit_count: int
+    share_remove_audit_count: int
+
+
+class DocumentShareQueryMetricsResponse(BaseModel):
+    recent_query_count: int
+    shared_hits: int
+    local_hits: int
+    acl_filtered_results: int
+
+
+class DocumentShareSummaryResponse(BaseModel):
+    flags: DocumentShareFlagsResponse
+    totals: DocumentShareTotalsResponse
+    tenants: list[DocumentShareTenantSummaryResponse]
+    query_metrics: DocumentShareQueryMetricsResponse
+
+
+class DocumentShareAuditEntryResponse(BaseModel):
+    id: str
+    timestamp: datetime
+    actor: str | None = None
+    action: str
+    target_type: str | None = None
+    target_id: str | None = None
+    changes: dict | None = None
+    metadata_json: dict | None = None
 
 
 @router.get(
@@ -43,11 +105,210 @@ async def get_recent_queries(tenant_id: str | None = None, limit: int = 50):
     collector = build_metrics_collector()
     try:
         queries = await collector.get_recent(tenant_id=tenant_id, limit=limit)
-        # Convert dataclasses to dicts if needed, or rely on FastAPI encoder
         return [q.to_dict() for q in queries]
     finally:
         await collector.close()
 
+
+@router.get(
+    "/document-shares/summary",
+    response_model=DocumentShareSummaryResponse,
+    summary="Get Document Share Observability Summary",
+    description="Summarize explicit document sharing state, audit counts, and recent shared/local retrieval metrics.",
+)
+async def get_document_share_summary(
+    recent_limit: int = 200,
+    session: AsyncSession = Depends(get_db_session),
+):
+    share_rows_result = await session.execute(
+        select(
+            DocumentShare.target_tenant_id.label("tenant_id"),
+            Tenant.name.label("tenant_name"),
+            func.count(DocumentShare.id).label("share_row_count"),
+            func.count(func.distinct(DocumentShare.document_id)).label("shared_document_count"),
+        )
+        .join(Tenant, Tenant.id == DocumentShare.target_tenant_id)
+        .group_by(DocumentShare.target_tenant_id, Tenant.name)
+        .order_by(Tenant.name.asc())
+    )
+    share_rows = share_rows_result.all()
+
+    totals_result = await session.execute(
+        select(
+            func.count(DocumentShare.id).label("share_row_count"),
+            func.count(func.distinct(DocumentShare.document_id)).label("shared_document_count"),
+        )
+    )
+    totals_row = totals_result.one()
+
+    audit_counts_result = await session.execute(
+        select(AuditLog.action, func.count(AuditLog.id).label("count"))
+        .where(AuditLog.action.in_(["document_shares_add", "document_shares_replace", "document_shares_remove"]))
+        .group_by(AuditLog.action)
+    )
+    audit_counts = {row.action: row.count for row in audit_counts_result.all()}
+
+    collector = build_metrics_collector()
+    try:
+        recent_queries = []
+        seen_query_ids: set[str] = set()
+        relevant_tenant_ids = {"default"} | {row.tenant_id for row in share_rows}
+        for tenant_id in relevant_tenant_ids:
+            for metric in await collector.get_recent(tenant_id=tenant_id, limit=recent_limit):
+                if metric.query_id in seen_query_ids:
+                    continue
+                seen_query_ids.add(metric.query_id)
+                recent_queries.append(metric)
+
+        tenant_summaries = []
+        for row in share_rows:
+            denied_visibility_count = 0
+            not_found_visibility_count = 0
+            get_counter = getattr(collector, "get_counter", None)
+            if callable(get_counter):
+                denied_visibility_count = await get_counter("document_visibility_denied", row.tenant_id)
+                not_found_visibility_count = await get_counter(
+                    "document_visibility_not_found", row.tenant_id
+                )
+
+            tenant_summaries.append(
+                DocumentShareTenantSummaryResponse(
+                    tenant_id=row.tenant_id,
+                    tenant_name=row.tenant_name,
+                    share_row_count=row.share_row_count,
+                    shared_document_count=row.shared_document_count,
+                    denied_visibility_count=denied_visibility_count,
+                    not_found_visibility_count=not_found_visibility_count,
+                )
+            )
+
+        return DocumentShareSummaryResponse(
+            flags=DocumentShareFlagsResponse(
+                enable_document_share_management=settings.enable_document_share_management,
+                enable_upload_time_document_shares=settings.enable_upload_time_document_shares,
+                enable_acl_aware_vector_retrieval=settings.enable_acl_aware_vector_retrieval,
+                enable_acl_aware_graph_retrieval=settings.enable_acl_aware_graph_retrieval,
+            ),
+            totals=DocumentShareTotalsResponse(
+                share_row_count=totals_row.share_row_count or 0,
+                shared_document_count=totals_row.shared_document_count or 0,
+                share_add_audit_count=audit_counts.get("document_shares_add", 0),
+                share_replace_audit_count=audit_counts.get("document_shares_replace", 0),
+                share_remove_audit_count=audit_counts.get("document_shares_remove", 0),
+            ),
+            tenants=tenant_summaries,
+            query_metrics=DocumentShareQueryMetricsResponse(
+                recent_query_count=len(recent_queries),
+                shared_hits=sum(getattr(metric, "shared_hits", 0) for metric in recent_queries),
+                local_hits=sum(getattr(metric, "local_hits", 0) for metric in recent_queries),
+                acl_filtered_results=sum(getattr(metric, "acl_filtered_results", 0) for metric in recent_queries),
+            ),
+        )
+    finally:
+        await collector.close()
+
+
+@router.get(
+    "/document-shares/audit",
+    response_model=list[DocumentShareAuditEntryResponse],
+    summary="Get Recent Document Share Audit Events",
+    description="Return recent audit log entries for explicit document share mutations.",
+)
+async def get_document_share_audit(
+    limit: int = 50,
+    session: AsyncSession = Depends(get_db_session),
+):
+    result = await session.execute(
+        select(AuditLog)
+        .where(AuditLog.action.like("document_shares_%"))
+        .order_by(AuditLog.timestamp.desc())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return [
+        DocumentShareAuditEntryResponse(
+            id=row.id,
+            timestamp=row.timestamp,
+            actor=row.actor,
+            action=row.action,
+            target_type=row.target_type,
+            target_id=row.target_id,
+            changes=row.changes,
+            metadata_json=row.metadata_json,
+        )
+        for row in rows
+    ]
+
+
+
+class TaxonomyBucketRow(BaseModel):
+    edition: str
+    audience: str
+    source_family: str
+    count: int
+
+
+class TaxonomyCorpusSummaryResponse(BaseModel):
+    total_stamped: int
+    total_unstamped: int
+    buckets: list[TaxonomyBucketRow]
+
+
+@router.get(
+    "/taxonomy/corpus-summary",
+    response_model=TaxonomyCorpusSummaryResponse,
+    summary="Get Taxonomy Corpus Distribution",
+    description="Show how many documents are stamped per taxonomy bucket (edition/audience/source_family).",
+)
+async def get_taxonomy_corpus_summary(
+    tenant_id: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+
+    where_clause = "WHERE metadata -> 'taxonomy' IS NOT NULL"
+    if tenant_id:
+        where_clause += " AND tenant_id = :tenant_id"
+
+    bucket_sql = text(
+        f"""
+        SELECT
+            metadata -> 'taxonomy' ->> 'edition'      AS edition,
+            metadata -> 'taxonomy' ->> 'audience'     AS audience,
+            metadata -> 'taxonomy' ->> 'source_family' AS source_family,
+            COUNT(*)::int                                  AS cnt
+        FROM documents
+        {where_clause}
+        GROUP BY 1, 2, 3
+        ORDER BY cnt DESC
+        """
+    )
+    params = {"tenant_id": tenant_id} if tenant_id else {}
+    bucket_result = await session.execute(bucket_sql, params)
+    bucket_rows = bucket_result.fetchall()
+
+    unstamped_sql = text(
+        "SELECT COUNT(*)::int FROM documents"
+        + (" WHERE tenant_id = :tenant_id AND" if tenant_id else " WHERE")
+        + " (metadata -> 'taxonomy' IS NULL)"
+    )
+    unstamped_result = await session.execute(unstamped_sql, params)
+    total_unstamped = unstamped_result.scalar() or 0
+
+    buckets = [
+        TaxonomyBucketRow(
+            edition=row.edition or "unknown",
+            audience=row.audience or "unknown",
+            source_family=row.source_family or "unknown",
+            count=row.cnt,
+        )
+        for row in bucket_rows
+    ]
+
+    return TaxonomyCorpusSummaryResponse(
+        total_stamped=sum(b.count for b in buckets),
+        total_unstamped=total_unstamped,
+        buckets=buckets,
+    )
 
 @router.get(
     "/health/deep",
@@ -64,20 +325,18 @@ async def deep_health_check():
         "milvus": "unknown",
     }
 
-    # 1. Check Redis
     try:
         import redis.asyncio as redis
 
-        from src.api.config import settings
+        from src.api.config import settings as runtime_settings
 
-        r = redis.from_url(settings.db.redis_url)
+        r = redis.from_url(runtime_settings.db.redis_url)
         await r.ping()
         await r.close()
         status_report["redis"] = "ok"
     except Exception as e:
         status_report["redis"] = f"error: {str(e)}"
 
-    # 2. Check Neo4j
     try:
         neo = platform.neo4j_client
         await neo.verify_connectivity()
@@ -86,3 +345,84 @@ async def deep_health_check():
         status_report["neo4j"] = f"error: {str(e)}"
 
     return status_report
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant usage metrics
+# ---------------------------------------------------------------------------
+
+class TenantUsageRowResponse(BaseModel):
+    tenant_id: str
+    tenant_name: str | None = None
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cost: float
+    call_count: int
+
+
+class UsageTotalsResponse(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cost: float
+    call_count: int
+
+
+class UsageMetricsResponse(BaseModel):
+    tenants: list[TenantUsageRowResponse]
+    totals: UsageTotalsResponse
+
+
+@router.get(
+    "/usage/tokens",
+    response_model=UsageMetricsResponse,
+    summary="Get Cross-Tenant Token Usage",
+    description=(
+        "Aggregate LLM token usage and costs from all tenants. "
+        "Super admin only. Supports filtering by tenant, date range, and operation type."
+    ),
+)
+async def get_usage_tokens(
+    tenant_id: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    operation: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+    from src.core.admin_ops.application.usage_metrics_service import (
+        UsageMetricsFilter,
+        UsageMetricsService,
+    )
+
+    service = UsageMetricsService(session)
+    result = await service.get_tenant_aggregates(
+        UsageMetricsFilter(
+            tenant_id=tenant_id,
+            start_date=start_date,
+            end_date=end_date,
+            operation=operation,
+        )
+    )
+
+    return UsageMetricsResponse(
+        tenants=[
+            TenantUsageRowResponse(
+                tenant_id=r.tenant_id,
+                tenant_name=r.tenant_name,
+                input_tokens=r.input_tokens,
+                output_tokens=r.output_tokens,
+                total_tokens=r.total_tokens,
+                cost=r.cost,
+                call_count=r.call_count,
+            )
+            for r in result.tenants
+        ],
+        totals=UsageTotalsResponse(
+            input_tokens=result.totals.input_tokens,
+            output_tokens=result.totals.output_tokens,
+            total_tokens=result.totals.total_tokens,
+            cost=result.totals.cost,
+            call_count=result.totals.call_count,
+        ),
+    )

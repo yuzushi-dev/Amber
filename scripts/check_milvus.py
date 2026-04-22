@@ -3,7 +3,6 @@ import logging
 
 # Configure logging
 from src.api.config import settings
-import logging
 
 logging.basicConfig(level=logging.INFO)
 from src.core.vector_store.milvus import MilvusConfig, MilvusVectorStore

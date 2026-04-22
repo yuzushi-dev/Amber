@@ -1,6 +1,5 @@
 
-import os
-from pymilvus import connections, Collection, utility
+from pymilvus import Collection, connections, utility
 
 print("Connecting to Milvus...")
 connections.connect(host="localhost", port="19530")

@@ -1,6 +1,6 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add src to pythonpath
 sys.path.append(os.getcwd())
@@ -8,11 +8,12 @@ sys.path.append(os.getcwd())
 from src.api.deps import _async_session_maker
 from src.core.services.api_key_service import ApiKeyService
 
+
 async def main():
     try:
         async with _async_session_maker() as session:
             service = ApiKeyService(session)
-            
+
             # List active keys first
             keys = await service.list_keys()
             if not keys:
@@ -22,17 +23,17 @@ async def main():
             print(f"\nFound {len(keys)} active keys:")
             print(f"{'ID':<36} | {'Name':<20} | {'Prefix':<10} | {'Created At'}")
             print("-" * 90)
-            
+
             for key in keys:
                 created_at = key.created_at.strftime("%Y-%m-%d %H:%M") if key.created_at else "N/A"
                 print(f"{key.id:<36} | {key.name:<20} | {key.prefix:<10} | {created_at}")
-            
+
             print("\n")
             key_id = input("Enter the ID of the key to revoke (or 'q' to quit): ").strip()
-            
+
             if key_id.lower() == 'q':
                 return
-                
+
             if not any(str(k.id) == key_id for k in keys):
                 print("Invalid Key ID.")
                 return
