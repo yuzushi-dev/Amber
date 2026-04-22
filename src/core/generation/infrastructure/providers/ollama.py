@@ -5,10 +5,11 @@ Ollama Provider
 LLM provider implementation for Ollama API (OpenAI compatible).
 """
 
+import logging
 import time
-from typing import Any
 
 import structlog
+from typing import Any
 
 from src.core.generation.infrastructure.providers.base import (
     AuthenticationError,
@@ -23,8 +24,8 @@ from src.core.generation.infrastructure.providers.base import (
     TokenUsage,
 )
 from src.shared.context import get_current_tenant, get_request_id
-from src.shared.kernel.observability import trace_span
 from src.shared.llm_capacity import get_ollama_capacity_limiter
+from src.shared.kernel.observability import trace_span
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_LLM_MODEL,
@@ -65,15 +66,14 @@ def reset_client() -> None:
     _openai_client = None
 
 
-def _get_openai_client(api_key: str, base_url: str, timeout: float | None = 60.0):
+def _get_openai_client(api_key: str, base_url: str):
     """Get or create OpenAI client configured for Ollama."""
     global _openai_client
     try:
         from openai import AsyncOpenAI
 
         # API key is required by client but ignored by Ollama
-        # max_retries=0: let FailoverLLMProvider handle retries at the application level
-        return AsyncOpenAI(api_key=api_key or "ollama", base_url=base_url, max_retries=0, timeout=timeout)
+        return AsyncOpenAI(api_key=api_key or "ollama", base_url=base_url)
     except ImportError as e:
         raise ImportError(
             "openai package is required. Install with: pip install openai>=1.10.0"
@@ -115,7 +115,6 @@ class OllamaLLMProvider(BaseLLMProvider):
             self._client = _get_openai_client(
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
-                timeout=self.config.timeout or 300.0,
             )
         return self._client
 
@@ -176,7 +175,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                     provider=self.provider_name,
                     model=model,
                     retry_after=1.0,
-                ) from e
+                )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
@@ -202,15 +201,15 @@ class OllamaLLMProvider(BaseLLMProvider):
             )
 
             # --- Structured response logging ---
-            log_kw = {
-                "provider": self.provider_name,
-                "model": model,
-                "latency_ms": round(elapsed_ms, 1),
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "finish_reason": finish_reason,
-                "answer_preview": text[:200].replace("\n", " ") if text else "",
-            }
+            log_kw = dict(
+                provider=self.provider_name,
+                model=model,
+                latency_ms=round(elapsed_ms, 1),
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                finish_reason=finish_reason,
+                answer_preview=text[:200].replace("\n", " ") if text else "",
+            )
             logger.info("llm_response", **log_kw)
 
             # Quality warnings
@@ -308,7 +307,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                     provider=self.provider_name,
                     model=model,
                     retry_after=1.0,
-                ) from e
+                )
 
         except RateLimitError:
             raise
@@ -383,7 +382,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                     provider=self.provider_name,
                     model=model,
                     retry_after=1.0,
-                ) from e
+                )
 
         except RateLimitError:
             raise
@@ -394,14 +393,14 @@ class OllamaLLMProvider(BaseLLMProvider):
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
-
+        
         # Log the full error details including response body if available
         error_body = ""
         if hasattr(e, "response") and hasattr(e.response, "text"):
              error_body = f" | Response Body: {e.response.text}"
         elif hasattr(e, "body"): # Some versions use body
              error_body = f" | Body: {e.body}"
-
+             
         logger.error(f"Ollama Error ({error_type}): {e}{error_body}")
 
         if "RateLimitError" in error_type:
@@ -471,7 +470,6 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             self._client = _get_openai_client(
                 api_key=self.config.api_key or "ollama",
                 base_url=self.config.base_url,
-                timeout=self.config.timeout or 300.0,
             )
         return self._client
 
@@ -502,7 +500,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                     provider=self.provider_name,
                     model=model,
                     retry_after=1.0,
-                ) from e
+                )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
