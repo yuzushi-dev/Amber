@@ -16,6 +16,7 @@ import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/features/auth';
 import {
     ChevronLeft,
+    ExternalLink,
     FileText,
     Layers,
     Share2,
@@ -111,6 +112,7 @@ export default function DocumentDetailPage() {
     const canManageShares =
         permissions.includes('super_admin') || (tenantId === 'default' && permissions.includes('admin'));
     const isDefaultOwnedDocument = (document.owner_tenant_id ?? document.tenant_id) === 'default';
+    const sourceUrl = document.metadata?.source_url as string | undefined;
 
     const statsCards = [
         { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-chart-1', bg: 'bg-chart-1/10' },
@@ -166,6 +168,18 @@ export default function DocumentDetailPage() {
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {sourceUrl && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                        >
+                            <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="w-4 h-4 mr-2" />
+                                View Source
+                            </a>
+                        </Button>
+                    )}
                     <DocumentViewer
                         documentId={documentId}
                         filename={document.title || document.filename}
