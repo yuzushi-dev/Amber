@@ -12,13 +12,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session, verify_super_admin
+from src.api.deps import get_db_session, verify_tenant_admin
 from src.core.admin_ops.domain.feedback import Feedback
 
 router = APIRouter(
     prefix="/chat",
     tags=["Admin - Chat History"],
-    dependencies=[Depends(verify_super_admin)],
+    dependencies=[Depends(verify_tenant_admin)],
 )
 
 
@@ -102,6 +102,10 @@ async def list_chat_history(
     from src.core.generation.domain.memory_models import ConversationSummary
 
     try:
+        is_super = getattr(request.state, "is_super_admin", False)
+        if not is_super:
+            tenant_id = str(getattr(request.state, "tenant_id", ""))
+            
         # Build query for conversation summaries
         query = select(ConversationSummary)
 
@@ -239,8 +243,15 @@ async def get_conversation_detail(
     """
     from src.core.generation.domain.memory_models import ConversationSummary
 
+    is_super = getattr(request.state, "is_super_admin", False)
+    if not is_super:
+        request_tenant = str(getattr(request.state, "tenant_id", ""))
+
     # Query conversation summary
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    if not is_super:
+        query = query.where(ConversationSummary.tenant_id == request_tenant)
+        
     result = await session.execute(query)
     conv = result.scalar_one_or_none()
 
@@ -291,8 +302,15 @@ async def delete_conversation(
     """
     from src.core.generation.domain.memory_models import ConversationSummary
 
+    is_super = getattr(request.state, "is_super_admin", False)
+    if not is_super:
+        request_tenant = str(getattr(request.state, "tenant_id", ""))
+
     # Query conversation summary
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    if not is_super:
+        query = query.where(ConversationSummary.tenant_id == request_tenant)
+        
     result = await session.execute(query)
     conv = result.scalar_one_or_none()
 

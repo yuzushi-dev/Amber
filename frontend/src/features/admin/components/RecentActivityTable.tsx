@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
     Table,
     TableBody,
@@ -12,24 +12,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { QueryMetrics } from '@/lib/api-admin';
-import { ChevronLeft, ChevronRight, FileText, MessageSquare, Database, Zap, CheckCircle, XCircle, FileUp, Network } from 'lucide-react';
-
-
-// Operation category mapping based on backend operation types
-const OPERATION_INFO: Record<string, { icon: React.ReactNode; variant: 'success' | 'warning' | 'info' | 'destructive' | 'secondary'; label: string }> = {
-    'rag_query': { icon: <MessageSquare className="w-3 h-3" />, variant: 'success', label: 'RAG' },
-    'chat_query': { icon: <MessageSquare className="w-3 h-3" />, variant: 'info', label: 'Chat' },
-    'summarization': { icon: <FileText className="w-3 h-3" />, variant: 'warning', label: 'Summary' },
-    'embedding': { label: "Embedding", icon: <Database className="w-3 h-3" />, variant: "secondary" },
-    'ingestion': { label: "Ingestion", icon: <FileUp className="w-3 h-3" />, variant: "secondary" },
-    'extraction': { label: "Graph Extraction", icon: <Network className="w-3 h-3" />, variant: "secondary" },
-    'summary': { label: "Summary", icon: <FileText className="w-3 h-3" />, variant: "secondary" },
-};
-
-const getOperationInfo = (op: string) => {
-    return OPERATION_INFO[op] || { icon: <Zap className="w-3 h-3" />, variant: 'secondary' as const, label: op || 'Unknown' };
-};
+import { ChatHistoryItem } from '@/lib/api-admin';
+import { ChevronLeft, ChevronRight, ShieldAlert, Star } from 'lucide-react';
+import { ChatDetailDialog } from './ChatDetailDialog';
 
 // Simple time ago helper
 function timeAgo(date: Date) {
@@ -44,7 +29,7 @@ function timeAgo(date: Date) {
 }
 
 interface RecentActivityTableProps {
-    records: QueryMetrics[];
+    records: ChatHistoryItem[];
     isLoading?: boolean;
 }
 
@@ -53,6 +38,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
     const recordsKey = records?.length ?? 0;
     const [page, setPage] = useState(1);
     const [prevRecordsKey, setPrevRecordsKey] = useState(recordsKey);
+    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
     // Reset page when records change (before render, not in effect)
     if (recordsKey !== prevRecordsKey) {
@@ -60,7 +46,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
         setPrevRecordsKey(recordsKey);
     }
 
-    const pageSize = 5;
+    const pageSize = 10;
 
     const totalPages = Math.ceil((records?.length || 0) / pageSize);
     const paginatedRecords = useMemo(() => {
@@ -73,7 +59,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
         return (
             <Card className="p-6">
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
-                    Loading activity...
+                    Loading chat activity...
                 </div>
             </Card>
         );
@@ -83,7 +69,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
         return (
             <Card className="p-6">
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
-                    No recent activity found.
+                    No recent chat activity found.
                 </div>
             </Card>
         );
@@ -96,37 +82,28 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                     <TableHeader className="bg-muted/40">
                         <TableRow className="border-border hover:bg-muted/30">
                             <TableHead className="w-[100px]">Time</TableHead>
-                            <TableHead className="w-[100px]">Type</TableHead>
-                            <TableHead className="min-w-[200px]">Input</TableHead>
-                            <TableHead className="min-w-[200px]">Output</TableHead>
+                            <TableHead className="w-[120px]">Tenant</TableHead>
+                            <TableHead className="min-w-[200px]">Query</TableHead>
+                            <TableHead className="min-w-[200px]">Response</TableHead>
+                            <TableHead className="w-[100px] text-center">Feedback</TableHead>
                             <TableHead className="text-right">Tokens</TableHead>
                             <TableHead className="text-right">Cost</TableHead>
-                            <TableHead className="text-right">Latency</TableHead>
                             <TableHead className="w-[100px]">Model</TableHead>
-                            <TableHead className="w-[80px]">Status</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {paginatedRecords.map((row) => {
-                            const info = getOperationInfo(row.operation);
-                            const time = new Date(row.timestamp);
-                            const costColor = row.cost_estimate < 0.001 ? 'text-success' : row.cost_estimate < 0.01 ? 'text-warning' : 'text-destructive';
+                            const time = new Date(row.created_at);
+                            const costColor = row.cost < 0.001 ? 'text-success' : row.cost < 0.01 ? 'text-warning' : 'text-destructive';
 
-                            // For ingestion, input/output are synthetic, customize them
-                            const isIngestion = row.operation === 'ingestion';
-                            const inputContent = isIngestion ? (
-                                <span className="font-mono text-xs text-muted-foreground flex items-center gap-1">
-                                    <FileText className="w-3 h-3" />
-                                    {row.conversation_id || 'Unknown Document'}
-                                </span>
-                            ) : (row.query || '-');
-
-                            const outputContent = isIngestion ? (
-                                <span className="text-muted-foreground/70 italic">Embedded Content</span>
-                            ) : (row.response || <span className="text-muted-foreground/70 italic">No output</span>);
+                            const isRedacted = row.query_text === "[REDACTED - PRIVACY]";
 
                             return (
-                                <TableRow key={row.query_id} className="border-border hover:bg-muted/20">
+                                <TableRow 
+                                    key={row.request_id} 
+                                    className="border-border hover:bg-muted/20 cursor-pointer transition-colors"
+                                    onClick={() => setSelectedChatId(row.request_id)}
+                                >
                                     {/* Time */}
                                     <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                                         <div title={time.toLocaleString()}>
@@ -134,71 +111,68 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                                         </div>
                                     </TableCell>
 
-                                    {/* Type Badge */}
+                                    {/* Tenant */}
                                     <TableCell>
-                                        <Badge variant={info.variant} className="gap-1">
-                                            {info.icon}
-                                            {info.label}
+                                        <Badge variant="outline" className="font-mono text-[10px] truncate max-w-[100px]" title={row.tenant_id}>
+                                            {row.tenant_id}
                                         </Badge>
                                     </TableCell>
 
                                     {/* Input (Query) */}
                                     <TableCell>
-                                        <div className="max-w-[250px] truncate text-sm" title={isIngestion ? 'Document ID' : row.query}>
-                                            {inputContent}
+                                        <div className="max-w-[250px] truncate text-sm" title={isRedacted ? 'Redacted' : row.query_text || ''}>
+                                            {isRedacted ? (
+                                                <span className="text-muted-foreground/70 italic flex items-center gap-1">
+                                                    <ShieldAlert className="w-3 h-3" /> Redacted
+                                                </span>
+                                            ) : (
+                                                row.query_text || '-'
+                                            )}
                                         </div>
                                     </TableCell>
 
                                     {/* Output (Response) */}
                                     <TableCell>
-                                        <div className="max-w-[250px] truncate text-sm text-muted-foreground" title={row.response || ''}>
-                                            {outputContent}
+                                        <div className="max-w-[250px] truncate text-sm text-muted-foreground" title={isRedacted ? 'Redacted' : row.response_preview || ''}>
+                                            {isRedacted ? (
+                                                <span className="text-muted-foreground/70 italic flex items-center gap-1">
+                                                    <ShieldAlert className="w-3 h-3" /> Redacted
+                                                </span>
+                                            ) : (
+                                                row.response_preview || '-'
+                                            )}
                                         </div>
+                                    </TableCell>
+
+                                    {/* Feedback */}
+                                    <TableCell className="text-center">
+                                        {row.has_feedback ? (
+                                            <Badge variant="outline" className="border-success/30 text-success bg-success/10 gap-1">
+                                                <Star className="w-3 h-3" fill="currentColor" />
+                                                Yes
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground/50">-</span>
+                                        )}
                                     </TableCell>
 
                                     {/* Tokens */}
                                     <TableCell className="text-right">
                                         <div className="font-mono text-xs">
-                                            {row.tokens_used?.toLocaleString() || 0}
-                                        </div>
-                                        <div className="text-[10px] text-muted-foreground/70">
-                                            {row.input_tokens || 0} / {row.output_tokens || 0}
+                                            {row.total_tokens?.toLocaleString() || 0}
                                         </div>
                                     </TableCell>
 
                                     {/* Cost */}
                                     <TableCell className="text-right">
                                         <div className={`font-mono text-xs ${costColor}`}>
-                                            ${row.cost_estimate?.toFixed(4) || '0.0000'}
-                                        </div>
-                                    </TableCell>
-
-                                    {/* Latency */}
-                                    <TableCell className="text-right">
-                                        <div className="font-mono text-xs">
-                                            {Math.round(row.total_latency_ms || 0)}ms
+                                            ${row.cost?.toFixed(4) || '0.0000'}
                                         </div>
                                     </TableCell>
 
                                     {/* Model */}
                                     <TableCell>
-                                        <div className="text-xs font-medium">{row.model || '-'}</div>
-                                        <div className="text-[10px] text-muted-foreground/70">{row.provider || ''}</div>
-                                    </TableCell>
-
-                                    {/* Status */}
-                                    <TableCell>
-                                        {row.success ? (
-                                            <Badge variant="outline" className="border-success/30 text-success bg-success/10">
-                                                <CheckCircle className="w-3 h-3 mr-1" />
-                                                OK
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="outline" className="border-destructive/30 text-destructive bg-destructive/10">
-                                                <XCircle className="w-3 h-3 mr-1" />
-                                                ERR
-                                            </Badge>
-                                        )}
+                                        <div className="text-xs font-medium truncate max-w-[80px]" title={row.model}>{row.model || '-'}</div>
                                     </TableCell>
                                 </TableRow>
                             );
@@ -240,6 +214,13 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                     </div>
                 </div>
             )}
+
+            {/* Chat Detail Dialog */}
+            <ChatDetailDialog
+                open={!!selectedChatId}
+                onOpenChange={(open) => !open && setSelectedChatId(null)}
+                requestId={selectedChatId}
+            />
         </Card>
     );
 }

@@ -1,46 +1,52 @@
 /**
  * ChatHistoryPanel
  * ================
- * Slide-in panel showing past conversations for the client (/amber/chat) view.
+ * Collapsible inline sidebar showing past conversations for the client (/amber/chat) view.
  * Fetches from GET /v1/chat/history and navigates by setting ?request_id.
  */
 
-import { useEffect, useState, useCallback } from 'react'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate, useRouterState, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { chatApi, ChatHistoryItem } from '@/lib/api-client'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { X, MessageSquarePlus, Clock, Trash2 } from 'lucide-react'
-import { FormatDate } from '@/components/ui/date-format'
+import { MessageSquarePlus, MessageCircle, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useChatStore } from '@/features/chat/store'
 
-interface ChatHistoryPanelProps {
-    open: boolean
-    onClose: () => void
-}
-
 const PAGE_SIZE = 20
 
-export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
+// Format date for grouping
+const formatDate = (dateString: string): string => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    })
+}
+
+export function ChatHistoryPanel() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const routerState = useRouterState()
     const searchParams = routerState.location.search as { request_id?: string }
     const activeId = searchParams.request_id
 
+    const [collapsed, setCollapsed] = useState(false)
     const [offset, setOffset] = useState(0)
     const [allConversations, setAllConversations] = useState<ChatHistoryItem[]>([])
     const [hasMore, setHasMore] = useState(true)
-    const [deletingId, setDeletingId] = useState<string | null>(null)
     const { lastHistoryUpdate } = useChatStore()
+    const scrollContainerRef = useRef<HTMLElement>(null)
 
     const { data, isLoading, isFetching } = useQuery({
         queryKey: ['chat-history-client', offset],
         queryFn: () => chatApi.list({ limit: PAGE_SIZE, offset }),
-        enabled: open,
     })
 
     useEffect(() => {
@@ -54,27 +60,14 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
         }
     }, [data, offset])
 
-    // Reset when panel reopens
-    useEffect(() => {
-        if (open) {
-            setOffset(0)
-            setAllConversations([])
-            setHasMore(true)
-        }
-    }, [open])
-
-    // P1 — Fix: Invalidate and refresh list when a new conversation completes
+    // Invalidate and refresh list when a new conversation completes
     useEffect(() => {
         if (lastHistoryUpdate > 0) {
-            // If panel is open, this triggers a refetch of the first page
-            // If panel is closed, it ensures fresh data on next open
             queryClient.invalidateQueries({ queryKey: ['chat-history-client'] })
-            if (open) {
-                setOffset(0)
-                setAllConversations([])
-            }
+            setOffset(0)
+            setAllConversations([])
         }
-    }, [lastHistoryUpdate, queryClient, open])
+    }, [lastHistoryUpdate, queryClient])
 
     const loadMore = useCallback(() => {
         if (!isFetching && hasMore) {
@@ -82,23 +75,29 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
         }
     }, [isFetching, hasMore])
 
-    const handleSelect = (item: ChatHistoryItem) => {
-        navigate({ to: '/amber/chat', search: { request_id: item.request_id } })
-        onClose()
-    }
+    // Scroll handler for infinite scroll
+    useEffect(() => {
+        const container = scrollContainerRef.current
+        if (!container) return
 
-    const handleNewChat = () => {
-        navigate({ to: '/amber/chat', search: {} })
-        onClose()
-    }
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = container
+            // Load more when within 100px of bottom
+            if (scrollHeight - scrollTop - clientHeight < 100) {
+                loadMore()
+            }
+        }
+
+        container.addEventListener('scroll', handleScroll)
+        return () => container.removeEventListener('scroll', handleScroll)
+    }, [loadMore])
 
     const handleDelete = async (e: React.MouseEvent, item: ChatHistoryItem) => {
+        e.preventDefault()
         e.stopPropagation()
-        // P2 — Fix: Add confirmation before deleting
         if (!window.confirm('Are you sure you want to delete this conversation?')) {
             return
         }
-        setDeletingId(item.request_id)
         try {
             await chatApi.delete(item.request_id)
             setAllConversations(prev => prev.filter(c => c.request_id !== item.request_id))
@@ -109,117 +108,155 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
             }
         } catch {
             toast.error('Failed to delete conversation')
-        } finally {
-            setDeletingId(null)
         }
     }
 
     return (
-        <>
-            {/* Backdrop */}
-            {open && (
-                <div
-                    className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[2px]"
-                    onClick={onClose}
-                />
+        <aside
+            className={cn(
+                "context-sidebar h-full flex flex-col border-r transition-[width,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] shrink-0",
+                // Glass material
+                "bg-background/80 backdrop-blur-xl border-white/5 shadow-xl supports-[backdrop-filter]:bg-background/60",
+                collapsed ? "w-16 items-center" : "w-64"
             )}
-
-            {/* Panel */}
-            <aside
-                className={cn(
-                    "fixed top-0 left-0 z-40 h-full w-72 bg-card border-r border-border/60 flex flex-col shadow-xl transition-transform duration-300 ease-out",
-                    open ? "translate-x-0" : "-translate-x-full"
-                )}
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-4 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-semibold">History</span>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-                        <X className="w-4 h-4" />
-                    </Button>
+        >
+            <nav ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto py-4" aria-label="Section navigation">
+                {/* Conversations Section */}
+                <div>
+                    {!collapsed && (
+                        <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                            Conversations
+                        </h3>
+                    )}
+                    <ul className="space-y-1 px-2">
+                        <li>
+                            <Link
+                                to="/amber/chat"
+                                search={{}}
+                                className={cn(
+                                    "flex items-center gap-3 px-3 py-2 rounded-md transition-colors",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1",
+                                    "bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-sm",
+                                    collapsed && "justify-center px-2"
+                                )}
+                                title={collapsed ? "New Chat" : undefined}
+                            >
+                                <MessageSquarePlus className="w-4 h-4 shrink-0" />
+                                {!collapsed && <span className="text-sm">New Chat</span>}
+                            </Link>
+                        </li>
+                    </ul>
                 </div>
 
-                {/* New Chat */}
-                <div className="px-3 py-3 border-b border-border/40">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full justify-start gap-2 text-primary border-primary/20 hover:bg-primary/5"
-                        onClick={handleNewChat}
-                    >
-                        <MessageSquarePlus className="w-4 h-4" />
-                        New conversation
-                    </Button>
-                </div>
+                {/* Recent Conversations */}
+                <div className="mt-4">
+                    {!collapsed && (
+                        <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                            Recent
+                        </h3>
+                    )}
 
-                {/* Conversation list */}
-                <div className="flex-1 overflow-y-auto py-2">
-                    {isLoading && offset === 0 ? (
-                        <div className="space-y-2 px-3 pt-1">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                                <Skeleton key={i} className="h-12 w-full rounded-lg" />
-                            ))}
-                        </div>
-                    ) : allConversations.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-                            <MessageSquarePlus className="w-8 h-8 text-muted-foreground/30" />
-                            <p className="text-xs text-muted-foreground/60">No past conversations yet</p>
-                        </div>
-                    ) : (
-                        <>
-                            {allConversations.map(item => (
-                                <div
-                                    key={item.request_id}
-                                    onClick={() => handleSelect(item)}
-                                    className={cn(
-                                        "group mx-2 my-0.5 px-3 py-2.5 rounded-lg cursor-pointer flex flex-col gap-1 transition-colors",
-                                        activeId === item.request_id
-                                            ? "bg-primary/10 text-primary"
-                                            : "hover:bg-muted/60 text-foreground"
-                                    )}
-                                >
-                                    <div className="flex items-start justify-between gap-1">
-                                        <p className="text-xs font-medium line-clamp-2 flex-1 leading-relaxed">
-                                            {item.query_text || 'Untitled conversation'}
-                                        </p>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-all"
-                                            onClick={(e) => handleDelete(e, item)}
-                                            disabled={deletingId === item.request_id}
+                    <ul className="space-y-1 px-2">
+                        {isLoading && offset === 0 ? (
+                            !collapsed && (
+                                <>
+                                    {[1, 2, 3].map((i) => (
+                                        <li key={i} className="px-3 py-2">
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-4 w-3/4" />
+                                                <Skeleton className="h-3 w-1/2" />
+                                            </div>
+                                        </li>
+                                    ))}
+                                </>
+                            )
+                        ) : allConversations.length === 0 ? (
+                            !collapsed && (
+                                <li className="px-3 py-2 text-sm text-muted-foreground">
+                                    No recent conversations
+                                </li>
+                            )
+                        ) : (
+                            allConversations.map((conversation) => {
+                                const preview = conversation.query_text || 'Untitled conversation'
+                                const displayText = preview.length > 30 ? preview.substring(0, 30) + '...' : preview
+                                const isActive = activeId === conversation.request_id
+
+                                return (
+                                    <li key={conversation.request_id} className="group relative">
+                                        <Link
+                                            to="/amber/chat"
+                                            search={{ request_id: conversation.request_id }}
+                                            className={cn(
+                                                "flex items-start gap-3 px-3 py-2 rounded-md transition-colors",
+                                                "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1",
+                                                isActive
+                                                    ? "bg-secondary text-secondary-foreground font-medium"
+                                                    : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+                                                collapsed && "justify-center px-2",
+                                                !collapsed && "pr-8" // Add padding for delete button
+                                            )}
+                                            title={collapsed ? preview : undefined}
                                         >
-                                            <Trash2 className="w-3 h-3" />
-                                        </Button>
-                                    </div>
-                                    <FormatDate
-                                        date={item.created_at}
-                                        mode="short"
-                                        className="text-[10px] text-muted-foreground/50"
-                                    />
-                                </div>
-                            ))}
+                                            <MessageCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                            {!collapsed && (
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-sm truncate">{displayText}</div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {formatDate(conversation.created_at)}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </Link>
+                                        {!collapsed && (
+                                            <button
+                                                onClick={(e) => handleDelete(e, conversation)}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-[opacity,background-color,color] duration-200 ease-out"
+                                                title="Delete conversation"
+                                                aria-label="Delete conversation"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </li>
+                                )
+                            })
+                        )}
+                    </ul>
 
-                            {hasMore && (
-                                <div className="flex justify-center py-3">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs text-muted-foreground"
-                                        onClick={loadMore}
-                                        disabled={isFetching}
-                                    >
-                                        {isFetching ? 'Loading…' : 'Load more'}
-                                    </Button>
-                                </div>
-                            )}
-                        </>
+                    {/* Loading indicator for infinite scroll */}
+                    {isFetching && offset > 0 && !collapsed && (
+                        <div className="px-3 py-2">
+                            <div className="space-y-2">
+                                <Skeleton className="h-4 w-3/4" />
+                                <Skeleton className="h-3 w-1/2" />
+                            </div>
+                        </div>
                     )}
                 </div>
-            </aside>
-        </>
+            </nav>
+
+            {/* Collapse toggle */}
+            <div className="shrink-0 p-2 border-t">
+                <button
+                    onClick={() => setCollapsed(!collapsed)}
+                    className={cn(
+                        "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md",
+                        "text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors",
+                        "focus:outline-none focus:ring-2 focus:ring-primary"
+                    )}
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                >
+                    {collapsed ? (
+                        <ChevronRight className="w-4 h-4" />
+                    ) : (
+                        <>
+                            <ChevronLeft className="w-4 h-4" />
+                            <span className="text-sm">Collapse</span>
+                        </>
+                    )}
+                </button>
+            </div>
+        </aside>
     )
 }
