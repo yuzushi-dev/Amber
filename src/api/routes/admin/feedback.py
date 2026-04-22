@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,34 +21,37 @@ router = APIRouter(prefix="/feedback", tags=["admin-feedback"], dependencies=[De
 
 
 @router.get("/pending", response_model=ResponseSchema[list[dict]])
-async def get_pending_feedback(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db)):
-    """List positive feedback waiting for review."""
+async def get_pending_feedback(
+    request: Request,
+    skip: int = 0,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """List feedback waiting for review.
 
+    Tenant admins see only their own tenant's feedback.
+    Super admins see feedback from all tenants.
+    """
+    is_super_admin = getattr(request.state, "is_super_admin", False)
     tenant_id = get_current_tenant() or "default"
 
-    # Select Feedback and joined ConversationSummary
-    # Join on session_id stored in metadata. We must cast the JSON value to string.
-    # Note: metadata_json is generic JSON, so we use func.json_extract_path_text (Postgres) or similar
-    # For now, simplistic approach: cast(Feedback.metadata_json['session_id'], String) = ConversationSummary.id
-    # BUT 'astext' is for JSONB. If it's pure JSON, we might need a different approach.
-    # safest is likely func.json_extract_path_text(Feedback.metadata_json, 'session_id') if we are on Postgres.
-
-    query = (
+    base_query = (
         select(Feedback, ConversationSummary)
         .outerjoin(
             ConversationSummary,
             func.json_extract_path_text(Feedback.metadata_json, "session_id")
             == ConversationSummary.id,
         )
-        .where(
-            Feedback.tenant_id == tenant_id,
-            # Show all feedback types (positive/negative) waiting for review
-            Feedback.golden_status.in_(["NONE", "PENDING"]),
-        )
+        .where(Feedback.golden_status.in_(["NONE", "PENDING"]))
         .order_by(Feedback.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
+
+    if not is_super_admin:
+        base_query = base_query.where(Feedback.tenant_id == tenant_id)
+
+    query = base_query
 
     result = await db.execute(query)
     rows = result.all()
@@ -76,6 +79,8 @@ async def get_pending_feedback(skip: int = 0, limit: int = 50, db: AsyncSession 
             {
                 "id": feedback.id,
                 "request_id": feedback.request_id,
+                "tenant_id": feedback.tenant_id,
+                "is_positive": feedback.is_positive,
                 "comment": feedback.comment,
                 "created_at": feedback.created_at,
                 "score": feedback.score,
