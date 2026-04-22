@@ -71,51 +71,6 @@ interface DocumentDetail {
     }
 }
 
-function inferSourceUrl(filename: string, metadata?: Record<string, unknown>): string | undefined {
-    if (metadata?.source_url) return metadata.source_url as string;
-
-    // Acme Mail docs: Acme Mail_Docs_{dirs}__filename.html
-    const carbMatch = filename.match(/^Acme Mail_Docs_(.+)\.html$/);
-    if (carbMatch) {
-        const inner = carbMatch[1];
-        const dunder = inner.indexOf('__');
-        const path = dunder === -1
-            ? inner.replace(/_/g, '/')
-            : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return `https://docs.acme.com/acme-mail/html/${path}.html`;
-    }
-
-    // Acme Mail CE docs: CE_Docs_{dirs}__filename.html
-    const ceMatch = filename.match(/^CE_Docs_(.+)\.html$/);
-    if (ceMatch) {
-        const inner = ceMatch[1];
-        const dunder = inner.indexOf('__');
-        const path = dunder === -1
-            ? inner.replace(/_/g, '/')
-            : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return `https://docs.acme.com/acme-mail-ce/html/${path}.html`;
-    }
-
-    // User guides: UserGuide_Docs_{dirs}__filename.html
-    const ugMatch = filename.match(/^UserGuide_Docs_(.+)\.html$/);
-    if (ugMatch) {
-        const inner = ugMatch[1];
-        const dunder = inner.indexOf('__');
-        const path = dunder === -1
-            ? inner.replace(/_/g, '/')
-            : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return `https://docs.acme.com/acme-mail/html/${path}.html`;
-    }
-
-    // Zendesk KB: {article_id}-{title}.html
-    const zdMatch = filename.match(/^(\d+)-.+\.html$/);
-    if (zdMatch) {
-        return `https://acmegroup.zendesk.com/hc/en-gb/articles/${zdMatch[1]}`;
-    }
-
-    return undefined;
-}
-
 export default function DocumentDetailPage() {
     const { documentId } = useParams({ strict: false });
     const navigate = useNavigate();
@@ -157,7 +112,7 @@ export default function DocumentDetailPage() {
     const canManageShares =
         permissions.includes('super_admin') || (tenantId === 'default' && permissions.includes('admin'));
     const isDefaultOwnedDocument = (document.owner_tenant_id ?? document.tenant_id) === 'default';
-    const sourceUrl = inferSourceUrl(document.filename, document.metadata);
+    const sourceUrl = document.metadata?.source_url as string | undefined;
 
     const statsCards = [
         { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-chart-1', bg: 'bg-chart-1/10' },
