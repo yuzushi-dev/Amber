@@ -104,3 +104,25 @@ async def test_generation_service_memory_context_no_cross_session_summaries(monk
         assert "User is a sysadmin" in memory_context
         assert "Old session" not in memory_context
         assert "PAST CONVERSATIONS" not in memory_context
+
+
+def test_generation_service_does_not_call_get_recent_summaries():
+    """Regression guard: generation_service must not call get_recent_summaries.
+
+    Inspects the actual source to ensure the cross-session injection was not
+    re-introduced. An integration test would require mocking all LLM/vector
+    dependencies; source inspection is a cheap, reliable canary for this invariant.
+    """
+    import inspect
+    import src.core.generation.application.generation_service as gs_module
+
+    source = inspect.getsource(gs_module)
+
+    # Verify the forbidden call is absent from the module
+    assert "get_recent_summaries" not in source, (
+        "generation_service must not call get_recent_summaries — "
+        "doing so injects cross-session conversation history into new prompts (ZTD-1820)"
+    )
+    assert "PAST CONVERSATIONS" not in source, (
+        "generation_service must not inject PAST CONVERSATIONS into the prompt"
+    )

@@ -5,7 +5,7 @@
  * Fetches from GET /v1/chat/history and navigates by setting ?request_id.
  */
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { chatApi, ChatHistoryItem } from '@/lib/api-client'
@@ -34,7 +34,6 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
     const [allConversations, setAllConversations] = useState<ChatHistoryItem[]>([])
     const [hasMore, setHasMore] = useState(true)
     const [deletingId, setDeletingId] = useState<string | null>(null)
-    const bottomRef = useRef<HTMLDivElement>(null)
 
     const { data, isLoading, isFetching } = useQuery({
         queryKey: ['chat-history-client', offset],
@@ -186,7 +185,7 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
                             ))}
 
                             {hasMore && (
-                                <div ref={bottomRef} className="flex justify-center py-3">
+                                <div className="flex justify-center py-3">
                                     <Button
                                         variant="ghost"
                                         size="sm"

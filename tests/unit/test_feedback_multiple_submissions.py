@@ -68,8 +68,9 @@ async def test_same_polarity_updates_existing_pending():
 
     # Should NOT have added a new record
     mock_db.add.assert_not_called()
-    # Should have updated the existing record's comment
+    # Should have updated the existing record's comment and re-queued for review
     assert existing.comment == "Updated comment"
+    assert existing.golden_status == "PENDING"
     mock_db.commit.assert_called_once()
 
 

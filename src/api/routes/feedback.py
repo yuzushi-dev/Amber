@@ -97,10 +97,11 @@ async def create_feedback(
 
         # existing is only a PENDING/NONE record (VERIFIED/REJECTED excluded by query)
         if existing is not None and existing.is_positive == data.is_positive:
-            # Same polarity: update in place
+            # Same polarity: update in place and re-queue for review
             existing.comment = data.comment
             existing.correction = data.correction
             existing.score = data.score if data.score is not None else existing.score
+            existing.golden_status = "PENDING"
             if data.metadata:
                 existing.metadata_json = {**(existing.metadata_json or {}), **data.metadata}
             feedback = existing

@@ -139,7 +139,7 @@ export function DocumentViewer({ documentId, filename }: DocumentViewerProps) {
                         src={blobUrl}
                         className="w-full h-full border-0"
                         title={filename}
-                        sandbox={isHtml(contentType) ? 'allow-same-origin' : undefined}
+                        sandbox={isHtml(contentType) ? '' : undefined}
                     />
                 )
             }

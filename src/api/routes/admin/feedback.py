@@ -51,9 +51,7 @@ async def get_pending_feedback(
     if not is_super_admin:
         base_query = base_query.where(Feedback.tenant_id == tenant_id)
 
-    query = base_query
-
-    result = await db.execute(query)
+    result = await db.execute(base_query)
     rows = result.all()
 
     data = []
