@@ -270,6 +270,14 @@ export interface ConversationDetail {
         correction: string | null
         created_at: string | null
     } | null
+    sources?: {
+        title?: string
+        index?: number
+        chunk_id?: string
+        document_id?: string
+        content_preview?: string
+        text?: string
+    }[] | null
     metadata: Record<string, unknown>
     created_at: string
 }
