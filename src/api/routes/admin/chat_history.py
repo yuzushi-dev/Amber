@@ -276,9 +276,11 @@ async def get_conversation_detail(
     all_metrics = await collector.get_recent(tenant_id=conv.tenant_id, limit=2000)
     for m in all_metrics:
         if m.conversation_id == request_id:
-            input_tokens += getattr(m, "input_tokens", 0)
-            output_tokens += getattr(m, "output_tokens", 0)
-            total_tokens += m.tokens_used
+            it = getattr(m, "input_tokens", 0)
+            ot = getattr(m, "output_tokens", 0)
+            input_tokens += it
+            output_tokens += ot
+            total_tokens += (m.tokens_used if m.tokens_used > 0 else (it + ot))
             cost += m.cost_estimate
             if m.model:
                 model = m.model

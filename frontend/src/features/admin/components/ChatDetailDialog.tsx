@@ -12,8 +12,6 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, User, Bot, AlertTriangle, ShieldAlert } from 'lucide-react';
-import { chatHistoryApi } from '@/lib/api-admin';
 import { ConversationDetail } from '@/lib/api-admin';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -25,8 +23,6 @@ interface ChatDetailDialogProps {
 
 export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDialogProps) {
     const [detail, setDetail] = useState<ConversationDetail | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (open && requestId) {
@@ -52,13 +48,6 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
             return () => {
                 isMounted = false;
             };
-        } else if (!open) {
-            // Reset state on close
-            setTimeout(() => {
-                setDetail(null);
-                setError(null);
-            }, 300);
-        }
     }, [open, requestId]);
 
     return (
@@ -140,17 +129,64 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
                                             <span>Sources</span>
                                         </div>
                                         <div className="grid grid-cols-1 gap-2">
-                                            {detail.sources.map((source, idx) => (
-                                                <div key={idx} className="bg-muted/20 p-3 rounded-lg border border-border/50 text-xs">
-                                                    <div className="font-semibold mb-1 flex items-center justify-between">
-                                                        <span>{source.title || `Source ${idx + 1}`}</span>
-                                                        {source.index && <Badge variant="secondary" className="text-[10px] h-4 leading-tight">[{source.index}]</Badge>}
+                                            {detail.sources.map((source, idx) => {
+                                                const isRule = source.document_id?.startsWith('rule_doc_') || source.document_id?.startsWith('global_rule_');
+                                                const isMemory = source.document_id?.startsWith('user_fact_');
+                                                const isExpanded = expandedSource === idx;
+
+                                                return (
+                                                    <div 
+                                                        key={idx} 
+                                                        className={cn(
+                                                            "bg-muted/20 rounded-lg border border-border/50 text-xs transition-all",
+                                                            (isRule || isMemory) && "cursor-pointer hover:bg-muted/30"
+                                                        )}
+                                                        onClick={() => {
+                                                            if (isRule || isMemory) {
+                                                                setExpandedSource(isExpanded ? null : idx);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className="p-3">
+                                                            <div className="font-semibold mb-1 flex items-center justify-between">
+                                                                <div className="flex items-center gap-2">
+                                                                    {isRule ? (
+                                                                        <Badge variant="outline" className="text-[10px] h-4 bg-orange-500/10 text-orange-600 border-orange-500/20">Rule</Badge>
+                                                                    ) : isMemory ? (
+                                                                        <Badge variant="outline" className="text-[10px] h-4 bg-purple-500/10 text-purple-600 border-purple-500/20">Memory</Badge>
+                                                                    ) : (
+                                                                        <Badge variant="outline" className="text-[10px] h-4 bg-blue-500/10 text-blue-600 border-blue-500/20">Doc</Badge>
+                                                                    )}
+                                                                    <span className="truncate max-w-[200px]">{source.title || `Source ${idx + 1}`}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    {source.index && <Badge variant="secondary" className="text-[10px] h-4 leading-tight">[{source.index}]</Badge>}
+                                                                    {!isRule && !isMemory && source.document_id && (
+                                                                        <a 
+                                                                            href={`/admin/data/documents/${source.document_id}`} 
+                                                                            target="_blank" 
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-muted-foreground hover:text-primary transition-colors"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <ExternalLink className="w-3 h-3" />
+                                                                        </a>
+                                                                    )}
+                                                                    {(isRule || isMemory) && (
+                                                                        isExpanded ? <ChevronUp className="w-3 h-3 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className={cn(
+                                                                "text-muted-foreground whitespace-pre-wrap",
+                                                                !isExpanded && "line-clamp-2"
+                                                            )}>
+                                                                {isExpanded ? (source.text || source.content_preview) : (source.content_preview || source.text)}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div className="text-muted-foreground line-clamp-2">
-                                                        {source.content_preview || source.text}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
