@@ -12,8 +12,11 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Loader2, User, Bot, AlertTriangle, ShieldAlert, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { chatHistoryApi } from '@/lib/api-admin';
 import { ConversationDetail } from '@/lib/api-admin';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 interface ChatDetailDialogProps {
     open: boolean;
@@ -23,6 +26,9 @@ interface ChatDetailDialogProps {
 
 export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDialogProps) {
     const [detail, setDetail] = useState<ConversationDetail | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [expandedSource, setExpandedSource] = useState<number | null>(null);
 
     useEffect(() => {
         if (open && requestId) {
@@ -48,6 +54,14 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
             return () => {
                 isMounted = false;
             };
+        } else if (!open) {
+            // Reset state on close
+            setTimeout(() => {
+                setDetail(null);
+                setError(null);
+                setExpandedSource(null);
+            }, 300);
+        }
     }, [open, requestId]);
 
     return (
