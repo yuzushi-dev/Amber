@@ -260,21 +260,44 @@ async def get_conversation_detail(
     query_text = metadata.get("query")
     response_text = metadata.get("answer")
     model = metadata.get("model", "default")
+    provider = "openai"
+
+    input_tokens = 0
+    output_tokens = 0
+    total_tokens = 0
+    cost = 0.0
+
+    # Fetch metrics
+    from src.api.config import settings
+    from src.core.admin_ops.application.metrics.collector import MetricsCollector
+
+    collector = MetricsCollector(redis_url=settings.db.redis_url)
+    all_metrics = await collector.get_recent(tenant_id=conv.tenant_id, limit=2000)
+    for m in all_metrics:
+        if m.conversation_id == request_id:
+            input_tokens += getattr(m, "prompt_tokens", 0)
+            output_tokens += getattr(m, "completion_tokens", 0)
+            total_tokens += m.tokens_used
+            cost += m.cost_estimate
+            if m.model:
+                model = m.model
+            if hasattr(m, "provider"):
+                provider = getattr(m, "provider", provider)
 
     return ConversationDetail(
         request_id=conv.id,
         tenant_id=conv.tenant_id,
         trace_id=None,
-        query_text=query_text or (conv.title if has_feedback else "[REDACTED - PRIVACY]"),
-        response_text=response_text or (conv.summary if has_feedback else "[REDACTED - PRIVACY]"),
+        query_text=query_text or conv.title,
+        response_text=response_text or conv.summary,
         model=model,
-        provider="openai",
-        input_tokens=0,
-        output_tokens=0,
-        total_tokens=0,
-        cost=0.0,
+        provider=provider,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        cost=cost,
         feedback=None,
-        metadata=metadata if has_feedback else {},  # Redact metadata too
+        metadata=metadata,
         created_at=conv.created_at,
     )
 
