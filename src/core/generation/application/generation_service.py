@@ -306,6 +306,43 @@ class GenerationService:
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 formatted_facts = "\n".join([f"- {f.content}" for f in facts])
 
+                # Inject as candidates for citation support
+                fact_candidates = []
+                for idx, fact in enumerate(facts):
+                    fact_candidates.append({
+                        "id": fact.id,
+                        "chunk_id": fact.id,
+                        "document_id": f"user_fact_{idx}",
+                        "content": fact.content,
+                        "metadata": {
+                            "document_id": f"user_fact_{idx}",
+                            "title": "Verified Memory",
+                            "type": "memory"
+                        },
+                        "score": 1.5,
+                    })
+
+                # Inject Rules as candidates for citation support
+                from src.core.admin_ops.application.rules_service import get_rules_service
+                rules_service = get_rules_service()
+                active_rules = await rules_service.get_active_rules(tenant_id=tenant_id)
+                rule_candidates = []
+                for idx, rule_text in enumerate(active_rules):
+                    rule_candidates.append({
+                        "id": f"rule_{idx}",
+                        "chunk_id": f"rule_{idx}",
+                        "document_id": f"global_rule_{idx}",
+                        "content": rule_text,
+                        "metadata": {
+                            "document_id": f"global_rule_{idx}",
+                            "title": "Domain Rule",
+                            "type": "rule"
+                        },
+                        "score": 2.0, # Higher score to encourage citation if relevant
+                    })
+
+                candidates = fact_candidates + rule_candidates + candidates
+
                 parts = []
                 if formatted_facts:
                     parts.append(f"USER FACTS:\n{formatted_facts}")
