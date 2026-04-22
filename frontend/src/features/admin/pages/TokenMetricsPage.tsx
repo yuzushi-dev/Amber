@@ -20,9 +20,9 @@ import {
 import {
     usageMetricsApi,
     tenantsApi,
-    maintenanceApi,
+    chatHistoryApi,
     type UsageMetricsResponse,
-    type QueryMetrics,
+    type ChatHistoryItem,
     type Tenant,
 } from '@/lib/api-admin'
 import { useAuth } from '@/features/auth'
@@ -82,7 +82,7 @@ export default function TokenMetricsPage() {
     const { isSuperAdmin } = useAuth()
 
     const [data, setData] = useState<UsageMetricsResponse | null>(null)
-    const [recentActivity, setRecentActivity] = useState<QueryMetrics[]>([])
+    const [recentActivity, setRecentActivity] = useState<ChatHistoryItem[]>([])
     const [tenants, setTenants] = useState<Tenant[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -104,11 +104,11 @@ export default function TokenMetricsPage() {
                     operation: selectedOperation !== 'all' ? selectedOperation : undefined,
                     ...dateRange,
                 }),
-                maintenanceApi.getQueryMetrics(50, tenantFilter),
+                chatHistoryApi.list({ limit: 50, tenant_id: tenantFilter }),
                 isSuperAdmin ? tenantsApi.list() : Promise.resolve([]),
             ])
             setData(metricsData)
-            setRecentActivity(recentData)
+            setRecentActivity(recentData.conversations || [])
             setTenants(tenantList)
         } catch (err) {
             setError('Failed to load usage metrics.')
