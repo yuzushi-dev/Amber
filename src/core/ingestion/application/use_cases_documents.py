@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.ingestion.domain.ports.graph_client import GraphPort
@@ -37,6 +38,10 @@ class UploadDocumentRequest:
     filename: str
     content: bytes
     content_type: str
+    metadata: dict[str, Any] | None = None
+    folder_id: str | None = None
+    shared_with_tenant_ids: list[str] | None = None
+    share_actor: str | None = None
 
 
 @dataclass
@@ -76,6 +81,7 @@ class UploadDocumentUseCase:
         vector_store_factory: Callable[[int], VectorStorePort] | None = None,
         task_dispatcher: TaskDispatcher | None = None,
         event_dispatcher: EventDispatcher | None = None,
+        document_sharing_service=None,
     ):
         """
         Initialize the use case.
@@ -101,6 +107,7 @@ class UploadDocumentUseCase:
         self._vector_store_factory = vector_store_factory
         self._task_dispatcher = task_dispatcher
         self._event_dispatcher = event_dispatcher
+        self._document_sharing_service = document_sharing_service
 
     async def execute(self, request: UploadDocumentRequest) -> UploadDocumentResult:
         """
@@ -123,6 +130,20 @@ class UploadDocumentUseCase:
             max_mb = self._max_size_bytes // (1024 * 1024)
             raise ValueError(f"File too large. Max size: {max_mb}MB")
 
+        normalized_share_targets: list[str] | None = None
+        if request.shared_with_tenant_ids is not None:
+            if request.tenant_id != "default":
+                raise ValueError(
+                    "shared_with_tenant_ids is only allowed when uploading into the default tenant"
+                )
+            if not request.share_actor:
+                raise ValueError("Default tenant admin privileges required for shared uploads")
+            if self._document_sharing_service is None:
+                raise ValueError("Document sharing service unavailable")
+            normalized_share_targets = await self._document_sharing_service.validate_target_tenant_ids(
+                request.shared_with_tenant_ids
+            )
+
         # Register document
         from src.core.ingestion.application.ingestion_service import IngestionService
         from src.core.state.machine import DocumentStatus
@@ -142,10 +163,19 @@ class UploadDocumentUseCase:
             filename=request.filename,
             file_content=request.content,
             content_type=request.content_type,
+            metadata_=request.metadata,
+            folder_id=request.folder_id,
         )
 
         # Commit transaction before dispatching async processing
         await self._unit_of_work.commit()
+
+        if normalized_share_targets:
+            await self._document_sharing_service.add_shares(
+                document.id,
+                normalized_share_targets,
+                actor=request.share_actor,
+            )
 
         # Dispatch async processing if new document
         is_duplicate = document.status != DocumentStatus.INGESTED
@@ -240,6 +270,10 @@ class DeleteDocumentUseCase:
 
         result = await self._session.execute(query)
         document = result.scalars().first()
+
+        # Non-super-admin: document must exist in caller's tenant
+        if document is None and not request.is_super_admin:
+            raise LookupError(f"Document {request.document_id} not found")
 
         # We determine storage path and tenant_id
         # If document not in Postgres, we use request info for best-effort cleanup
@@ -343,7 +377,7 @@ class GetDocumentRequest:
     """Request DTO for getting a document."""
 
     document_id: str
-    tenant_id: str
+    tenant_id: str | None
     is_super_admin: bool = False
 
 
@@ -368,6 +402,10 @@ class DocumentOutput:
     metadata: dict[str, Any] | None
     stats: dict[str, int]
     ingestion_cost: float = 0.0
+    is_shared: bool = False
+    owner_tenant_id: str | None = None
+    visible_from_tenant_id: str | None = None
+    share_mode: str | None = None
 
 
 class GetDocumentUseCase:
@@ -388,21 +426,36 @@ class GetDocumentUseCase:
         from sqlalchemy.orm import selectinload
 
         from src.core.ingestion.domain.document import Document
-
-        # 1. Fetch Request
-        query = (
-            select(Document)
-            .options(selectinload(Document.folder))
-            .where(Document.id == request.document_id)
+        from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+            PostgresDocumentRepository,
         )
-        if not request.is_super_admin:
-            query = query.where(Document.tenant_id == request.tenant_id)
 
-        result = await self._session.execute(query)
-        document = result.scalars().first()
+        if request.is_super_admin:
+            query = (
+                select(Document)
+                .options(selectinload(Document.folder))
+                .where(Document.id == request.document_id)
+            )
+            result = await self._session.execute(query)
+            document = result.scalars().first()
+            if not document:
+                raise LookupError(f"Document {request.document_id} not found")
 
-        if not document:
-            raise LookupError(f"Document {request.document_id} not found")
+            is_shared = False
+            owner_tenant_id = document.tenant_id
+            visible_from_tenant_id = document.tenant_id
+            share_mode = None
+        else:
+            repository = PostgresDocumentRepository(self._session)
+            visible_document = await repository.get_visible(request.document_id, request.tenant_id)
+            if not visible_document:
+                raise LookupError(f"Document {request.document_id} not found")
+
+            document = visible_document.document
+            is_shared = visible_document.is_shared
+            owner_tenant_id = visible_document.owner_tenant_id
+            visible_from_tenant_id = visible_document.visible_from_tenant_id
+            share_mode = visible_document.share_mode
 
         # 2. Compute Stats & Cost
         stats = await compute_document_stats(self._session, self._graph_client, document.id)
@@ -443,6 +496,10 @@ class GetDocumentUseCase:
             metadata=metadata,
             stats=stats,
             ingestion_cost=cost,
+            is_shared=is_shared,
+            owner_tenant_id=owner_tenant_id,
+            visible_from_tenant_id=visible_from_tenant_id,
+            share_mode=share_mode,
         )
 
 
@@ -494,6 +551,10 @@ class UpdateDocumentUseCase:
         if request.folder_id is not None:
             if request.folder_id == "":
                 document.folder_id = None
+                # Clear taxonomy when folder is removed
+                _meta = dict(document.metadata_ or {})
+                _meta["taxonomy"] = classify_document_taxonomy(folder_name=None)
+                document.metadata_ = _meta
             else:
                 # Verify folder exists
                 folder = await self._session.get(Folder, request.folder_id)
@@ -507,6 +568,13 @@ class UpdateDocumentUseCase:
                         raise LookupError("Folder not found or invalid")
 
                 document.folder_id = request.folder_id
+                # Re-stamp taxonomy when folder changes
+                meta = dict(document.metadata_ or {})
+                meta["taxonomy"] = classify_document_taxonomy(
+                    folder_name=folder.name,
+                    document_title=document.filename,
+                )
+                document.metadata_ = meta
 
         await self._session.commit()
         await self._session.refresh(document)
@@ -543,7 +611,54 @@ class UpdateDocumentUseCase:
             metadata=document.metadata_,
             stats=stats,
             ingestion_cost=cost,
+            is_shared=False,
+            owner_tenant_id=document.tenant_id,
+            visible_from_tenant_id=document.tenant_id,
+            share_mode=None,
         )
+
+
+async def resolve_graph_document_id(session: AsyncSession, document_id: str) -> str:
+    """
+    Map a non-default-tenant document ID to the canonical default-tenant ID for Neo4j.
+    Documents in non-default tenants share the knowledge graph with the default tenant
+    (same filename, different IDs). Returns original document_id if no mapping found.
+    """
+    from sqlalchemy import select as _select
+    from sqlalchemy import text as _text
+
+    from src.core.ingestion.domain.document import Document as _Document
+
+    row = (
+        await session.execute(
+            _select(_Document.filename, _Document.tenant_id).where(_Document.id == document_id)
+        )
+    ).first()
+
+    if not row or row.tenant_id == "default":
+        return document_id
+
+    # The documents table RLS policy checks only app.current_tenant (not is_super_admin).
+    # Temporarily switch to the default tenant context for the cross-tenant lookup.
+    original_tenant = row.tenant_id
+    try:
+        await session.execute(
+            _text("SELECT set_config('app.current_tenant', 'default', false)")
+        )
+        canonical_id = (
+            await session.execute(
+                _select(_Document.id)
+                .where(_Document.filename == row.filename, _Document.tenant_id == "default")
+                .limit(1)
+            )
+        ).scalar()
+    finally:
+        await session.execute(
+            _text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+            {"tenant_id": original_tenant},
+        )
+
+    return canonical_id or document_id
 
 
 async def compute_document_stats(
@@ -558,11 +673,14 @@ async def compute_document_stats(
 
     logger = logging.getLogger(__name__)
 
-    # Chunk count
+    # Chunk count (use original document_id — SQL chunks belong to the tenant's own doc)
     chunk_result = await session.execute(
         select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)
     )
     chunk_count = chunk_result.scalar() or 0
+
+    # Resolve canonical default-tenant document ID for Neo4j graph lookups
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
 
     # Neo4j counts
     entity_count = 0
@@ -578,7 +696,7 @@ async def compute_document_stats(
             MATCH (c)-[:MENTIONS]->(e:Entity)
             RETURN count(DISTINCT e) as c
             """,
-            {"document_id": document_id},
+            {"document_id": graph_doc_id},
         )
         if entity_res:
             entity_count = entity_res[0].get("c", 0)
@@ -593,7 +711,7 @@ async def compute_document_stats(
             }
             RETURN count(DISTINCT r) as c
             """,
-            {"document_id": document_id},
+            {"document_id": graph_doc_id},
         )
         if rel_res:
             relationship_count = rel_res[0].get("c", 0)
@@ -605,7 +723,7 @@ async def compute_document_stats(
             MATCH (c)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO]->(comm:Community)
             RETURN count(DISTINCT comm) as c
             """,
-            {"document_id": document_id},
+            {"document_id": graph_doc_id},
         )
         if comm_res:
             community_count = comm_res[0].get("c", 0)
@@ -616,7 +734,7 @@ async def compute_document_stats(
             MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)-[r:SIMILAR_TO]->(:Chunk)
             RETURN count(r) as c
             """,
-            {"document_id": document_id},
+            {"document_id": graph_doc_id},
         )
         if sim_res:
             similarity_count = sim_res[0].get("c", 0)

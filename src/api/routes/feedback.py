@@ -7,8 +7,9 @@ Endpoints for capturing user feedback on RAG responses.
 
 import logging
 from typing import Any
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,11 +59,21 @@ class FeedbackResponse(BaseModel):
 
 
 @router.post("/", response_model=ResponseSchema[FeedbackResponse])
-async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_db)):
+async def create_feedback(
+    data: FeedbackCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Submit feedback for a RAG response.
     """
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    tenant_id = str(tenant_id)
 
     # Safety Check: Rate Limit for Feedback
     rl_result = await _get_rate_limiter_instance().check(str(tenant_id), RateLimitCategory.GENERAL)
@@ -73,17 +84,57 @@ async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_d
         )
 
     try:
-        feedback = Feedback(
-            tenant_id=tenant_id,
-            request_id=data.request_id,
-            is_positive=data.is_positive,
-            score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
-            comment=data.comment,
-            correction=data.correction,
-            metadata_json=data.metadata,
-            golden_status="PENDING",
+        from sqlalchemy import select
+
+        # Look for an existing PENDING/NONE record for this (request_id, tenant_id).
+        # VERIFIED and REJECTED records are never modified.
+        existing_stmt = select(Feedback).where(
+            Feedback.request_id == data.request_id,
+            Feedback.tenant_id == tenant_id,
+            Feedback.golden_status.in_(["NONE", "PENDING"]),
         )
-        db.add(feedback)
+        existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+
+        # existing is only a PENDING/NONE record (VERIFIED/REJECTED excluded by query)
+        if existing is not None and existing.is_positive == data.is_positive:
+            # Same polarity: update in place and re-queue for review
+            existing.comment = data.comment
+            existing.correction = data.correction
+            existing.score = data.score if data.score is not None else existing.score
+            existing.golden_status = "PENDING"
+            if data.metadata:
+                existing.metadata_json = {**(existing.metadata_json or {}), **data.metadata}
+            feedback = existing
+        elif existing is not None:
+            # Polarity flip: remove old PENDING/NONE record, create fresh PENDING
+            await db.delete(existing)
+            feedback = Feedback(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                request_id=data.request_id,
+                is_positive=data.is_positive,
+                score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
+                comment=data.comment,
+                correction=data.correction,
+                metadata_json=data.metadata,
+                golden_status="PENDING",
+            )
+            db.add(feedback)
+        else:
+            # No editable record (none exists or only VERIFIED/REJECTED): create new PENDING
+            feedback = Feedback(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                request_id=data.request_id,
+                is_positive=data.is_positive,
+                score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
+                comment=data.comment,
+                correction=data.correction,
+                metadata_json=data.metadata,
+                golden_status="PENDING",
+            )
+            db.add(feedback)
+
         await db.commit()
         await db.refresh(feedback)
 
@@ -105,7 +156,11 @@ async def create_feedback(data: FeedbackCreate, db: AsyncSession = Depends(get_d
 
 @router.get("/{request_id}", response_model=ResponseSchema[dict])
 async def get_feedback(
-    request_id: str, limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)
+    request_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get feedback for a specific request with pagination.
@@ -120,14 +175,23 @@ async def get_feedback(
     """
     from sqlalchemy import func, select
 
-    # Get total count
-    count_stmt = select(func.count(Feedback.id)).where(Feedback.request_id == request_id)
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+
+    # Get total count — scoped to caller's tenant
+    count_stmt = select(func.count(Feedback.id)).where(
+        Feedback.request_id == request_id, Feedback.tenant_id == tenant_id
+    )
     total = await db.scalar(count_stmt)
 
-    # Fetch feedback with pagination
+    # Fetch feedback with pagination — scoped to caller's tenant
     result = await db.execute(
         select(Feedback)
-        .where(Feedback.request_id == request_id)
+        .where(Feedback.request_id == request_id, Feedback.tenant_id == tenant_id)
         .order_by(Feedback.created_at.desc())
         .offset(offset)
         .limit(limit)

@@ -13,7 +13,7 @@ from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
 from src.shared.kernel.models.base import Base, TimestampMixin
 
 
-class BackupStatus(str, enum.Enum):
+class BackupStatus(enum.StrEnum):
     """Status of a backup/restore job."""
 
     PENDING = "pending"
@@ -23,14 +23,14 @@ class BackupStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class BackupScope(str, enum.Enum):
+class BackupScope(enum.StrEnum):
     """Scope of backup content."""
 
     USER_DATA = "user_data"  # Documents, conversations, memory
     FULL_SYSTEM = "full_system"  # + vectors, graph, configs
 
 
-class RestoreMode(str, enum.Enum):
+class RestoreMode(enum.StrEnum):
     """How to handle existing data during restore."""
 
     MERGE = "merge"  # Preserve existing data, add new

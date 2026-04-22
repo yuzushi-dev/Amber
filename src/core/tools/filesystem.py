@@ -9,6 +9,20 @@ import os
 from typing import Any
 
 
+def _resolve_safe_path(base_path: str, relative_path: str) -> str | None:
+    """Resolve *relative_path* against *base_path* and return the real absolute path.
+
+    Returns None if the resolved path escapes the base directory (path traversal).
+    Symlinks are followed so they cannot be used to bypass the check.
+    """
+    real_base = os.path.realpath(os.path.abspath(base_path))
+    candidate = os.path.realpath(os.path.abspath(os.path.join(base_path, relative_path)))
+    # Allow exact match (the base itself) or any path strictly inside it.
+    if candidate == real_base or candidate.startswith(real_base + os.sep):
+        return candidate
+    return None
+
+
 def create_filesystem_tools(base_path: str = ".") -> list[dict[str, Any]]:
     """
     Create a list of filesystem tool definitions.
@@ -18,7 +32,9 @@ def create_filesystem_tools(base_path: str = ".") -> list[dict[str, Any]]:
     async def list_directory(path: str = ".") -> str:
         """List files and directories in a given path."""
         try:
-            full_path = os.path.join(base_path, path)
+            full_path = _resolve_safe_path(base_path, path)
+            if full_path is None:
+                return "Access denied: path traversal outside the base directory is not allowed."
             if not os.path.exists(full_path):
                 return f"Error: Path '{path}' does not exist."
 
@@ -47,7 +63,9 @@ def create_filesystem_tools(base_path: str = ".") -> list[dict[str, Any]]:
     async def read_file(path: str, start_line: int = 1, end_line: int = -1) -> str:
         """Read the contents of a file."""
         try:
-            full_path = os.path.join(base_path, path)
+            full_path = _resolve_safe_path(base_path, path)
+            if full_path is None:
+                return "Access denied: path traversal outside the base directory is not allowed."
             if not os.path.exists(full_path):
                 return f"Error: File '{path}' does not exist."
             if not os.path.isfile(full_path):
@@ -82,7 +100,9 @@ def create_filesystem_tools(base_path: str = ".") -> list[dict[str, Any]]:
             # but keeping it python-native is safer for this demo.
 
             matches = []
-            search_path = os.path.join(base_path, path)
+            search_path = _resolve_safe_path(base_path, path)
+            if search_path is None:
+                return "Access denied: path traversal outside the base directory is not allowed."
 
             # Walk through directory
             for root, dirs, files in os.walk(search_path):

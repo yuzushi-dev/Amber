@@ -8,14 +8,14 @@ Redis-backed sliding window rate limiting.
 import logging
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
 
-class RateLimitCategory(str, Enum):
+class RateLimitCategory(StrEnum):
     """Rate limit categories for different endpoint types."""
 
     GENERAL = "general"
@@ -157,15 +157,9 @@ class RateLimiter:
                 reset_at=now + window,
             )
 
-        except Exception as e:
-            # On Redis failure, allow the request but log
-            logger.error(f"Rate limiter error: {e}. Allowing request.")
-            return RateLimitResult(
-                allowed=True,
-                limit=limit,
-                remaining=limit - 1,
-                reset_at=now + window,
-            )
+        except Exception:
+            # Re-raise so the middleware can decide fail-open vs fail-closed
+            raise
 
     async def check_concurrency(
         self,

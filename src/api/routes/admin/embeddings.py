@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import build_vector_store_factory, platform
 from src.api.config import settings
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session, verify_super_admin
 from src.api.schemas.base import ResponseSchema
 from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
 from src.core.ingestion.domain.document import Document
@@ -33,7 +33,8 @@ def _get_migration_service(db: AsyncSession) -> EmbeddingMigrationService:
     )
 
 
-router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"])
+
+router = APIRouter(prefix="/embeddings", tags=["admin-embeddings"], dependencies=[Depends(verify_super_admin)])
 
 # In-memory migration state (could use Redis for multi-worker)
 _migration_state: dict = {}
@@ -107,7 +108,7 @@ async def migrate_embeddings(tenant_id: str, db: AsyncSession = Depends(get_db_s
             "message": str(e),
         }
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Migration failed: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         ) from e
 
 

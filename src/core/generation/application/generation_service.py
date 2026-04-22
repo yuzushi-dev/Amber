@@ -5,7 +5,7 @@ Generation Service
 LLM-based answer generation with context injection and groundedness checks.
 """
 
-import logging
+import os
 import re
 import time
 
@@ -13,6 +13,8 @@ import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+import structlog
 
 from src.core.generation.application.context_builder import ContextBuilder
 from src.core.generation.application.registry import PromptRegistry
@@ -24,6 +26,11 @@ from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
 from src.core.security.source_verifier import SourceVerifier
+from src.core.tenants.application.effective_config import (
+    DEFAULT_TENANT_ID,
+    merge_tenant_config,
+    resolve_rag_prompts,
+)
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.kernel.observability import trace_span
 
@@ -103,6 +110,11 @@ class GenerationService:
         config: GenerationConfig | None = None,
         document_repository: DocumentRepository | None = None,
         tenant_repository: TenantRepository | None = None,
+        nvidia_nim_api_key: str | None = None,
+        nvidia_nim_base_url: str | None = None,
+        openrouter_api_key: str | None = None,
+        openrouter_base_url: str | None = None,
+        llm_fallback_enabled: bool = True,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
@@ -126,11 +138,16 @@ class GenerationService:
                     ollama_base_url=ollama_base_url,
                     default_llm_provider=default_llm_provider,
                     default_llm_model=default_llm_model,
+                    nvidia_nim_api_key=nvidia_nim_api_key,
+                    nvidia_nim_base_url=nvidia_nim_base_url,
+                    openrouter_api_key=openrouter_api_key,
+                    openrouter_base_url=openrouter_base_url,
+                    llm_fallback_enabled=llm_fallback_enabled,
                 )
             else:
                 factory = get_provider_factory()
             self.factory = factory
-            self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=False)
+            self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=True)
 
         self.verifier = SourceVerifier()
 
@@ -141,27 +158,75 @@ class GenerationService:
         """
         if not self.factory:
             return None
-            
+
         if not tenant_config:
             return self.factory
-            
+
         t_ollama_url = tenant_config.get("ollama_base_url")
         if not t_ollama_url:
             return self.factory
-            
+
         # Tenant overrides URL - create scoped factory
         from src.core.generation.domain.ports.provider_factory import build_provider_factory
         from src.shared.kernel.runtime import get_settings
-        
+
         settings = get_settings()
-        
+
         return build_provider_factory(
             openai_api_key=settings.openai_api_key,
             anthropic_api_key=settings.anthropic_api_key,
             ollama_base_url=t_ollama_url,
             default_llm_provider=settings.default_llm_provider,
             default_llm_model=settings.default_llm_model,
+            nvidia_nim_api_key=getattr(settings, "nvidia_nim_api_key", None) or os.environ.get("NVIDIA_NIM_API_KEY") or None,
+            nvidia_nim_base_url=getattr(settings, "nvidia_nim_base_url", None) or os.environ.get("NVIDIA_NIM_BASE_URL"),
+            openrouter_api_key=getattr(settings, "openrouter_api_key", None) or os.environ.get("OPENROUTER_API_KEY") or None,
+            openrouter_base_url=getattr(settings, "openrouter_base_url", None) or os.environ.get("OPENROUTER_BASE_URL"),
+            llm_fallback_enabled=getattr(settings, "llm_fallback_enabled", True),
         )
+
+    async def _get_effective_tenant_config(self, tenant_id: str | None) -> dict[str, Any]:
+        """Resolve effective tenant config from default tenant plus local overrides."""
+        if not tenant_id or not self.tenant_repository:
+            return {}
+
+        try:
+            tenant_obj = await self.tenant_repository.get(tenant_id)
+            tenant_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
+
+            if tenant_id == DEFAULT_TENANT_ID:
+                return merge_tenant_config({}, tenant_config)
+
+            default_tenant = await self.tenant_repository.get(DEFAULT_TENANT_ID)
+            default_config = (
+                default_tenant.config if default_tenant and default_tenant.config else {}
+            )
+            return merge_tenant_config(default_config, tenant_config)
+        except Exception as e:
+            logger.warning(f"Failed to load tenant config for prompt override: {e}")
+            return {}
+
+    def _resolve_rag_prompt_templates(
+        self,
+        tenant_config: dict[str, Any],
+        rules_addendum: str,
+    ) -> tuple[str, str]:
+        """Resolve effective RAG prompts from registry defaults and tenant overrides."""
+        base_system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
+        base_user_prompt = self.registry.get_prompt("rag_user", self.config.prompt_version)
+        system_prompt, user_prompt_template = resolve_rag_prompts(
+            base_system_prompt=base_system_prompt,
+            base_user_prompt=base_user_prompt,
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
+
+        if tenant_config.get("rag_system_prompt"):
+            logger.debug("Applied tenant system prompt override")
+        if tenant_config.get("rag_user_prompt"):
+            logger.debug("Applied tenant user prompt override")
+
+        return system_prompt, user_prompt_template
 
     def _normalize_citations(self, text: str) -> str:
         if not text:
@@ -183,14 +248,21 @@ class GenerationService:
         start_time = time.perf_counter()
         trace = []
 
-        # Step 0.5: Inject global rules as candidates
+        # Step 0.5: Inject global rules as candidates AND build system prompt addendum
+        rules_addendum = ""
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
             rules_service = get_rules_service()
-            active_rules = await rules_service.get_active_rules()
+            _tenant_id = (options or {}).get("tenant_id", "")
+            active_rules = await rules_service.get_active_rules(tenant_id=_tenant_id)
 
             if active_rules:
+                # Build system prompt addendum (authoritative rules)
+                rules_addendum = await rules_service.build_system_prompt_addendum(tenant_id=_tenant_id)
+                logger.info(f"Injecting {len(active_rules)} rules for tenant {_tenant_id!r} into system prompt")
+
+                # Also inject as candidates for citation support
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
                     rule_candidates.append(
@@ -229,48 +301,24 @@ class GenerationService:
                 # But simple sequential await is fine for now
                 from src.core.generation.application.memory.manager import memory_manager
 
-                # 1. Facts
+                # Long-term user facts only — cross-session summaries are intentionally
+                # excluded to prevent context bleed across separate conversations (ZTD-1820).
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 formatted_facts = "\n".join([f"- {f.content}" for f in facts])
-
-                # 2. Summaries
-                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
 
                 parts = []
                 if formatted_facts:
                     parts.append(f"USER FACTS:\n{formatted_facts}")
-                if formatted_summaries:
-                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
 
                 memory_context = "\n\n".join(parts)
             except Exception as e:
                 logger.warning(f"Failed to retrieve memory: {e}")
 
-        # Step 2: Get prompts from registry
-        system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
-        user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-
-        # Apply Tenant Overrides
-        tenant_config: dict[str, Any] = {}
-
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(tenant_id)
-                if tenant_obj and tenant_obj.config:
-                    t_conf = tenant_obj.config
-                    tenant_config = t_conf
-
-                    if t_conf.get("rag_system_prompt"):
-                        system_prompt = t_conf.get("rag_system_prompt")
-                        logger.debug(f"Applied tenant system prompt override for {tenant_id}")
-
-                    if t_conf.get("rag_user_prompt"):
-                        user_prompt_template = t_conf.get("rag_user_prompt")
-                        logger.debug(f"Applied tenant user prompt override for {tenant_id}")
-
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for prompt override: {e}")
+        tenant_config = await self._get_effective_tenant_config(tenant_id)
+        system_prompt, user_prompt_template = self._resolve_rag_prompt_templates(
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
 
         # Inject memory_context if not empty
         try:
@@ -323,7 +371,7 @@ class GenerationService:
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm
@@ -439,14 +487,21 @@ class GenerationService:
 
         Yields dictionaries suitable for SSE conversion.
         """
-        # Step 0.5: Inject global rules as candidates (so they can be cited)
+        # Step 0.5: Inject global rules as candidates AND build system prompt addendum
+        rules_addendum = ""
         try:
             from src.core.admin_ops.application.rules_service import get_rules_service
 
             rules_service = get_rules_service()
-            active_rules = await rules_service.get_active_rules()
+            _tenant_id = (options or {}).get("tenant_id", "")
+            active_rules = await rules_service.get_active_rules(tenant_id=_tenant_id)
 
             if active_rules:
+                # Build system prompt addendum (authoritative rules)
+                rules_addendum = await rules_service.build_system_prompt_addendum(tenant_id=_tenant_id)
+                logger.info(f"Injecting {len(active_rules)} rules for tenant {_tenant_id!r} into system prompt (stream)")
+
+                # Also inject as candidates for citation support
                 rule_candidates = []
                 for idx, rule_content in enumerate(active_rules):
                     rule_candidates.append(
@@ -484,24 +539,14 @@ class GenerationService:
             try:
                 from src.core.generation.application.memory.manager import memory_manager
 
-                # Retrieve facts and summaries
+                # Long-term user facts only — cross-session summaries excluded (ZTD-1820).
                 facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
                 logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
-
-                summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                logger.debug(
-                    f"Generation - Retrieved {len(summaries)} summaries for user {user_id}"
-                )
 
                 parts = []
                 if facts:
                     formatted_facts = "\n".join([f"- {f.content}" for f in facts])
                     parts.append(f"USER FACTS:\n{formatted_facts}")
-                if summaries:
-                    formatted_summaries = "\n".join(
-                        [f"- {s.title}: {s.summary}" for s in summaries]
-                    )
-                    parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
 
                 memory_context = "\n\n".join(parts)
                 if memory_context:
@@ -544,24 +589,11 @@ class GenerationService:
         yield {"event": "sources", "data": cited_sources}
 
         # Step 4: Preparation
-        system_prompt = self.registry.get_prompt("rag_system", self.config.prompt_version)
-        user_prompt_template = self.registry.get_prompt("rag_user", self.config.prompt_version)
-
-        # Apply Tenant Overrides (Stream)
-        tenant_config: dict[str, Any] = {}
-
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(tenant_id)
-                if tenant_obj and tenant_obj.config:
-                    t_conf = tenant_obj.config
-                    tenant_config = t_conf
-                    if t_conf.get("rag_system_prompt"):
-                        system_prompt = t_conf.get("rag_system_prompt")
-                    if t_conf.get("rag_user_prompt"):
-                        user_prompt_template = t_conf.get("rag_user_prompt")
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for stream prompt override: {e}")
+        tenant_config = await self._get_effective_tenant_config(tenant_id)
+        system_prompt, user_prompt_template = self._resolve_rag_prompt_templates(
+            tenant_config=tenant_config,
+            rules_addendum=rules_addendum,
+        )
 
         try:
             user_prompt = user_prompt_template.format(
@@ -603,13 +635,13 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
-        
+
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm
@@ -679,15 +711,10 @@ class GenerationService:
         from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
-        tenant_config: dict[str, Any] = {}
         tenant_id = get_current_tenant()
-        if tenant_id and self.tenant_repository:
-            try:
-                tenant_obj = await self.tenant_repository.get(str(tenant_id))
-                if tenant_obj and tenant_obj.config:
-                    tenant_config = tenant_obj.config
-            except Exception as e:
-                logger.warning(f"Failed to load tenant config for agent completion: {e}")
+        tenant_config = await self._get_effective_tenant_config(
+            str(tenant_id) if tenant_id else None
+        )
 
         llm_cfg = resolve_llm_step_config(
             tenant_config=tenant_config,
@@ -708,7 +735,7 @@ class GenerationService:
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=False,
+                with_failover=True,
             )
             if factory
             else self.llm

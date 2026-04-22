@@ -271,9 +271,13 @@ class RestoreService:
         for folder_data in data:
             folder_id = folder_data.get("id")
 
-            # In MERGE mode, skip if exists
+            # In MERGE mode, skip if exists within this tenant
             if mode == RestoreMode.MERGE:
-                existing = await self.session.execute(select(Folder).where(Folder.id == folder_id))
+                existing = await self.session.execute(
+                    select(Folder).where(
+                        Folder.id == folder_id, Folder.tenant_id == tenant_id
+                    )
+                )
                 if existing.scalar_one_or_none():
                     continue
 
@@ -303,9 +307,13 @@ class RestoreService:
         for doc_data in data:
             doc_id = doc_data.get("id")
 
-            # In MERGE mode, skip if exists
+            # In MERGE mode, skip if exists within this tenant
             if mode == RestoreMode.MERGE:
-                existing = await self.session.execute(select(Document).where(Document.id == doc_id))
+                existing = await self.session.execute(
+                    select(Document).where(
+                        Document.id == doc_id, Document.tenant_id == tenant_id
+                    )
+                )
                 if existing.scalar_one_or_none():
                     continue
 

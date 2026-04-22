@@ -13,8 +13,8 @@ app:
 
 # Database Configuration
 db:
-  pool_size: 5
-  max_overflow: 5
+  pool_size: 15
+  max_overflow: 15
 
 # API Configuration
 api:

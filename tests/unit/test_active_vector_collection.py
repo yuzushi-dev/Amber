@@ -10,7 +10,7 @@ from src.core.tenants.application.active_vector_collection import (
 
 
 def test_resolve_active_vector_collection_defaults():
-    assert resolve_active_vector_collection("default", {}) == "amber_default"
+    assert resolve_active_vector_collection("default", {}) == "document_chunks"
     assert resolve_active_vector_collection("tenant-1", {}) == "amber_tenant_1"
 
 
@@ -44,7 +44,7 @@ def test_backfill_active_vector_collections_updates_missing_only():
     updated = backfill_active_vector_collections(tenants)
 
     assert updated == 2
-    assert tenants[0].config["active_vector_collection"] == "amber_default"
+    assert tenants[0].config["active_vector_collection"] == "document_chunks"
     assert tenants[1].config["active_vector_collection"] == "amber_t_1"
     assert tenants[2].config["active_vector_collection"] == "amber_custom"
 

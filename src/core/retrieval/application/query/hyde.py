@@ -70,10 +70,10 @@ class HyDEService:
 
             settings = get_settings()
             tenant_config = tenant_config or {}
-            
+
             # Resolve Ollama URL from Tenant Config
             res_ollama_url = tenant_config.get("ollama_base_url")
-            
+
             scoped_factory = self.factory
             if res_ollama_url and res_ollama_url != settings.ollama_base_url:
                 scoped_factory = build_provider_factory(

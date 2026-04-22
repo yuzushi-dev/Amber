@@ -62,7 +62,7 @@ All endpoints (except health checks) require an API key. Pass your key in the `X
 
 ### Setup (Admin)
 
-All setup endpoints require an API key with `admin` scope.
+All setup endpoints require an API key with `super_admin` scope.
 
 | Method | Endpoint                   | Description                             |
 | ------ | -------------------------- | --------------------------------------- |
@@ -114,6 +114,7 @@ All setup endpoints require an API key with `admin` scope.
 | -------- | ----------------------------------------------- | ---------------------------------------------------- |
 | `POST`   | `/v1/documents`                                 | Upload document for ingestion (returns 202 Accepted) |
 | `GET`    | `/v1/documents`                                 | List all documents (supports pagination)             |
+| `PATCH`  | `/v1/documents/{document_id}`                   | Update document metadata                             |
 | `GET`    | `/v1/documents/{document_id}`                   | Get document details including enrichment data       |
 | `DELETE` | `/v1/documents/{document_id}`                   | Delete a document                                    |
 | `GET`    | `/v1/documents/{document_id}/file`              | Download original document file                      |
@@ -125,6 +126,10 @@ All setup endpoints require an API key with `admin` scope.
 | `GET`    | `/v1/documents/{document_id}/relationships`     | Get entity relationships with pagination             |
 | `GET`    | `/v1/documents/{document_id}/similarities`      | Get similarity relationships between chunks          |
 | `GET`    | `/v1/documents/{document_id}/communities`       | Get entity clusters/communities                      |
+| `GET`    | `/v1/documents/{document_id}/shares`            | List tenant targets that can access a shared document (super_admin / default tenant admin) |
+| `POST`   | `/v1/documents/{document_id}/shares`            | Add tenant targets to a document share list          |
+| `PUT`    | `/v1/documents/{document_id}/shares`            | Replace all tenant targets on a document share list  |
+| `DELETE` | `/v1/documents/{document_id}/shares`            | Remove tenant targets from a document share list     |
 
 ### Document Upload
 
@@ -288,6 +293,9 @@ curl -X POST /v1/documents \
 | `DELETE` | `/v1/admin/maintenance/vectors/collections/{collection_name}` | Delete a Milvus collection           |
 
 ## Admin - Chat History
+
+> Requires `super_admin` scope. Conversation content is redacted for
+> conversations without user feedback (see [TENANT_SECURITY.md](./TENANT_SECURITY.md)).
 
 | Method   | Endpoint                              | Description                    |
 | -------- | ------------------------------------- | ------------------------------ |

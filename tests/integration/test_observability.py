@@ -29,23 +29,20 @@ class TestObservability:
     @pytest.mark.asyncio
     async def test_health_check_logging(self, client, caplog):
         """Verify structured logging middleware works."""
-        # Ensure caplog captures everything
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.WARNING)
 
-        # Try a query endpoint (it will fail auth but should log)
+        # Try a query endpoint (it will fail auth but should still log)
         await client.get("/v1/query?q=test")
 
-        # Check logs
+        # The middleware logs via structlog → stdlib; the event dict is
+        # rendered as a string in the log message.
         found = False
         for record in caplog.records:
-            if hasattr(record, "props"):
-                props = record.props
-                if props.get("path") == "/v1/query":
-                    found = True
-                    # Verify middleware added fields
-                    assert "latency_ms" in props
-                    assert "status_code" in props
-                    break
+            msg = record.getMessage()
+            # Match only the observability middleware record (has both fields)
+            if "/v1/query" in msg and "latency_ms" in msg and "status_code" in msg:
+                found = True
+                break
 
         if not found:
             raise AssertionError("Structured log record not found for /v1/query")

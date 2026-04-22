@@ -64,7 +64,10 @@ class TicketService:
 
     async def redeem_ticket(self, ticket: str) -> str | None:
         """
-        Validate and consume a ticket.
+        Validate and atomically consume a ticket (one-time use).
+
+        Uses GETDEL so the ticket is removed from Redis in the same
+        round-trip, preventing replay within the TTL window.
 
         Returns:
             str: The stored API key if valid, None otherwise.
@@ -72,13 +75,10 @@ class TicketService:
         key = f"{self.PREFIX}{ticket}"
         client = await self._get_redis()
 
-        # Get and Delete (Atomic ideally, but get+delete is fine for now)
-        payload = await client.get(key)
+        # Atomic get-and-delete: ticket is consumed on first use
+        payload = await client.getdel(key)
 
         if payload:
-            # Allow reuse within TTL window to handle connection drops/retries
-            # await client.delete(key)
-            # await client.delete(key)
             return payload
 
         logger.warning(f"Ticket redemption failed: Ticket {ticket} not found or expired.")

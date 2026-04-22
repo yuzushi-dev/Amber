@@ -113,6 +113,20 @@ LLM_MODELS = {
             "description": "Devstral (Mistral 24B)",
         },
     },
+    "nvidia_nim": {
+        "google/gemma-3-27b-it": {
+            "tier": ProviderTier.ECONOMY,
+            "context_window": 96000,
+            "description": "Gemma 3 27B via Nvidia NIM",
+        },
+    },
+    "openrouter": {
+        "google/gemma-3-27b-it:free": {
+            "tier": ProviderTier.ECONOMY,
+            "context_window": 96000,
+            "description": "Gemma 3 27B via OpenRouter (free)",
+        },
+    },
 }
 
 EMBEDDING_MODELS = {
@@ -204,6 +218,8 @@ DEFAULT_LLM_MODEL = {
     "openai": "gpt-4.1-mini",
     "anthropic": "claude-3-5-haiku-20241022",
     "ollama": "llama3",
+    "nvidia_nim": "google/gemma-3-27b-it",
+    "openrouter": "google/gemma-3-27b-it:free",
 }
 
 DEFAULT_EMBEDDING_MODEL = {
@@ -220,11 +236,15 @@ DEFAULT_LLM_FALLBACKS = {
     ProviderTier.LOCAL: [("ollama", None)],
     ProviderTier.ECONOMY: [
         ("ollama", None),
+        ("nvidia_nim", None),
+        ("openrouter", None),
         ("openai", "gpt-4.1-mini"),
         ("anthropic", "claude-3-5-haiku-20241022"),
     ],
     ProviderTier.STANDARD: [
         ("ollama", None),
+        ("nvidia_nim", None),
+        ("openrouter", None),
         ("openai", "gpt-4o"),
         ("anthropic", "claude-sonnet-4-20250514"),
     ],
@@ -246,6 +266,8 @@ TOKEN_ENCODING_BY_PROVIDER = {
     "anthropic": "cl100k_base",
     "ollama": "cl100k_base",
     "local": "cl100k_base",
+    "nvidia_nim": "cl100k_base",
+    "openrouter": "cl100k_base",
 }
 
 TOKEN_ENCODING_BY_MODEL = {
@@ -318,7 +340,7 @@ def parse_fallback_chain(
 def resolve_token_encoding(model: str | None) -> str | None:
     if not model:
         return None
-    
+
     # Strip tag (e.g. :latest) if present for lookup
     lookup_model = model
     if ":" in model:
@@ -326,7 +348,7 @@ def resolve_token_encoding(model: str | None) -> str | None:
 
     if model in TOKEN_ENCODING_BY_MODEL:
         return TOKEN_ENCODING_BY_MODEL[model]
-    
+
     if lookup_model in TOKEN_ENCODING_BY_MODEL:
         return TOKEN_ENCODING_BY_MODEL[lookup_model]
 
@@ -334,12 +356,12 @@ def resolve_token_encoding(model: str | None) -> str | None:
     if providers and len(providers) == 1:
         provider = next(iter(providers))
         return TOKEN_ENCODING_BY_PROVIDER.get(provider)
-    
+
     providers = EMBEDDING_MODEL_TO_PROVIDERS.get(lookup_model)
     if providers and len(providers) == 1:
         provider = next(iter(providers))
         return TOKEN_ENCODING_BY_PROVIDER.get(provider)
-    
+
     return None
 
 

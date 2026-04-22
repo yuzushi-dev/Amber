@@ -24,6 +24,7 @@ from src.core.ingestion.infrastructure.connectors.confluence import ConfluenceCo
 from src.core.ingestion.infrastructure.connectors.jira import JiraConnector
 from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
 from src.shared.context import get_current_tenant
+from src.shared.security import decrypt_credentials, encrypt_credentials
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ async def get_connector_status(connector_type: str, db: AsyncSession = Depends(g
         data=ConnectorStatusResponse(
             connector_type=state.connector_type,
             status=state.status,
-            is_authenticated=bool(state.sync_cursor),  # Connected if we have credentials
+            is_authenticated=bool(state.encrypted_credentials),  # Connected if we have credentials
             last_sync_at=state.last_sync_at,
             items_synced=0,  # Would need to count from documents
             error_message=state.error_message,
@@ -206,9 +207,9 @@ async def authenticate_connector(
         # ... (inside authenticate_connector)
         state.status = "idle"
         state.error_message = None
-        # Store config (Store credentials for MVP to enable background sync)
-        # TODO: Move to secure vault in production
-        state.sync_cursor = request.credentials
+        # Store credentials encrypted; sync_cursor tracks only non-secret pagination state
+        state.encrypted_credentials = encrypt_credentials(request.credentials)
+        state.sync_cursor = {}
         await db.commit()
         await db.refresh(state)
 
@@ -368,10 +369,8 @@ async def list_connector_items(
 
     pass
 
-    # ... Continuing assuming credentials will be available in sync_cursor ...
-
-    config = state.sync_cursor
-    if not config or ("api_token" not in config and "password" not in config):
+    config = decrypt_credentials(state.encrypted_credentials or "")
+    if not config:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail="Connector not configured or credentials missing. Please re-authenticate.",
@@ -453,7 +452,10 @@ async def run_selective_ingestion(
             logger.error(f"Connector state {state_id} not found in background task")
             return
 
-        config = state.sync_cursor
+        config = decrypt_credentials(state.encrypted_credentials or "")
+        if not config:
+            logger.error(f"No decryptable credentials for state {state_id}; aborting sync")
+            return
         ConnectorClass = CONNECTOR_REGISTRY[connector_type]
 
         if connector_type == "zendesk":
@@ -565,8 +567,7 @@ async def ingest_selected_items(
     job_id = f"ingest_{uuid4().hex[:12]}"
 
     # Store credentials check
-    config = state.sync_cursor
-    if not config or ("api_token" not in config and "password" not in config):
+    if not state.encrypted_credentials:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail="Connector not configured. Please re-authenticate.",

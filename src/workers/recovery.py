@@ -49,7 +49,7 @@ async def recover_stale_documents() -> dict[str, Any]:
 
     try:
         # Create async session
-        engine = create_async_engine(settings.db.database_url)
+        engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
         try:
             async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -59,6 +59,8 @@ async def recover_stale_documents() -> dict[str, Any]:
             total = 0
 
             async with async_session() as session:
+                from src.core.database.session import configure_worker_session
+                await configure_worker_session(session)
                 # Find all documents in stale states
                 # Fix: Use SKIP LOCKED to prevent race conditions between multiple workers
                 result = await session.execute(

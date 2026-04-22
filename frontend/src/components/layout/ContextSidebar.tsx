@@ -35,6 +35,7 @@ import { useChatStore } from '@/features/chat/store'
 import { chatApi, ChatHistoryItem } from '@/lib/api-client'
 import DatabaseSidebarContent from '@/features/documents/components/DatabaseSidebarContent'
 import { useUploadStore } from '@/features/documents/stores/useUploadStore'
+import { useAuth } from '@/features/auth'
 
 interface SidebarSection {
     title: string
@@ -46,6 +47,7 @@ interface SidebarItem {
     icon: React.ComponentType<{ className?: string }>
     to: string
     variant?: 'default' | 'primary'
+    superAdminOnly?: boolean
 }
 
 // Sidebar configuration for each dock section
@@ -108,10 +110,10 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             items: [
                 { label: 'Optional Features', icon: Package, to: '/admin/settings/features' },
                 { label: 'API Key', icon: Key, to: '/admin/settings/keys' },
-                { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
+                { label: 'Tenants', icon: Users, to: '/admin/settings/tenants', superAdminOnly: true },
                 { label: 'Connectors', icon: MessageCircle, to: '/admin/settings/connectors' },
-                { label: 'Data Retention', icon: Archive, to: '/admin/settings/data-retention' },
-                { label: 'Backup & Restore', icon: DatabaseBackup, to: '/admin/settings/backup' },
+                { label: 'Data Retention', icon: Archive, to: '/admin/settings/data-retention', superAdminOnly: true },
+                { label: 'Backup & Restore', icon: DatabaseBackup, to: '/admin/settings/backup', superAdminOnly: true },
             ]
         }
     ]
@@ -126,6 +128,8 @@ export default function ContextSidebar() {
     const [loadingMore, setLoadingMore] = useState(false)
     const [hasMore, setHasMore] = useState(true)
 
+    const { permissions } = useAuth()
+    const isSuperAdmin = permissions.includes('super_admin')
     const setUploadOpen = useUploadStore(state => state.setOpen)
     const scrollContainerRef = useRef<HTMLElement>(null)
     const loadingHistoryRef = useRef(false)
@@ -269,7 +273,7 @@ export default function ContextSidebar() {
 
                                 {/* Section items */}
                                 <ul className="space-y-1 px-2">
-                                    {section.items.map((item) => {
+                                    {section.items.filter(item => !item.superAdminOnly || isSuperAdmin).map((item) => {
                                         // Exact match for links, or prefix match only for sub-pages
                                         const linkPath = item.to.split('?')[0]
                                         const isActive = currentPath === linkPath ||

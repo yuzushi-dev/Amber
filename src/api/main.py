@@ -92,6 +92,11 @@ async def lifespan(app: FastAPI):
             llm_fallback_standard=settings.llm_fallback_standard,
             llm_fallback_premium=settings.llm_fallback_premium,
             embedding_fallback_order=settings.embedding_fallback_order,
+            openrouter_api_key=settings.openrouter_api_key,
+            openrouter_base_url=settings.openrouter_base_url,
+            nvidia_nim_api_key=settings.nvidia_nim_api_key,
+            nvidia_nim_base_url=settings.nvidia_nim_base_url,
+            llm_fallback_enabled=settings.llm_fallback_enabled,
         )
         logger.info("LLM Providers initialized")
     except Exception as e:
@@ -101,8 +106,24 @@ async def lifespan(app: FastAPI):
     try:
         from src.shared.security import configure_security
 
-        configure_security(settings.secret_key)
+        configure_security(settings.secret_key, secondary_key=settings.secret_key_old)
         logger.info("Security module configured")
+
+        # Guardrail: refuse to accept known non-entropic dev defaults as the
+        # rotation-fallback secret in production. These values defeat the
+        # purpose of the dual-key keyring and leave legacy hashes forgeable.
+        _DEV_SECRETS = {"amber-dev-key-2024", "default-insecure-key"}
+        if (
+            not settings.debug
+            and settings.secret_key_old
+            and settings.secret_key_old in _DEV_SECRETS
+        ):
+            logger.warning(
+                "SECRET_KEY_OLD is set to a known dev default (%s). "
+                "Complete the rotation and unset SECRET_KEY_OLD, or replace "
+                "it with the actual previous secret being retired.",
+                settings.secret_key_old[:12] + "…",
+            )
     except Exception as e:
         logger.error(f"Failed to configure security: {e}")
 
@@ -110,12 +131,16 @@ async def lifespan(app: FastAPI):
     try:
         from src.core.database.session import configure_database
 
+        # Use non-owner app role when configured (respects RLS)
+        effective_db_url = settings.db.app_database_url or settings.db.database_url
         configure_database(
-            database_url=settings.db.database_url,
+            database_url=effective_db_url,
             pool_size=settings.db.pool_size,
             max_overflow=settings.db.max_overflow,
         )
-        logger.info("Database module configured")
+        logger.info(
+            f"Database module configured (role: {'app' if settings.db.app_database_url else 'owner'})"
+        )
     except Exception as e:
         logger.error(f"Failed to configure database: {e}")
 
@@ -388,7 +413,19 @@ app = FastAPI(
 # =============================================================================
 
 # CORS middleware (outermost)
-cors_origins = settings.cors_origins or ["*"]
+# Fallback to permissive "*" is allowed only in debug mode. In production
+# (DEBUG=false) a missing CORS_ORIGINS configuration is a misconfiguration
+# and we refuse to boot with a wildcard origin.
+if settings.cors_origins:
+    cors_origins = settings.cors_origins
+elif settings.debug:
+    cors_origins = ["*"]
+    logger.warning("CORS_ORIGINS unset; defaulting to '*' (debug mode only)")
+else:
+    raise RuntimeError(
+        "CORS_ORIGINS is required when DEBUG=false. Set it in .env to the "
+        "comma-separated list of allowed origins (e.g. https://amber.example.com)."
+    )
 allow_credentials = "*" not in cors_origins
 app.add_middleware(
     CORSMiddleware,

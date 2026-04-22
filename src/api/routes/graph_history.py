@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_tenant_id, get_db_session
+from src.api.deps import get_current_tenant_id, get_db_session, verify_tenant_admin
 
 router = APIRouter(prefix="/graph/history", tags=["Graph History"])
 logger = logging.getLogger(__name__)
@@ -132,6 +132,7 @@ async def create_pending_edit(
     request_body: GraphEditHistoryCreate,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Create a new pending graph edit (record without applying)."""
     edit_id = str(uuid.uuid4())
@@ -179,6 +180,7 @@ async def apply_pending_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Apply a pending edit (execute the action)."""
     # Fetch the pending edit
@@ -285,7 +287,7 @@ async def apply_pending_edit(
 
     except Exception as e:
         logger.error(f"Failed to apply edit {edit_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.delete("/{edit_id}")
@@ -293,6 +295,7 @@ async def reject_pending_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Reject/discard a pending edit."""
     result = await session.execute(
@@ -320,6 +323,7 @@ async def undo_applied_edit(
     edit_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db_session),
+    _: None = Depends(verify_tenant_admin),
 ):
     """Undo an applied edit (requires snapshot)."""
     result = await session.execute(
@@ -466,4 +470,4 @@ async def undo_applied_edit(
         raise
     except Exception as e:
         logger.error(f"Failed to undo edit {edit_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
