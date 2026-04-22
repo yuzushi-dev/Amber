@@ -1,0 +1,31 @@
+# Production override — replaces the Vite dev frontend with a static
+# nginx-served build. Use alongside docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml build frontend
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d frontend
+#
+# Requires Docker Compose >= 2.20 for the !reset tag (server has 2.40).
+# Canary cutover via deploy/cutover.sh can be layered on top.
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: amber2-frontend:prod
+    # Drop the dev bind-mount (./frontend:/app) and the anonymous
+    # node_modules volume inherited from the base compose file —
+    # production image is self-contained.
+    volumes: !reset []
+    # Strip VITE_API_TARGET; the built bundle has relative API paths.
+    environment: !reset []
+    # The base file does not set a custom `command`, but force the
+    # nginx default in case the dev override ever adds one.
+    command: !reset null
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
