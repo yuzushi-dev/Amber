@@ -245,6 +245,53 @@ def test_single_doc_caps_at_standard():
 
 
 # ---------------------------------------------------------------------------
+# Multi-task dimension
+# ---------------------------------------------------------------------------
+
+
+def test_multi_task_query_escalates_tier():
+    """A query with 3+ sub-tasks (e.g. 'configure X for: A, B, C') scores higher."""
+    # Without multi-task signal this would be STANDARD with 2 docs.
+    # With multi-task (+15) it must reach COMPLEX.
+    candidates = _make_candidates(num_docs=2, num_chunks=8)
+    tier = router.classify(
+        query=(
+            "I am running Microsoft Active Directory, list the steps to configure "
+            "Acme Mail to use AD for: autoprovisioning, authentication, external GAL"
+        ),
+        candidates=candidates,
+        context_tokens=3000,
+    )
+    assert tier == QueryTier.COMPLEX
+
+
+def test_multi_task_detected_in_signals():
+    """has_multi_task is True when 3+ comma-separated sub-tasks are present."""
+    from src.core.generation.application.intelligence.query_complexity import ComplexitySignals
+
+    candidates = _make_candidates(num_docs=1, num_chunks=3)
+    tier, signals = router.classify_with_signals(
+        query="Configure the system for: autoprovisioning, authentication, external GAL",
+        candidates=candidates,
+        context_tokens=500,
+    )
+    assert signals.has_multi_task is True
+
+
+def test_single_task_no_multi_task_signal():
+    """A straightforward single-task query must NOT trigger has_multi_task."""
+    from src.core.generation.application.intelligence.query_complexity import ComplexitySignals
+
+    candidates = _make_candidates(num_docs=1, num_chunks=3)
+    _, signals = router.classify_with_signals(
+        query="How to install Acme Mail CE on Ubuntu 24?",
+        candidates=candidates,
+        context_tokens=500,
+    )
+    assert signals.has_multi_task is False
+
+
+# ---------------------------------------------------------------------------
 # Signals API
 # ---------------------------------------------------------------------------
 
@@ -263,3 +310,4 @@ def test_signals_are_returned():
     assert 0 <= signals.score <= 100
     assert signals.num_distinct_documents == 3
     assert signals.has_comparison is True
+    assert hasattr(signals, "has_multi_task")
