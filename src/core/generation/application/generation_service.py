@@ -380,6 +380,15 @@ class GenerationService:
             settings=settings,
         )
 
+        # Complexity-based model routing (opt-in per tenant via complexity_routing config)
+        llm_cfg, _complexity_tier = self._apply_complexity_routing(
+            llm_cfg=llm_cfg,
+            query=query,
+            candidates=context_result.used_candidates,
+            context_tokens=context_result.tokens,
+            tenant_config=tenant_config,
+        )
+
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
@@ -651,6 +660,15 @@ class GenerationService:
             settings=settings,
         )
 
+        # Complexity-based model routing (opt-in per tenant via complexity_routing config)
+        llm_cfg, _complexity_tier = self._apply_complexity_routing(
+            llm_cfg=llm_cfg,
+            query=query,
+            candidates=ctx.used_candidates,
+            context_tokens=ctx.tokens,
+            tenant_config=tenant_config,
+        )
+
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
@@ -664,6 +682,10 @@ class GenerationService:
             model=llm_cfg.model,
             tenant_override=tenant_config.get("llm_provider", None),
         )
+
+        # Emit routing tier as SSE event for observability
+        if _complexity_tier is not None:
+            yield {"event": "complexity_tier", "data": {"tier": _complexity_tier, "model": llm_cfg.model}}
 
         temp = (
             self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
@@ -792,6 +814,52 @@ class GenerationService:
             kwargs["model"] = llm_cfg.model
 
         return await provider.chat(**kwargs)
+
+    def _apply_complexity_routing(
+        self,
+        llm_cfg: Any,
+        query: str,
+        candidates: list[Any],
+        context_tokens: int,
+        tenant_config: dict[str, Any],
+    ) -> tuple[Any, str | None]:
+        """
+        Override llm_cfg provider/model based on query complexity tier when
+        tenant has complexity_routing enabled.
+
+        Returns (llm_cfg, tier_str) where tier_str is None when routing is
+        disabled or unconfigured — callers use the tier for SSE events and logs.
+        """
+        routing_cfg = tenant_config.get("complexity_routing") or {}
+        if not routing_cfg.get("enabled"):
+            return llm_cfg, None
+
+        from src.core.generation.application.intelligence.query_complexity import (
+            QueryComplexityRouter,
+        )
+
+        tier = QueryComplexityRouter().classify(
+            query=query,
+            candidates=candidates,
+            context_tokens=context_tokens,
+        )
+        tier_str = str(tier)
+
+        tier_model_cfg = (routing_cfg.get("tiers") or {}).get(tier_str)
+        if not tier_model_cfg:
+            return llm_cfg, tier_str
+
+        logger.info(
+            "complexity_routing",
+            tier=tier_str,
+            model=tier_model_cfg.get("model", llm_cfg.model),
+            provider=tier_model_cfg.get("provider", llm_cfg.provider),
+        )
+        return replace(
+            llm_cfg,
+            provider=tier_model_cfg.get("provider") or llm_cfg.provider,
+            model=tier_model_cfg.get("model") or llm_cfg.model,
+        ), tier_str
 
     def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
         """Extract citations from text and map to candidates."""
