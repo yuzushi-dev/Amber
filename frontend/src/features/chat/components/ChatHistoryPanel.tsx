@@ -15,6 +15,7 @@ import { X, MessageSquarePlus, Clock, Trash2 } from 'lucide-react'
 import { FormatDate } from '@/components/ui/date-format'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useChatStore } from '@/features/chat/store'
 
 interface ChatHistoryPanelProps {
     open: boolean
@@ -34,6 +35,7 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
     const [allConversations, setAllConversations] = useState<ChatHistoryItem[]>([])
     const [hasMore, setHasMore] = useState(true)
     const [deletingId, setDeletingId] = useState<string | null>(null)
+    const { lastHistoryUpdate } = useChatStore()
 
     const { data, isLoading, isFetching } = useQuery({
         queryKey: ['chat-history-client', offset],
@@ -61,6 +63,19 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
         }
     }, [open])
 
+    // P1 — Fix: Invalidate and refresh list when a new conversation completes
+    useEffect(() => {
+        if (lastHistoryUpdate > 0) {
+            // If panel is open, this triggers a refetch of the first page
+            // If panel is closed, it ensures fresh data on next open
+            queryClient.invalidateQueries({ queryKey: ['chat-history-client'] })
+            if (open) {
+                setOffset(0)
+                setAllConversations([])
+            }
+        }
+    }, [lastHistoryUpdate, queryClient, open])
+
     const loadMore = useCallback(() => {
         if (!isFetching && hasMore) {
             setOffset(prev => prev + PAGE_SIZE)
@@ -79,6 +94,10 @@ export function ChatHistoryPanel({ open, onClose }: ChatHistoryPanelProps) {
 
     const handleDelete = async (e: React.MouseEvent, item: ChatHistoryItem) => {
         e.stopPropagation()
+        // P2 — Fix: Add confirmation before deleting
+        if (!window.confirm('Are you sure you want to delete this conversation?')) {
+            return
+        }
         setDeletingId(item.request_id)
         try {
             await chatApi.delete(item.request_id)
