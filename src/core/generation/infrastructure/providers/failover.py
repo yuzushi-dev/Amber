@@ -41,6 +41,11 @@ class FailoverLLMProvider(BaseLLMProvider):
         if not providers:
             raise ValueError("At least one provider is required")
 
+    @property
+    def model_name(self) -> str:
+        """Dynamically fetch the model name from the primary provider."""
+        return getattr(self.providers[0], "model_name", "unknown")
+
     def _validate_config(self) -> None:
         """No config to validate for aggregation."""
         pass
@@ -57,6 +62,7 @@ class FailoverLLMProvider(BaseLLMProvider):
     ) -> GenerationResult:
         """Generate with failover across providers."""
         last_error = None
+        is_primary = True
 
         for provider in self.providers:
             circuit = self.circuits[provider.provider_name]
@@ -66,13 +72,18 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(
                     f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})"
                 )
+                is_primary = False
                 continue
 
+            # Only the primary provider uses the caller's explicit model.
+            # Fallback providers use their own configured default model.
+            effective_model = model if is_primary else None
+
             try:
-                logger.debug(f"Trying LLM provider: {provider.provider_name}")
+                logger.info(f"Trying LLM provider: {provider.provider_name} (model={effective_model or 'default'})")
                 result = await provider.generate(
                     prompt=prompt,
-                    model=model,
+                    model=effective_model,
                     system_prompt=system_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -88,17 +99,20 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(f"Rate limited by {provider.provider_name}: {e}")
                 circuit.record_failure()
                 last_error = e
+                is_primary = False
                 continue
 
             except ProviderUnavailableError as e:
                 logger.warning(f"Provider {provider.provider_name} unavailable: {e}")
                 circuit.record_failure()
                 last_error = e
+                is_primary = False
                 continue
 
             except ProviderError as e:
                 logger.error(f"Provider {provider.provider_name} error: {e}")
                 last_error = e
+                is_primary = False
                 # Don't retry/record failure on auth/invalid request errors
                 # (these are permanent config issues, not transient failures)
                 if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
@@ -128,19 +142,25 @@ class FailoverLLMProvider(BaseLLMProvider):
     ) -> AsyncIterator[str]:
         """Stream with failover."""
         last_error = None
+        is_primary = True
 
         for provider in self.providers:
             circuit = self.circuits[provider.provider_name]
 
             # Check circuit state
             if not circuit.allow_request():
+                is_primary = False
                 continue
 
+            # Only the primary provider uses the caller's explicit model.
+            # Fallback providers use their own configured default model.
+            effective_model = model if is_primary else None
+
             try:
-                logger.debug(f"Trying streaming LLM provider: {provider.provider_name}")
+                logger.info(f"Trying streaming LLM provider: {provider.provider_name} (model={effective_model or 'default'})")
                 async for chunk in provider.generate_stream(
                     prompt=prompt,
-                    model=model,
+                    model=effective_model,
                     system_prompt=system_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -156,12 +176,14 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(f"Provider {provider.provider_name} failed: {e}")
                 circuit.record_failure()
                 last_error = e
+                is_primary = False
                 continue
 
             except Exception as e:
                 logger.error(f"Provider {provider.provider_name} streaming error: {e}")
                 circuit.record_failure()
                 last_error = e
+                is_primary = False
                 continue
 
         if not last_error:

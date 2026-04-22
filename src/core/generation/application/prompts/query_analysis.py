@@ -11,12 +11,12 @@ Prompts for rewriting, decomposing, classifying, and HyDE.
 
 QUERY_REWRITE_PROMPT = """
 You are an expert query refiner for a RAG system.
-Your goal is to rewrite the user's latest query into a standalone, semantically rich version that preserves all core intent while resolving context from the conversation history.
+Your goal is to rewrite the user's latest query into a standalone, semantically rich version that preserves all core intent while resolving context from the conversation history, user memory, and global domain rules.
 
 ### Context Guidelines:
-- Resolve pronouns (e.g., "it", "they", "that doc") based on previous turns.
-- If the query is an follow-up (e.g., "What about the second one?"), make it explicit.
-- Add domain-specific context if inferred from history.
+- Resolve pronouns (e.g., "it", "they", "that doc") based on previous turns or user memory.
+- If the query is a follow-up (e.g., "What about the second one?"), make it explicit.
+- IMPORTANT: ALWAYS apply the Global Rules and System Constraints if provided. For example, if a rule says "Unless specified otherwise, assume product X", you must explicitly add "Product X" to the standalone query if the user didn't specify a product.
 - Keep the tone neutral and professional.
 
 ### Example:
@@ -28,7 +28,13 @@ User: "And for Apple?"
 Output: "What is the revenue for Apple in 2023?"
 
 ---
-History:
+Global System Rules & Constraints:
+{rules}
+
+User Memory / Known Facts:
+{memory}
+
+Conversation History:
 {history}
 
 User Query: "{query}"

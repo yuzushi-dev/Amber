@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { feedbackApi, FeedbackItem } from '@/lib/api-admin'
+import { useAuth } from '@/features/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,7 +20,7 @@ import {
     CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { FormatDate } from '@/components/ui/date-format'
-import { ThumbsUp, Check, X, Download, Loader2, MessageSquare, ChevronDown, Trash2, BookOpen } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Check, X, Download, Loader2, MessageSquare, ChevronDown, Trash2, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
@@ -28,6 +29,8 @@ import { PageSkeleton } from '../components/PageSkeleton'
 
 export default function FeedbackPage() {
     const queryClient = useQueryClient()
+    const { permissions } = useAuth()
+    const isSuperAdmin = permissions.includes('super_admin')
     const [exporting, setExporting] = useState(false)
     const [selectedItem, setSelectedItem] = useState<FeedbackItem | null>(null)
     const [activeTab, setActiveTab] = useState('pending')
@@ -171,18 +174,30 @@ export default function FeedbackPage() {
                         <Card className="group relative p-5 transition-[background-color,border-color,box-shadow] duration-300 ease-out hover:shadow-lg cursor-pointer flex flex-col gap-4">
                             <div className="flex items-start justify-between">
                                 <div className="space-y-1.5">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-[10px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
                                             {item.request_id.slice(0, 8)}
                                         </span>
                                         <FormatDate date={item.created_at} mode="short" className="text-[10px] text-muted-foreground/50" />
+                                        {isSuperAdmin && (
+                                            <span className="text-[10px] font-mono text-amber-600/70 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                                {item.tenant_id}
+                                            </span>
+                                        )}
                                     </div>
                                     <h4 className="font-medium text-sm text-foreground/90 line-clamp-1 group-hover:text-primary transition-colors">
                                         {item.query || "No query text"}
                                     </h4>
                                 </div>
-                                <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
-                                    <ThumbsUp className="w-3 h-3" />
+                                <span className={cn(
+                                    "flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full ring-1",
+                                    item.is_positive
+                                        ? "bg-primary/10 text-primary ring-primary/20"
+                                        : "bg-destructive/10 text-destructive ring-destructive/20"
+                                )}>
+                                    {item.is_positive
+                                        ? <ThumbsUp className="w-3 h-3" />
+                                        : <ThumbsDown className="w-3 h-3" />}
                                 </span>
                             </div>
 

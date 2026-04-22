@@ -19,6 +19,7 @@ from src.core.generation.application.llm_steps import resolve_llm_step_config
 from src.core.graph.application.enrichment import GraphEnricher
 from src.core.graph.application.processor import GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
+from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.ports.content_extractor import (
     ContentExtractorPort,
@@ -86,6 +87,8 @@ class IngestionService:
         filename: str,
         file_content: bytes,
         content_type: str = "application/octet-stream",
+        metadata_: dict[str, Any] | None = None,
+        folder_id: str | None = None,
     ) -> Document:
         """
         Register a new document in the system.
@@ -141,6 +144,21 @@ class IngestionService:
             logger.error(f"Failed to upload file to storage: {e}")
             raise
 
+        # Prepare metadata
+        doc_metadata = {"original_filename": filename, "content_type": content_type}
+        if metadata_:
+            doc_metadata.update(metadata_)
+
+        # Stamp taxonomy from folder name
+        if folder_id:
+            folder_name = await self.document_repository.get_folder_name(folder_id)
+        else:
+            folder_name = None
+        doc_metadata["taxonomy"] = classify_document_taxonomy(
+            folder_name=folder_name,
+            document_title=filename,
+        )
+
         # 5. Create DB Record
         new_doc = Document(
             id=doc_id,
@@ -150,7 +168,8 @@ class IngestionService:
             storage_path=storage_path,
             status=DocumentStatus.INGESTED,
             source_type="file",
-            metadata_={"original_filename": filename, "content_type": content_type},
+            metadata_=doc_metadata,
+            folder_id=folder_id,
         )
 
         await self.document_repository.save(new_doc)
@@ -225,8 +244,16 @@ class IngestionService:
             # 4. Extract Content (Fallback Chain)
             import mimetypes
 
+            # Use stored content_type from upload metadata first,
+            # then fall back to mimetypes.guess_type() (which returns None for .md files)
+            stored_ct = None
+            if document.metadata_ and isinstance(document.metadata_, dict):
+                stored_ct = document.metadata_.get("content_type")
+
             mime_type, _ = mimetypes.guess_type(document.filename)
-            if not mime_type:
+            if stored_ct and stored_ct != "application/octet-stream":
+                mime_type = stored_ct
+            elif not mime_type:
                 mime_type = "application/octet-stream"
 
             extractor = self.content_extractor or get_content_extractor()
@@ -398,7 +425,7 @@ class IngestionService:
 
                 # Reduce batch size for Ollama to prevent runner crashes on large inputs
                 max_tokens = 2048 if res_prov == "ollama" else None
-                
+
                 embedding_service = EmbeddingService(
                     provider=factory.get_embedding_provider(
                         provider_name=res_prov,
@@ -408,7 +435,7 @@ class IngestionService:
                     dimensions=res_dims,
                     max_tokens_per_batch=max_tokens,
                 )
-                
+
                 sparse_service = SparseEmbeddingService()
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
@@ -446,8 +473,27 @@ class IngestionService:
 
                 chunk_contents = [c.content for c in chunks_to_process]
                 logger.debug('Calling embed_texts chunks=%d model=%s', len(chunk_contents), res_model)
+
+                # Callback for granular progress (60->70%)
+                async def _on_embedding_progress(completed: int, total: int):
+                    if total == 0:
+                        return
+                    # Scale 60 -> 70
+                    progress = 60 + int((completed / total) * 10)
+                    await self.event_dispatcher.emit_state_change(
+                        StateChangeEvent(
+                            document_id=document.id,
+                            old_status=DocumentStatus.EMBEDDING,
+                            new_status=DocumentStatus.EMBEDDING,
+                            tenant_id=document.tenant_id,
+                            details={"progress": progress, "chunks_completed": completed, "total_chunks": total},
+                        )
+                    )
+
                 embeddings, stats = await embedding_service.embed_texts(
-                    chunk_contents, metadata={"document_id": document.id}
+                    chunk_contents,
+                    metadata={"document_id": document.id},
+                    progress_callback=_on_embedding_progress
                 )
                 logger.debug("embed_texts returned")
 
@@ -499,6 +545,13 @@ class IngestionService:
                     milvus_data.append(data)
 
                 await vector_store.upsert_chunks(milvus_data)
+
+                # Report Granular Embedding Progress (60-70%)
+                # We do this AFTER upserting to keep it simple, or during if the service supported it.
+                # Actually, the service now supports it via callback if we update it.
+                # But since we batch upsert here at the end, the "embedding generation" is the long part.
+                # If we passed a callback to embed_texts, we could get 60->70 updates.
+
 
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.COMPLETED
@@ -568,32 +621,25 @@ class IngestionService:
                 from src.core.generation.domain.ports.provider_factory import get_provider_factory
 
                 # Define callback for granular progress (70-95%)
-                def _on_graph_progress(completed: int, total: int):
+                async def _on_graph_progress(completed: int, total: int):
                     if total == 0:
                         return
                     # Scale 70 -> 95 based on chunk completion
                     progress = 70 + int((completed / total) * 25)
-                    
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(
-                            self.event_dispatcher.emit_state_change(
-                                StateChangeEvent(
-                                    document_id=document.id,
-                                    old_status=DocumentStatus.GRAPH_SYNC,
-                                    new_status=DocumentStatus.GRAPH_SYNC,
-                                    tenant_id=document.tenant_id,
-                                    details={
-                                        "progress": progress,
-                                        "chunks_completed": completed,
-                                        "total_chunks": total
-                                    },
-                                )
-                            )
+
+                    await self.event_dispatcher.emit_state_change(
+                        StateChangeEvent(
+                            document_id=document.id,
+                            old_status=DocumentStatus.GRAPH_SYNC,
+                            new_status=DocumentStatus.GRAPH_SYNC,
+                            tenant_id=document.tenant_id,
+                            details={
+                                "progress": progress,
+                                "chunks_completed": completed,
+                                "total_chunks": total
+                            },
                         )
-                    except RuntimeError:
-                        # Fallback for sync context if needed, though process_document is async
-                        logger.warning("Could not emit progress: No running event loop")
+                    )
 
                 get_provider_factory()
                 if chunks_to_process:

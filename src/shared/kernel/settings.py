@@ -98,6 +98,11 @@ class SettingsProtocol(Protocol):
     llm_fallback_standard: str | None
     llm_fallback_premium: str | None
 
+    # Feature Flags (ACL / provisioning)
+    enable_acl_aware_vector_retrieval: bool
+    enable_acl_aware_graph_retrieval: bool
+    enable_tenant_provisioning: bool
+
     # Embedding Configuration
     default_embedding_provider: str | None
     default_embedding_model: str | None

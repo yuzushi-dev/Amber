@@ -40,4 +40,4 @@ async def test_bootstrap_sets_active_collection_on_default_tenant():
     added = [call.args[0] for call in session.add.call_args_list]
     tenant = next(obj for obj in added if isinstance(obj, Tenant))
 
-    assert tenant.config["active_vector_collection"] == "amber_default"
+    assert tenant.config["active_vector_collection"] == "document_chunks"

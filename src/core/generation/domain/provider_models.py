@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from src.shared.provider_models import (
@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 
-class ProviderType(str, Enum):
+class ProviderType(StrEnum):
     """Type of provider."""
 
     LLM = "llm"

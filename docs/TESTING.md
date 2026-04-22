@@ -41,7 +41,7 @@ dependencies for integration tests.
 ### 1. Unit Tests (`tests/unit`)
 
 - **Focus**: Individual functions, classes, and isolated components.
-- **Mocking**: External dependencies (Neo4j, MinIO, Milvus) are mocked in
+- **Mocking**: External dependencies (Neo4j, Garage, Milvus) are mocked in
   `conftest.py` or within test files.
 - **Speed**: Designed to run fast (~seconds).
 - **Command**: `pytest tests/unit`
@@ -55,13 +55,55 @@ dependencies for integration tests.
   - Redis (`localhost:6379`)
   - Neo4j (`localhost:7687`)
   - Milvus (`localhost:19530`)
-  - MinIO (`localhost:9000`)
+  - Garage S3 API (`localhost:3900`)
 - **Requirements**: Local dependencies running or override env vars before `pytest`.
 - **Command**: `pytest tests/integration`
 
 ### 3. Regression Tests (`tests/regression`)
 
 - **Focus**: High-level system quality checks and bug repros.
+
+### 4. Security Tests (`tests/security`) — 121 tests
+
+Added in v1.1.0. Covers all security hardening layers end-to-end:
+
+| File | Coverage |
+|---|---|
+| `test_task3_control_plane.py` | Admin control-plane isolation |
+| `test_task4_rules_tenancy.py` | Global rule tenancy enforcement |
+| `test_task5_fallbacks.py` | Fail-closed fallback behaviour |
+| `test_task6_isolation.py` | Cross-tenant data isolation |
+| `test_task7_keyring.py` | Dual-secret keyring and key rotation |
+| `test_task8_sse_ticket.py` | SSE one-time-use tickets (30s TTL, replay rejection) |
+| `test_task9_fail_closed.py` | Redis-unavailable 503 path for rate and LLM limiters |
+| `test_task9_community_throttle.py` | Community endpoint throttling |
+| `test_task10_db_layer.py` | DB-layer RLS and graphrag_app role enforcement |
+| `test_task11_connector_creds.py` | Connector credential Fernet encryption |
+| `test_admin_route_guards.py` | Admin route authentication guards |
+| `test_agent_tool_authorization.py` | Agent tool authorization checks |
+| `test_conv_history_gaps.py` | Conversation history privacy gaps |
+| `test_gap_fixes.py` | Security gap fix verification |
+| `test_graph_security.py` | Knowledge graph access control |
+| `test_injection.py` | Prompt injection resistance |
+| `test_pii.py` | PII handling and redaction |
+| `test_remediation.py` | Remediation flow security |
+
+- **Command**: `pytest tests/security`
+
+### 5. E2E API Tests (`tests/e2e`) — 71 tests
+
+Full-stack API integration tests covering critical multi-service flows:
+
+| File | Coverage |
+|---|---|
+| `test_auth_matrix.py` | Role/scope authentication matrix |
+| `test_chat_history.py` | Chat history retrieval and privacy |
+| `test_graph_sync.py` | Graph synchronization flows |
+| `test_isolation.py` | Tenant isolation end-to-end |
+| `test_key_tiers.py` | API key tier enforcement |
+| `test_pipeline.py` | Full ingestion + retrieval pipeline |
+
+- **Command**: `pytest tests/e2e`
 
 ### Pytest Markers
 

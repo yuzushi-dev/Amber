@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class NodeLabel(str, Enum):
+class NodeLabel(StrEnum):
     # Knowledge Graph nodes
     Document = "Document"
     Chunk = "Chunk"
@@ -14,7 +14,7 @@ class NodeLabel(str, Enum):
     UserFeedback = "UserFeedback"
 
 
-class RelationshipType(str, Enum):
+class RelationshipType(StrEnum):
     # Knowledge Graph relationships
     HAS_CHUNK = "HAS_CHUNK"
     MENTIONS = "MENTIONS"

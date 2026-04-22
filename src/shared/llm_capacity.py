@@ -27,10 +27,10 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Literal
-
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +74,14 @@ class LLMCapacitySettings:
     chat_wait_timeout_seconds: float
     ingestion_wait_timeout_seconds: float
     communities_wait_timeout_seconds: float
+    fail_open: bool = False  # When True, bypass on Redis error (legacy). Default: fail closed.
 
     @staticmethod
-    def from_env() -> "LLMCapacitySettings":
+    def from_env() -> LLMCapacitySettings:
         enabled_raw = os.getenv("OLLAMA_CAPACITY_ENABLED", "true").lower()
         enabled = enabled_raw in ("1", "true", "yes", "y", "on")
+        fail_open_raw = os.getenv("LLM_CAPACITY_FAIL_OPEN", "false").lower()
+        fail_open = fail_open_raw in ("1", "true", "yes", "y", "on")
 
         total = _env_int("OLLAMA_CAPACITY_TOTAL", 6)
         reserved_chat = _env_int("OLLAMA_CAPACITY_RESERVED_CHAT", 2)
@@ -98,6 +101,7 @@ class LLMCapacitySettings:
         return LLMCapacitySettings(
             enabled=enabled,
             redis_url=os.getenv("REDIS_URL"),
+            fail_open=fail_open,
             total=total,
             reserved_chat=reserved_chat,
             reserved_ingestion=reserved_ingestion,
@@ -256,7 +260,9 @@ class RedisLLMCapacityLimiter:
 
         redis = await self._get_redis()
         if redis is None:
-            return "bypass"
+            if self._settings.fail_open:
+                return "bypass"
+            return None  # fail closed: deny capacity rather than bypass limiter
 
         lease_id = uuid.uuid4().hex
         now_ms = int(time.time() * 1000)
@@ -278,9 +284,11 @@ class RedisLLMCapacityLimiter:
                 lease_id,
             )
         except Exception as e:
-            # Fail open (no limiter) if Redis is unstable.
-            logger.warning(f"LLM capacity limiter bypass (Redis eval failed): {e}")
-            return "bypass"
+            if self._settings.fail_open:
+                logger.warning(f"LLM capacity limiter bypass (fail_open=True, Redis eval failed): {e}")
+                return "bypass"
+            logger.error(f"LLM capacity limiter Redis error (fail_open=False, denying capacity): {e}")
+            return None  # fail closed
 
         allowed = int(res[0]) if res else 0
         return lease_id if allowed == 1 else None

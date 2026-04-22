@@ -90,7 +90,7 @@ async def export_conversation(
         storage = platform.minio_client
         export_service = ExportService(session, storage)
 
-        zip_bytes = await export_service.generate_single_conversation_zip(conversation_id)
+        zip_bytes = await export_service.generate_single_conversation_zip(conversation_id, tenant_id)
 
         # Generate filename
         safe_title = "".join(
@@ -108,7 +108,7 @@ async def export_conversation(
         )
     except Exception as e:
         logger.error(f"Failed to export conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/all", response_model=StartExportResponse)
@@ -148,7 +148,7 @@ async def start_export_all(
         job.status = ExportStatus.FAILED
         job.error_message = f"Failed to dispatch task: {str(e)}"
         await session.commit()
-        raise HTTPException(status_code=500, detail=f"Failed to start export: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     return StartExportResponse(
         job_id=job_id,
@@ -237,7 +237,7 @@ async def download_export(
         raise HTTPException(status_code=404, detail="Export file not found in storage") from None
     except Exception as e:
         logger.error(f"Failed to download export {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.delete("/job/{job_id}")

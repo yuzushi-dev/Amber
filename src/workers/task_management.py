@@ -6,7 +6,6 @@ Utilities for managing and purging stale Celery tasks during configuration chang
 """
 
 import logging
-from typing import Any
 
 from src.workers.celery_app import celery_app
 
@@ -16,9 +15,9 @@ logger = logging.getLogger(__name__)
 def purge_community_tasks(tenant_id: str | None = None) -> int:
     """
     Revokes any active or reserved tasks related to community processing.
-    
+
     Args:
-        tenant_id: Optional tenant ID to filter tasks (not easily supported by Celery, 
+        tenant_id: Optional tenant ID to filter tasks (not easily supported by Celery,
                   so we currently purge all community tasks if any config changes).
 
     Returns:
@@ -33,17 +32,21 @@ def purge_community_tasks(tenant_id: str | None = None) -> int:
         active = i.active() or {}
         reserved = i.reserved() or {}
         scheduled = i.scheduled() or {}
-        
+
         tasks_to_revoke = set()
 
         for source in [active, reserved, scheduled]:
-            for worker, tasks in source.items():
+            for _worker, tasks in source.items():
                 for task in tasks:
-                    if task.get("name") == task_name:
-                        # If we could filter by tenant_id in args/kwargs, we would here.
-                        # Creating that parser is complex, so we purge all for safety 
-                        # when model config changes globally or for a tenant.
-                        tasks_to_revoke.add(task.get("id"))
+                    if task.get("name") != task_name:
+                        continue
+                    if tenant_id is not None:
+                        # Only revoke tasks whose first positional arg matches
+                        # the requesting tenant — prevent cross-tenant blast radius.
+                        task_tenant = (task.get("args") or [None])[0]
+                        if task_tenant != tenant_id:
+                            continue
+                    tasks_to_revoke.add(task.get("id"))
 
         tasks_to_revoke = list(tasks_to_revoke)
 
@@ -54,7 +57,7 @@ def purge_community_tasks(tenant_id: str | None = None) -> int:
 
         # 2. Purge from queue (Redis only)
         # This is harder to do selectively. We'll rely on revocation for now.
-        
+
         return revoked_count
 
     except Exception as e:
@@ -81,7 +84,7 @@ async def invalidate_and_retrigger_communities(tenant_id: str):
         """
         result = await platform.neo4j_client.execute_write(query, {"tenant_id": tenant_id})
         count = result[0]["count"] if result else 0
-        
+
         logger.info(f"Marked {count} communities as stale for re-processing.")
 
         # 2. Trigger fresh task

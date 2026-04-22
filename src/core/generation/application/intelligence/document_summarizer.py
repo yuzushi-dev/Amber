@@ -178,10 +178,10 @@ class DocumentSummarizer:
         from src.shared.kernel.runtime import get_settings
 
         settings = get_settings()
-        
+
         # Use provided URL or fallback to settings
         res_ollama_url = ollama_base_url or settings.ollama_base_url
-        
+
         if settings.openai_api_key or settings.anthropic_api_key or res_ollama_url:
             factory = build_provider_factory(
                 openai_api_key=settings.openai_api_key,
@@ -253,7 +253,7 @@ class DocumentSummarizer:
             from src.shared.identifiers import generate_query_id
 
             tenant_config = tenant_config or {}
-            
+
             # Resolve Ollama URL from Tenant Config
             res_ollama_url = tenant_config.get("ollama_base_url")
 

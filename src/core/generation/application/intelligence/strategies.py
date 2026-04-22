@@ -5,12 +5,12 @@ Chunking Strategies
 Definitions for domain-specific chunking strategies.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class DocumentDomain(str, Enum):
+class DocumentDomain(StrEnum):
     """
     Domains for document classification.
     """

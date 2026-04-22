@@ -16,7 +16,6 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
-from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
@@ -39,7 +38,6 @@ def _background_warmup():
 
 
 # Trigger background warmup on module load (worker startup)
-import threading
 # threading.Thread(target=_background_warmup, daemon=True).start()
 
 
@@ -185,9 +183,16 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     max_retries=2,
     queue="low_priority",
 )
-def process_communities(self, tenant_id: str) -> dict:
+def process_communities(self, tenant_id: str, skip_detection: bool = False) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
+
+    Args:
+        tenant_id: Tenant ID to process communities for.
+        skip_detection: If True, skip community detection (Leiden) and only
+                        run summarization + embedding on existing communities.
+                        Useful for retrying after embedding failures without
+                        wiping already-summarized communities.
     """
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
@@ -223,7 +228,7 @@ def process_communities(self, tenant_id: str) -> dict:
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
     deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
-        result = run_async(_process_communities_async(tenant_id))
+        result = run_async(_process_communities_async(tenant_id, skip_detection=skip_detection))
         return result
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
@@ -243,7 +248,7 @@ def process_communities(self, tenant_id: str) -> dict:
                 pass
 
 
-async def _process_communities_async(tenant_id: str) -> dict:
+async def _process_communities_async(tenant_id: str, skip_detection: bool = False) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
     from src.api.config import settings
@@ -252,6 +257,9 @@ async def _process_communities_async(tenant_id: str) -> dict:
     deep_reset_singletons()
     configure_settings(settings)
 
+    from src.core.database.session import configure_database
+    configure_database(settings.db.database_url)
+
     from src.core.admin_ops.application.tuning_service import TuningService
     from src.core.database.session import get_session_maker
     from src.core.generation.infrastructure.providers.factory import ProviderFactory
@@ -259,19 +267,24 @@ async def _process_communities_async(tenant_id: str) -> dict:
     from src.core.graph.application.communities.leiden import CommunityDetector
     from src.core.graph.application.communities.summarizer import CommunitySummarizer
     from src.core.retrieval.application.embeddings_service import EmbeddingService
+    from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     try:
-        # 1. Detection
-        detector = CommunityDetector(platform.neo4j_client)
-        detect_res = await detector.detect_communities(tenant_id)
+        # 1. Detection (skip if flag is set — useful for retrying summarization/embedding only)
+        detect_res = {"status": "skipped_by_flag", "community_count": 0}
+        if not skip_detection:
+            detector = CommunityDetector(platform.neo4j_client)
+            detect_res = await detector.detect_communities(tenant_id)
 
-        if detect_res["status"] == "skipped":
-            return detect_res
+            if detect_res["status"] == "skipped":
+                return detect_res
+        else:
+            logger.info(f"Skipping community detection for tenant {tenant_id} (skip_detection=True)")
 
         tuning_service = TuningService(get_session_maker())
-        tenant_config = await tuning_service.get_tenant_config(tenant_id)
-        
+        tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
+
         # Resolve Ollama URL from Tenant Config -> Settings
         res_ollama_url = tenant_config.get("ollama_base_url") or settings.ollama_base_url
 
@@ -286,6 +299,11 @@ async def _process_communities_async(tenant_id: str) -> dict:
             llm_fallback_economy=settings.llm_fallback_economy,
             llm_fallback_standard=settings.llm_fallback_standard,
             llm_fallback_premium=settings.llm_fallback_premium,
+            openrouter_api_key=settings.openrouter_api_key,
+            openrouter_base_url=settings.openrouter_base_url,
+            nvidia_nim_api_key=settings.nvidia_nim_api_key,
+            nvidia_nim_base_url=settings.nvidia_nim_base_url,
+            llm_fallback_enabled=settings.llm_fallback_enabled,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
@@ -293,36 +311,44 @@ async def _process_communities_async(tenant_id: str) -> dict:
         # Check tenant config for override, otherwise use global setting
         concurrency = tenant_config.get("community_summarization_concurrency") or settings.community_summarization_concurrency
         await summarizer.summarize_all_stale(
-            tenant_id, 
+            tenant_id,
             tenant_config=tenant_config,
             concurrency=int(concurrency)
         )
 
         # 3. Embeddings
-        embeddings_config = getattr(settings, "embeddings", None)
-        embedding_model = (
-            getattr(embeddings_config, "default_model", None) if embeddings_config else None
+        # Use the already-configured ProviderFactory (which respects default_embedding_provider)
+        # to get the correct embedding provider, instead of letting EmbeddingService create
+        # its own factory that may default to OpenAI.
+        embedding_provider = factory.get_embedding_provider(
+            provider_name=settings.default_embedding_provider,
+            model=settings.default_embedding_model,
         )
-        if not embedding_model:
-            provider = settings.default_embedding_provider or "openai"
-            embedding_model = (
-                settings.default_embedding_model
-                or DEFAULT_EMBEDDING_MODEL.get(provider)
-                or DEFAULT_EMBEDDING_MODEL.get("openai")
-            )
+        embedding_model = (
+            settings.default_embedding_model
+            or DEFAULT_EMBEDDING_MODEL.get(settings.default_embedding_provider or "ollama")
+        )
         embedding_svc = EmbeddingService(
-            openai_api_key=settings.openai_api_key,
+            provider=embedding_provider,
             model=embedding_model,
-            ollama_base_url=res_ollama_url,
         )
         vector_store_factory = build_vector_store_factory()
         comm_vector_store = vector_store_factory(
             settings.embedding_dimensions or 1536,
             collection_name="community_embeddings",
         )
+
+        # Initialize Sparse Service
+        sparse_svc = None
+        try:
+            sparse_svc = SparseEmbeddingService()
+        except Exception as e:
+            logger.warning(f"Failed to initialize SparseEmbeddingService: {e}")
+
         comm_embedding_svc = CommunityEmbeddingService(
             embedding_service=embedding_svc,
             vector_store=comm_vector_store,
+            sparse_embedding_service=sparse_svc,
         )
 
         # Fetch all communities that need embedding (just summarized)
@@ -389,6 +415,14 @@ def deep_reset_singletons():
     except Exception:
         pass  # Ollama module may not be available in all envs
 
+    # 4b. OpenAI client cache (supports multiple providers: OpenAI, OpenRouter, NIM)
+    try:
+        from src.core.generation.infrastructure.providers import openai as openai_mod
+
+        openai_mod._openai_clients.clear()
+    except Exception:
+        pass
+
     # 5. Document Summarizer (Reset singleton instance)
     try:
         from src.core.generation.application.intelligence.document_summarizer import (
@@ -441,10 +475,9 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     # Move DB initialization earlier to fetch tenant config
     # ERROR FIX: Ensure domain models are imported before session usage to avoid Mapper errors
-    from src.core.ingestion.domain.chunk import Chunk  # noqa: F401
     from src.core.ingestion.domain.document import Document  # noqa: F401
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Fetch Tenant Config for correct Provider Init
@@ -479,11 +512,16 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         llm_fallback_standard=settings.llm_fallback_standard,
         llm_fallback_premium=settings.llm_fallback_premium,
         embedding_fallback_order=settings.embedding_fallback_order,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_base_url=settings.openrouter_base_url,
+        nvidia_nim_api_key=settings.nvidia_nim_api_key,
+        nvidia_nim_base_url=settings.nvidia_nim_base_url,
+        llm_fallback_enabled=settings.llm_fallback_enabled,
     )
 
+    from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
     from src.core.graph.domain.ports.graph_client import set_graph_client
     from src.core.graph.domain.ports.graph_extractor import set_graph_extractor
-    from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config
     from src.core.ingestion.infrastructure.extraction.graph_extractor import GraphExtractor
 
     graph_sync_config = resolve_graph_sync_runtime_config(
@@ -500,6 +538,8 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     try:
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Initialize services
             from src.core.events.dispatcher import EventDispatcher
             from src.core.ingestion.application.ingestion_service import IngestionService
@@ -580,12 +620,14 @@ async def _mark_document_failed(document_id: str, error: str):
 
     from src.api.config import settings
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
 
@@ -698,12 +740,14 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
     from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
     # Create async session
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             # Fetch benchmark run
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
@@ -912,12 +956,14 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
     from src.api.config import settings
     from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
 
-    engine = create_async_engine(settings.db.database_url)
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
 
     try:
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+            await configure_worker_session(session)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )

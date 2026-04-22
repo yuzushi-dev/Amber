@@ -47,11 +47,15 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
             from src.shared.context import get_current_tenant
 
             tenant_id = get_current_tenant()
-            if tenant_id:
-                await session.execute(
-                    text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
-                    {"tenant_id": str(tenant_id)},
-                )
+            # Always set app.current_tenant, even to an empty string when no
+            # tenant is bound to this request. RLS policies on tenant tables
+            # read this GUC unconditionally (`current_setting('app.current_tenant')`
+            # without missing_ok), so failing to set it raises
+            # `unrecognized configuration parameter` 42704 on the first query.
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+                {"tenant_id": str(tenant_id) if tenant_id else ""},
+            )
 
             # Check for super admin privilege from request state
             permissions = getattr(request.state, "permissions", [])
@@ -86,6 +90,28 @@ def get_current_tenant_id(request: Request) -> str:
     Derived from request state set by AuthenticationMiddleware.
     """
     return str(getattr(request.state, "tenant_id", "default"))
+
+
+def get_query_scopes(request: Request):
+    """
+    Dependency to retrieve the resolved query scopes for the current request.
+    """
+    from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+    scopes = getattr(request.state, "query_scopes", None)
+    if scopes is not None:
+        return scopes
+
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+
+    scopes = resolve_query_scopes(str(tenant_id))
+    request.state.query_scopes = scopes
+    return scopes
 
 
 async def verify_super_admin(request: Request):

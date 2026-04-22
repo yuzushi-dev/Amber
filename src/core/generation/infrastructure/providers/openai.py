@@ -5,11 +5,12 @@ OpenAI Provider
 LLM and Embedding provider implementations for OpenAI API.
 """
 
-import logging
 import time
 
 import structlog
 from typing import Any
+
+import structlog
 
 from src.core.generation.infrastructure.providers.base import (
     AuthenticationError,
@@ -56,21 +57,32 @@ except ImportError:
 tracer = trace.get_tracer(__name__)
 logger = structlog.stdlib.get_logger(__name__)
 
-# Global client to allow connection pooling reuse
-_openai_client = None
+# Global client cache keyed by (api_key, base_url) to allow connection pooling
+# while supporting multiple providers with different credentials.
+_openai_clients: dict[tuple[str, str | None], Any] = {}
 
 
-def _get_openai_client(api_key: str, base_url: str | None = None):
-    """Get or create OpenAI client."""
-    global _openai_client
+def _get_openai_client(
+    api_key: str,
+    base_url: str | None = None,
+    default_headers: dict | None = None,
+    timeout: float | None = 60.0,
+):
+    """Get or create OpenAI client, keyed by (api_key, base_url, timeout)."""
+    global _openai_clients
     try:
         from openai import AsyncOpenAI
 
-        # Check if we need to recreate (e.g. key change or not initialized)
-        if _openai_client is None or _openai_client.api_key != api_key:
-            _openai_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        cache_key = (api_key, base_url, timeout)
+        if cache_key not in _openai_clients:
+            kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout, "max_retries": 0}
+            if base_url:
+                kwargs["base_url"] = base_url
+            if default_headers:
+                kwargs["default_headers"] = default_headers
+            _openai_clients[cache_key] = AsyncOpenAI(**kwargs)
 
-        return _openai_client
+        return _openai_clients[cache_key]
     except ImportError as e:
         raise ImportError(
             "openai package is required. Install with: pip install openai>=1.10.0"
@@ -108,6 +120,8 @@ class OpenAILLMProvider(BaseLLMProvider):
             self._client = _get_openai_client(
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
+                default_headers=self.config.extra.get("default_headers"),
+                timeout=self.config.timeout or 300.0,
             )
         return self._client
 

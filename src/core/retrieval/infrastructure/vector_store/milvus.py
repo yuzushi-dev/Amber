@@ -354,14 +354,26 @@ class MilvusVectorStore:
 
             data.append(row)
 
-        try:
-            # Upsert (insert with replace semantics)
+        import asyncio
+
+        def _sync_upsert_and_flush():
             self._collection.upsert(data)
             self._collection.flush()
-
-            logger.info(f"Upserted {len(chunks)} chunks to Milvus")
             return len(chunks)
 
+        try:
+            # Upsert (insert with replace semantics) in a separate thread to avoid blocking the event loop
+            count = await asyncio.wait_for(
+                asyncio.to_thread(_sync_upsert_and_flush),
+                timeout=60.0,
+            )
+
+            logger.info(f"Upserted {count} chunks to Milvus")
+            return count
+
+        except TimeoutError:
+            logger.error("Milvus upsert/flush timed out after 60 seconds")
+            raise RuntimeError("Milvus upsert timed out") from None
         except Exception as e:
             logger.error(f"Failed to upsert chunks: {e}")
             raise

@@ -295,7 +295,7 @@ export default function DatabaseSidebarContent({
     const { data: documents, isLoading: isLoadingDocs } = useQuery({
         queryKey: ['documents'],
         queryFn: async () => {
-            const response = await apiClient.get<Document[]>('/documents')
+            const response = await apiClient.get<Document[]>('/documents', { params: { limit: 10000 } })
             return response.data
         }
     })

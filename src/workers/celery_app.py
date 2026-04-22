@@ -69,6 +69,7 @@ celery_app = Celery(
         "src.workers.tasks",
         "src.workers.export_tasks",
         "src.workers.backup_tasks",
+        "src.workers.provisioning_tasks",
     ],
 )
 
@@ -104,6 +105,7 @@ celery_app.conf.task_routes = {
     "src.workers.tasks.extraction.*": {"queue": "extraction"},
     "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
     # export_tasks uses default celery queue
+    "src.workers.provisioning_tasks.provision_tenant": {"queue": "low_priority"},
 }
 
 
@@ -155,6 +157,11 @@ def _initialize_worker_runtime(settings, init_providers):
         llm_fallback_standard=settings.llm_fallback_standard,
         llm_fallback_premium=settings.llm_fallback_premium,
         embedding_fallback_order=settings.embedding_fallback_order,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_base_url=settings.openrouter_base_url,
+        nvidia_nim_api_key=settings.nvidia_nim_api_key,
+        nvidia_nim_base_url=settings.nvidia_nim_base_url,
+        llm_fallback_enabled=settings.llm_fallback_enabled,
     )
 
 
@@ -182,3 +189,20 @@ def on_worker_ready(**kwargs):
     except Exception as e:
         logger.error(f"Stale document recovery failed: {e}")
         # Don't fail worker startup - recovery is best-effort
+
+    # Clean up stale community processing locks left by previous worker instances
+    try:
+        import redis as redis_lib
+
+        from src.api.config import settings
+
+        r = redis_lib.Redis.from_url(settings.db.redis_url)
+        stale_locks = r.keys("locks:process_communities:*")
+        for lock_key in stale_locks:
+            r.delete(lock_key)
+            logger.info(f"Cleared stale lock: {lock_key.decode()}")
+        if not stale_locks:
+            logger.info("No stale community locks found")
+        r.close()
+    except Exception as e:
+        logger.warning(f"Failed to clean up stale community locks: {e}")

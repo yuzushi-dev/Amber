@@ -6,13 +6,13 @@ Request and response models for the query system, used by both API and Core.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class SearchMode(str, Enum):
+class SearchMode(StrEnum):
     """Available search strategies."""
 
     BASIC = "basic"  # Vector search only
@@ -43,6 +43,18 @@ class QueryFilters(BaseModel):
     tags: list[str] | None = Field(
         None,
         description="Filter by document tags",
+    )
+    edition: str | None = Field(
+        None,
+        description="Explicit taxonomy edition override (commercial | ce)",
+    )
+    audience: str | None = Field(
+        None,
+        description="Explicit taxonomy audience override (admin | user)",
+    )
+    source_family: str | None = Field(
+        None,
+        description="Explicit taxonomy source_family override (admin_guide | ce_guide | user_guide | zendesk_kb)",
     )
 
 
