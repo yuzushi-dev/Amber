@@ -16,6 +16,7 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
+from src.core.ingestion.domain.chunk import Chunk as _Chunk  # noqa: F401 — ensures SQLAlchemy mapper resolves Document.chunks at runtime
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
@@ -475,7 +476,6 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
 
     # Move DB initialization earlier to fetch tenant config
     # ERROR FIX: Ensure domain models are imported before session usage to avoid Mapper errors
-    from src.core.ingestion.domain.document import Document  # noqa: F401
 
     engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -489,6 +489,9 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     tenant_runtime_config: dict = {}
     try:
         async with async_session() as tmp_session:
+            from sqlalchemy import text as _text
+            await tmp_session.execute(_text("SELECT set_config('app.current_tenant', :tid, false)"), {"tid": tenant_id})
+            await tmp_session.execute(_text("SELECT set_config('app.is_super_admin', 'true', false)"))
             t_repo = PostgresTenantRepository(tmp_session)
             t_obj = await t_repo.get(tenant_id)
             if t_obj and t_obj.config:
@@ -539,7 +542,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     try:
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             # Initialize services
             from src.core.events.dispatcher import EventDispatcher
             from src.core.ingestion.application.ingestion_service import IngestionService
@@ -627,7 +630,7 @@ async def _mark_document_failed(document_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
 
@@ -747,7 +750,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             # Fetch benchmark run
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
@@ -963,7 +966,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
