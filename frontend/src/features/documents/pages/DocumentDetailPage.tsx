@@ -82,7 +82,7 @@ function inferSourceUrl(filename: string, metadata?: Record<string, unknown>): s
         const path = dunder === -1
             ? inner.replace(/_/g, '/')
             : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return ;
+        return `https://docs.zextras.com/carbonio/html/${path}.html`;
     }
 
     // Carbonio CE docs: CE_Docs_{dirs}__filename.html
@@ -93,7 +93,7 @@ function inferSourceUrl(filename: string, metadata?: Record<string, unknown>): s
         const path = dunder === -1
             ? inner.replace(/_/g, '/')
             : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return ;
+        return `https://docs.zextras.com/carbonio-ce/html/${path}.html`;
     }
 
     // User guides: UserGuide_Docs_{dirs}__filename.html
@@ -104,13 +104,13 @@ function inferSourceUrl(filename: string, metadata?: Record<string, unknown>): s
         const path = dunder === -1
             ? inner.replace(/_/g, '/')
             : inner.slice(0, dunder).replace(/_/g, '/') + '/' + inner.slice(dunder + 2);
-        return ;
+        return `https://docs.zextras.com/carbonio/html/${path}.html`;
     }
 
     // Zendesk KB: {article_id}-{title}.html
     const zdMatch = filename.match(/^(\d+)-.+\.html$/);
     if (zdMatch) {
-        return ;
+        return `https://zextrasgroup.zendesk.com/hc/en-gb/articles/${zdMatch[1]}`;
     }
 
     return undefined;
