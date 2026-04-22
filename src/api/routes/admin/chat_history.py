@@ -69,6 +69,7 @@ class ConversationDetail(BaseModel):
     total_tokens: int
     cost: float
     feedback: dict | None = None
+    sources: list | None = None
     metadata: dict
     created_at: datetime
 
@@ -275,8 +276,8 @@ async def get_conversation_detail(
     all_metrics = await collector.get_recent(tenant_id=conv.tenant_id, limit=2000)
     for m in all_metrics:
         if m.conversation_id == request_id:
-            input_tokens += getattr(m, "prompt_tokens", 0)
-            output_tokens += getattr(m, "completion_tokens", 0)
+            input_tokens += getattr(m, "input_tokens", 0)
+            output_tokens += getattr(m, "output_tokens", 0)
             total_tokens += m.tokens_used
             cost += m.cost_estimate
             if m.model:
@@ -297,6 +298,7 @@ async def get_conversation_detail(
         total_tokens=total_tokens,
         cost=cost,
         feedback=None,
+        sources=metadata.get("sources"),
         metadata=metadata,
         created_at=conv.created_at,
     )
