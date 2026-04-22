@@ -20,6 +20,13 @@ apiClient.interceptors.request.use((config) => {
     if (token) {
         config.headers['X-API-Key'] = token
     }
+
+    // P0 — Fix: Add X-User-ID for user-facing endpoints
+    const userName = localStorage.getItem('user_name')
+    if (userName) {
+        config.headers['X-User-ID'] = userName
+    }
+
     return config
 })
 
