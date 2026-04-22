@@ -779,6 +779,8 @@ export const tenantsApi = {
 export interface FeedbackItem {
     id: string
     request_id: string
+    tenant_id: string
+    is_positive: boolean
     comment: string | null
     created_at: string
     score: number
