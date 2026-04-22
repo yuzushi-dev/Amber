@@ -251,7 +251,7 @@ async def get_conversation_detail(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Check if conversation has feedback
-    feedback_query = select(Feedback).where(Feedback.conversation_id == request_id).limit(1)
+    feedback_query = select(Feedback).where(Feedback.request_id == request_id).limit(1)
     feedback_result = await session.execute(feedback_query)
     has_feedback = feedback_result.scalar_one_or_none() is not None
 
