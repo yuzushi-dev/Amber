@@ -135,18 +135,20 @@ export function DocumentViewer({ documentId, filename }: DocumentViewerProps) {
 
             if ((isPdf(contentType) || isHtml(contentType)) && blobUrl) {
                 return (
-                    <iframe
-                        src={blobUrl}
-                        className="w-full h-full border-0"
-                        title={filename}
-                        sandbox={isHtml(contentType) ? '' : undefined}
-                    />
+                    <div className="p-4 h-full">
+                        <iframe
+                            src={blobUrl}
+                            className="w-full h-full border rounded-md bg-white"
+                            title={filename}
+                            sandbox={isHtml(contentType) ? '' : undefined}
+                        />
+                    </div>
                 )
             }
 
             // Unknown type: show download prompt
             return (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-8">
                     <FileText className="h-10 w-10 text-muted-foreground/40" />
                     <p className="text-sm">Preview not available for this file type</p>
                     <Button variant="outline" size="sm" onClick={handleDownload}>
@@ -182,7 +184,7 @@ export function DocumentViewer({ documentId, filename }: DocumentViewerProps) {
                             <Download className="h-4 w-4" />
                         </Button>
                     </DialogHeader>
-                    <div className="flex-1 overflow-hidden bg-muted/20">
+                    <div className="flex-1 overflow-hidden bg-muted/20 text-foreground">
                         {renderContent()}
                     </div>
                 </DialogContent>
