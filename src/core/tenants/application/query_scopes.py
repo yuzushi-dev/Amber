@@ -48,6 +48,21 @@ def resolve_query_scopes(tenant_id: str) -> QueryScopes:
     )
 
 
+def resolve_super_admin_query_scopes(all_tenant_ids: list[str]) -> QueryScopes:
+    """Resolve query scopes for a super-admin request.
+
+    Super-admin sees all tenants: every tenant's vectors and graph nodes
+    are included in the search, with no ACL filtering across scopes.
+    """
+    scopes = _dedupe([DEFAULT_TENANT_ID] + [t for t in all_tenant_ids if t != DEFAULT_TENANT_ID])
+    return QueryScopes(
+        effective_tenant_id=DEFAULT_TENANT_ID,
+        vector_scopes=scopes,
+        graph_scopes=scopes,
+        shared_document_owner_tenants=scopes,
+    )
+
+
 def _dedupe(values: list[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
