@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from src.api.deps import get_current_tenant_id
 from src.api.deps import get_db_session as get_db_session
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
+from src.core.tenants.domain.tenant import Tenant
 
 router = APIRouter()
 
@@ -37,11 +38,31 @@ class FolderResponse(BaseModel):
 
 @router.get("", response_model=list[FolderResponse])
 async def list_folders(
-    session: AsyncSession = Depends(get_db_session), tenant_id: str = Depends(get_current_tenant_id)
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    tenant_id: str = Depends(get_current_tenant_id),
 ):
-    """List all folders for the tenant."""
-    # RLS filters automatically, but we add explicit filter for safety/clarity
-    query = select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
+    """List all folders for the tenant. Super-admin sees folders from all tenants."""
+    is_super_admin = getattr(request.state, "is_super_admin", False)
+    if is_super_admin:
+        # Use raw SQL to exclude orphaned folders (tenant_id not in tenants table)
+        from sqlalchemy import text as _text
+        raw = await session.execute(
+            _text(
+                "SELECT f.* FROM folders f "
+                "INNER JOIN tenants t ON t.id = f.tenant_id "
+                "ORDER BY f.tenant_id, f.name"
+            )
+        )
+        rows = raw.mappings().all()
+        result = await session.execute(
+            select(Folder)
+            .where(Folder.id.in_([r["id"] for r in rows]))
+            .order_by(Folder.tenant_id, Folder.name)
+        )
+        return result.scalars().all()
+    else:
+        query = select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
     result = await session.execute(query)
     return result.scalars().all()
 
