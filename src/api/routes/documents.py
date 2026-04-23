@@ -561,9 +561,8 @@ async def list_documents(
         from src.core.ingestion.domain.document_share import VisibleDocument
 
         query = select(Document).options(selectinload(Document.folder))
-        target_tenant = tenant_id or str(getattr(http_request.state, "tenant_id", "") or "")
-        if target_tenant:
-            query = query.where(Document.tenant_id == target_tenant)
+        if tenant_id:
+            query = query.where(Document.tenant_id == tenant_id)
 
         query = query.limit(limit).offset(offset)
         result = await session.execute(query)
