@@ -12,7 +12,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from src.core.tenants.application.query_scopes import resolve_query_scopes
+from src.core.tenants.application.query_scopes import resolve_query_scopes, resolve_super_admin_query_scopes
 from src.shared.context import set_current_tenant, set_permissions
 from src.shared.identifiers import TenantId
 from src.shared.security import mask_api_key
@@ -211,12 +211,23 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     tenant_role = role_row
 
         # Store in request state for easy access
+        is_super_admin = "super_admin" in permissions
+        if is_super_admin:
+            from sqlalchemy import select as _select
+            from src.core.tenants.domain.tenant import Tenant as _Tenant
+            async with _get_async_session_maker()() as _sa_session:
+                _result = await _sa_session.execute(_select(_Tenant.id))
+                all_tenant_ids = list(_result.scalars().all())
+            query_scopes = resolve_super_admin_query_scopes(all_tenant_ids)
+        else:
+            query_scopes = resolve_query_scopes(str(tenant_id))
+
         request.state.tenant_id = tenant_id
-        request.state.query_scopes = resolve_query_scopes(str(tenant_id))
+        request.state.query_scopes = query_scopes
         request.state.permissions = permissions
         request.state.api_key_name = valid_key.name
         request.state.tenant_role = tenant_role
-        request.state.is_super_admin = "super_admin" in permissions
+        request.state.is_super_admin = is_super_admin
 
         logger.debug(
             f"Authenticated: tenant={tenant_id}, key={valid_key.name}, "

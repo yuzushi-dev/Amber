@@ -95,6 +95,9 @@ def get_current_tenant_id(request: Request) -> str:
 def get_query_scopes(request: Request):
     """
     Dependency to retrieve the resolved query scopes for the current request.
+
+    Scopes are resolved by AuthMiddleware and stored in request.state.
+    Super-admin requests cover all tenants; regular requests cover own tenant + default.
     """
     from src.core.tenants.application.query_scopes import resolve_query_scopes
 
