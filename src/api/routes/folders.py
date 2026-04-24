@@ -42,28 +42,44 @@ async def list_folders(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
-    """List all folders for the tenant. Super-admin sees folders from all tenants."""
+    """List folders. Super-admin sees a deduplicated logical view merged by name."""
     is_super_admin = getattr(request.state, "is_super_admin", False)
-    if is_super_admin:
-        # Use raw SQL to exclude orphaned folders (tenant_id not in tenants table)
-        from sqlalchemy import text as _text
-        raw = await session.execute(
-            _text(
-                "SELECT f.* FROM folders f "
-                "INNER JOIN tenants t ON t.id = f.tenant_id "
-                "ORDER BY f.tenant_id, f.name"
-            )
-        )
-        rows = raw.mappings().all()
+    if not is_super_admin:
         result = await session.execute(
-            select(Folder)
-            .where(Folder.id.in_([r["id"] for r in rows]))
-            .order_by(Folder.tenant_id, Folder.name)
+            select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
         )
         return result.scalars().all()
-    else:
-        query = select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
-    result = await session.execute(query)
+
+    # Super-admin: fetch all valid folders, deduplicate by name.
+    # Use the 'default' tenant's folder as canonical when a same-name folder exists there;
+    # otherwise use any available folder. This gives a single logical entry per category.
+    from sqlalchemy import text as _text
+    raw = await session.execute(
+        _text(
+            "SELECT f.id, f.name, f.tenant_id, f.created_at "
+            "FROM folders f "
+            "INNER JOIN tenants t ON t.id = f.tenant_id "
+            "ORDER BY "
+            "  CASE WHEN f.tenant_id = 'default' THEN 0 ELSE 1 END, "
+            "  f.name"
+        )
+    )
+    rows = raw.mappings().all()
+
+    # Keep first occurrence of each name (default preferred due to ORDER BY above)
+    seen: set[str] = set()
+    canonical_ids: list[str] = []
+    for row in rows:
+        if row["name"] not in seen:
+            seen.add(row["name"])
+            canonical_ids.append(row["id"])
+
+    if not canonical_ids:
+        return []
+
+    result = await session.execute(
+        select(Folder).where(Folder.id.in_(canonical_ids)).order_by(Folder.name)
+    )
     return result.scalars().all()
 
 

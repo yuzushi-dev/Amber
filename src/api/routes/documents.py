@@ -559,6 +559,19 @@ async def list_documents(
 
     if is_super_admin:
         from src.core.ingestion.domain.document_share import VisibleDocument
+        from sqlalchemy import text as _text
+
+        # Build canonical folder_id mapping: non-default folder → default folder with same name
+        # This allows the frontend to filter by canonical folder_id and see all tenants' docs.
+        folder_map_raw = await session.execute(
+            _text(
+                "SELECT non_def.id AS src_id, def.id AS canonical_id "
+                "FROM folders non_def "
+                "JOIN folders def ON def.name = non_def.name AND def.tenant_id = 'default' "
+                "WHERE non_def.tenant_id != 'default'"
+            )
+        )
+        folder_id_map: dict[str, str] = {r["src_id"]: r["canonical_id"] for r in folder_map_raw.mappings()}
 
         query = select(Document).options(selectinload(Document.folder))
         if tenant_id:
@@ -587,6 +600,9 @@ async def list_documents(
             current_tenant, limit=limit, offset=offset
         )
 
+    # folder_id_map only populated for super-admin; empty for regular tenants
+    _folder_id_map: dict[str, str] = locals().get("folder_id_map", {})
+
     return [
         DocumentResponse(
             id=visible.document.id,
@@ -595,7 +611,7 @@ async def list_documents(
             status=visible.document.status.value,
             domain=visible.document.domain,
             tenant_id=visible.document.tenant_id,
-            folder_id=visible.document.folder_id,
+            folder_id=_folder_id_map.get(visible.document.folder_id, visible.document.folder_id),
             source_type=visible.document.source_type,
             content_type=_get_content_type(visible.document),
             created_at=visible.document.created_at,
