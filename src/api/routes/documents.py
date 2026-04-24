@@ -593,6 +593,7 @@ async def list_documents(
         from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
             PostgresDocumentRepository,
         )
+        from sqlalchemy import text as _text
 
         current_tenant = _get_tenant_id(http_request)
         repository = PostgresDocumentRepository(session)
@@ -600,7 +601,24 @@ async def list_documents(
             current_tenant, limit=limit, offset=offset
         )
 
-    # folder_id_map only populated for super-admin; empty for regular tenants
+        # Map default-tenant folder IDs to this tenant's same-name folder IDs
+        # so shared documents appear in the correct local folder instead of Unfiled.
+        if current_tenant != "default":
+            _map_raw = await session.execute(
+                _text(
+                    "SELECT def.id AS src_id, local.id AS canonical_id "
+                    "FROM folders def "
+                    "JOIN folders local ON local.name = def.name "
+                    "  AND local.tenant_id = :tenant "
+                    "WHERE def.tenant_id = 'default'"
+                ),
+                {"tenant": current_tenant},
+            )
+            folder_id_map = {r["src_id"]: r["canonical_id"] for r in _map_raw.mappings()}
+        else:
+            folder_id_map = {}
+
+    # folder_id_map populated for both super-admin and regular tenants with shared docs
     _folder_id_map: dict[str, str] = locals().get("folder_id_map", {})
 
     return [
