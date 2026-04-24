@@ -7,7 +7,7 @@
 Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/release-v1.2.0-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.2.0)
+[![Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-blue.svg)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com)
@@ -32,28 +32,23 @@ Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generatio
 - [Contributing](#contributing)
 - [License](#license)
 
+
 ---
 
 ## What's New
 
-### v1.2.0 — Shared GraphRAG (March 2026)
-- **Shared Corpus Architecture**: The `default` tenant acts as the enterprise knowledge base. Tenants inherit shared Acme Mail content without duplication, while tenant-local data remains fully isolated.
-- **Document Sharing & ACL**: Documents owned by `default` can be explicitly shared to specific tenants at upload time or later via the admin UI. Vector retrieval, global search, and graph traversal are all ACL-aware.
-- **Share Management UI**: Bulk share workflows, upload-time visibility selection, audit integration, and observability endpoints for share events.
-- **Runtime Kill Switches**: Operators can disable share management, vector ACL retrieval, and graph ACL retrieval independently without a code deployment.
+### v1.3.0 — Query Routing, Feedback & Admin UX (April 2026)
+- **Query Complexity Routing**: Deterministic zero-LLM scorer maps each query plus its RAG context to a tier (`simple`, `standard`, `complex`, `reasoning`), then selects the appropriate Ollama model. 9 scoring dimensions, opt-in per tenant, `complexity_tier` SSE event for observability. Ollama thinking mode supported at the reasoning tier.
+- **Feedback System Overhaul**: Tenant-scoped feedback view for admins; super admins see all tenants. Users can re-submit and flip polarity on existing answers. Icon display corrected per polarity.
+- **User Conversation History**: Conversation history panel added to the client chat view, scoped to the authenticated user and tenant.
+- **Inline Document Viewer**: "View Document" button opens an inline viewer from the document list without page navigation.
+- **Super-Admin Multi-Tenant Visibility**: Document listing, folder listing, and query scopes now span all tenants for super-admin requests with a unified logical view.
+- **Cross-Tenant Token Usage Metrics**: Super-admin panel shows token counts, cost estimates, and query counts aggregated per tenant.
+- **Admin Chat Detail**: Privacy redaction removed; token metrics and interactive source viewer added so admins can read cited source text from within the chat detail dialog.
+- **Production Frontend Build**: `Dockerfile.prod` and a Compose override for a production Nginx-served frontend.
+- **Backup Script Rewrite**: `scripts/backup.sh` rewritten for the Garage stack with full `--dry-run` support.
 
-### v1.1.0 — Security Hardening (March 2026)
-- **DB-Layer Tenant Isolation**: New `graphrag_app` Postgres role (`NOBYPASSRLS`) with `FORCE ROW LEVEL SECURITY` on 8 tenant tables. Celery workers bypass RLS via an explicit super-admin session flag.
-- **Connector Credential Encryption**: OAuth tokens and passwords are encrypted at rest with Fernet (AES-128-CBC derived from `SECRET_KEY`) instead of being stored in plain JSONB.
-- **Dual-Secret Keyring**: Zero-downtime `SECRET_KEY` rotation via `SECRET_KEY_OLD` fallback. SSE auth tickets are now one-time-use via atomic `GETDEL`.
-- **Fail-Closed Operations**: Rate limiter, LLM capacity guard, and per-tenant community refresh throttle all fail-closed (HTTP 503) when Redis is unavailable.
-- **Zero-Downtime Canary Lane**: nginx 1.27 edge proxy owns ports `:8000`/`:3000`; `deploy/cutover.sh` switches traffic between live and canary with automatic smoke-test rollback.
-- **Scope**: 164 API routes audited, 103 security tests written, 81 end-to-end integration tests validated before promotion to live.
-
-### Recent (March 2026)
-- **Document Taxonomy Routing**: Documents are classified at ingestion (`AdminGuide`, `CEGuide`, `UserGuide`, `ZendeskKB`). Retrieval resolves the audience from query text via a deterministic `ProductContextResolver` and applies a 4-stage broadening fallback (strict → edition-only → audience-only → unfiltered).
-- **Global Search Provenance**: Community reports in Global Search are now traced back to their original source documents, enabling complete citation chains for broad-scope answers.
-- **RAG Context & Rules Tooling**: Product-context tagging on documents, improved query-analysis prompts, and per-tenant global rules with admin-UI management.
+See the [Changelog](docs/CHANGELOG.md) for previous releases.
 
 ---
 
@@ -491,10 +486,11 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
 
 ### Prerequisites
 
-- **Docker & Docker Compose** (v+) - Recommended for easiest setup
-- **LLM API Key** - Required from either:
-  - [OpenAI](https://platform.openai.com/) - GPT models
-  - [Anthropic](https://console.anthropic.com/) - Claude models
+- **Docker & Docker Compose v2.20+** - Recommended for easiest setup
+- **LLM Provider** - At least one required:
+  - [OpenAI](https://platform.openai.com/) - GPT models (cloud)
+  - [Anthropic](https://console.anthropic.com/) - Claude models (cloud)
+  - [Ollama](https://ollama.com/) - Local models, no API key needed
 - **System Resources** - Minimum:
   - 8 GB RAM (16 GB recommended)
   - 20 GB disk space
@@ -552,7 +548,7 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    - `redis` - Cache & broker (port 6379)
    - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
 
-   > **Note (v1.1.0+):** nginx owns host ports `:8000` and `:3000`. The API and frontend containers no longer bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
+   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
 
 4. **Run Database Migrations** (Critical!)
    ```bash
@@ -561,11 +557,11 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
    ```
 
 5. **Access the Application**
-   - **Frontend (Dev)**: Build separately (see [Development](#development))
+   - **Frontend**: [http://localhost:3000](http://localhost:3000) (served by nginx; the frontend container runs `npm run dev` automatically)
    - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
    - **Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
      - Username: `neo4j`
-     - Password: (from `.env` NEO4J_PASSWORD)
+     - Password: (from `.env` `NEO4J_PASSWORD`)
    - **Garage Admin API**: [http://localhost:3903](http://localhost:3903)
      - Credentials: (from `.env` `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`)
 
@@ -660,16 +656,27 @@ CELERY_RESULT_BACKEND=redis://redis:6379/2
 ```ini
 OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
-DEFAULT_LLM_PROVIDER=openai
+DEFAULT_LLM_PROVIDER=openai   # openai | anthropic | ollama
 DEFAULT_LLM_MODEL=gpt-4o-mini
 
-DEFAULT_EMBEDDING_PROVIDER=openai
+DEFAULT_EMBEDDING_PROVIDER=openai   # openai | ollama | local
 DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
+```
 
-# Ollama (optional - for local LLMs)
+#### Ollama (local LLMs, no cloud key required)
+```ini
 OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=llama3
+OLLAMA_MODEL=llama3.2
+
+# Context window — increase for large RAG prompts
+OLLAMA_NUM_CTX=32768
+
+# Concurrent-request capacity guard (prevents GPU OOM under load)
+OLLAMA_CAPACITY_ENABLED=true
+OLLAMA_CAPACITY_TOTAL=6
+OLLAMA_CAPACITY_RESERVED_CHAT=2
+OLLAMA_CAPACITY_RESERVED_INGESTION=2
 ```
 
 #### Rate Limiting
@@ -1979,23 +1986,6 @@ We welcome contributions!
 5. Submit a pull request
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
-
----
-
-## Roadmap
-
-- [ ] Multi-modal support (images, audio)
-- [x] Real-time document updates
-- [x] 3D graph visualization
-- [x] Multi-tenant UI
-- [x] Conversation memory
-- [x] Export functionality (Backup & Restore)
-- [x] Enterprise security hardening (DB-layer RLS, credential encryption, fail-closed ops)
-- [x] Shared GraphRAG corpus with ACL-enforced document sharing
-- [x] Document taxonomy-aware retrieval routing
-- [x] Zero-downtime canary deployment lane (nginx edge proxy)
-- [x] Global Search Provenance (citation chain to source documents)
-- [ ] Plugin system
 
 ---
 
