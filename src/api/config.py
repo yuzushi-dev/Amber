@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -314,6 +314,27 @@ class Settings(BaseSettings):
         alias="NVIDIA_NIM_BASE_URL",
         description="Nvidia NIM base URL",
     )
+
+    # Ollama Cloud (direct API, bypasses local daemon)
+    ollama_cloud_base_url: str = Field(
+        default="https://ollama.com/v1",
+        alias="OLLAMA_CLOUD_BASE_URL",
+        description="Ollama Cloud base URL",
+    )
+    # Raw CSV string — pydantic_settings reads env vars for list[str] as JSON only,
+    # so we keep this as str and expose `ollama_cloud_api_keys` as a computed property.
+    ollama_cloud_api_keys_raw: str = Field(
+        default="",
+        alias="OLLAMA_CLOUD_API_KEYS",
+        description="CSV of Ollama Cloud API keys, one per account, sequential failover order.",
+    )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def ollama_cloud_api_keys(self) -> list[str]:
+        if not self.ollama_cloud_api_keys_raw:
+            return []
+        return [k.strip() for k in self.ollama_cloud_api_keys_raw.split(",") if k.strip()]
 
     # LLM Fallback Configuration
     llm_fallback_enabled: bool = Field(

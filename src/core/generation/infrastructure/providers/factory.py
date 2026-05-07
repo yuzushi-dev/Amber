@@ -163,6 +163,9 @@ class ProviderFactory:
         nvidia_nim_api_key: str | None = None,
         nvidia_nim_base_url: str | None = None,
         llm_fallback_enabled: bool = True,
+        # Ollama Cloud (direct API, bypasses local daemon)
+        ollama_cloud_base_url: str | None = None,
+        ollama_cloud_api_keys: list[str] | None = None,
     ):
         self.openai_api_key = openai_api_key
         self.anthropic_api_key = anthropic_api_key
@@ -184,6 +187,9 @@ class ProviderFactory:
         self.nvidia_nim_api_key = nvidia_nim_api_key
         self.nvidia_nim_base_url = nvidia_nim_base_url or "https://integrate.api.nvidia.com/v1"
         self.llm_fallback_enabled = llm_fallback_enabled
+        # Ollama Cloud
+        self.ollama_cloud_base_url = ollama_cloud_base_url or "https://ollama.com/v1"
+        self.ollama_cloud_api_keys: list[str] = ollama_cloud_api_keys or []
 
         # Initialize Usage Tracker
         self.usage_tracker = UsageTracker(session_factory=async_session_maker)
@@ -192,6 +198,8 @@ class ProviderFactory:
         self._llm_cache: dict[str, BaseLLMProvider] = {}
         self._embedding_cache: dict[str, BaseEmbeddingProvider] = {}
         self._reranker_cache: dict[str, BaseRerankerProvider] = {}
+        # Single-slot cache for the ollama_cloud key-pool wrapper
+        self._ollama_cloud_wrapper: BaseLLMProvider | None = None
 
     def update_ollama_base_url(self, url: str | None) -> None:
         """Update Ollama base URL at runtime (called on tenant config change).
@@ -321,6 +329,8 @@ class ProviderFactory:
             return False
         if provider == "ollama" and not self.ollama_base_url:
             return False
+        if provider == "ollama_cloud" and not self.ollama_cloud_api_keys:
+            return False
         if provider == "nvidia_nim" and not self.nvidia_nim_api_key:
             return False
         if provider == "openrouter" and not self.openrouter_api_key:
@@ -392,6 +402,43 @@ class ProviderFactory:
     ) -> BaseLLMProvider:
         """Create an LLM provider instance."""
         from src.shared.model_registry import DEFAULT_LLM_MODEL
+
+        # Ollama Cloud: build a key-pool backed by FailoverLLMProvider, cached in a single slot.
+        if name == "ollama_cloud":
+            if self._ollama_cloud_wrapper is not None:
+                if model:
+                    primary = (
+                        self._ollama_cloud_wrapper.providers[0]
+                        if hasattr(self._ollama_cloud_wrapper, "providers")
+                        else self._ollama_cloud_wrapper
+                    )
+                    primary.default_model = model
+                return self._ollama_cloud_wrapper
+            if not self.ollama_cloud_api_keys:
+                raise ProviderUnavailableError(
+                    "ollama_cloud requested but OLLAMA_CLOUD_API_KEYS is empty",
+                    provider="ollama_cloud",
+                )
+            from src.core.generation.infrastructure.providers.ollama import OllamaLLMProvider
+            pool: list[BaseLLMProvider] = []
+            for i, key in enumerate(self.ollama_cloud_api_keys):
+                cfg = ProviderConfig(
+                    api_key=key,
+                    base_url=self.ollama_cloud_base_url,
+                    usage_tracker=self.usage_tracker,
+                )
+                inst = OllamaLLMProvider(cfg, use_capacity_limiter=False, use_native_options=False)
+                inst.provider_name = f"ollama_cloud_{i}"
+                if model:
+                    inst.default_model = model
+                elif "ollama_cloud" in DEFAULT_LLM_MODEL:
+                    inst.default_model = DEFAULT_LLM_MODEL["ollama_cloud"]
+                pool.append(inst)
+            self._ollama_cloud_wrapper = (
+                pool[0] if len(pool) == 1 else FailoverLLMProvider(pool)
+            )
+            return self._ollama_cloud_wrapper
+
         cache_key = f"{name}:{model}"
         if cache_key in self._llm_cache:
             return self._llm_cache[cache_key]
@@ -517,6 +564,8 @@ def init_providers(
     nvidia_nim_api_key: str | None = None,
     nvidia_nim_base_url: str | None = None,
     llm_fallback_enabled: bool = True,
+    ollama_cloud_base_url: str | None = None,
+    ollama_cloud_api_keys: list[str] | None = None,
     **kwargs,
 ) -> ProviderFactory:
     """Initialize the default provider factory."""
@@ -539,6 +588,8 @@ def init_providers(
         nvidia_nim_api_key=nvidia_nim_api_key,
         nvidia_nim_base_url=nvidia_nim_base_url,
         llm_fallback_enabled=llm_fallback_enabled,
+        ollama_cloud_base_url=ollama_cloud_base_url,
+        ollama_cloud_api_keys=ollama_cloud_api_keys,
         **kwargs,
     )
     set_provider_factory_builder(ProviderFactory)

@@ -587,6 +587,8 @@ def build_generation_service(session=None):
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL"),
         llm_fallback_enabled=os.environ.get("LLM_FALLBACK_ENABLED", "true").lower() != "false",
+        ollama_cloud_base_url=settings.ollama_cloud_base_url,
+        ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
     )
 
 

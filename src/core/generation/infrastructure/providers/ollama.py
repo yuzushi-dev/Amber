@@ -7,6 +7,7 @@ LLM provider implementation for Ollama API (OpenAI compatible).
 
 import logging
 import time
+from contextlib import asynccontextmanager
 
 import structlog
 from typing import Any
@@ -89,10 +90,17 @@ class OllamaLLMProvider(BaseLLMProvider):
     models = LLM_MODELS["ollama"]
     default_model = DEFAULT_LLM_MODEL["ollama"]
 
-    def __init__(self, config: ProviderConfig | None = None):
+    def __init__(
+        self,
+        config: ProviderConfig | None = None,
+        use_capacity_limiter: bool = True,
+        use_native_options: bool = True,
+    ):
         super().__init__(config)
         import os
 
+        self._use_capacity_limiter = use_capacity_limiter
+        self._use_native_options = use_native_options
         # Allow overriding default model via env
         self.default_model = os.getenv("OLLAMA_MODEL", self.default_model)
         self._client = None
@@ -118,6 +126,15 @@ class OllamaLLMProvider(BaseLLMProvider):
             )
         return self._client
 
+    @asynccontextmanager
+    async def _capacity_hold(self, work_class: str):
+        """Async context manager that acquires the Redis capacity slot when enabled."""
+        if self._use_capacity_limiter:
+            async with get_ollama_capacity_limiter().hold(work_class=work_class):
+                yield
+        else:
+            yield
+
     async def generate(
         self,
         prompt: str,
@@ -134,7 +151,6 @@ class OllamaLLMProvider(BaseLLMProvider):
         start_time = time.perf_counter()
 
         work_class = kwargs.pop("work_class", "ingestion")
-        limiter = get_ollama_capacity_limiter()
 
         # Build messages
         messages: list[dict[str, Any]] = []
@@ -142,23 +158,22 @@ class OllamaLLMProvider(BaseLLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Add Ollama specific options via extra_body
+        # Add Ollama-native options via extra_body (skipped for cloud endpoints)
         extra_body = kwargs.pop("extra_body", {}) or {}
-        if "options" not in extra_body:
-            extra_body["options"] = {}
+        if self._use_native_options:
+            if "options" not in extra_body:
+                extra_body["options"] = {}
+            if "num_ctx" not in extra_body["options"]:
+                import os
 
-        # Default context window if not provided.
-        if "num_ctx" not in extra_body["options"]:
-            import os
-
-            try:
-                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-            except Exception:
-                extra_body["options"]["num_ctx"] = 32768
+                try:
+                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+                except Exception:
+                    extra_body["options"]["num_ctx"] = 32768
 
         try:
             try:
-                async with limiter.hold(work_class=work_class):
+                async with self._capacity_hold(work_class=work_class):
                     response = await self.client.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -166,7 +181,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                         max_tokens=max_tokens,
                         seed=seed,
                         stop=stop,
-                        extra_body=extra_body,
+                        extra_body=extra_body if extra_body else None,
                         **kwargs,
                     )
             except TimeoutError as e:
@@ -275,29 +290,29 @@ class OllamaLLMProvider(BaseLLMProvider):
         model = self.default_model
 
         work_class = kwargs.pop("work_class", "chat")
-        limiter = get_ollama_capacity_limiter()
 
-        # Ollama options via extra_body
+        # Ollama-native options via extra_body (skipped for cloud endpoints)
         extra_body = kwargs.pop("extra_body", {}) or {}
-        if "options" not in extra_body:
-            extra_body["options"] = {}
-        if "num_ctx" not in extra_body["options"]:
-            import os
+        if self._use_native_options:
+            if "options" not in extra_body:
+                extra_body["options"] = {}
+            if "num_ctx" not in extra_body["options"]:
+                import os
 
-            try:
-                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-            except Exception:
-                extra_body["options"]["num_ctx"] = 32768
+                try:
+                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+                except Exception:
+                    extra_body["options"]["num_ctx"] = 32768
 
         try:
             try:
-                async with limiter.hold(work_class=work_class):
+                async with self._capacity_hold(work_class=work_class):
                     response = await self.client.chat.completions.create(
                         model=model,
                         messages=messages,
                         tools=tools,
                         tool_choice=tool_choice,
-                        extra_body=extra_body,
+                        extra_body=extra_body if extra_body else None,
                         **kwargs,
                     )
                 return response
@@ -329,31 +344,31 @@ class OllamaLLMProvider(BaseLLMProvider):
         model = model or self.default_model
 
         work_class = kwargs.pop("work_class", "chat")
-        limiter = get_ollama_capacity_limiter()
 
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Ollama options via extra_body
+        # Ollama-native options via extra_body (skipped for cloud endpoints)
         extra_body = kwargs.pop("extra_body", {}) or {}
-        if "options" not in extra_body:
-            extra_body["options"] = {}
-        if "num_ctx" not in extra_body["options"]:
-            import os
+        if self._use_native_options:
+            if "options" not in extra_body:
+                extra_body["options"] = {}
+            if "num_ctx" not in extra_body["options"]:
+                import os
 
-            try:
-                extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-            except Exception:
-                extra_body["options"]["num_ctx"] = 32768
+                try:
+                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+                except Exception:
+                    extra_body["options"]["num_ctx"] = 32768
 
         # Internal-only metadata, never sent to provider.
         kwargs.pop("history", None)
 
         try:
             try:
-                async with limiter.hold(work_class=work_class):
+                async with self._capacity_hold(work_class=work_class):
                     stream = await self.client.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -361,7 +376,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                         max_tokens=max_tokens,
                         seed=seed,
                         stream=True,
-                        extra_body=extra_body,
+                        extra_body=extra_body if extra_body else None,
                         **kwargs,
                     )
 

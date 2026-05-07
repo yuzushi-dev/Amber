@@ -91,6 +91,8 @@ class SettingsProtocol(Protocol):
     openai_api_key: str
     anthropic_api_key: str
     ollama_base_url: str
+    ollama_cloud_base_url: str
+    ollama_cloud_api_keys: list[str]
     default_llm_provider: str | None
     default_llm_model: str | None
     llm_fallback_local: str | None
