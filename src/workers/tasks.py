@@ -305,6 +305,8 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
             nvidia_nim_api_key=settings.nvidia_nim_api_key,
             nvidia_nim_base_url=settings.nvidia_nim_base_url,
             llm_fallback_enabled=settings.llm_fallback_enabled,
+            ollama_cloud_base_url=settings.ollama_cloud_base_url,
+            ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
         )
         summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
@@ -520,6 +522,8 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         nvidia_nim_api_key=settings.nvidia_nim_api_key,
         nvidia_nim_base_url=settings.nvidia_nim_base_url,
         llm_fallback_enabled=settings.llm_fallback_enabled,
+        ollama_cloud_base_url=settings.ollama_cloud_base_url,
+        ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
     )
 
     from src.core.graph.application.sync_config import resolve_graph_sync_runtime_config

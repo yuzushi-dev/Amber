@@ -113,6 +113,43 @@ LLM_MODELS = {
             "description": "Devstral (Mistral 24B)",
         },
     },
+    "ollama_cloud": {
+        "gemma3:27b": {
+            "tier": ProviderTier.ECONOMY,
+            "context_window": 131072,
+            "description": "Gemma 3 27B via Ollama Cloud (direct API)",
+        },
+        "gpt-oss:120b": {
+            "tier": ProviderTier.ECONOMY,
+            "context_window": 131072,
+            "description": "GPT-OSS 120B via Ollama Cloud",
+        },
+        "gpt-oss:20b": {
+            "tier": ProviderTier.ECONOMY,
+            "context_window": 131072,
+            "description": "GPT-OSS 20B via Ollama Cloud",
+        },
+        "kimi-k2-thinking": {
+            "tier": ProviderTier.STANDARD,
+            "context_window": 131072,
+            "description": "Kimi K2 Thinking via Ollama Cloud",
+        },
+        "qwen3-coder:480b": {
+            "tier": ProviderTier.STANDARD,
+            "context_window": 131072,
+            "description": "Qwen3 Coder 480B via Ollama Cloud",
+        },
+        "deepseek-v3.1:671b": {
+            "tier": ProviderTier.STANDARD,
+            "context_window": 131072,
+            "description": "DeepSeek V3.1 671B via Ollama Cloud",
+        },
+        "glm-4.6": {
+            "tier": ProviderTier.STANDARD,
+            "context_window": 131072,
+            "description": "GLM 4.6 via Ollama Cloud",
+        },
+    },
     "nvidia_nim": {
         "google/gemma-3-27b-it": {
             "tier": ProviderTier.ECONOMY,
@@ -218,6 +255,7 @@ DEFAULT_LLM_MODEL = {
     "openai": "gpt-4.1-mini",
     "anthropic": "claude-3-5-haiku-20241022",
     "ollama": "llama3",
+    "ollama_cloud": "gemma3:27b",
     "nvidia_nim": "google/gemma-3-27b-it",
     "openrouter": "google/gemma-3-27b-it:free",
 }
@@ -265,6 +303,7 @@ TOKEN_ENCODING_BY_PROVIDER = {
     "openai": "cl100k_base",
     "anthropic": "cl100k_base",
     "ollama": "cl100k_base",
+    "ollama_cloud": "cl100k_base",
     "local": "cl100k_base",
     "nvidia_nim": "cl100k_base",
     "openrouter": "cl100k_base",

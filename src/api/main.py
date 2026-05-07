@@ -97,6 +97,8 @@ async def lifespan(app: FastAPI):
             nvidia_nim_api_key=settings.nvidia_nim_api_key,
             nvidia_nim_base_url=settings.nvidia_nim_base_url,
             llm_fallback_enabled=settings.llm_fallback_enabled,
+            ollama_cloud_base_url=settings.ollama_cloud_base_url,
+            ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
         )
         logger.info("LLM Providers initialized")
     except Exception as e:

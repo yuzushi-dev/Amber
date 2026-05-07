@@ -115,6 +115,8 @@ class GenerationService:
         openrouter_api_key: str | None = None,
         openrouter_base_url: str | None = None,
         llm_fallback_enabled: bool = True,
+        ollama_cloud_base_url: str | None = None,
+        ollama_cloud_api_keys: list[str] | None = None,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
@@ -143,6 +145,8 @@ class GenerationService:
                     openrouter_api_key=openrouter_api_key,
                     openrouter_base_url=openrouter_base_url,
                     llm_fallback_enabled=llm_fallback_enabled,
+                    ollama_cloud_base_url=ollama_cloud_base_url,
+                    ollama_cloud_api_keys=ollama_cloud_api_keys,
                 )
             else:
                 factory = get_provider_factory()
@@ -183,6 +187,8 @@ class GenerationService:
             openrouter_api_key=getattr(settings, "openrouter_api_key", None) or os.environ.get("OPENROUTER_API_KEY") or None,
             openrouter_base_url=getattr(settings, "openrouter_base_url", None) or os.environ.get("OPENROUTER_BASE_URL"),
             llm_fallback_enabled=getattr(settings, "llm_fallback_enabled", True),
+            ollama_cloud_base_url=getattr(settings, "ollama_cloud_base_url", None),
+            ollama_cloud_api_keys=getattr(settings, "ollama_cloud_api_keys", None),
         )
 
     async def _get_effective_tenant_config(self, tenant_id: str | None) -> dict[str, Any]:
