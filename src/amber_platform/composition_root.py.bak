@@ -507,7 +507,6 @@ def build_retrieval_service(session=None):
     retrieval_config = RetrievalConfig(
         milvus_host=settings.db.milvus_host,
         milvus_port=settings.db.milvus_port,
-        enable_hybrid=True,
     )
 
     # Repositories

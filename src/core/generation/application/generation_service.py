@@ -913,7 +913,7 @@ class GenerationService:
                     title = cand.get("metadata", {}).get("title") or cand.get("title") or "Untitled"
                 else:
                     content = getattr(cand, "content", "")
-                    cid = getattr(cand, "id", f"chunk_{i}")
+                    cid = getattr(cand, "chunk_id", f"chunk_{i}")
                     did = getattr(cand, "metadata", {}).get("document_id", "unknown")
                     title = getattr(cand, "metadata", {}).get("title", "Untitled")
 

@@ -14,6 +14,12 @@ version: '3.8'
 #   - etcd:     Milvus metadata store
 # =============================================================================
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   # ---------------------------------------------------------------------------
   # Frontend - React Application
@@ -33,6 +39,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -59,6 +66,7 @@ services:
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
+      - IGNORE_EMBEDDING_MISMATCH=true
       - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
       - REDIS_URL=redis://redis:6379/0
       - NEO4J_URI=bolt://neo4j:7687
@@ -126,6 +134,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 300s
+    logging: *default-logging
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -209,6 +218,7 @@ services:
         condition: service_healthy
       milvus:
         condition: service_started
+    logging: *default-logging
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -230,6 +240,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -253,6 +264,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -284,6 +296,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -307,6 +320,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -331,6 +345,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -369,6 +384,7 @@ services:
       timeout: 20s
       retries: 3
       start_period: 90s
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -393,7 +409,7 @@ services:
     container_name: amber2-nginx-1
     ports:
       - "8000:80"    # API traffic (was: direct from api service)
-      - "3000:3000"  # Frontend traffic (was: direct from frontend service)
+      - "80:3000"  # Frontend traffic (was: direct from frontend service)
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/conf.d:/etc/nginx/conf.d  # NOT :ro — cutover.sh writes upstream.conf
@@ -407,6 +423,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - graphrag-network
