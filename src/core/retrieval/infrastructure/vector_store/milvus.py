@@ -678,6 +678,7 @@ class MilvusVectorStore:
         limit: int = 10,
         filters: dict[str, Any] | None = None,
         rrf_k: int = 60,
+        collection_name: str | None = None,
     ) -> list[SearchResult]:
         """
         Perform Hybrid Search (Dense + Sparse) with Reciprocal Rank Fusion (RRF).
@@ -685,6 +686,16 @@ class MilvusVectorStore:
         """
         await self.connect()
         milvus = _get_milvus()
+
+        # Handle collection_name - use specific collection if provided
+        if collection_name and collection_name != self.config.collection_name:
+            collection_name = collection_name.replace("-", "_")
+            try:
+                if milvus["utility"].has_collection(collection_name):
+                    self._collection = milvus["Collection"](collection_name)
+                    logger.info(f"Using collection for hybrid search: {collection_name}")
+            except Exception as e:
+                logger.warning(f"Failed to use collection {collection_name}: {e}, using default")
 
         # Check if hybrid search components are available
         if not milvus.get("AnnSearchRequest") or not milvus.get("RRFRanker"):

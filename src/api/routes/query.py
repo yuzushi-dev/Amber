@@ -622,10 +622,10 @@ async def _query_stream_impl(
                         global_rules=global_rules_list,
                         memory_context=memory_context_str,
                     ),
-                    timeout=60.0,
+                    timeout=120.0,
                 )
             except Exception as e:
-                logger.error(f"Retrieval failed: {e}")
+                logger.error(f"Retrieval failed: {type(e).__name__}: {e}")
 
                 from src.shared.error_handling import map_exception_to_error_data
 
