@@ -85,6 +85,18 @@ _FOLDER_TAXONOMY: dict[str, dict[str, str]] = {
         "audience": "user",
         "source_family": "user_guide",
     },
+    "sales": {
+        "product_line": "acme-mail",
+        "edition": "commercial",
+        "audience": "admin",
+        "source_family": "sales",
+    },
+    "partner hb": {
+        "product_line": "acme-mail",
+        "edition": "commercial",
+        "audience": "admin",
+        "source_family": "marketing",
+    },
 }
 
 _UNKNOWN_TAXONOMY: dict[str, str] = {
