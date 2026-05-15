@@ -388,8 +388,8 @@ app = FastAPI(
     Pass your key in the `X-API-Key` header.
     """,
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
     openapi_tags=[
         {
             "name": "health",

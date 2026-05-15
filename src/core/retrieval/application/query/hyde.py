@@ -9,6 +9,7 @@ import logging
 
 import numpy as np
 
+from src.core.security.injection_guard import InjectionGuard
 from src.core.generation.application.prompts.query_analysis import HYDE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
     ProviderFactoryPort,
@@ -62,7 +63,9 @@ class HyDEService:
         """
         Generate N hypothetical document segments for a query.
         """
-        prompt = HYDE_PROMPT.format(query=query)
+        # Sanitize query to prevent prompt injection
+        safe_query = self._injection_guard.sanitize_input(query)
+        prompt = HYDE_PROMPT.format(query=safe_query)
 
         try:
             from src.core.generation.application.llm_steps import resolve_llm_step_config

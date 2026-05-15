@@ -61,6 +61,8 @@ class RetrievalResult:
     tenant_id: str
     latency_ms: float
     cache_hit: bool = False
+    search_mode: str = "unknown"
+    router_latency_ms: float = 0.0
     reranked: bool = False
     trace: list[dict[str, Any]] = field(default_factory=list)
 
@@ -212,7 +214,6 @@ class RetrievalService:
             provider_factory=factory,
         )
 
-        # Phase 6 & Graph Searchers
         self.vector_searcher = VectorSearcher(self.vector_store)
 
         # Use injected neo4j_client (already set in __init__ start)
@@ -778,18 +779,18 @@ class RetrievalService:
             all_document_ids = _taxonomy_doc_ids
 
         # Step 3: Query Routing
+        _router_start = time.perf_counter()
         search_mode = await self.router.route(
             structured_query.cleaned_query,
             explicit_mode=options.search_mode,
             tenant_config=tenant_config,
         )
+        _router_latency_ms = (time.perf_counter() - _router_start) * 1000
 
         vector_targets: list[VectorSearchTarget] = []
         graph_targets: list[GraphSearchTarget] = []
 
         # Step 4 & 5: Search Execution based on Mode
-        # For now, most modes fall back to vector search with optional HyDE/Decomposition
-        # Phase 6 will implement specialized Global and DRIFT strategies.
 
         try:
             if search_mode == SearchMode.GLOBAL:
@@ -827,8 +828,14 @@ class RetrievalService:
                     include_trace=include_trace,
                     trace=trace,
                 )
-                # Use simple vector search for BASIC/LOCAL
-                # (Hybrid search disabled until entity_embeddings collection is set up)
+                # LOCAL mode requires entity_embeddings Milvus collection (not yet created).
+                # TODO: Create entity_embeddings collection — see ARCHITECTURE_AUDIT.md §4.3
+                # Until then, LOCAL falls back to BASIC vector search.
+                if search_mode == SearchMode.LOCAL:
+                    logger.warning(
+                        "SearchMode.LOCAL requested but entity_embeddings collection does not exist; "
+                        "falling back to BASIC vector search. tenant=%s", resolved_tenant_id
+                    )
                 result = await self._execute_vector_search(
                     structured_query=structured_query,
                     tenant_id=resolved_tenant_id,
@@ -867,6 +874,8 @@ class RetrievalService:
         self.circuit_breaker.record_latency(total_latency)
 
         result.latency_ms = total_latency
+        result.search_mode = search_mode.value
+        result.router_latency_ms = _router_latency_ms
         if not include_trace:
             result.trace = []
         else:
@@ -1062,26 +1071,18 @@ class RetrievalService:
 
             logger.debug("Result cache lookup for '%s' hit=%s", search_query, bool(cached_result))
 
-            # Force bypass for debugging
-            # if cached_result:
-            #     logger.info("Using cached result for '%s'", search_query)
-            #     # ... (skipped cache use code) ...
-            #     continue
-            cached_result = None  # FORCE MISS
-
             if cached_result:
-                # Original logic code blocked by force miss
-                pass
-            # The original code block was:
-            # sub_chunks = await self._fetch_chunks_by_ids(
-            #     cached_result.chunk_ids[:top_k],
-            #     cached_result.scores[:top_k],
-            # )
-            # for c in sub_chunks:
-            #     if c["chunk_id"] not in seen_chunk_ids:
-            #         all_chunks.append(c)
-            #         seen_chunk_ids.add(c["chunk_id"])
-            # continue
+                # Use cached chunk IDs to avoid re-embedding and re-searching
+                logger.info("Using cached result for '%s'", search_query)
+                sub_chunks = await self._fetch_chunks_by_ids(
+                    cached_result.chunk_ids[:top_k],
+                    cached_result.scores[:top_k],
+                )
+                for c in sub_chunks:
+                    if c["chunk_id"] not in seen_chunk_ids:
+                        all_chunks.append(c)
+                        seen_chunk_ids.add(c["chunk_id"])
+                continue
 
             # Get embedding
             logger.debug("Generating embedding for query variant '%s'", search_query[:120])
