@@ -377,8 +377,9 @@ services:
       - seccomp:unconfined
     environment:
       - ETCD_ENDPOINTS=etcd:2379
-      # Local storage: MINIO_* vars removed to use local disk instead of Garage S3
-      # This decouples Milvus from Garage S3 backend
+      - MINIO_ADDRESS=${MILVUS_MINIO_ADDRESS:-minio:9000}
+      - MINIO_ACCESS_KEY_ID=${OBJECT_STORAGE_ACCESS_KEY}
+      - MINIO_SECRET_ACCESS_KEY=${OBJECT_STORAGE_SECRET_KEY}
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -386,6 +387,7 @@ services:
       - graphrag-milvus:/var/lib/milvus
     depends_on:
       - etcd
+      - minio
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
       interval: 30s
