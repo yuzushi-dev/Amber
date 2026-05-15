@@ -7,6 +7,7 @@ Dynamically selects the best SearchMode for a given query.
 
 import logging
 
+from src.core.security.injection_guard import InjectionGuard
 from src.core.generation.application.prompts.query_analysis import QUERY_MODE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
     ProviderFactoryPort,
@@ -165,7 +166,14 @@ class QueryRouter:
                 if llm_cfg.seed is not None:
                     kwargs["seed"] = llm_cfg.seed
 
-                prompt = QUERY_MODE_PROMPT.format(query=query)
+                # Sanitize query to prevent prompt injection
+                safe_query = self._injection_guard.sanitize_input(query)
+                if not self._injection_guard.validate_input(query):
+                    logger.warning(
+                        "Potential injection detected in query routing: tenant=%s query=%s...",
+                        tenant_id, query[:50]
+                    )
+                prompt = QUERY_MODE_PROMPT.format(query=safe_query)
                 mode_res = await provider.generate(prompt, work_class="chat", **kwargs)
                 mode_str = (mode_res.text or "").strip().lower()
 

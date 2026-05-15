@@ -228,6 +228,7 @@ class Settings(BaseSettings):
     app_name: str = Field(default="Amber", description="Application name")
     app_version: str = Field(default="0.0.1-alpha", description="Application version")
     debug: bool = Field(default=False, description="Debug mode")
+    enable_docs: bool = Field(default=False, description="Enable Swagger UI and ReDoc")
     log_level: str = Field(default="INFO", description="Logging level")
 
     # API
