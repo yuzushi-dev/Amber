@@ -219,6 +219,10 @@ services:
       milvus:
         condition: service_started
     logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -349,9 +353,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 128M
+          memory: 256M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     restart: unless-stopped
     networks:
       - graphrag-network
@@ -385,6 +393,10 @@ services:
       retries: 3
       start_period: 90s
     logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     restart: unless-stopped
     networks:
       - graphrag-network

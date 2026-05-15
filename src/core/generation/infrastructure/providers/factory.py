@@ -8,6 +8,7 @@ Factory pattern for provider instantiation with failover support.
 import logging
 from dataclasses import dataclass, field
 
+from src.core.generation.infrastructure.providers.load_balanced import LoadBalancedLLMProvider
 from src.core.admin_ops.application.usage_tracker import UsageTracker
 from src.core.database.session import async_session_maker
 from src.core.generation.domain.ports.provider_factory import (
@@ -435,7 +436,7 @@ class ProviderFactory:
                     inst.default_model = DEFAULT_LLM_MODEL["ollama_cloud"]
                 pool.append(inst)
             self._ollama_cloud_wrapper = (
-                pool[0] if len(pool) == 1 else FailoverLLMProvider(pool)
+                pool[0] if len(pool) == 1 else LoadBalancedLLMProvider(pool)
             )
             return self._ollama_cloud_wrapper
 
