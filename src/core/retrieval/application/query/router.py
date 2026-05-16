@@ -91,6 +91,8 @@ class QueryRouter:
         else:
             self.provider = self.factory.get_llm_provider(model_tier="economy")
 
+        self._injection_guard = InjectionGuard()
+
     async def route(
         self,
         query: str,
@@ -170,8 +172,8 @@ class QueryRouter:
                 safe_query = self._injection_guard.sanitize_input(query)
                 if not self._injection_guard.validate_input(query):
                     logger.warning(
-                        "Potential injection detected in query routing: tenant=%s query=%s...",
-                        tenant_id, query[:50]
+                        "Potential injection detected in query routing: query=%s...",
+                        query[:50]
                     )
                 prompt = QUERY_MODE_PROMPT.format(query=safe_query)
                 mode_res = await provider.generate(prompt, work_class="chat", **kwargs)
