@@ -334,37 +334,37 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # Garage (S3-Compatible Object Storage)
+  # Garage (S3-Compatible Object Storage) — DISABLED: replaced by MinIO
   # ---------------------------------------------------------------------------
-  garage:
-    image: dxflrs/garage:v1.1.0
-    volumes:
-      - ./docker/garage/garage.toml:/etc/garage.toml:ro
-      - graphrag-garage-data:/var/lib/garage/data
-      - graphrag-garage-meta:/var/lib/garage/meta
-    ports:
-      - "3900:3900"  # S3 API
-      - "3903:3903"  # Admin API
-    healthcheck:
-      test: [ "CMD", "/garage", "stats", "-a" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-    logging: *default-logging
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    restart: unless-stopped
-    networks:
-      - graphrag-network
+  # garage:
+  #   image: dxflrs/garage:v1.1.0
+  #   volumes:
+  #     - ./docker/garage/garage.toml:/etc/garage.toml:ro
+  #     - graphrag-garage-data:/var/lib/garage/data
+  #     - graphrag-garage-meta:/var/lib/garage/meta
+  #   ports:
+  #     - "3900:3900"  # S3 API
+  #     - "3903:3903"  # Admin API
+  #   healthcheck:
+  #     test: [ "CMD", "/garage", "stats", "-a" ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 15s
+  #   logging: *default-logging
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 1G
+  #       reservations:
+  #         memory: 256M
+  #   ulimits:
+  #     nofile:
+  #       soft: 65536
+  #       hard: 65536
+  #   restart: unless-stopped
+  #   networks:
+  #     - graphrag-network
 
   # ---------------------------------------------------------------------------
   # Milvus - Vector Database

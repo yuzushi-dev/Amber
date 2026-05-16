@@ -54,6 +54,8 @@ class HyDEService:
         else:
             self.provider = self.factory.get_llm_provider(model_tier="economy")
 
+        self._injection_guard = InjectionGuard()
+
     async def generate_hypothesis(
         self,
         query: str,
