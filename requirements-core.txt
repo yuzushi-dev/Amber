@@ -49,7 +49,6 @@ minio>=7.2.0
 
 # Security
 python-magic>=0.4.27
-prompt-guard>=3.7.1
 
 # Extraction
 pymupdf4llm>=0.0.1
