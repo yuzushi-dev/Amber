@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Link } from '@tanstack/react-router'
 import { apiClient } from '@/lib/api-client'
 import { maintenanceApi } from '@/lib/api-admin'
@@ -14,7 +15,7 @@ import {
     CheckSquare,
     X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import EmptyState from '@/components/ui/EmptyState'
@@ -129,6 +130,14 @@ export default function DocumentLibrary() {
     const filteredDocuments = useFuzzySearch(documents || [], searchQuery, {
         keys: fuseKeys,
         threshold: 0.4,
+    })
+
+    const listRef = useRef<HTMLDivElement>(null)
+    const rowVirtualizer = useVirtualizer({
+        count: filteredDocuments.length,
+        getScrollElement: () => listRef.current,
+        estimateSize: () => 80,
+        overscan: 5,
     })
 
     useEffect(() => {
@@ -416,19 +425,29 @@ export default function DocumentLibrary() {
                             <div className="text-right">Action</div>
                         </div>
 
-                        <ul className="space-y-2">
-                            <AnimatePresence mode='popLayout'>
-                                {filteredDocuments.map((doc, idx) => {
+                        <div
+                            ref={listRef}
+                            className="overflow-auto"
+                            style={{ height: 'calc(100vh - 380px)', minHeight: '400px' }}
+                        >
+                        <ul style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+                                {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                                    const doc = filteredDocuments[virtualItem.index]
                                     const isShareableDocument = (doc.owner_tenant_id ?? doc.tenant_id) === 'default'
 
                                     return (
-                                        <motion.li
+                                        <li
                                             key={doc.id}
-                                            layout
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            exit={{ opacity: 0, scale: 0.95 }}
-                                            transition={{ duration: 0.2, delay: idx * 0.03 }}
+                                            data-index={virtualItem.index}
+                                            ref={rowVirtualizer.measureElement}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                transform: `translateY(${virtualItem.start}px)`,
+                                                paddingBottom: '8px',
+                                            }}
                                             className="group"
                                         >
                                             <div className={cn("grid gap-4 items-center p-4 rounded-lg bg-background/40 backdrop-blur-sm border border-white/5 hover:bg-background/60 hover:border-border/60 hover:shadow-lg transition-[background-color,border-color,box-shadow] duration-300 ease-out", listGridClass)}>
@@ -516,11 +535,11 @@ export default function DocumentLibrary() {
                                                     </Button>
                                                 </div>
                                             </div>
-                                        </motion.li>
+                                        </li>
                                     )
                                 })}
-                            </AnimatePresence>
                         </ul>
+                        </div>
                     </div>
                 )}
             </div>
