@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { graphEditorApi, graphHistoryApi } from '@/lib/api-client';
@@ -22,6 +22,9 @@ import {
 export default function GlobalGraphPage() {
     const queryClient = useQueryClient();
     const [graphData, setGraphData] = useState<{ nodes: GraphNode[], edges: GraphEdge[] }>({ nodes: [], edges: [] });
+    const NODE_CAP = 400;
+    // LRU order: tail = most recently interacted. Maintained parallel to graphData.
+    const interactionOrder = useRef<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
     const [isInputFocused, setIsInputFocused] = useState(false);
@@ -234,10 +237,26 @@ export default function GlobalGraphPage() {
                     !existingEdgeKeys.has(`${e.source}-${e.target}`)
                 );
 
-                return {
-                    nodes: Array.from(nodeMap.values()),
-                    edges: [...prev.edges, ...newEdges]
-                };
+                let nodes = Array.from(nodeMap.values());
+                let edges = [...prev.edges, ...newEdges];
+
+                // Update LRU order: move clicked node + new neighbors to tail (most recent)
+                const pinned = new Set([node.id, ...neighborhood.nodes.map(n => n.id)]);
+                interactionOrder.current = [
+                    ...interactionOrder.current.filter(id => !pinned.has(id)),
+                    ...pinned,
+                ];
+
+                // Evict oldest nodes beyond NODE_CAP
+                if (nodes.length > NODE_CAP) {
+                    const evictCount = nodes.length - NODE_CAP;
+                    const toEvict = new Set(interactionOrder.current.slice(0, evictCount));
+                    interactionOrder.current = interactionOrder.current.slice(evictCount);
+                    nodes = nodes.filter(n => !toEvict.has(n.id));
+                    edges = edges.filter(e => !toEvict.has(e.source) && !toEvict.has(e.target));
+                }
+
+                return { nodes, edges };
             });
             toast.success(`Expanded ${node.label}`);
             setCameraFocusNode(node.id); // Also focus on clicked node
