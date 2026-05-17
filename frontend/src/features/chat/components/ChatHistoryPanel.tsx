@@ -90,7 +90,6 @@ export function ChatHistoryPanel() {
         }
         try {
             await chatApi.delete(item.request_id)
-            setAllConversations(prev => prev.filter(c => c.request_id !== item.request_id))
             queryClient.invalidateQueries({ queryKey: ['chat-history-client'] })
             toast.success('Conversation deleted')
             if (activeId === item.request_id) {
@@ -147,7 +146,7 @@ export function ChatHistoryPanel() {
                     )}
 
                     <ul className="space-y-1 px-2">
-                        {isLoading && offset === 0 ? (
+                        {isLoading && allConversations.length === 0 ? (
                             !collapsed && (
                                 <>
                                     {[1, 2, 3].map((i) => (
@@ -215,7 +214,7 @@ export function ChatHistoryPanel() {
                     </ul>
 
                     {/* Loading indicator for infinite scroll */}
-                    {isFetching && offset > 0 && !collapsed && (
+                    {isFetching && allConversations.length > 0 && !collapsed && (
                         <div className="px-3 py-2">
                             <div className="space-y-2">
                                 <Skeleton className="h-4 w-3/4" />
