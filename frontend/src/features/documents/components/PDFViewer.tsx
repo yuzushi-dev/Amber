@@ -22,13 +22,14 @@ export function PDFViewer({ file }: PDFViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
-  // Reset state when URL changes
+  // Reset state when URL changes; destroy previous pdf.js document proxy
   useEffect(() => {
     console.log('PDFViewer: File changed:', file);
     setNumPages(null);
     setPageNumber(1);
     setIsLoading(true);
     setError(null);
+    pdfDocumentRef.current?.destroy();
     pdfDocumentRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileKey]); // Use fileKey to detect changes

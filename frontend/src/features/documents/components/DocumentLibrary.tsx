@@ -14,7 +14,7 @@ import {
     CheckSquare,
     X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import EmptyState from '@/components/ui/EmptyState'
@@ -125,8 +125,9 @@ export default function DocumentLibrary() {
         enabled: isSuperAdmin,
     })
 
+    const fuseKeys = useMemo(() => ['title', 'filename', 'source_type'] as const, [])
     const filteredDocuments = useFuzzySearch(documents || [], searchQuery, {
-        keys: ['title', 'filename', 'source_type'],
+        keys: fuseKeys,
         threshold: 0.4,
     })
 

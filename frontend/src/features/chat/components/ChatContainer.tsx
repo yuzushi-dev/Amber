@@ -64,7 +64,11 @@ export default function ChatContainer() {
     const { messages, addMessage, clearMessages } = useChatStore()
     const { activeConversationId, setActiveConversationId, reset: resetCitations, setActiveMessageId } = useCitationStore()
     // Load history when request_id changes
-    const { startStream, isStreaming, resetConversation, setConversationId } = useChatStream()
+    const { startStream, stopStream, isStreaming, resetConversation, setConversationId } = useChatStream()
+
+    useEffect(() => {
+        return () => { stopStream() }
+    }, [stopStream])
     const routerState = useRouterState()
     // Type casting for search params
     const searchParams = routerState.location.search as { request_id?: string }

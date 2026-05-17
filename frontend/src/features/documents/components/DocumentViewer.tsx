@@ -6,7 +6,7 @@
  * and all other types (download fallback).
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { FileText, X, Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -66,6 +66,12 @@ export function DocumentViewer({ documentId, filename }: DocumentViewerProps) {
             toast.error('Failed to load document')
         }
     }
+
+    useEffect(() => {
+        return () => {
+            if (blobUrl) URL.revokeObjectURL(blobUrl)
+        }
+    }, [blobUrl])
 
     const handleClose = () => {
         setOpen(false)
