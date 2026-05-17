@@ -47,6 +47,10 @@ export function useInstallProgress(
         setIsInstalling(false);
     }, []);
 
+    useEffect(() => {
+        return () => { stop() }
+    }, [stop]);
+
     const startInstall = useCallback((featureIds: string[]) => {
         if (featureIds.length === 0) return;
 

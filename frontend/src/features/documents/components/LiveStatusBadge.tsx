@@ -112,7 +112,7 @@ export default function LiveStatusBadge({ documentId, initialStatus, errorMessag
                 manager.disconnect()
             }
         }
-    }, [documentId, status, onComplete])
+    }, [documentId, onComplete])
 
     // Render logic
     const s = status.toLowerCase()
