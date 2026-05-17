@@ -126,7 +126,7 @@ export default function DocumentLibrary() {
         enabled: isSuperAdmin,
     })
 
-    const fuseKeys = useMemo(() => ['title', 'filename', 'source_type'] as const, [])
+    const fuseKeys = useMemo(() => ['title', 'filename', 'source_type'], [])
     const filteredDocuments = useFuzzySearch(documents || [], searchQuery, {
         keys: fuseKeys,
         threshold: 0.4,

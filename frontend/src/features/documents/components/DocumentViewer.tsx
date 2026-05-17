@@ -49,7 +49,7 @@ export function DocumentViewer({ documentId, filename }: DocumentViewerProps) {
             })
 
             const blob: Blob = response.data
-            const ct = response.headers['content-type']?.split(';')[0] ?? null
+            const ct = (response.headers['content-type'] as string | undefined)?.split(';')[0] ?? null
             setContentType(ct)
 
             if (isMarkdown(ct, filename) || isText(ct)) {
