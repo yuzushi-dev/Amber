@@ -142,6 +142,7 @@ class RetrievalService:
         redis_url: str = "redis://localhost:6379/0",
         config: RetrievalConfig | None = None,
         tuning_service: TuningService | None = None,
+        sparse_embedding: SparseEmbeddingService | None = None,
     ):
         self.config = config or RetrievalConfig()
 
@@ -175,8 +176,8 @@ class RetrievalService:
             model=default_embedding_model,
         )
 
-        self.sparse_embedding = None
-        if self.config.enable_hybrid:
+        self.sparse_embedding = sparse_embedding
+        if self.config.enable_hybrid and not self.sparse_embedding:
             self.sparse_embedding = SparseEmbeddingService()
 
         # Initialize caches
