@@ -436,7 +436,8 @@ class IngestionService:
                     max_tokens_per_batch=max_tokens,
                 )
 
-                sparse_service = SparseEmbeddingService()
+                from src.amber_platform.composition_root import platform
+                sparse_service = platform.sparse_embedding_service
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
 

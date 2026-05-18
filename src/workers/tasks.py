@@ -344,7 +344,8 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         # Initialize Sparse Service
         sparse_svc = None
         try:
-            sparse_svc = SparseEmbeddingService()
+            from src.amber_platform.composition_root import platform
+            sparse_svc = platform.sparse_embedding_service
         except Exception as e:
             logger.warning(f"Failed to initialize SparseEmbeddingService: {e}")
 

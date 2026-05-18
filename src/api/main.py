@@ -162,10 +162,9 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     try:
-        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
+        from src.amber_platform.composition_root import platform
 
-        service = SparseEmbeddingService()
-        await asyncio.to_thread(service.prewarm)
+        await asyncio.to_thread(platform.sparse_embedding_service.prewarm)
         logger.info("SPLADE model pre-warming complete - API ready")
     except Exception as e:
         logger.warning(f"Failed to prewarm SPLADE model: {e}")
