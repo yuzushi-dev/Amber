@@ -11,7 +11,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 
 from src.core.database import get_session_maker
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
@@ -28,6 +28,13 @@ class ConversationMemoryManager:
     2. Conversation Summaries: Summarized history of past interactions.
     """
 
+    async def _configure_session(self, session, tenant_id: str) -> None:
+        """Apply request-equivalent tenant context for RLS-protected memory tables."""
+        await session.execute(
+            text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+            {"tenant_id": tenant_id},
+        )
+
     async def add_user_fact(
         self,
         tenant_id: str,
@@ -43,6 +50,7 @@ class ConversationMemoryManager:
 
         async with get_session_maker()() as session:
             try:
+                await self._configure_session(session, tenant_id)
                 fact = UserFact(
                     id=fact_id,
                     tenant_id=tenant_id,
@@ -66,6 +74,7 @@ class ConversationMemoryManager:
         Retrieve top user facts, strictly filtered by tenant_id.
         """
         async with get_session_maker()() as session:
+            await self._configure_session(session, tenant_id)
             stmt = (
                 select(UserFact)
                 .where(UserFact.tenant_id == tenant_id)
@@ -90,6 +99,7 @@ class ConversationMemoryManager:
         """
         async with get_session_maker()() as session:
             try:
+                await self._configure_session(session, tenant_id)
                 # Upsert logic could be added here, but for now we assume unique ID or new entry
                 conv_summary = ConversationSummary(
                     id=conversation_id,
@@ -116,6 +126,7 @@ class ConversationMemoryManager:
         Retrieve user's recent conversation history summaries.
         """
         async with get_session_maker()() as session:
+            await self._configure_session(session, tenant_id)
             stmt = (
                 select(ConversationSummary)
                 .where(ConversationSummary.tenant_id == tenant_id)
@@ -132,6 +143,7 @@ class ConversationMemoryManager:
         """
         async with get_session_maker()() as session:
             try:
+                await self._configure_session(session, tenant_id)
                 stmt = select(UserFact).where(
                     UserFact.id == fact_id, UserFact.tenant_id == tenant_id
                 )
@@ -155,6 +167,7 @@ class ConversationMemoryManager:
         """
         async with get_session_maker()() as session:
             try:
+                await self._configure_session(session, tenant_id)
                 stmt = select(ConversationSummary).where(
                     ConversationSummary.id == summary_id, ConversationSummary.tenant_id == tenant_id
                 )

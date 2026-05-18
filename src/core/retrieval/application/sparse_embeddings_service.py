@@ -7,6 +7,7 @@ Uses a Masked Language Model to generate token weights.
 """
 
 import logging
+import threading
 
 try:
     import torch
@@ -27,6 +28,11 @@ class SparseEmbeddingService:
 
     # Lightweight SPLADE model
     DEFAULT_MODEL = "naver/splade-cocondenser-ensembledistil"
+    _shared_lock = threading.Lock()
+    _shared_model_name: str | None = None
+    _shared_device: str | None = None
+    _shared_tokenizer = None
+    _shared_model = None
 
     def __init__(self, model_name: str | None = None):
         self.model_name = model_name or self.DEFAULT_MODEL
@@ -49,26 +55,55 @@ class SparseEmbeddingService:
         if not HAS_DEPS:
             raise ImportError("torch and transformers are required for SparseEmbeddingService")
 
-        logger.info(f"Loading SPLADE model: {self.model_name} on {self._device}")
-        try:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self._model = AutoModelForMaskedLM.from_pretrained(self.model_name)
-            self._model.to(self._device)
-            self._model.eval()
-        except PermissionError as e:
-            logger.error(f"Permission denied while loading SPLADE model: {e}")
-            logger.error(
-                "Common cause: Incorrect ownership of the HuggingFace cache directory. "
-                "Try running: chown -R 1000:1000 ./.cache/huggingface"
-            )
-            # Re-raise with a more helpful message
-            raise PermissionError(
-                f"Failed to load sparse embedding model due to PermissionError: {e}. "
-                f"Check cache directory permissions."
-            ) from e
-        except Exception as e:
-            logger.error(f"Failed to load SPLADE model: {e}")
-            raise
+        cls = type(self)
+        if (
+            cls._shared_model is not None
+            and cls._shared_tokenizer is not None
+            and cls._shared_model_name == self.model_name
+            and cls._shared_device == self._device
+        ):
+            self._tokenizer = cls._shared_tokenizer
+            self._model = cls._shared_model
+            return
+
+        with cls._shared_lock:
+            if (
+                cls._shared_model is not None
+                and cls._shared_tokenizer is not None
+                and cls._shared_model_name == self.model_name
+                and cls._shared_device == self._device
+            ):
+                self._tokenizer = cls._shared_tokenizer
+                self._model = cls._shared_model
+                return
+
+            logger.info(f"Loading SPLADE model: {self.model_name} on {self._device}")
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                model = AutoModelForMaskedLM.from_pretrained(self.model_name)
+                model.to(self._device)
+                model.eval()
+
+                cls._shared_tokenizer = tokenizer
+                cls._shared_model = model
+                cls._shared_model_name = self.model_name
+                cls._shared_device = self._device
+
+                self._tokenizer = tokenizer
+                self._model = model
+            except PermissionError as e:
+                logger.error(f"Permission denied while loading SPLADE model: {e}")
+                logger.error(
+                    "Common cause: Incorrect ownership of the HuggingFace cache directory. "
+                    "Try running: chown -R 1000:1000 ./.cache/huggingface"
+                )
+                raise PermissionError(
+                    f"Failed to load sparse embedding model due to PermissionError: {e}. "
+                    f"Check cache directory permissions."
+                ) from e
+            except Exception as e:
+                logger.error(f"Failed to load SPLADE model: {e}")
+                raise
 
     def prewarm(self) -> bool:
         """
