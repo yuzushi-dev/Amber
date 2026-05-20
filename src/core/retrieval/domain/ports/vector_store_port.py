@@ -40,9 +40,11 @@ class VectorStorePort(Protocol):
         dense_vector: list[float],
         sparse_vector: dict[int, float],
         tenant_id: str,
+        document_ids: list[str] | None = None,
         limit: int = 10,
         filters: dict[str, Any] | None = None,
-        document_ids: list[str] | None = None,
+        rrf_k: int = 60,
+        collection_name: str | None = None,
     ) -> list[SearchResult]:
         """Hybrid search with dense and sparse vectors."""
         ...
