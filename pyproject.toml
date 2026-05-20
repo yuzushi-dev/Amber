@@ -59,6 +59,7 @@ dependencies = [
     # Utilities
     "python-dateutil>=2.8.2",
     "tenacity>=8.2.0",
+    "structlog>=24.1.0",
     
     
     # Storage
