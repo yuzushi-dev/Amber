@@ -137,13 +137,13 @@ class DriftSearchService:
             expansion_results = await asyncio.gather(*expansion_tasks, return_exceptions=True)
 
             # Filter out any exception instances
-            expansion_results: list[Any] = [
+            valid_results: list[Any] = [
                 r for r in expansion_results
                 if not isinstance(r, BaseException)
             ]
 
             new_info_found = False
-            for res in expansion_results:
+            for res in valid_results:
                 for chunk in res.chunks:
                     # Simple deduplication by content or ID
                     if not any(c["chunk_id"] == chunk["chunk_id"] for c in all_candidates):
