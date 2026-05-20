@@ -3,8 +3,8 @@ Tests for ZTD-1822: User-facing GET /chat/history endpoint must return
 conversations scoped to the authenticated user and tenant.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -92,6 +92,7 @@ async def test_history_returns_query_text_and_preview():
 async def test_history_missing_user_id_raises_401():
     """If no user identity can be resolved, the endpoint must reject with 401."""
     from fastapi import HTTPException
+
     from src.api.routes.chat import list_history
 
     mock_request = MagicMock()

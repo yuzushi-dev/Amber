@@ -338,7 +338,9 @@ class PlatformRegistry:
     def sparse_embedding_service(self):
         """Get the managed SparseEmbeddingService (SPLADE)."""
         if not self._sparse_embedding_service:
-            from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
+            from src.core.retrieval.application.sparse_embeddings_service import (
+                SparseEmbeddingService,
+            )
             self._sparse_embedding_service = SparseEmbeddingService()
         return self._sparse_embedding_service
 

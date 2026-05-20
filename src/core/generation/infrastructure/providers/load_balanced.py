@@ -1,6 +1,7 @@
 import logging
 import random
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from src.core.generation.infrastructure.providers.base import (
     BaseLLMProvider,
