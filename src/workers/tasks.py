@@ -165,7 +165,7 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
         # Update document status to FAILED
         try:
-            run_async(_mark_document_failed(document_id, str(e)))
+            run_async(_mark_document_failed(document_id, str(e), tenant_id))
         except Exception as fail_err:
             logger.error(f"Failed to mark document as failed: {fail_err}")
 
@@ -621,7 +621,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
         await engine.dispose()
 
 
-async def _mark_document_failed(document_id: str, error: str):
+async def _mark_document_failed(document_id: str, error: str, tenant_id: str = ""):
     """Mark document as failed in DB."""
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -636,7 +636,7 @@ async def _mark_document_failed(document_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
 
@@ -726,7 +726,7 @@ def run_ragas_benchmark(self, benchmark_run_id: str, tenant_id: str) -> dict:
 
         # Update benchmark status to FAILED
         try:
-            run_async(_mark_benchmark_failed(benchmark_run_id, str(e)))
+            run_async(_mark_benchmark_failed(benchmark_run_id, str(e), tenant_id))
         except Exception as fail_err:
             logger.error(f"Failed to mark benchmark as failed: {fail_err}")
 
@@ -954,7 +954,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
         await engine.dispose()
 
 
-async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
+async def _mark_benchmark_failed(benchmark_run_id: str, error: str, tenant_id: str = ""):
     """Mark benchmark as failed in DB."""
     from datetime import UTC, datetime
 
@@ -972,7 +972,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session)
+            await configure_worker_session(session, tenant_id)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )
