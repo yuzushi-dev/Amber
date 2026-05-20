@@ -125,8 +125,8 @@ def test_config_has_app_database_url():
 
 def _check_worker_file(path: str) -> list[str]:
     """Return list of bare session blocks that don't call configure_worker_session."""
-    import re
     import os
+    import re
     if not os.path.exists(path):
         for candidate in [path.replace("/root/amber2/", ""), path.replace("/root/amber2/", "src/")]:
             if os.path.exists(candidate):
