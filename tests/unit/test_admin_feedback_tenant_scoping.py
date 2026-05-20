@@ -38,8 +38,6 @@ def _make_feedbacks(tenant_ids: list[str]) -> list[tuple]:
 @pytest.mark.asyncio
 async def test_tenant_admin_query_includes_tenant_filter():
     """A regular tenant admin's DB query must include a tenant_id WHERE clause."""
-    from sqlalchemy import String
-    from sqlalchemy.sql.elements import BinaryExpression
 
     from src.api.routes.admin.feedback import get_pending_feedback
 

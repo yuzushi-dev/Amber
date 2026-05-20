@@ -16,7 +16,9 @@ if "/app/.packages" not in sys.path:
 from celery import Task
 from celery.exceptions import MaxRetriesExceededError
 
-from src.core.ingestion.domain.chunk import Chunk as _Chunk  # noqa: F401 — ensures SQLAlchemy mapper resolves Document.chunks at runtime
+from src.core.ingestion.domain.chunk import (
+    Chunk as _Chunk,  # noqa: F401 — ensures SQLAlchemy mapper resolves Document.chunks at runtime
+)
 from src.core.ingestion.domain.document import Document
 from src.core.state.machine import DocumentStatus
 from src.workers.celery_app import celery_app
@@ -27,8 +29,8 @@ logger = logging.getLogger(__name__)
 def _background_warmup():
     """Run heavy model warming in a background thread."""
     try:
-        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         logger.info("Starting background warmup for SparseEmbeddingService (SPLADE)...")
+        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
         service = SparseEmbeddingService()
         if service.prewarm():
             logger.info("SparseEmbeddingService background warmup completed.")
@@ -268,7 +270,6 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
     from src.core.graph.application.communities.leiden import CommunityDetector
     from src.core.graph.application.communities.summarizer import CommunitySummarizer
     from src.core.retrieval.application.embeddings_service import EmbeddingService
-    from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     try:
@@ -635,7 +636,7 @@ async def _mark_document_failed(document_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session, tenant_id)
+            await configure_worker_session(session)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
 
@@ -971,7 +972,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str):
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
-            await configure_worker_session(session, tenant_id)
+            await configure_worker_session(session)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
             )

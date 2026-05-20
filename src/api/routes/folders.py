@@ -10,7 +10,6 @@ from src.api.deps import get_current_tenant_id
 from src.api.deps import get_db_session as get_db_session
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
-from src.core.tenants.domain.tenant import Tenant
 
 router = APIRouter()
 

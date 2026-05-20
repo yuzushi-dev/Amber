@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import magic  # python-magic for server-side MIME detection
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
@@ -151,7 +150,7 @@ class UploadDocumentUseCase:
         try:
             detected_mime = magic.from_buffer(request.content[:4096], mime=True)
             declared_mime = (request.content_type or "").split(";")[0].strip().lower()
-            
+
             if detected_mime not in ALLOWED_MIMES:
                 logger.warning(
                     "MIME validation failed: detected=%s, declared=%s, filename=%s",
