@@ -37,17 +37,13 @@ class MockTiktokenEncoding:
         return "x" * (len(tokens) * 4)
 
 
-class MockTiktoken:
-    """Mock tiktoken module."""
+import types as _types
+import importlib.machinery as _imm
 
-    def get_encoding(self, encoding_name: str):
-        return MockTiktokenEncoding()
-
-    def encoding_for_model(self, model: str):
-        return MockTiktokenEncoding()
-
-
-tiktoken_mock = MockTiktoken()
+tiktoken_mock = _types.ModuleType("tiktoken")
+tiktoken_mock.__spec__ = _imm.ModuleSpec("tiktoken", None)
+tiktoken_mock.get_encoding = lambda encoding_name: MockTiktokenEncoding()
+tiktoken_mock.encoding_for_model = lambda model: MockTiktokenEncoding()
 
 
 # ============================================================================
@@ -87,8 +83,6 @@ for module_name in mock_modules:
 
 # Set up tiktoken with realistic mock
 if "tiktoken" not in sys.modules:
-    import importlib
-    tiktoken_mock.__spec__ = importlib.util.spec_from_loader("tiktoken", loader=None)
     sys.modules["tiktoken"] = tiktoken_mock
 
 
