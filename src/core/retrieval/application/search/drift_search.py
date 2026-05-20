@@ -144,8 +144,6 @@ class DriftSearchService:
 
             new_info_found = False
             for res in expansion_results:
-                if isinstance(res, BaseException):
-                    continue
                 for chunk in res.chunks:
                     # Simple deduplication by content or ID
                     if not any(c["chunk_id"] == chunk["chunk_id"] for c in all_candidates):
