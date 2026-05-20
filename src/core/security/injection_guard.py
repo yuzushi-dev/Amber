@@ -91,13 +91,13 @@ class InjectionGuard:
         wrapping sections with clear markers and XML tags to prevent prompt injection.
         """
         sanitized_query = self.sanitize_input(query)
-        
+
         formatted_chunks = []
         for i, chunk in enumerate(context, 1):
             sanitized_chunk = self.sanitize_input(chunk)
             formatted_chunks.append(f"<chunk_{i}>\n{sanitized_chunk}\n</chunk_{i}>")
         context_str = "\n".join(formatted_chunks)
-        
+
         return (
             "### SYSTEM INSTRUCTIONS ###\n"
             f"{system}\n\n"
