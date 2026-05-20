@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import desc, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_session_maker
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
@@ -28,7 +29,7 @@ class ConversationMemoryManager:
     2. Conversation Summaries: Summarized history of past interactions.
     """
 
-    async def _configure_session(self, session, tenant_id: str) -> None:
+    async def _configure_session(self, session: AsyncSession, tenant_id: str) -> None:
         """Apply request-equivalent tenant context for RLS-protected memory tables."""
         await session.execute(
             text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
