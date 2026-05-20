@@ -4,6 +4,7 @@ Tests for PR-01: Result cache restoration.
 from unittest.mock import AsyncMock
 
 import pytest
+from pathlib import Path
 
 
 class TestResultCacheEnabled:
@@ -12,7 +13,7 @@ class TestResultCacheEnabled:
     def test_retrieval_service_has_result_cache(self):
         """Test that RetrievalService has result_cache attribute."""
         # Check that result_cache is accessed in the code
-        with open('/home/daniele/Amber/src/core/retrieval/application/retrieval_service.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/retrieval/application/retrieval_service.py') as f:
             content = f.read()
 
         assert 'result_cache' in content, "RetrievalService should use result_cache"
@@ -20,7 +21,7 @@ class TestResultCacheEnabled:
 
     def test_cache_bypass_removed(self):
         """Test that FORCE MISS bypass is removed."""
-        with open('/home/daniele/Amber/src/core/retrieval/application/retrieval_service.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/retrieval/application/retrieval_service.py') as f:
             content = f.read()
 
         # The bypass should NOT be present
@@ -31,7 +32,7 @@ class TestResultCacheEnabled:
 
     def test_cache_hit_check_active(self):
         """Test that cache hit check is active (not commented out)."""
-        with open('/home/daniele/Amber/src/core/retrieval/application/retrieval_service.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/retrieval/application/retrieval_service.py') as f:
             content = f.read()
 
         # Check that there's code checking cached_result

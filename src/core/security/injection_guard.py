@@ -108,6 +108,18 @@ class InjectionGuard:
         )
 
     def get_analysis(self, text: str) -> object:
-        if not text or not _PROMPT_GUARD_AVAILABLE or self.guard is None:
+        if not text:
             return None
-        return self.guard.analyze(text)
+        if _PROMPT_GUARD_AVAILABLE and self.guard is not None:
+            return self.guard.analyze(text)
+        # Fallback: use local detector and return a simple result object
+        from src.core.security.injection_detector import InjectionDetector
+        import types as _t
+        detector = InjectionDetector()
+        is_injection = detector.detect(text)
+        result = _t.SimpleNamespace(
+            action="block" if is_injection else "allow",
+            severity="high" if is_injection else "none",
+            reasons=["heuristic_match"] if is_injection else [],
+        )
+        return result

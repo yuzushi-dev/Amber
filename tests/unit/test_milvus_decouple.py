@@ -2,6 +2,7 @@
 Tests for PR-10: Decouple Milvus from Garage storage.
 """
 import pytest
+from pathlib import Path
 import yaml
 
 
@@ -10,7 +11,7 @@ class TestMilvusDecouple:
 
     def test_milvus_no_garage_env_vars(self):
         """Test that Milvus service does not use Garage S3 storage."""
-        with open('/home/daniele/Amber/docker-compose.yml') as f:
+        with open(Path(__file__).resolve().parents[2] / 'docker-compose.yml') as f:
             content = yaml.safe_load(f)
 
         milvus = content.get('services', {}).get('milvus', {})
@@ -37,7 +38,7 @@ class TestMilvusDecouple:
 
     def test_milvus_has_volume_mount(self):
         """Test that Milvus has a volume mount for local storage."""
-        with open('/home/daniele/Amber/docker-compose.yml') as f:
+        with open(Path(__file__).resolve().parents[2] / 'docker-compose.yml') as f:
             content = yaml.safe_load(f)
 
         milvus = content.get('services', {}).get('milvus', {})
@@ -48,7 +49,7 @@ class TestMilvusDecouple:
 
     def test_milvus_not_dependent_on_garage(self):
         """Test that Milvus service does not depend on garage."""
-        with open('/home/daniele/Amber/docker-compose.yml') as f:
+        with open(Path(__file__).resolve().parents[2] / 'docker-compose.yml') as f:
             content = yaml.safe_load(f)
 
         milvus = content.get('services', {}).get('milvus', {})
@@ -65,7 +66,7 @@ class TestMilvusDecouple:
 
     def test_docker_compose_valid_yaml(self):
         """Test that docker-compose.yml is valid YAML."""
-        with open('/home/daniele/Amber/docker-compose.yml') as f:
+        with open(Path(__file__).resolve().parents[2] / 'docker-compose.yml') as f:
             try:
                 yaml.safe_load(f)
             except yaml.YAMLError as e:
