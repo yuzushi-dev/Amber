@@ -5,9 +5,9 @@ Uses prompt_guard library when available; falls back to HTML escaping
 and whitespace normalization if the library is not installed.
 """
 import html
-import types
 import logging
 import re
+import types
 
 logger = logging.getLogger(__name__)
 
