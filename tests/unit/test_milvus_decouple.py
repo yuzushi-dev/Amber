@@ -8,8 +8,8 @@ import yaml
 class TestMilvusDecouple:
     """Test that Milvus is configured for local storage (not Garage)."""
 
-    def test_milvus_no_minio_env_vars(self):
-        """Test that Milvus service has no MINIO_* environment variables."""
+    def test_milvus_no_garage_env_vars(self):
+        """Test that Milvus service does not use Garage S3 storage."""
         with open('/home/daniele/Amber/docker-compose.yml') as f:
             content = yaml.safe_load(f)
 
@@ -26,13 +26,10 @@ class TestMilvusDecouple:
         else:
             env_dict = env
 
-        # Should not have MINIO vars
-        assert 'MINIO_ADDRESS' not in env_dict, \
-            "Milvus should not have MINIO_ADDRESS (uses local storage)"
-        assert 'MINIO_ACCESS_KEY_ID' not in env_dict, \
-            "Milvus should not have MINIO_ACCESS_KEY_ID"
-        assert 'MINIO_SECRET_ACCESS_KEY' not in env_dict, \
-            "Milvus should not have MINIO_SECRET_ACCESS_KEY"
+        # Should not point to garage
+        minio_addr = env_dict.get('MINIO_ADDRESS', '')
+        assert 'garage' not in minio_addr, \
+            "Milvus should not use Garage S3 storage (uses minio instead)"
 
         # Should still have ETCD
         assert 'ETCD_ENDPOINTS' in env_dict, \

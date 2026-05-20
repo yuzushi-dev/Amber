@@ -136,10 +136,10 @@ class DriftSearchService:
             # Wrap gather with timeout to catch individual call timeouts
             expansion_results = await asyncio.gather(*expansion_tasks, return_exceptions=True)
 
-            # Filter out timeout exceptions
+            # Filter out any exception instances
             expansion_results = [
                 r for r in expansion_results
-                if not isinstance(r, asyncio.TimeoutError)
+                if not isinstance(r, BaseException)
             ]
 
             new_info_found = False

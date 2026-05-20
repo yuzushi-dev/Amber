@@ -105,8 +105,8 @@ class TestConversationMemoryManager:
 
             results = await manager.get_user_facts(tenant_id="tenant_1", user_id="user_1", limit=10)
 
-            # Verify execute was called
-            mock_session.execute.assert_called_once()
+            # Verify execute was called (once for RLS context, once for query)
+            assert mock_session.execute.call_count == 2
             assert results == []
 
     @pytest.mark.asyncio
