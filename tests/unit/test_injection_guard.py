@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 Tests for PR-03: InjectionGuard with prompt-guard library.
 """

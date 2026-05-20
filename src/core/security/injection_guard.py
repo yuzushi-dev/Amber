@@ -5,6 +5,7 @@ Uses prompt_guard library when available; falls back to HTML escaping
 and whitespace normalization if the library is not installed.
 """
 import html
+import types
 import logging
 import re
 
@@ -114,10 +115,9 @@ class InjectionGuard:
             return self.guard.analyze(text)
         # Fallback: use local detector and return a simple result object
         from src.core.security.injection_detector import InjectionDetector
-        import types as _t
         detector = InjectionDetector()
         is_injection = detector.detect(text)
-        result = _t.SimpleNamespace(
+        result = types.SimpleNamespace(
             action="block" if is_injection else "allow",
             severity="high" if is_injection else "none",
             reasons=["heuristic_match"] if is_injection else [],
