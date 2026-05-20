@@ -9,7 +9,6 @@ import logging
 
 import numpy as np
 
-from src.core.security.injection_guard import InjectionGuard
 from src.core.generation.application.prompts.query_analysis import HYDE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
     ProviderFactoryPort,
@@ -18,6 +17,7 @@ from src.core.generation.domain.ports.provider_factory import (
 )
 from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
+from src.core.security.injection_guard import InjectionGuard
 
 logger = logging.getLogger(__name__)
 

@@ -106,7 +106,7 @@ async def list_chat_history(
         is_super = getattr(request.state, "is_super_admin", False)
         if not is_super:
             tenant_id = str(getattr(request.state, "tenant_id", ""))
-            
+
         # Build query for conversation summaries
         query = select(ConversationSummary)
 
@@ -244,7 +244,7 @@ async def get_conversation_detail(
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
     if not is_super:
         query = query.where(ConversationSummary.tenant_id == request_tenant)
-        
+
     result = await session.execute(query)
     conv = result.scalar_one_or_none()
 
@@ -254,7 +254,7 @@ async def get_conversation_detail(
     # Check if conversation has feedback
     feedback_query = select(Feedback).where(Feedback.request_id == request_id).limit(1)
     feedback_result = await session.execute(feedback_query)
-    has_feedback = feedback_result.scalar_one_or_none() is not None
+    _ = feedback_result.scalar_one_or_none()
 
     # Extract details
     metadata = conv.metadata_ or {}
@@ -309,6 +309,7 @@ async def get_conversation_detail(
 @router.delete("/history/{request_id}", status_code=204)
 async def delete_conversation(
     request_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -324,7 +325,7 @@ async def delete_conversation(
     query = select(ConversationSummary).where(ConversationSummary.id == request_id)
     if not is_super:
         query = query.where(ConversationSummary.tenant_id == request_tenant)
-        
+
     result = await session.execute(query)
     conv = result.scalar_one_or_none()
 
