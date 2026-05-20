@@ -1,5 +1,7 @@
+import importlib.machinery as _imm
 import os
 import sys
+import types as _types
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,9 +38,6 @@ class MockTiktokenEncoding:
         # Return placeholder text of approximate length
         return "x" * (len(tokens) * 4)
 
-
-import types as _types
-import importlib.machinery as _imm
 
 tiktoken_mock = _types.ModuleType("tiktoken")
 tiktoken_mock.__spec__ = _imm.ModuleSpec("tiktoken", None)
