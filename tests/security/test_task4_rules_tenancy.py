@@ -41,13 +41,15 @@ async def test_rules_service_cache_is_per_tenant():
     RulesService._cache_initialized = set()
 
     # Build a session that returns tenant-specific rows based on call order
+    result_default = MagicMock()
+    result_default.all.return_value = []
     result_a = MagicMock()
     result_a.all.return_value = [("rule-A",)]
     result_b = MagicMock()
     result_b.all.return_value = [("rule-B",)]
 
     session = AsyncMock()
-    session.execute = AsyncMock(side_effect=[result_a, result_b])
+    session.execute = AsyncMock(side_effect=[result_default, result_a, result_default, result_b])
 
     class _FakeCtx:
         async def __aenter__(self): return session
@@ -64,8 +66,14 @@ async def test_rules_service_cache_is_per_tenant():
     assert "rule-A" in rules_a
     assert "rule-B" in rules_b
 
-    # Verify the two DB calls carried different tenant predicates
-    assert session.execute.call_count == 2
+    # Verify the four DB calls carried the correct tenant predicates
+    calls = session.execute.call_args_list
+    assert len(calls) == 4
+    params = [c.args[0].compile().params for c in calls]
+    assert any(v == "default" for v in params[0].values())
+    assert any(v == "tenant-a" for v in params[1].values())
+    assert any(v == "default" for v in params[2].values())
+    assert any(v == "tenant-b" for v in params[3].values())
 
 
 def test_rules_service_invalidate_accepts_tenant_id():
