@@ -7,13 +7,12 @@ and whitespace normalization if the library is not installed.
 import html
 import logging
 import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 try:
-    from prompt_guard import PromptGuard as _PromptGuard
     from prompt_guard import Action as _Action
+    from prompt_guard import PromptGuard as _PromptGuard
     _BLOCKING_ACTIONS = {_Action.BLOCK, _Action.BLOCK_NOTIFY}
     _PROMPT_GUARD_AVAILABLE = True
 except ImportError:
@@ -31,10 +30,10 @@ class InjectionGuard:
     """
 
     def __init__(self):
-        self._guard: Optional[object] = None
+        self._guard: object | None = None
 
     @property
-    def guard(self) -> Optional[object]:
+    def guard(self) -> object | None:
         if not _PROMPT_GUARD_AVAILABLE:
             return None
         if self._guard is None:

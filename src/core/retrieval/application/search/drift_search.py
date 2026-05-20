@@ -76,7 +76,7 @@ class DriftSearchService:
 
         deadline = asyncio.get_event_loop().time() + self.timeout_seconds
         original_query = query  # Save for logging
-        
+
         for iteration in range(self.max_iterations):
             # Check if we've exceeded our deadline
             current_time = asyncio.get_event_loop().time()
@@ -86,7 +86,7 @@ class DriftSearchService:
                     iteration, self.timeout_seconds, original_query
                 )
                 break
-            
+
             # Generate follow-up questions to fill gaps
             follow_up_prompt = f"""
             Based on the query and current context, identify {self.max_follow_ups} specific questions
@@ -124,7 +124,7 @@ class DriftSearchService:
                     "DRIFT iteration %d: deadline reached before expansion", iteration
                 )
                 break
-            
+
             expansion_tasks = [
                 asyncio.wait_for(
                     self.retrieval_service.retrieve(query=q, tenant_id=tenant_id, top_k=3),
@@ -132,13 +132,13 @@ class DriftSearchService:
                 )
                 for q in questions
             ]
-            
+
             # Wrap gather with timeout to catch individual call timeouts
             expansion_results = await asyncio.gather(*expansion_tasks, return_exceptions=True)
-            
+
             # Filter out timeout exceptions
             expansion_results = [
-                r for r in expansion_results 
+                r for r in expansion_results
                 if not isinstance(r, asyncio.TimeoutError)
             ]
 

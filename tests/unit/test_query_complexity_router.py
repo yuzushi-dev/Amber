@@ -9,7 +9,6 @@ Each test passes explicit context signals (candidates, context_tokens) so
 the scoring is deterministic and independent of real retrieval.
 """
 
-import pytest
 
 from src.core.generation.application.intelligence.query_complexity import (
     QueryComplexityRouter,
@@ -267,7 +266,6 @@ def test_multi_task_query_escalates_tier():
 
 def test_multi_task_detected_in_signals():
     """has_multi_task is True when 3+ comma-separated sub-tasks are present."""
-    from src.core.generation.application.intelligence.query_complexity import ComplexitySignals
 
     candidates = _make_candidates(num_docs=1, num_chunks=3)
     tier, signals = router.classify_with_signals(
@@ -280,7 +278,6 @@ def test_multi_task_detected_in_signals():
 
 def test_single_task_no_multi_task_signal():
     """A straightforward single-task query must NOT trigger has_multi_task."""
-    from src.core.generation.application.intelligence.query_complexity import ComplexitySignals
 
     candidates = _make_candidates(num_docs=1, num_chunks=3)
     _, signals = router.classify_with_signals(

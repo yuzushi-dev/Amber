@@ -2,7 +2,6 @@
 Unit tests for UsageMetricsService — no DB required.
 """
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,7 +14,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_aggregate_all_tenants(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         row_a = MagicMock(tenant_id="tenant-a", tenant_name="Tenant A",
@@ -39,7 +39,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_filter_by_tenant_id(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
@@ -54,7 +55,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_filter_by_date_range(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
@@ -71,7 +73,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_filter_by_operation(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
@@ -86,7 +89,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_empty_result_returns_zero_totals(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
@@ -103,7 +107,8 @@ class TestUsageMetricsService:
     @pytest.mark.asyncio
     async def test_totals_computed_from_rows(self):
         from src.core.admin_ops.application.usage_metrics_service import (
-            UsageMetricsFilter, UsageMetricsService,
+            UsageMetricsFilter,
+            UsageMetricsService,
         )
         mock_session = AsyncMock(spec=AsyncSession)
         rows = [

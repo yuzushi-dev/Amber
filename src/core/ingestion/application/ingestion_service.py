@@ -395,10 +395,6 @@ class IngestionService:
                     get_provider_factory,
                 )
                 from src.core.retrieval.application.embeddings_service import EmbeddingService
-                from src.core.retrieval.application.sparse_embeddings_service import (
-                    SparseEmbeddingService,
-                )
-
                 tenant_obj = await self.tenant_repository.get(document.tenant_id)
                 t_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
 

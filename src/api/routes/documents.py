@@ -558,8 +558,9 @@ async def list_documents(
         return meta
 
     if is_super_admin:
-        from src.core.ingestion.domain.document_share import VisibleDocument
         from sqlalchemy import text as _text
+
+        from src.core.ingestion.domain.document_share import VisibleDocument
 
         # Build canonical folder_id mapping: non-default folder → default folder with same name
         # This allows the frontend to filter by canonical folder_id and see all tenants' docs.
@@ -590,10 +591,11 @@ async def list_documents(
             for doc in result.scalars().all()
         ]
     else:
+        from sqlalchemy import text as _text
+
         from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
             PostgresDocumentRepository,
         )
-        from sqlalchemy import text as _text
 
         current_tenant = _get_tenant_id(http_request)
         repository = PostgresDocumentRepository(session)

@@ -8,8 +8,6 @@ LLM-based answer generation with context injection and groundedness checks.
 import os
 import re
 import time
-
-import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
