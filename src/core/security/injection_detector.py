@@ -18,6 +18,12 @@ class InjectionDetector:
         r"output\s+source\s+code",
         r"endoftext",
         r"<\|endoftext\|>",
+        r"you\s+are\s+now\s+\w+",
+        r"disregard\s+(the\s+)?system\s+prompt",
+        r"#!\s*/bin/(bash|sh)",
+        r"act\s+as\s+(if\s+you\s+are|a|an)\s+",
+        r"new\s+persona",
+        r"jailbreak",
     ]
 
     def __init__(self):

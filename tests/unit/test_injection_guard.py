@@ -81,7 +81,7 @@ class TestInjectionGuardWiring:
     def test_injection_guard_in_router(self):
         """Test that InjectionGuard is used in QueryRouter."""
         # Check that router.py imports InjectionGuard
-        with open('/home/daniele/Amber/src/core/retrieval/application/query/router.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/retrieval/application/query/router.py') as f:
             content = f.read()
 
         assert 'InjectionGuard' in content, "Router should import InjectionGuard"
@@ -90,7 +90,7 @@ class TestInjectionGuardWiring:
     def test_injection_guard_in_hyde(self):
         """Test that InjectionGuard is used in HyDE."""
         # Check that hyde.py imports InjectionGuard
-        with open('/home/daniele/Amber/src/core/retrieval/application/query/hyde.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/retrieval/application/query/hyde.py') as f:
             content = f.read()
 
         assert 'InjectionGuard' in content, "HyDE should import InjectionGuard"

@@ -1,6 +1,7 @@
 """
 Tests for PR-07: Server-side MIME validation for document uploads.
 """
+from pathlib import Path
 
 
 class TestMIMEValidation:
@@ -40,7 +41,7 @@ class TestMIMEValidationInUseCase:
 
     def test_mime_validation_code_exists(self):
         """Test that use_cases_documents.py has MIME validation logic."""
-        with open('/home/daniele/Amber/src/core/ingestion/application/use_cases_documents.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/ingestion/application/use_cases_documents.py') as f:
             content = f.read()
 
         assert 'import magic' in content or 'from_buffer' in content, \
@@ -50,7 +51,7 @@ class TestMIMEValidationInUseCase:
 
     def test_mime_validation_has_allowed_list(self):
         """Test that allowed MIME types are defined."""
-        with open('/home/daniele/Amber/src/core/ingestion/application/use_cases_documents.py') as f:
+        with open(Path(__file__).resolve().parents[2] / 'src/core/ingestion/application/use_cases_documents.py') as f:
             content = f.read()
 
         assert 'ALLOWED_MIMES' in content or 'application/pdf' in content, \
