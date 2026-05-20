@@ -87,6 +87,8 @@ for module_name in mock_modules:
 
 # Set up tiktoken with realistic mock
 if "tiktoken" not in sys.modules:
+    import importlib
+    tiktoken_mock.__spec__ = importlib.util.spec_from_loader("tiktoken", loader=None)
     sys.modules["tiktoken"] = tiktoken_mock
 
 
