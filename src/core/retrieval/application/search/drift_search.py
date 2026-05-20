@@ -137,7 +137,7 @@ class DriftSearchService:
             expansion_results = await asyncio.gather(*expansion_tasks, return_exceptions=True)
 
             # Filter out any exception instances
-            expansion_results = [
+            expansion_results: list[Any] = [
                 r for r in expansion_results
                 if not isinstance(r, BaseException)
             ]
