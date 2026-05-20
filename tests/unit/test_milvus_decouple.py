@@ -1,8 +1,9 @@
 """
 Tests for PR-10: Decouple Milvus from Garage storage.
 """
-import pytest
 from pathlib import Path
+
+import pytest
 import yaml
 
 

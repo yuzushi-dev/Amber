@@ -1,10 +1,10 @@
 """
 Tests for PR-01: Result cache restoration.
 """
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from pathlib import Path
 
 
 class TestResultCacheEnabled:
