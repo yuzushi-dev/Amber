@@ -57,7 +57,8 @@ export default function CitationExplorer() {
             if (selectedRawCitation) {
                 const targetCitation = activeCitations.find(c => c.value === selectedRawCitation.value)
                 if (targetCitation) {
-                    setTimeout(() => scrollToCard(targetCitation.id), 100)
+                    const timer = setTimeout(() => scrollToCard(targetCitation.id), 100)
+                    return () => clearTimeout(timer)
                 }
             }
         }

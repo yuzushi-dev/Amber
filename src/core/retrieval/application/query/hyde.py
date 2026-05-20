@@ -17,6 +17,7 @@ from src.core.generation.domain.ports.provider_factory import (
 )
 from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
+from src.core.security.injection_guard import InjectionGuard
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,8 @@ class HyDEService:
         else:
             self.provider = self.factory.get_llm_provider(model_tier="economy")
 
+        self._injection_guard = InjectionGuard()
+
     async def generate_hypothesis(
         self,
         query: str,
@@ -62,7 +65,9 @@ class HyDEService:
         """
         Generate N hypothetical document segments for a query.
         """
-        prompt = HYDE_PROMPT.format(query=query)
+        # Sanitize query to prevent prompt injection
+        safe_query = self._injection_guard.sanitize_input(query)
+        prompt = HYDE_PROMPT.format(query=safe_query)
 
         try:
             from src.core.generation.application.llm_steps import resolve_llm_step_config

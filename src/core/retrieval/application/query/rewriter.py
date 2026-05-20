@@ -43,6 +43,8 @@ class QueryRewriter:
                     openai_api_key=openai_api_key,
                     anthropic_api_key=anthropic_api_key,
                     ollama_base_url=settings.ollama_base_url,
+                    ollama_cloud_base_url=getattr(settings, "ollama_cloud_base_url", None),
+                    ollama_cloud_api_keys=getattr(settings, "ollama_cloud_api_keys", None),
                 )
             else:
                 self.factory = get_provider_factory()
@@ -115,6 +117,8 @@ class QueryRewriter:
                     openai_api_key=settings.openai_api_key,
                     anthropic_api_key=settings.anthropic_api_key,
                     ollama_base_url=res_ollama_url,
+                    ollama_cloud_base_url=getattr(settings, "ollama_cloud_base_url", None),
+                    ollama_cloud_api_keys=getattr(settings, "ollama_cloud_api_keys", None),
                 )
 
             llm_cfg = resolve_llm_step_config(

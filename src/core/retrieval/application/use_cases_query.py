@@ -186,6 +186,8 @@ class QueryUseCase:
                 query_metrics.retrieval_latency_ms = retrieval_ms
                 query_metrics.chunks_retrieved = len(retrieval_result.chunks)
                 query_metrics.cache_hit = retrieval_result.cache_hit
+                query_metrics.search_mode = retrieval_result.search_mode
+                query_metrics.router_latency_ms = retrieval_result.router_latency_ms
 
                 share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
                 query_metrics.local_hits = share_metrics["local_hits"]

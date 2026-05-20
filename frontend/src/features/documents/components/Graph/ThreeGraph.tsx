@@ -3,6 +3,22 @@ import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import { GraphEdge, GraphNode } from '@/types/graph';
 
+function disposeNodeObject(obj: THREE.Object3D) {
+    obj.traverse((child) => {
+        const mesh = child as THREE.Mesh | THREE.Sprite;
+        if ((mesh as THREE.Mesh).geometry) (mesh as THREE.Mesh).geometry.dispose();
+        const mat = mesh.material;
+        if (mat) {
+            const mats = Array.isArray(mat) ? mat : [mat];
+            mats.forEach((m: THREE.Material) => {
+                // CanvasTexture must be disposed explicitly — material.dispose() alone does not free GPU memory
+                (m as THREE.SpriteMaterial).map?.dispose();
+                m.dispose();
+            });
+        }
+    });
+}
+
 interface ThreeGraphProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
@@ -53,6 +69,29 @@ export default function ThreeGraph({
         ) => void
     } | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+
+    // Cache of allocated Three.js groups keyed by node id — enables disposal of stale objects
+    const nodeObjectCache = useRef<Map<string, THREE.Group>>(new Map());
+
+    // Dispose all cached objects on unmount
+    useEffect(() => {
+        const cache = nodeObjectCache.current;
+        return () => {
+            cache.forEach(disposeNodeObject);
+            cache.clear();
+        };
+    }, []);
+
+    // Prune cache entries for nodes no longer in the graph
+    useEffect(() => {
+        const liveIds = new Set(nodes.map(n => n.id));
+        nodeObjectCache.current.forEach((obj, id) => {
+            if (!liveIds.has(id)) {
+                disposeNodeObject(obj);
+                nodeObjectCache.current.delete(id);
+            }
+        });
+    }, [nodes]);
 
     const buildTheme = () => {
         const fallbackDark = 'hsl(0 0% 0%)';
@@ -235,6 +274,10 @@ export default function ThreeGraph({
 
     // Custom node rendering with premium glass-like glow effect
     const nodeThreeObject = useCallback((node: ForceGraphNode) => {
+        // Dispose previous object for this node before allocating new one
+        const cached = nodeObjectCache.current.get(node.id);
+        if (cached) disposeNodeObject(cached);
+
         const group = new THREE.Group();
         const baseSize = node.val || 4;
 
@@ -324,6 +367,7 @@ export default function ThreeGraph({
 
         group.add(sprite);
 
+        nodeObjectCache.current.set(node.id, group);
         return group;
     }, [theme.background, theme.foreground]);
 

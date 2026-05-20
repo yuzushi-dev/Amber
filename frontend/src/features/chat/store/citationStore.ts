@@ -50,6 +50,11 @@ export const useCitationStore = create<CitationState>()(
                 set((state) => {
                     const next = new Map(state.citations);
                     next.set(messageId, newCitations);
+                    // Evict oldest entries beyond 200 to prevent unbounded growth
+                    if (next.size > 200) {
+                        const oldest = next.keys().next().value
+                        if (oldest !== undefined) next.delete(oldest)
+                    }
                     return { citations: next };
                 }),
 

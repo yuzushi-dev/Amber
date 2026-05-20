@@ -245,3 +245,6 @@ docker-compose.yml.bak.*
 # Documentation
 documentation_html/
 archive/
+
+# Production API keys backup
+api_keys_backup.sql

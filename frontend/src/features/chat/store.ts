@@ -50,10 +50,15 @@ interface ChatState {
     triggerHistoryUpdate: () => void
 }
 
+const MESSAGE_CAP = 200
+
 export const useChatStore = create<ChatState>((set) => ({
     messages: [],
     isStreaming: false,
-    addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
+    addMessage: (message) => set((state) => {
+        const next = [...state.messages, message]
+        return { messages: next.length > MESSAGE_CAP ? next.slice(-MESSAGE_CAP) : next }
+    }),
     updateLastMessage: (update) => set((state) => {
         const lastMessage = state.messages[state.messages.length - 1]
         if (!lastMessage || lastMessage.role !== 'assistant') return state

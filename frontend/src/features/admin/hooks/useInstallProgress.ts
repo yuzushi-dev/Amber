@@ -6,7 +6,7 @@
  * Used by OptionalFeaturesManager and SetupWizard.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export interface InstallProgress {
     featureId: string;
@@ -46,6 +46,10 @@ export function useInstallProgress(
         }
         setIsInstalling(false);
     }, []);
+
+    useEffect(() => {
+        return () => { stop() }
+    }, [stop]);
 
     const startInstall = useCallback((featureIds: string[]) => {
         if (featureIds.length === 0) return;

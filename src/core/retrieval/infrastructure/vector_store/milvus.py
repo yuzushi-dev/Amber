@@ -262,14 +262,13 @@ class MilvusVectorStore:
 
     async def close(self) -> None:
         """
-        Release collection from memory.
-        Does NOT disconnect the global Milvus connection as it is shared.
+        Drop only local wrapper state.
+
+        Do NOT release the collection from Milvus here: the underlying
+        collection object is shared across requests and background jobs, and
+        releasing it here can unload a collection globally for the process.
         """
         if self._collection:
-            try:
-                self._collection.release()
-            except Exception as e:
-                logger.warning(f"Failed to release collection: {e}")
             self._collection = None
 
         self._connected = False
@@ -686,16 +685,22 @@ class MilvusVectorStore:
         """
         await self.connect()
         milvus = _get_milvus()
+        collection = self._collection
 
         # Handle collection_name - use specific collection if provided
         if collection_name and collection_name != self.config.collection_name:
             collection_name = collection_name.replace("-", "_")
             try:
                 if milvus["utility"].has_collection(collection_name):
-                    self._collection = milvus["Collection"](collection_name)
+                    collection = milvus["Collection"](collection_name)
+                    collection.load()
                     logger.info(f"Using collection for hybrid search: {collection_name}")
             except Exception as e:
                 logger.warning(f"Failed to use collection {collection_name}: {e}, using default")
+                collection = self._collection
+
+        if collection is None:
+            raise RuntimeError("Milvus collection is not initialized")
 
         # Check if hybrid search components are available
         if not milvus.get("AnnSearchRequest") or not milvus.get("RRFRanker"):
@@ -736,7 +741,7 @@ class MilvusVectorStore:
         # Sparse
         # Check if sparse vector is valid and collection has the field
         has_sparse_field = next(
-            (f for f in self._collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None
+            (f for f in collection.schema.fields if f.name == self.FIELD_SPARSE_VECTOR), None
         )
 
         if not sparse_vector or not has_sparse_field:
@@ -768,7 +773,7 @@ class MilvusVectorStore:
                 self.FIELD_CONTENT,
             ]
 
-            results = self._collection.hybrid_search(
+            results = collection.hybrid_search(
                 reqs=[dense_req, sparse_req],
                 rerank=ranker,
                 limit=limit,

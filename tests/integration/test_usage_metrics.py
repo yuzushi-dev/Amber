@@ -33,7 +33,8 @@ def make_usage_log(tenant_id, provider="ollama", model="gemma3:27b",
 @pytest.mark.asyncio
 async def test_aggregate_two_tenants(db_session: AsyncSession):
     from src.core.admin_ops.application.usage_metrics_service import (
-        UsageMetricsFilter, UsageMetricsService,
+        UsageMetricsFilter,
+        UsageMetricsService,
     )
     tid_a = f"test_um_a_{uuid.uuid4().hex[:8]}"
     tid_b = f"test_um_b_{uuid.uuid4().hex[:8]}"
@@ -61,7 +62,8 @@ async def test_aggregate_two_tenants(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_date_filter(db_session: AsyncSession):
     from src.core.admin_ops.application.usage_metrics_service import (
-        UsageMetricsFilter, UsageMetricsService,
+        UsageMetricsFilter,
+        UsageMetricsService,
     )
     tid = f"test_um_date_{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
@@ -88,7 +90,8 @@ async def test_date_filter(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_operation_filter(db_session: AsyncSession):
     from src.core.admin_ops.application.usage_metrics_service import (
-        UsageMetricsFilter, UsageMetricsService,
+        UsageMetricsFilter,
+        UsageMetricsService,
     )
     tid = f"test_um_op_{uuid.uuid4().hex[:8]}"
 

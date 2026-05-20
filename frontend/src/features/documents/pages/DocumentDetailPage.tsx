@@ -109,6 +109,8 @@ export default function DocumentDetailPage() {
         return <div className="p-8 text-center">Document not found</div>;
     }
 
+    const docId = documentId!;
+
     const canManageShares =
         permissions.includes('super_admin') || (tenantId === 'default' && permissions.includes('admin'));
     const isDefaultOwnedDocument = (document.owner_tenant_id ?? document.tenant_id) === 'default';
@@ -124,11 +126,11 @@ export default function DocumentDetailPage() {
 
     const renderModalContent = () => {
         switch (activeModal) {
-            case 'chunks': return <ChunksTab documentId={documentId} />;
-            case 'entities': return <EntitiesTab documentId={documentId} />;
-            case 'relationships': return <RelationshipsTab documentId={documentId} />;
-            case 'communities': return <CommunitiesTab documentId={documentId} />;
-            case 'similarities': return <SimilaritiesTab documentId={documentId} />;
+            case 'chunks': return <ChunksTab documentId={docId} />;
+            case 'entities': return <EntitiesTab documentId={docId} />;
+            case 'relationships': return <RelationshipsTab documentId={docId} />;
+            case 'communities': return <CommunitiesTab documentId={docId} />;
+            case 'similarities': return <SimilaritiesTab documentId={docId} />;
             default: return null;
         }
     };
@@ -156,15 +158,15 @@ export default function DocumentDetailPage() {
                                 {document.title || document.filename}
                             </h1>
                             <LiveStatusBadge
-                                documentId={documentId}
+                                documentId={docId}
                                 initialStatus={document.status}
                                 onComplete={() => {
-                                    queryClient.invalidateQueries({ queryKey: ['document', documentId] });
+                                    queryClient.invalidateQueries({ queryKey: ['document', docId] });
                                     queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
                                 }}
                             />
                         </div>
-                        <p className="text-xs text-muted-foreground font-mono mt-0.5">{documentId}</p>
+                        <p className="text-xs text-muted-foreground font-mono mt-0.5">{docId}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
@@ -181,7 +183,7 @@ export default function DocumentDetailPage() {
                         </Button>
                     )}
                     <DocumentViewer
-                        documentId={documentId}
+                        documentId={docId}
                         filename={document.title || document.filename}
                     />
                     {canManageShares && isDefaultOwnedDocument && (
@@ -272,7 +274,7 @@ export default function DocumentDetailPage() {
                     </h2>
                     <div className="border rounded-xl h-[500px] bg-card overflow-hidden">
                         {/* Reuse RelationshipsTab as the 'Graph' view for now, or a dedicated Graph component if available */}
-                        <RelationshipsTab documentId={documentId} />
+                        <RelationshipsTab documentId={docId} />
                     </div>
                 </div>
 
@@ -307,7 +309,7 @@ export default function DocumentDetailPage() {
                 onOpenChange={setDeleteConfirmOpen}
                 documentTitle={document.title || document.filename}
                 onConfirm={async () => {
-                    await apiClient.delete(`/documents/${documentId}`);
+                    await apiClient.delete(`/documents/${docId}`);
                     // Invalidate queries to refresh lists
                     await queryClient.invalidateQueries({ queryKey: ['documents'] });
                     await queryClient.invalidateQueries({ queryKey: ['maintenance-stats'] });
@@ -320,7 +322,7 @@ export default function DocumentDetailPage() {
             <DocumentShareDialog
                 open={shareDialogOpen}
                 onOpenChange={setShareDialogOpen}
-                documentId={documentId}
+                documentId={docId}
                 documentTitle={document.title || document.filename}
                 onSaved={() => {
                     queryClient.invalidateQueries({ queryKey: ['document', documentId] });

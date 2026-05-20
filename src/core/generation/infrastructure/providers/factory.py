@@ -8,7 +8,6 @@ Factory pattern for provider instantiation with failover support.
 import logging
 from dataclasses import dataclass, field
 
-from src.core.generation.infrastructure.providers.load_balanced import LoadBalancedLLMProvider
 from src.core.admin_ops.application.usage_tracker import UsageTracker
 from src.core.database.session import async_session_maker
 from src.core.generation.domain.ports.provider_factory import (
@@ -27,6 +26,7 @@ from src.core.generation.infrastructure.providers.failover import (
     FailoverEmbeddingProvider,
     FailoverLLMProvider,
 )
+from src.core.generation.infrastructure.providers.load_balanced import LoadBalancedLLMProvider
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_FALLBACK,
     DEFAULT_LLM_FALLBACKS,

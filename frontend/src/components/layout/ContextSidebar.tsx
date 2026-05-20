@@ -190,7 +190,8 @@ export default function ContextSidebar() {
                 setRecentConversations(prev => {
                     const existingIds = new Set(prev.map(c => c.request_id))
                     const uniqueNewItems = data.conversations.filter(c => !existingIds.has(c.request_id))
-                    return [...prev, ...uniqueNewItems]
+                    const next = [...prev, ...uniqueNewItems]
+                    return next.length > 200 ? next.slice(0, 200) : next
                 })
 
                 setHasMore(data.conversations.length >= CONVERSATIONS_PER_PAGE)

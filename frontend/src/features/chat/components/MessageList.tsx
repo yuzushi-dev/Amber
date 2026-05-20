@@ -1,4 +1,5 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Message } from '../store'
 import MessageItem from './MessageItem'
 
@@ -9,34 +10,34 @@ interface MessageListProps {
 
 export default function MessageList({ messages, isStreaming }: MessageListProps) {
     const scrollRef = useRef<HTMLDivElement>(null)
-    const bottomRef = useRef<HTMLDivElement>(null)
     const rafRef = useRef<number | null>(null)
 
-    // RAF-throttled scroll to keep latest content in view
-    useEffect(() => {
-        // Skip scheduling if a frame is already pending
-        if (rafRef.current !== null) return
+    const rowVirtualizer = useVirtualizer({
+        count: messages.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => 120,
+        overscan: 5,
+        measureElement: (el) => el.getBoundingClientRect().height,
+    })
 
+    const scrollToBottom = useCallback(() => {
+        if (messages.length === 0) return
+        if (rafRef.current !== null) return
         rafRef.current = requestAnimationFrame(() => {
             rafRef.current = null
-            if (scrollRef.current) {
-                scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-            } else {
-                bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' })
-            }
+            rowVirtualizer.scrollToIndex(messages.length - 1, { align: 'end', behavior: isStreaming ? 'auto' : 'smooth' })
         })
-    }, [messages, isStreaming])
+    }, [messages.length, isStreaming, rowVirtualizer])
 
-    // Cleanup RAF on unmount
+    useEffect(() => { scrollToBottom() }, [scrollToBottom])
+
     useEffect(() => {
-        return () => {
-            if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-        }
+        return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current) }
     }, [])
 
-    return (
-        <div ref={scrollRef} className="flex-1 overflow-y-auto w-full">
-            {messages.length === 0 ? (
+    if (messages.length === 0) {
+        return (
+            <div className="flex-1 overflow-y-auto w-full">
                 <div className="h-full flex flex-col items-center justify-center p-8">
                     <div className="max-w-md w-full text-center space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         {/* Hero Icon */}
@@ -50,8 +51,6 @@ export default function MessageList({ messages, isStreaming }: MessageListProps)
                                 </svg>
                             </div>
                         </div>
-
-                        {/* Hero Text */}
                         <div className="space-y-4">
                             <h2 className="text-3xl font-display font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/60 bg-clip-text text-transparent">
                                 Hi, I'm Amber
@@ -60,35 +59,53 @@ export default function MessageList({ messages, isStreaming }: MessageListProps)
                                 Your advanced documents intelligence assistant. Ask me anything about your data.
                             </p>
                         </div>
-
-                        {/* Warning/Disclaimer Badge */}
                         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/5 border border-white/5 text-xs text-muted-foreground/60">
                             <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />
                             AI can make mistakes. Please verify important information.
                         </div>
                     </div>
                 </div>
-            ) : (
-                messages.map((msg, index) => {
-                    // Find preceding user query for assistant responses
-                    let queryContent: string | undefined;
-                    if (msg.role === 'assistant' && index > 0) {
-                        const prevMsg = messages[index - 1];
-                        if (prevMsg.role === 'user') {
-                            queryContent = prevMsg.content;
-                        }
+            </div>
+        )
+    }
+
+    return (
+        <div ref={scrollRef} className="flex-1 overflow-y-auto w-full">
+            <div
+                style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    position: 'relative',
+                }}
+            >
+                {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                    const msg = messages[virtualItem.index]
+                    let queryContent: string | undefined
+                    if (msg.role === 'assistant' && virtualItem.index > 0) {
+                        const prev = messages[virtualItem.index - 1]
+                        if (prev.role === 'user') queryContent = prev.content
                     }
                     return (
-                        <MessageItem
+                        <div
                             key={msg.id}
-                            message={msg}
-                            queryContent={queryContent}
-                            isStreaming={isStreaming}
-                        />
-                    );
-                })
-            )}
-            <div ref={bottomRef} className="h-4" />
+                            data-index={virtualItem.index}
+                            ref={rowVirtualizer.measureElement}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                transform: `translateY(${virtualItem.start}px)`,
+                            }}
+                        >
+                            <MessageItem
+                                message={msg}
+                                queryContent={queryContent}
+                                isStreaming={isStreaming && virtualItem.index === messages.length - 1}
+                            />
+                        </div>
+                    )
+                })}
+            </div>
         </div>
     )
 }
