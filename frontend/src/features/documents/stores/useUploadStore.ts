@@ -449,7 +449,7 @@ const handleSSEMessage = (itemId: string, data: UploadStatusEvent) => {
     }
 
     const defaultProgress = STAGE_WEIGHTS[data.status] ?? 0
-    let progress = (data as any).progress
+    let progress = (data as Record<string, unknown>).progress as number | undefined
 
     // If progress is missing (e.g. from polling), and we are in the same stage,
     // preserve the current granular progress instead of reverting to default.

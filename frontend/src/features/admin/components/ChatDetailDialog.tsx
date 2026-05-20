@@ -33,12 +33,10 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
     useEffect(() => {
         if (open && requestId) {
             let isMounted = true;
-            setIsLoading(true);
-            setError(null);
-            
             chatHistoryApi.getDetail(requestId)
                 .then((data) => {
                     if (isMounted) {
+                        setError(null);
                         setDetail(data);
                         setIsLoading(false);
                     }

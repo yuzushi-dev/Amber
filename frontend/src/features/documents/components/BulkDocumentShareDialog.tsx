@@ -152,7 +152,7 @@ export default function BulkDocumentShareDialog({
                             tenant_ids: nextTenantIds,
                         })
                     }
-                } catch (_err) {
+                } catch {
                     failedDocumentIds.push(documentId)
                 } finally {
                     setCompletedCount(index + 1)
