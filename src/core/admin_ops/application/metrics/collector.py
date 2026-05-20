@@ -39,6 +39,8 @@ class QueryMetrics:
     chunks_retrieved: int = 0
     chunks_used: int = 0
     cache_hit: bool = False
+    search_mode: str = "unknown"
+    router_latency_ms: float = 0.0
     local_hits: int = 0
     shared_hits: int = 0
     acl_filtered_results: int = 0
@@ -77,6 +79,8 @@ class QueryMetrics:
             "chunks_retrieved": self.chunks_retrieved,
             "chunks_used": self.chunks_used,
             "cache_hit": self.cache_hit,
+            "search_mode": self.search_mode,
+            "router_latency_ms": self.router_latency_ms,
             "local_hits": self.local_hits,
             "shared_hits": self.shared_hits,
             "acl_filtered_results": self.acl_filtered_results,

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import magic  # python-magic for server-side MIME detection
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
@@ -24,6 +25,21 @@ from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 
 logger = logging.getLogger(__name__)
+
+# Allowed MIME types for document uploads
+ALLOWED_MIMES = {
+    "application/pdf",
+    "text/plain",
+    "text/html",
+    "text/markdown",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+    "application/msword",  # .doc
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+    "application/json",
+    "text/csv",
+    "application/octet-stream",  # fallback
+}
 
 # -----------------------------------------------------------------------------
 # DTOs
@@ -129,6 +145,27 @@ class UploadDocumentUseCase:
         if len(request.content) > self._max_size_bytes:
             max_mb = self._max_size_bytes // (1024 * 1024)
             raise ValueError(f"File too large. Max size: {max_mb}MB")
+
+        # Server-side MIME validation using magic bytes
+        try:
+            detected_mime = magic.from_buffer(request.content[:4096], mime=True)
+            declared_mime = (request.content_type or "").split(";")[0].strip().lower()
+
+            if detected_mime not in ALLOWED_MIMES:
+                logger.warning(
+                    "MIME validation failed: detected=%s, declared=%s, filename=%s",
+                    detected_mime, declared_mime, request.filename
+                )
+                raise ValueError(
+                    f"Unsupported file type: {detected_mime}. "
+                    f"Upload rejected."
+                )
+        except ImportError:
+            logger.warning("python-magic not installed; skipping MIME validation")
+        except Exception as e:
+            if "Unsupported file type" in str(e):
+                raise
+            logger.warning("MIME validation error: %s", e)
 
         normalized_share_targets: list[str] | None = None
         if request.shared_with_tenant_ids is not None:

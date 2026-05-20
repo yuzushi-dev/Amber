@@ -114,6 +114,7 @@ class PlatformRegistry:
         self._graph_extractor = None
         self._content_extractor = None
         self._milvus_vector_store = None
+        self._sparse_embedding_service = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -333,6 +334,16 @@ class PlatformRegistry:
             self._milvus_vector_store = MilvusVectorStore(milvus_config)
         return self._milvus_vector_store
 
+    @property
+    def sparse_embedding_service(self):
+        """Get the managed SparseEmbeddingService (SPLADE)."""
+        if not self._sparse_embedding_service:
+            from src.core.retrieval.application.sparse_embeddings_service import (
+                SparseEmbeddingService,
+            )
+            self._sparse_embedding_service = SparseEmbeddingService()
+        return self._sparse_embedding_service
+
 
 # Global platform registry instance
 platform = PlatformRegistry()
@@ -533,6 +544,7 @@ def build_retrieval_service(session=None):
         document_repository=document_repo,
         vector_store=vector_store,
         neo4j_client=neo4j_client,
+        sparse_embedding=platform.sparse_embedding_service,
         openai_api_key=openai_key or None,
         anthropic_api_key=anthropic_key or None,
         ollama_base_url=settings.ollama_base_url,

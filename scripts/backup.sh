@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # backup.sh — Amber2 production backup.
 #
-# Replaces the legacy MinIO-era backup.sh (2026-04-17 audit, P0-5):
-# aligned to the current stack (Garage instead of MinIO, amber2-* container
-# names, Postgres roles from .env, etcd snapshot, Redis BGSAVE).
+# Stack: MinIO object storage, amber2-* container names, Postgres roles from
+# .env, etcd snapshot, Redis BGSAVE.
 #
 # SAFE TO RUN ON PRODUCTION: does not stop or restart containers.
 # All captures are online (pg_dump, BGSAVE, etcdctl snapshot) or crash-
@@ -14,7 +13,7 @@
 #   bash scripts/backup.sh --dry-run            # print plan, write nothing
 #   bash scripts/backup.sh --destination=/opt/backups/amber --retention=7
 #   bash scripts/backup.sh --skip=milvus,uploads
-#   bash scripts/backup.sh --include=postgres,neo4j,garage
+#   bash scripts/backup.sh --include=postgres,neo4j,minio
 #
 # Run from anywhere; resolves repo root relative to this script.
 
@@ -53,7 +52,7 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_DIR="${DESTINATION}/backup_${TIMESTAMP}"
 MANIFEST="${BACKUP_DIR}/MANIFEST.txt"
 
-ALL_COMPONENTS=(postgres neo4j redis milvus etcd garage uploads config)
+ALL_COMPONENTS=(postgres neo4j redis milvus etcd minio uploads config)
 
 # ── Logging helpers (mirror backup_preflight.sh style) ────────────────────────
 if "${DRY_RUN}"; then
@@ -106,7 +105,7 @@ if ! "${DRY_RUN}"; then
 fi
 
 # Check containers are running (required for logical dumps).
-REQUIRED_CONTAINERS=(amber2-postgres-1 amber2-neo4j-1 amber2-redis-1 amber2-etcd-1 amber2-milvus-1 amber2-garage-1)
+REQUIRED_CONTAINERS=(amber2-postgres-1 amber2-neo4j-1 amber2-redis-1 amber2-etcd-1 amber2-milvus-1 amber2-minio-1)
 for c in "${REQUIRED_CONTAINERS[@]}"; do
     if docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null | grep -q true; then
         log "Container ${c}: running"
@@ -244,18 +243,15 @@ if want etcd; then
     fi
 fi
 
-# 6) Garage — tar the data and meta volumes.
-if want garage; then
+# 6) MinIO — tar the data volume.
+if want minio; then
     log ""
-    log "--- [6/8] Garage"
+    log "--- [6/8] MinIO"
     if "${DRY_RUN}"; then
-        log "  WOULD RUN: tar_volume amber2_graphrag-garage-data garage-data.tar.gz"
-        log "  WOULD RUN: tar_volume amber2_graphrag-garage-meta garage-meta.tar.gz"
+        log "  WOULD RUN: tar_volume amber2_graphrag-minio-data minio-data.tar.gz"
     else
-        tar_volume amber2_graphrag-garage-data "${BACKUP_DIR}/garage-data.tar.gz"
-        tar_volume amber2_graphrag-garage-meta "${BACKUP_DIR}/garage-meta.tar.gz"
-        checksum "${BACKUP_DIR}/garage-data.tar.gz"
-        checksum "${BACKUP_DIR}/garage-meta.tar.gz"
+        tar_volume amber2_graphrag-minio-data "${BACKUP_DIR}/minio-data.tar.gz"
+        checksum "${BACKUP_DIR}/minio-data.tar.gz"
     fi
 fi
 
@@ -276,11 +272,11 @@ if want config; then
     log ""
     log "--- [8/8] Config + manifests"
     if "${DRY_RUN}"; then
-        log "  WOULD COPY: .env, docker-compose.yml, docker-compose.prod.yml, config/settings.yaml, docker/garage/garage.toml"
+        log "  WOULD COPY: .env, docker-compose.yml, docker-compose.prod.yml, config/settings.yaml"
         log "  WOULD WRITE: git.txt, containers.txt, images.txt, volumes.txt"
     else
         mkdir -p "${BACKUP_DIR}/config"
-        for f in .env docker-compose.yml docker-compose.prod.yml config/settings.yaml docker/garage/garage.toml; do
+        for f in .env docker-compose.yml docker-compose.prod.yml config/settings.yaml; do
             if [ -f "${REPO_ROOT}/${f}" ]; then
                 cp "${REPO_ROOT}/${f}" "${BACKUP_DIR}/config/$(basename "$f").snapshot"
             fi

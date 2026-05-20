@@ -17,7 +17,7 @@ export function useChatStream() {
 
     const { addMessage, updateLastMessage } = useChatStore()
     const abortControllerRef = useRef<AbortController | null>(null)
-    const debugEnabledRef = useRef(true) // Force debug for troubleshooting
+    const debugEnabledRef = useRef(false)
     const streamStatsRef = useRef({
         tokenCount: 0,
         messageCount: 0,

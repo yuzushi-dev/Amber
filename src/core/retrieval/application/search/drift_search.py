@@ -24,12 +24,14 @@ class DriftSearchService:
         max_iterations: int = 3,
         max_follow_ups: int = 3,
         provider_factory: ProviderFactoryPort | None = None,
+        timeout_seconds: float = 25.0,
     ):
         self.retrieval_service = retrieval_service
         self.llm = llm_provider
         self.max_iterations = max_iterations
         self.max_follow_ups = max_follow_ups
         self.factory = provider_factory
+        self.timeout_seconds = timeout_seconds
 
     async def search(
         self,
@@ -72,7 +74,19 @@ class DriftSearchService:
             settings=settings,
         )
 
+        deadline = asyncio.get_event_loop().time() + self.timeout_seconds
+        original_query = query  # Save for logging
+
         for iteration in range(self.max_iterations):
+            # Check if we've exceeded our deadline
+            current_time = asyncio.get_event_loop().time()
+            if current_time >= deadline:
+                logger.warning(
+                    "DRIFT search timeout after %d iterations (%.1fs budget exceeded) query='%s'",
+                    iteration, self.timeout_seconds, original_query
+                )
+                break
+
             # Generate follow-up questions to fill gaps
             follow_up_prompt = f"""
             Based on the query and current context, identify {self.max_follow_ups} specific questions
@@ -103,12 +117,30 @@ class DriftSearchService:
             ]
             follow_ups_history.append({"iteration": iteration, "questions": questions})
 
-            # 2. Expansion Phase: Execute sub-queries
+            # 2. Expansion Phase: Execute sub-queries with timeout protection
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                logger.warning(
+                    "DRIFT iteration %d: deadline reached before expansion", iteration
+                )
+                break
+
             expansion_tasks = [
-                self.retrieval_service.retrieve(query=q, tenant_id=tenant_id, top_k=3)
+                asyncio.wait_for(
+                    self.retrieval_service.retrieve(query=q, tenant_id=tenant_id, top_k=3),
+                    timeout=remaining
+                )
                 for q in questions
             ]
-            expansion_results = await asyncio.gather(*expansion_tasks)
+
+            # Wrap gather with timeout to catch individual call timeouts
+            expansion_results = await asyncio.gather(*expansion_tasks, return_exceptions=True)
+
+            # Filter out timeout exceptions
+            expansion_results = [
+                r for r in expansion_results
+                if not isinstance(r, asyncio.TimeoutError)
+            ]
 
             new_info_found = False
             for res in expansion_results:

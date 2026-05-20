@@ -67,7 +67,7 @@ async def test_memory_context_excludes_cross_session_summaries():
     summaries = await manager.get_recent_summaries("t1", "u1", limit=3)
 
     # The generation service must NOT inject past summaries into new sessions
-    formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
+    _ = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
     parts: list[str] = []
     # FIXED behavior: do NOT add summaries to memory_context
     # (this test defines the expected behavior after the fix)
@@ -114,6 +114,7 @@ def test_generation_service_does_not_call_get_recent_summaries():
     dependencies; source inspection is a cheap, reliable canary for this invariant.
     """
     import inspect
+
     import src.core.generation.application.generation_service as gs_module
 
     source = inspect.getsource(gs_module)

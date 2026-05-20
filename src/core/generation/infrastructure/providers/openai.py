@@ -6,8 +6,6 @@ LLM and Embedding provider implementations for OpenAI API.
 """
 
 import time
-
-import structlog
 from typing import Any
 
 import structlog

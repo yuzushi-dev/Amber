@@ -7,7 +7,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useRouterState, Link } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { chatApi, ChatHistoryItem } from '@/lib/api-client'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MessageSquarePlus, MessageCircle, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -38,42 +38,32 @@ export function ChatHistoryPanel() {
     const activeId = searchParams.request_id
 
     const [collapsed, setCollapsed] = useState(false)
-    const [offset, setOffset] = useState(0)
-    const [allConversations, setAllConversations] = useState<ChatHistoryItem[]>([])
-    const [hasMore, setHasMore] = useState(true)
     const { lastHistoryUpdate } = useChatStore()
     const scrollContainerRef = useRef<HTMLElement>(null)
 
-    const { data, isLoading, isFetching } = useQuery({
-        queryKey: ['chat-history-client', offset],
-        queryFn: () => chatApi.list({ limit: PAGE_SIZE, offset }),
+    const { data, isLoading, isFetching, fetchNextPage, hasNextPage } = useInfiniteQuery({
+        queryKey: ['chat-history-client'],
+        queryFn: ({ pageParam }) => chatApi.list({ limit: PAGE_SIZE, offset: pageParam as number }),
+        initialPageParam: 0,
+        getNextPageParam: (lastPage, allPages) => {
+            const loaded = allPages.reduce((acc, p) => acc + p.conversations.length, 0)
+            return loaded < lastPage.total ? loaded : undefined
+        },
     })
 
-    useEffect(() => {
-        if (data) {
-            setAllConversations(prev =>
-                offset === 0
-                    ? data.conversations
-                    : [...prev, ...data.conversations.filter(c => !prev.some(p => p.request_id === c.request_id))]
-            )
-            setHasMore(offset + data.conversations.length < data.total)
-        }
-    }, [data, offset])
+    const allConversations = data?.pages.flatMap(p => p.conversations) ?? []
+    const hasMore = !!hasNextPage
 
     // Invalidate and refresh list when a new conversation completes
     useEffect(() => {
         if (lastHistoryUpdate > 0) {
             queryClient.invalidateQueries({ queryKey: ['chat-history-client'] })
-            setOffset(0)
-            setAllConversations([])
         }
     }, [lastHistoryUpdate, queryClient])
 
     const loadMore = useCallback(() => {
-        if (!isFetching && hasMore) {
-            setOffset(prev => prev + PAGE_SIZE)
-        }
-    }, [isFetching, hasMore])
+        if (!isFetching && hasMore) fetchNextPage()
+    }, [isFetching, hasMore, fetchNextPage])
 
     // Scroll handler for infinite scroll
     useEffect(() => {
@@ -100,7 +90,6 @@ export function ChatHistoryPanel() {
         }
         try {
             await chatApi.delete(item.request_id)
-            setAllConversations(prev => prev.filter(c => c.request_id !== item.request_id))
             queryClient.invalidateQueries({ queryKey: ['chat-history-client'] })
             toast.success('Conversation deleted')
             if (activeId === item.request_id) {
@@ -157,7 +146,7 @@ export function ChatHistoryPanel() {
                     )}
 
                     <ul className="space-y-1 px-2">
-                        {isLoading && offset === 0 ? (
+                        {isLoading && allConversations.length === 0 ? (
                             !collapsed && (
                                 <>
                                     {[1, 2, 3].map((i) => (
@@ -225,7 +214,7 @@ export function ChatHistoryPanel() {
                     </ul>
 
                     {/* Loading indicator for infinite scroll */}
-                    {isFetching && offset > 0 && !collapsed && (
+                    {isFetching && allConversations.length > 0 && !collapsed && (
                         <div className="px-3 py-2">
                             <div className="space-y-2">
                                 <Skeleton className="h-4 w-3/4" />

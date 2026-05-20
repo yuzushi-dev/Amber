@@ -2,6 +2,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| [v1.4.0](changelogs/v1.4.0.md) | May 2026 | MinIO migration, Ollama Cloud provider, hybrid search, 8 backend PRs, 13 frontend memory fixes, axios security upgrade |
 | [v1.3.0](changelogs/v1.3.0.md) | April 2026 | Query complexity routing, feedback system overhaul, user conversation history, inline document viewer, super-admin multi-tenant visibility |
 | [v1.2.0](changelogs/v1.2.0.md) | March 2026 | Shared GraphRAG architecture, document ACL, share management UI, runtime kill switches |
 | [v1.1.0](changelogs/v1.1.0.md) | March 2026 | Security hardening sprint: DB-layer RLS, credential encryption, dual-secret keyring, fail-closed operations, zero-downtime canary lane |

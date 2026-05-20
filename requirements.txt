@@ -66,6 +66,9 @@ python-igraph>=0.11.0
 unstructured>=0.11.0
 python-magic>=0.4.27
 
+# Security
+prompt-guard>=3.7.1
+
 # Observability & Tracing
 opentelemetry-api>=1.22.0
 opentelemetry-sdk>=1.22.0
