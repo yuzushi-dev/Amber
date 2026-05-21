@@ -509,6 +509,15 @@ except ImportError as e:
     logger.warning(f"Folders router not available: {e}")
 
 try:
+    from src.api.routes import groups as groups_route
+
+    v1_router.include_router(groups_route.router, prefix="/groups", tags=["groups"])
+    v1_router.include_router(groups_route.me_router, prefix="/me", tags=["groups"])
+    logger.info("Registered groups router")
+except ImportError as e:
+    logger.warning(f"Groups router not available: {e}")
+
+try:
     from src.api.routes import chunks
 
     v1_router.include_router(chunks.router)

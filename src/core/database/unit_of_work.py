@@ -47,6 +47,9 @@ class SqlAlchemyUnitOfWork:
         session_factory: Callable[[], AsyncSession],
         tenant_id: str,
         is_super_admin: bool = False,
+        group_ids: list[str] = [],
+        tenant_role: str = "user",
+        groups_enforced: bool = False,
     ) -> None:
         """
         Initialize the Unit of Work.
@@ -55,10 +58,16 @@ class SqlAlchemyUnitOfWork:
             session_factory: Factory function that creates AsyncSession instances.
             tenant_id: The tenant ID to scope all operations to.
             is_super_admin: If True, bypasses RLS restrictions.
+            group_ids: Group IDs the current api_key belongs to within the tenant.
+            tenant_role: Role of the api_key within the tenant ('admin' or 'user').
+            groups_enforced: If True, group-based document access is enforced.
         """
         self._session_factory = session_factory
         self._tenant_id = tenant_id
         self._is_super_admin = is_super_admin
+        self._group_ids = list(group_ids)
+        self._tenant_role = tenant_role
+        self._groups_enforced = groups_enforced
         self.session: AsyncSession | None = None
 
     async def __aenter__(self) -> "SqlAlchemyUnitOfWork":
@@ -79,6 +88,19 @@ class SqlAlchemyUnitOfWork:
             await self.session.execute(
                 text("SELECT set_config('app.is_super_admin', 'true', false)")
             )
+
+        await self.session.execute(
+            text("SELECT set_config('app.current_groups', :groups, false)"),
+            {"groups": ",".join(self._group_ids)},
+        )
+        await self.session.execute(
+            text("SELECT set_config('app.tenant_role', :role, false)"),
+            {"role": self._tenant_role},
+        )
+        await self.session.execute(
+            text("SELECT set_config('app.groups_enforced', :enforced, false)"),
+            {"enforced": "true" if self._groups_enforced else "false"},
+        )
 
         return self
 

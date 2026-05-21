@@ -20,7 +20,9 @@ class PostgresDocumentRepository(DocumentRepository):
     PostgreSQL implementation of DocumentRepository using SQLAlchemy.
     """
 
-    _visible_document_ids_cache: dict[tuple[str, str], tuple[float, tuple[str, ...]]] = {}
+    _visible_document_ids_cache: dict[
+        tuple[str, str, frozenset[str]], tuple[float, tuple[str, ...]]
+    ] = {}
     _visible_document_ids_cache_ttl_seconds: float = 30.0
 
     def __init__(self, session: AsyncSession):
@@ -31,16 +33,18 @@ class PostgresDocumentRepository(DocumentRepository):
         cls,
         viewer_tenant_id: str,
         owner_tenant_id: str,
-    ) -> tuple[str, str]:
-        return (str(viewer_tenant_id), str(owner_tenant_id))
+        group_ids: list[str] | None = None,
+    ) -> tuple[str, str, frozenset[str]]:
+        return (str(viewer_tenant_id), str(owner_tenant_id), frozenset(group_ids or []))
 
     @classmethod
     def _get_cached_visible_document_ids(
         cls,
         viewer_tenant_id: str,
         owner_tenant_id: str,
+        group_ids: list[str] | None = None,
     ) -> list[str] | None:
-        key = cls._visible_document_ids_cache_key(viewer_tenant_id, owner_tenant_id)
+        key = cls._visible_document_ids_cache_key(viewer_tenant_id, owner_tenant_id, group_ids)
         entry = cls._visible_document_ids_cache.get(key)
         if entry is None:
             return None
@@ -58,8 +62,9 @@ class PostgresDocumentRepository(DocumentRepository):
         viewer_tenant_id: str,
         owner_tenant_id: str,
         document_ids: list[str],
+        group_ids: list[str] | None = None,
     ) -> None:
-        key = cls._visible_document_ids_cache_key(viewer_tenant_id, owner_tenant_id)
+        key = cls._visible_document_ids_cache_key(viewer_tenant_id, owner_tenant_id, group_ids)
         cls._visible_document_ids_cache[key] = (
             time.monotonic() + cls._visible_document_ids_cache_ttl_seconds,
             tuple(document_ids),
@@ -174,15 +179,61 @@ class PostgresDocumentRepository(DocumentRepository):
         viewer_tenant_id: str,
         owner_tenant_id: str,
         candidate_document_ids: list[str] | None = None,
+        group_ids: list[str] | None = None,
+        enforce_groups: bool = False,
     ) -> list[str]:
         """List visible document IDs for a viewer, scoped to a specific owner tenant."""
         if candidate_document_ids == []:
             return []
 
+        if enforce_groups and owner_tenant_id == viewer_tenant_id:
+            if not group_ids:
+                return []
+            from src.core.tenants.domain.group import (
+                GroupDocumentAccess,
+                GroupFolderAccess,
+            )
+
+            folder_subq = (
+                select(Document.id)
+                .join(GroupFolderAccess, GroupFolderAccess.folder_id == Document.folder_id)
+                .where(
+                    GroupFolderAccess.group_id.in_(group_ids),
+                    GroupFolderAccess.tenant_id == owner_tenant_id,
+                    Document.tenant_id == owner_tenant_id,
+                )
+            )
+            doc_grant_subq = (
+                select(GroupDocumentAccess.document_id)
+                .where(
+                    GroupDocumentAccess.group_id.in_(group_ids),
+                    GroupDocumentAccess.is_deny == False,  # noqa: E712
+                    GroupDocumentAccess.tenant_id == owner_tenant_id,
+                )
+            )
+            deny_subq = (
+                select(GroupDocumentAccess.document_id)
+                .where(
+                    GroupDocumentAccess.group_id.in_(group_ids),
+                    GroupDocumentAccess.is_deny == True,  # noqa: E712
+                    GroupDocumentAccess.tenant_id == owner_tenant_id,
+                )
+            )
+            stmt = select(Document.id).where(
+                Document.tenant_id == owner_tenant_id,
+                or_(Document.id.in_(folder_subq), Document.id.in_(doc_grant_subq)),
+                Document.id.not_in(deny_subq),
+            )
+            if candidate_document_ids is not None:
+                stmt = stmt.where(Document.id.in_(candidate_document_ids))
+            result = await self._session.execute(stmt)
+            return list(result.scalars().all())
+
         if owner_tenant_id != viewer_tenant_id:
             cached_document_ids = self._get_cached_visible_document_ids(
                 viewer_tenant_id,
                 owner_tenant_id,
+                group_ids,
             )
             if cached_document_ids is not None:
                 if candidate_document_ids is None:
@@ -220,6 +271,7 @@ class PostgresDocumentRepository(DocumentRepository):
                 viewer_tenant_id,
                 owner_tenant_id,
                 visible_document_ids,
+                group_ids,
             )
 
         return visible_document_ids

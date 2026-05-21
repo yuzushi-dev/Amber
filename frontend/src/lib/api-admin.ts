@@ -1311,3 +1311,98 @@ export const usageMetricsApi = {
         return response.data
     },
 }
+
+// =============================================================================
+// Group Management API
+// =============================================================================
+
+export interface Group {
+    id: string
+    tenant_id: string
+    name: string
+    description: string | null
+    is_active: boolean
+    created_at: string
+}
+
+export interface GroupCreate {
+    name: string
+    description?: string
+}
+
+export interface GroupUpdate {
+    name?: string
+    description?: string
+    is_active?: boolean
+}
+
+export interface GroupMemberItem {
+    group_id: string
+    api_key_id: string
+    tenant_id: string
+    role: string
+    created_at: string
+}
+
+export interface GroupFolderItem {
+    id: string
+    group_id: string
+    folder_id: string
+    tenant_id: string
+    access_mode: string
+    created_at: string
+}
+
+export const groupsApi = {
+    list: async () => {
+        const response = await apiClient.get<Group[]>('/groups')
+        return response.data
+    },
+
+    create: async (data: GroupCreate) => {
+        const response = await apiClient.post<Group>('/groups', data)
+        return response.data
+    },
+
+    update: async (groupId: string, data: GroupUpdate) => {
+        const response = await apiClient.patch<Group>(`/groups/${groupId}`, data)
+        return response.data
+    },
+
+    delete: async (groupId: string) => {
+        await apiClient.delete(`/groups/${groupId}`)
+    },
+
+    listMembers: async (groupId: string) => {
+        const response = await apiClient.get<GroupMemberItem[]>(`/groups/${groupId}/members`)
+        return response.data
+    },
+
+    addMember: async (groupId: string, apiKeyId: string, role = 'member') => {
+        const response = await apiClient.post<GroupMemberItem>(`/groups/${groupId}/members`, {
+            api_key_id: apiKeyId,
+            role,
+        })
+        return response.data
+    },
+
+    removeMember: async (groupId: string, apiKeyId: string) => {
+        await apiClient.delete(`/groups/${groupId}/members/${apiKeyId}`)
+    },
+
+    listFolders: async (groupId: string) => {
+        const response = await apiClient.get<GroupFolderItem[]>(`/groups/${groupId}/folders`)
+        return response.data
+    },
+
+    grantFolder: async (groupId: string, folderId: string) => {
+        const response = await apiClient.post<GroupFolderItem>(`/groups/${groupId}/folders`, {
+            folder_id: folderId,
+        })
+        return response.data
+    },
+
+    revokeFolder: async (groupId: string, folderId: string) => {
+        await apiClient.delete(`/groups/${groupId}/folders/${folderId}`)
+    },
+}

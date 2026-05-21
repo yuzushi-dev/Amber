@@ -15,6 +15,7 @@ import {
     ChevronLeft,
     Gauge,
     Users,
+    Users2,
     Sparkles
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -29,6 +30,7 @@ const adminNavItems = [
     { label: 'LLM Settings', icon: Sparkles, to: '/admin/settings/llms' },
     { label: 'API Keys', icon: Settings2, to: '/admin/settings/apikeys' },
     { label: 'Tenants', icon: Users, to: '/admin/settings/tenants' },
+    { label: 'Groups', icon: Users2, to: '/admin/settings/groups' },
     { label: 'Curation', icon: Flag, to: '/admin/curation' },
     { label: 'Database', icon: Database, to: '/admin/database' },
 ]

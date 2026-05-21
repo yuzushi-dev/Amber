@@ -64,6 +64,24 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
                     text("SELECT set_config('app.is_super_admin', 'true', false)")
                 )
 
+            # Inject group context for RLS group enforcement
+            group_ids = getattr(request.state, "group_ids", [])
+            groups_enforced = getattr(request.state, "groups_enforced", False)
+            tenant_role = getattr(request.state, "tenant_role", "user")
+
+            await session.execute(
+                text("SELECT set_config('app.current_groups', :groups, false)"),
+                {"groups": ",".join(group_ids)},
+            )
+            await session.execute(
+                text("SELECT set_config('app.tenant_role', :role, false)"),
+                {"role": tenant_role},
+            )
+            await session.execute(
+                text("SELECT set_config('app.groups_enforced', :enforced, false)"),
+                {"enforced": "true" if groups_enforced else "false"},
+            )
+
             yield session
             await session.commit()
         except Exception:

@@ -38,6 +38,7 @@ import FeedbackPage from './features/admin/pages/FeedbackPage'
 import ConnectorsPage from './features/admin/pages/ConnectorsPage'
 import ConnectorDetailPage from './features/admin/pages/ConnectorDetailPage'
 import TenantsPage from './features/admin/pages/TenantsPage'
+import GroupsPage from './features/admin/pages/GroupsPage'
 import DataRetentionPage from './features/admin/pages/DataRetentionPage'
 import RulesPage from './features/admin/pages/RulesPage'
 import GlobalGraphPage from './features/graph/pages/GlobalGraphPage'
@@ -256,6 +257,12 @@ const settingsTenantsRoute = createRoute({
     component: () => <TenantsPage />,
 })
 
+const settingsGroupsRoute = createRoute({
+    getParentRoute: () => adminLayoutRoute,
+    path: '/settings/groups',
+    component: () => <GroupsPage />,
+})
+
 const settingsDataRetentionRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/settings/data-retention',
@@ -439,6 +446,7 @@ const routeTree = rootRoute.addChildren([
         settingsConnectorsRoute,
         settingsConnectorDetailRoute,
         settingsTenantsRoute,
+        settingsGroupsRoute,
         settingsDataRetentionRoute,
         settingsRulesRoute,
         settingsBackupRoute,

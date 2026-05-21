@@ -7,7 +7,7 @@ Central resolver for the tenant scopes a request is allowed to query.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DEFAULT_TENANT_ID = "default"
 
@@ -20,6 +20,8 @@ class QueryScopes:
     vector_scopes: list[str]
     graph_scopes: list[str]
     shared_document_owner_tenants: list[str]
+    group_ids: list[str] = field(default_factory=list)
+    enforce_groups: bool = field(default=False)
 
 
 def resolve_query_scopes(tenant_id: str) -> QueryScopes:
