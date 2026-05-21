@@ -22,15 +22,17 @@ from sqlalchemy.orm import sessionmaker
 TENANT_ID = "default"
 
 GROUP_FOLDER_MAPPING: dict[str, list[str]] = {
-    "PE": ["AdminGuide", "CEGuide", "UserGuide", "ZendeskKB"],
     "Sales": ["Sales", "partner HB", "ZendeskKB"],
 }
 
 GROUP_DESCRIPTIONS = {
-    "PE": "Product Engineering: admin/CE/user guides + Zendesk KB",
+    "PE": "Product Engineering: full visibility over all folders",
     "Sales": "Sales: sales material, partner HB + Zendesk KB",
     "Marketing": "Marketing: full visibility over all folders",
 }
+
+# Groups that get access to ALL folders
+ALL_FOLDERS_GROUPS = {"PE", "Marketing"}
 
 
 async def main() -> None:
@@ -85,10 +87,10 @@ async def main() -> None:
                 print(f"{group_name}: created group ({group_id})")
 
             # Determine target folders
-            if group_name == "Marketing":
+            if group_name in ALL_FOLDERS_GROUPS:
                 wanted = list(folders.keys())
             else:
-                wanted = GROUP_FOLDER_MAPPING[group_name]
+                wanted = GROUP_FOLDER_MAPPING.get(group_name, [])
 
             granted: list[str] = []
             for fname in wanted:
