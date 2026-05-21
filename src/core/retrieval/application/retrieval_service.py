@@ -277,6 +277,8 @@ class RetrievalService:
         viewer_tenant_id: str,
         owner_tenant_id: str,
         candidate_document_ids: list[str] | None,
+        group_ids: list[str] | None = None,
+        enforce_groups: bool = False,
     ) -> list[str]:
         """List visible document IDs for a viewer, failing closed for shared scopes if unsupported."""
         visibility_getter = getattr(self.document_repository, "list_visible_document_ids", None)
@@ -294,6 +296,8 @@ class RetrievalService:
             viewer_tenant_id=viewer_tenant_id,
             owner_tenant_id=owner_tenant_id,
             candidate_document_ids=candidate_document_ids,
+            group_ids=group_ids,
+            enforce_groups=enforce_groups,
         )
         if inspect.isawaitable(result):
             return await result
@@ -344,6 +348,8 @@ class RetrievalService:
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
                     candidate_document_ids=candidate_document_ids,
+                    group_ids=list(query_scopes.group_ids),
+                    enforce_groups=query_scopes.enforce_groups,
                 )
                 if not scope_document_ids:
                     continue
@@ -352,6 +358,8 @@ class RetrievalService:
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
                     candidate_document_ids=None,
+                    group_ids=list(query_scopes.group_ids),
+                    enforce_groups=query_scopes.enforce_groups,
                 )
                 if not scope_document_ids:
                     continue
@@ -503,6 +511,8 @@ class RetrievalService:
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
                     candidate_document_ids=candidate_document_ids,
+                    group_ids=list(query_scopes.group_ids),
+                    enforce_groups=query_scopes.enforce_groups,
                 )
                 if not allowed_doc_ids:
                     continue
@@ -511,6 +521,8 @@ class RetrievalService:
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
                     candidate_document_ids=None,
+                    group_ids=list(query_scopes.group_ids),
+                    enforce_groups=query_scopes.enforce_groups,
                 )
                 if not allowed_doc_ids:
                     continue

@@ -215,6 +215,37 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Store in request state for easy access
         is_super_admin = "super_admin" in permissions
+
+        # Resolve group IDs for this api_key + tenant
+        group_ids: list[str] = []
+        if not is_super_admin:
+            async with _get_async_session_maker()() as _grp_session:
+                from sqlalchemy import select
+
+                from src.core.tenants.domain.group import GroupMember
+
+                _grp_result = await _grp_session.execute(
+                    select(GroupMember.group_id).where(
+                        GroupMember.api_key_id == valid_key.id,
+                        GroupMember.tenant_id == str(tenant_id),
+                    )
+                )
+                group_ids = list(_grp_result.scalars().all())
+
+        # Resolve groups_enforced from tenant config
+        groups_enforced = False
+        if not is_super_admin:
+            async with _get_async_session_maker()() as _t_session:
+                from sqlalchemy import select
+
+                from src.core.tenants.domain.tenant import Tenant as _Tenant2
+
+                _t_result = await _t_session.execute(
+                    select(_Tenant2.config).where(_Tenant2.id == str(tenant_id))
+                )
+                _t_config = _t_result.scalar_one_or_none() or {}
+                groups_enforced = bool(_t_config.get("groups_enforced", False))
+
         if is_super_admin:
             from sqlalchemy import select as _select
 
@@ -229,14 +260,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         request.state.tenant_id = tenant_id
         request.state.query_scopes = query_scopes
         request.state.permissions = permissions
+        request.state.api_key_id = valid_key.id
         request.state.api_key_name = valid_key.name
         request.state.tenant_role = tenant_role
         request.state.is_super_admin = is_super_admin
+        request.state.group_ids = group_ids
+        request.state.groups_enforced = groups_enforced
 
         logger.debug(
             f"Authenticated: tenant={tenant_id}, key={valid_key.name}, "
             f"role={tenant_role}, super_admin={request.state.is_super_admin}, "
-            f"path={request.method} {path}"
+            f"group_ids={group_ids}, path={request.method} {path}"
         )
 
         return await call_next(request)

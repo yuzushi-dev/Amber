@@ -44,6 +44,8 @@ class DocumentRepository(Protocol):
         viewer_tenant_id: str,
         owner_tenant_id: str,
         candidate_document_ids: list[str] | None = None,
+        group_ids: list[str] | None = None,
+        enforce_groups: bool = False,
     ) -> list[str]:
         """List visible document IDs for a viewer, scoped to a specific owner tenant."""
         ...
