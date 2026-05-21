@@ -163,8 +163,8 @@ async def _connect_app():
 
 
 @pytest.mark.asyncio
-async def test_group_enforced_visibility_is_scoped_to_pe_folders():
-    """With PE group enforced, visible documents are exactly those in PE folders."""
+async def test_group_enforced_visibility_is_scoped_to_sales_folders():
+    """With Sales group enforced, visible documents are exactly those in Sales folders."""
     engine, conn = await _connect_app()
     try:
         # Set tenant context before querying groups (required by RLS policy)
@@ -173,11 +173,11 @@ async def test_group_enforced_visibility_is_scoped_to_pe_folders():
             {"tid": TENANT_ID},
         )
         await conn.execute(text("SELECT set_config('app.is_super_admin', 'false', false)"))
-        pe_id = await _fetch_one_group_id(conn, "PE")
-        if not pe_id:
-            pytest.skip("PE group not seeded; run scripts/seed_groups_local.py")
+        sales_id = await _fetch_one_group_id(conn, "Sales")
+        if not sales_id:
+            pytest.skip("Sales group not seeded; run scripts/seed_groups_local.py")
 
-        await _set_group_context(conn, pe_id)
+        await _set_group_context(conn, sales_id)
 
         visible = await conn.execute(
             text("SELECT id, folder_id FROM documents ORDER BY id")
@@ -188,7 +188,7 @@ async def test_group_enforced_visibility_is_scoped_to_pe_folders():
             text(
                 "SELECT document_id FROM app_visible_document_ids(:tid, ARRAY[:gid])"
             ),
-            {"tid": TENANT_ID, "gid": pe_id},
+            {"tid": TENANT_ID, "gid": sales_id},
         )
         expected_ids = {r[0] for r in expected.fetchall()}
     finally:
@@ -197,7 +197,7 @@ async def test_group_enforced_visibility_is_scoped_to_pe_folders():
 
     visible_ids = {r[0] for r in visible_docs}
     assert visible_ids == expected_ids, (
-        "documents visible under PE enforcement do not match app_visible_document_ids; "
+        "documents visible under Sales enforcement do not match app_visible_document_ids; "
         f"visible={visible_ids} expected={expected_ids}"
     )
 
