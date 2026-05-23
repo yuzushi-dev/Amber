@@ -319,6 +319,28 @@ class DeleteDocumentUseCase:
 
         # 2. Delete from Neo4j (Hardened Query)
         try:
+            # Collect communities of entities that will become orphaned by this deletion.
+            # Must run BEFORE deletion so we can still traverse the graph.
+            affected_community_ids: list[str] = []
+            try:
+                collect_cypher = """
+                MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
+                MATCH (d)-[:HAS_CHUNK]->(ch:Chunk)-[:MENTIONS]->(e:Entity)
+                WHERE NOT EXISTS {
+                    MATCH (other:Chunk)-[:MENTIONS]->(e)
+                    WHERE NOT (d)-[:HAS_CHUNK]->(other)
+                }
+                MATCH (e)-[:BELONGS_TO]->(c:Community)
+                RETURN collect(DISTINCT c.id) AS ids
+                """
+                rows = await self._graph_client.execute_read(
+                    collect_cypher,
+                    {"document_id": request.document_id, "tenant_id": tenant_id},
+                )
+                affected_community_ids = rows[0]["ids"] if rows else []
+            except Exception as e:
+                logger.warning(f"Failed to collect affected communities before deletion: {e}")
+
             # This query ensures we also clean up entities that no longer have ANY mentions
             cypher = """
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
@@ -355,6 +377,23 @@ class DeleteDocumentUseCase:
             DETACH DELETE e
             """
             await self._graph_client.execute_write(orphan_cypher, {"tenant_id": tenant_id})
+
+            # Mark partially-emptied communities stale so the summarizer re-processes them.
+            # Communities fully emptied are already deleted above; this only touches survivors.
+            if affected_community_ids:
+                mark_stale_cypher = """
+                MATCH (c:Community {tenant_id: $tenant_id})
+                WHERE c.id IN $ids
+                  AND EXISTS { (:Entity)-[:BELONGS_TO]->(c) }
+                SET c.is_stale = true
+                RETURN count(c) AS marked
+                """
+                rows = await self._graph_client.execute_write(
+                    mark_stale_cypher,
+                    {"tenant_id": tenant_id, "ids": affected_community_ids},
+                )
+                marked = rows[0]["marked"] if rows else 0
+                logger.info(f"Marked {marked} communities stale after deleting {request.document_id}")
 
         except Exception as e:
             logger.warning(f"Failed to delete graph data for document {request.document_id}: {e}")
