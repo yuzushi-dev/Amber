@@ -73,6 +73,9 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
                 "status_code": response.status_code,
                 "latency_ms": round(latency, 2),
                 "ip": request.client.host if request.client else None,
+                "key_name": getattr(request.state, "api_key_name", None),
+                "key_prefix": getattr(request.state, "api_key_prefix", None),
+                "tenant_id": getattr(request.state, "tenant_id", None),
             }
 
             # Log level depends on status code

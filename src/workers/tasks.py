@@ -145,14 +145,37 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
         result = run_async(_process_document_async(document_id, tenant_id, self.request.id))
         logger.info(f"[Task {self.request.id}] Completed processing for document {document_id}")
 
-        # Trigger community detection asynchronously
+        # Trigger community update only when no docs are still in flight.
+        # Triggering per-doc with full Leiden causes all community summaries to be wiped
+        # and re-summarized on every completion — LLM quota waste.
+        # Instead: if communities already exist, run incremental (skip_detection=True):
+        #   - assign new orphan entities to nearest community
+        #   - mark only affected communities stale
+        #   - summarizer re-summarizes only those
+        # Full Leiden only runs when no communities exist (first ingestion).
         try:
-            logger.info(
-                f"[Task {self.request.id}] Triggering community detection for tenant {tenant_id}"
-            )
-            process_communities.delay(tenant_id)
+            pending = run_async(_count_pending_docs_async(tenant_id))
+            if pending > 0:
+                logger.info(
+                    f"[Task {self.request.id}] {pending} doc(s) still in flight for tenant "
+                    f"{tenant_id}, deferring community update"
+                )
+            else:
+                has_communities = run_async(_communities_exist_async(tenant_id))
+                if has_communities:
+                    logger.info(
+                        f"[Task {self.request.id}] Communities exist — incremental update "
+                        f"(skip Leiden) for tenant {tenant_id}"
+                    )
+                    process_communities.delay(tenant_id, skip_detection=True)
+                else:
+                    logger.info(
+                        f"[Task {self.request.id}] No communities — full Leiden detection "
+                        f"for tenant {tenant_id}"
+                    )
+                    process_communities.delay(tenant_id)
         except Exception as e:
-            logger.warning(f"Failed to trigger community detection: {e}")
+            logger.warning(f"Failed to trigger community update: {e}")
 
         return result
 
@@ -176,6 +199,13 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
             logger.error(
                 f"[Task {self.request.id}] Max retries exceeded for document {document_id}"
             )
+            # Even on permanent failure, trigger community detection if this was the last doc.
+            try:
+                pending = run_async(_count_pending_docs_async(tenant_id))
+                if pending == 0:
+                    process_communities.delay(tenant_id)
+            except Exception:
+                pass
             raise
 
 
@@ -282,7 +312,17 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
             if detect_res["status"] == "skipped":
                 return detect_res
         else:
-            logger.info(f"Skipping community detection for tenant {tenant_id} (skip_detection=True)")
+            # Incremental mode: assign orphan entities to nearest existing community,
+            # mark those communities stale. Summarizer then re-summarizes only stale ones.
+            from src.core.graph.application.communities.leiden import CommunityDetector
+            detector = CommunityDetector(platform.neo4j_client)
+            incremental_res = await detector.assign_orphans_and_mark_stale(tenant_id)
+            logger.info(
+                f"Incremental community update for tenant {tenant_id}: "
+                f"assigned={incremental_res.get('assigned', 0)} "
+                f"unassigned={incremental_res.get('unassigned', 0)}"
+            )
+            detect_res = {"status": "incremental", **incremental_res}
 
         tuning_service = TuningService(get_session_maker())
         tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
@@ -366,8 +406,40 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         """
         ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
 
-        for comm in ready_comms:
-            await comm_embedding_svc.embed_and_store_community(comm)
+        import asyncio as _asyncio
+        _sem = _asyncio.Semaphore(5)
+
+        async def _embed_only(comm) -> dict:
+            text = f"{comm['title']}: {comm['summary']}"
+            async with _sem:
+                dense = await comm_embedding_svc.embedding_service.embed_single(text)
+            sparse = None
+            if comm_embedding_svc.sparse_embedding_service:
+                try:
+                    sparse = comm_embedding_svc.sparse_embedding_service.embed_sparse(text)
+                except Exception:
+                    pass
+            payload = {
+                "chunk_id": comm["id"],
+                "document_id": comm["id"],
+                "tenant_id": comm["tenant_id"],
+                "content": comm["summary"],
+                "embedding": dense,
+                "title": comm["title"],
+                "level": comm["level"],
+            }
+            if sparse:
+                payload["sparse_vector"] = sparse
+            return payload
+
+        # Embed + upsert in batches of 200 — incremental progress, avoids tiny segments
+        _batch_size = 200
+        total_batches = -(-len(ready_comms) // _batch_size)
+        for batch_idx in range(0, len(ready_comms), _batch_size):
+            batch = ready_comms[batch_idx:batch_idx + _batch_size]
+            payloads = await _asyncio.gather(*[_embed_only(c) for c in batch])
+            await comm_embedding_svc.vector_store.upsert_chunks(list(payloads))
+            logger.info(f"Community embeddings batch {batch_idx // _batch_size + 1}/{total_batches} done ({len(payloads)} vettori)")
 
         return {
             "status": "success",
@@ -619,6 +691,54 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
             logger.warning(f"Failed to close Neo4j client: {e}")
 
         await engine.dispose()
+
+
+async def _count_pending_docs_async(tenant_id: str) -> int:
+    """Return count of docs for tenant still in a non-terminal processing state."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from src.api.config import settings
+
+    engine = create_async_engine(settings.db.database_url)
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT count(*) FROM documents "
+                    "WHERE tenant_id = :tid "
+                    "AND status IN ('INGESTED','EXTRACTING','CLASSIFYING','CHUNKING','EMBEDDING','GRAPH_SYNC')"
+                ),
+                {"tid": tenant_id},
+            )
+            return result.scalar_one()
+    finally:
+        await engine.dispose()
+
+
+async def _communities_exist_async(tenant_id: str) -> bool:
+    """Return True if at least one Community node exists for this tenant in Neo4j."""
+    import os
+
+    from neo4j import AsyncGraphDatabase
+
+    from src.api.config import settings
+
+    uri = settings.db.neo4j_uri or os.environ.get("NEO4J_URI", "bolt://neo4j:7687")
+    user = settings.db.neo4j_user or os.environ.get("NEO4J_USER", "neo4j")
+    password = settings.db.neo4j_password or os.environ.get("NEO4J_PASSWORD", "neo4j")
+
+    driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
+    try:
+        async with driver.session() as session:
+            result = await session.run(
+                "MATCH (c:Community {tenant_id: $tid}) RETURN count(c) > 0 AS exists LIMIT 1",
+                {"tid": tenant_id},
+            )
+            record = await result.single()
+            return bool(record["exists"]) if record else False
+    finally:
+        await driver.close()
 
 
 async def _mark_document_failed(document_id: str, error: str, tenant_id: str = ""):

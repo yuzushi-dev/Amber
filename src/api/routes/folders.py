@@ -10,6 +10,7 @@ from src.api.deps import get_current_tenant_id
 from src.api.deps import get_db_session as get_db_session
 from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.folder import Folder
+from src.core.tenants.domain.group import GroupFolderAccess
 
 router = APIRouter()
 
@@ -44,9 +45,24 @@ async def list_folders(
     """List folders. Super-admin sees a deduplicated logical view merged by name."""
     is_super_admin = getattr(request.state, "is_super_admin", False)
     if not is_super_admin:
-        result = await session.execute(
-            select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
-        )
+        groups_enforced = getattr(request.state, "groups_enforced", False)
+        group_ids = getattr(request.state, "group_ids", [])
+        if groups_enforced and group_ids:
+            result = await session.execute(
+                select(Folder)
+                .join(
+                    GroupFolderAccess,
+                    (GroupFolderAccess.folder_id == Folder.id)
+                    & GroupFolderAccess.group_id.in_(group_ids),
+                )
+                .where(Folder.tenant_id == tenant_id)
+                .distinct()
+                .order_by(Folder.name)
+            )
+        else:
+            result = await session.execute(
+                select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
+            )
         return result.scalars().all()
 
     # Super-admin: fetch all valid folders, deduplicate by name.
