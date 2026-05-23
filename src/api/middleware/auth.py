@@ -262,6 +262,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         request.state.permissions = permissions
         request.state.api_key_id = valid_key.id
         request.state.api_key_name = valid_key.name
+        request.state.api_key_prefix = valid_key.prefix
         request.state.tenant_role = tenant_role
         request.state.is_super_admin = is_super_admin
         request.state.group_ids = group_ids

@@ -354,3 +354,51 @@ class CommunityDetector:
         for i in range(0, len(communities), batch_size):
             batch = communities[i : i + batch_size]
             await self.graph.execute_write(query, {"communities": batch, "tenant_id": tenant_id})
+
+    async def assign_orphans_and_mark_stale(self, tenant_id: str) -> dict[str, Any]:
+        """
+        Incremental update: assign entities not yet belonging to any community to their
+        nearest Level-0 community (by neighbor connectivity), then mark those communities
+        stale so the summarizer re-processes only them.
+
+        Called instead of full Leiden when communities already exist and a new doc was ingested.
+        Entities with no connected community (fully isolated new entities) are left unassigned;
+        they will be picked up by the next full Leiden run.
+        """
+        # Assign orphan entities to the Level-0 community most connected to their neighbors.
+        assign_result = await self.graph.execute_write(
+            """
+            MATCH (e:Entity {tenant_id: $tid})
+            WHERE NOT (e)-[:BELONGS_TO]->(:Community)
+            OPTIONAL MATCH (e)-[r]-(neighbor:Entity {tenant_id: $tid})
+            WHERE NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
+            OPTIONAL MATCH (neighbor)-[:BELONGS_TO]->(c:Community {tenant_id: $tid, level: 0})
+            WITH e, c, count(neighbor) AS score
+            WHERE c IS NOT NULL
+            ORDER BY score DESC
+            WITH e, collect(c)[0] AS best_community
+            WHERE best_community IS NOT NULL
+            MERGE (e)-[:BELONGS_TO]->(best_community)
+            SET best_community.is_stale = true
+            RETURN count(e) AS assigned
+            """,
+            {"tid": tenant_id},
+        )
+        assigned = assign_result[0]["assigned"] if assign_result else 0
+
+        # Count truly isolated entities that couldn't be placed.
+        orphan_result = await self.graph.execute_read(
+            """
+            MATCH (e:Entity {tenant_id: $tid})
+            WHERE NOT (e)-[:BELONGS_TO]->(:Community)
+            RETURN count(e) AS unassigned
+            """,
+            {"tid": tenant_id},
+        )
+        unassigned = orphan_result[0]["unassigned"] if orphan_result else 0
+
+        logger.info(
+            f"Incremental community update for tenant {tenant_id}: "
+            f"assigned={assigned} unassigned_orphans={unassigned}"
+        )
+        return {"assigned": assigned, "unassigned": unassigned}
