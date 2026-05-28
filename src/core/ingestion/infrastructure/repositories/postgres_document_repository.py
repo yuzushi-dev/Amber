@@ -147,6 +147,70 @@ class PostgresDocumentRepository(DocumentRepository):
             for document, share_mode in result.all()
         ]
 
+    async def list_visible_by_tenant_paged(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        search: str | None = None,
+        status_filter: str | None = None,
+        folder_id: str | None = None,
+        source_type: str | None = None,
+        sort_column: str = "created_at",
+        sort_dir: str = "desc",
+    ) -> tuple[list[VisibleDocument], int]:
+        """Paged list of visible documents for a tenant, with filters + sort + total count."""
+        from sqlalchemy import func as _func
+
+        sort_map = {
+            "created_at": Document.created_at,
+            "filename": Document.filename,
+            "status": Document.status,
+        }
+        sort_col = sort_map.get(sort_column, Document.created_at)
+        order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+
+        base = (
+            select(Document, DocumentShare.share_mode)
+            .options(selectinload(Document.folder))
+            .outerjoin(
+                DocumentShare,
+                and_(
+                    DocumentShare.document_id == Document.id,
+                    DocumentShare.target_tenant_id == tenant_id,
+                ),
+            )
+            .where(
+                or_(
+                    Document.tenant_id == tenant_id,
+                    DocumentShare.target_tenant_id == tenant_id,
+                )
+            )
+        )
+
+        if search:
+            pattern = f"%{search}%"
+            base = base.where(Document.filename.ilike(pattern))
+        if status_filter:
+            base = base.where(Document.status == status_filter)
+        if folder_id:
+            base = base.where(Document.folder_id == folder_id)
+        if source_type:
+            base = base.where(Document.source_type == source_type)
+
+        count_subq = base.with_only_columns(_func.count(Document.id)).order_by(None)
+        total_res = await self._session.execute(count_subq)
+        total = int(total_res.scalar() or 0)
+
+        paged = base.order_by(order_clause).limit(limit).offset(offset)
+        result = await self._session.execute(paged)
+        items = [
+            self._to_visible_document(document, tenant_id, share_mode)
+            for document, share_mode in result.all()
+        ]
+        return items, total
+
     async def get_visible(self, document_id: str, tenant_id: str) -> VisibleDocument | None:
         """Get a document visible to a tenant, including shared documents."""
         result = await self._session.execute(

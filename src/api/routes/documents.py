@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -532,21 +532,38 @@ async def document_events(
     return EventSourceResponse(event_generator())
 
 
+class PagedDocumentsResponse(BaseModel):
+    items: list[DocumentResponse]
+    total: int
+
+
 @router.get(
     "",
     summary="List Documents",
-    description="List all documents in the knowledge base.",
+    description="List documents in the knowledge base with pagination, search, filter and sort.",
+    response_model=PagedDocumentsResponse,
 )
 async def list_documents(
     http_request: Request,
     tenant_id: str = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    search: str | None = Query(None, description="Substring match on filename/title"),
+    status_filter: str | None = Query(None, alias="status", description="Document.status value"),
+    folder_id: str | None = Query(None, description="Filter by folder id"),
+    source_type: str | None = Query(None, description="Filter by source_type"),
+    sort_by: str = Query("created_at", regex="^(created_at|filename|status)$"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
     session: AsyncSession = Depends(get_db_session),
-) -> list[DocumentResponse]:
+) -> PagedDocumentsResponse:
     """
-    List documents in the knowledge base.
+    List documents with server-side pagination, search, filter and sort.
+    Returns ``{items, total}`` so the client can render proper pagers.
     """
+    from sqlalchemy import func as _func
+    from sqlalchemy import or_ as _or
+    from sqlalchemy import text as _text
+
     permissions = getattr(http_request.state, "permissions", [])
     is_super_admin = "super_admin" in permissions
 
@@ -557,13 +574,31 @@ async def list_documents(
             meta["folder"] = doc.folder.name
         return meta
 
-    if is_super_admin:
-        from sqlalchemy import text as _text
+    sort_column_map = {
+        "created_at": Document.created_at,
+        "filename": Document.filename,
+        "status": Document.status,
+    }
+    sort_col = sort_column_map.get(sort_by, Document.created_at)
+    order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
 
+    def apply_filters(stmt):
+        if search:
+            pattern = f"%{search}%"
+            stmt = stmt.where(
+                _or(Document.filename.ilike(pattern), Document.metadata_["title"].astext.ilike(pattern))
+            )
+        if status_filter:
+            stmt = stmt.where(Document.status == status_filter)
+        if folder_id:
+            stmt = stmt.where(Document.folder_id == folder_id)
+        if source_type:
+            stmt = stmt.where(Document.source_type == source_type)
+        return stmt
+
+    if is_super_admin:
         from src.core.ingestion.domain.document_share import VisibleDocument
 
-        # Build canonical folder_id mapping: non-default folder → default folder with same name
-        # This allows the frontend to filter by canonical folder_id and see all tenants' docs.
         folder_map_raw = await session.execute(
             _text(
                 "SELECT non_def.id AS src_id, def.id AS canonical_id "
@@ -574,12 +609,17 @@ async def list_documents(
         )
         folder_id_map: dict[str, str] = {r["src_id"]: r["canonical_id"] for r in folder_map_raw.mappings()}
 
-        query = select(Document).options(selectinload(Document.folder))
+        base = select(Document).options(selectinload(Document.folder))
         if tenant_id:
-            query = query.where(Document.tenant_id == tenant_id)
+            base = base.where(Document.tenant_id == tenant_id)
+        base = apply_filters(base)
 
-        query = query.limit(limit).offset(offset)
-        result = await session.execute(query)
+        count_result = await session.execute(
+            select(_func.count()).select_from(base.subquery())
+        )
+        total = int(count_result.scalar() or 0)
+
+        result = await session.execute(base.order_by(order_clause).limit(limit).offset(offset))
         visible_documents = [
             VisibleDocument(
                 document=doc,
@@ -591,20 +631,24 @@ async def list_documents(
             for doc in result.scalars().all()
         ]
     else:
-        from sqlalchemy import text as _text
-
         from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
             PostgresDocumentRepository,
         )
 
         current_tenant = _get_tenant_id(http_request)
         repository = PostgresDocumentRepository(session)
-        visible_documents = await repository.list_visible_by_tenant(
-            current_tenant, limit=limit, offset=offset
+        visible_documents, total = await repository.list_visible_by_tenant_paged(
+            current_tenant,
+            limit=limit,
+            offset=offset,
+            search=search,
+            status_filter=status_filter,
+            folder_id=folder_id,
+            source_type=source_type,
+            sort_column=sort_by,
+            sort_dir=sort_dir,
         )
 
-        # Map default-tenant folder IDs to this tenant's same-name folder IDs
-        # so shared documents appear in the correct local folder instead of Unfiled.
         if current_tenant != "default":
             _map_raw = await session.execute(
                 _text(
@@ -620,10 +664,9 @@ async def list_documents(
         else:
             folder_id_map = {}
 
-    # folder_id_map populated for both super-admin and regular tenants with shared docs
     _folder_id_map: dict[str, str] = locals().get("folder_id_map", {})
 
-    return [
+    items = [
         DocumentResponse(
             id=visible.document.id,
             filename=visible.document.filename,
@@ -645,6 +688,7 @@ async def list_documents(
         )
         for visible in visible_documents
     ]
+    return PagedDocumentsResponse(items=items, total=total)
 
 
 @router.get(
