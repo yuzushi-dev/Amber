@@ -14,6 +14,18 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog'
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip'
+
+// Feature flag — flip when bulk-prune is reviewed safe for prod.
+// Backend endpoint remains callable (curl/CLI) for staged rollout.
+const BULK_PRUNE_ENABLED = false
+const BULK_PRUNE_DISABLED_REASON =
+    'Bulk prune is temporarily disabled in the UI pending safety review (no snapshot/undo in graph_history). Use the CLI or /v1/graph/editor/bulk-prune for now.'
 
 interface GraphAnomaliesPanelProps {
     className?: string
@@ -117,15 +129,28 @@ export function GraphAnomaliesPanel({ className }: GraphAnomaliesPanelProps) {
                             {orphanCount}
                         </Badge>
                         {orphanCount > 0 && (
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() => openConfirm('orphans')}
-                                disabled={dryRunMutation.isPending}
-                            >
-                                <Trash2 className="w-3 h-3 mr-1" /> Prune
-                            </Button>
+                            <TooltipProvider>
+                                <Tooltip delayDuration={150}>
+                                    <TooltipTrigger asChild>
+                                        <span tabIndex={0}>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-6 px-2 text-[10px]"
+                                                onClick={() => openConfirm('orphans')}
+                                                disabled={!BULK_PRUNE_ENABLED || dryRunMutation.isPending}
+                                            >
+                                                <Trash2 className="w-3 h-3 mr-1" /> Prune
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="max-w-[260px] text-xs">
+                                        {BULK_PRUNE_ENABLED
+                                            ? 'Preview (dry-run) then confirm to delete.'
+                                            : BULK_PRUNE_DISABLED_REASON}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                         )}
                     </div>
                 </li>
@@ -139,15 +164,28 @@ export function GraphAnomaliesPanel({ className }: GraphAnomaliesPanelProps) {
                             {leafCount}
                         </Badge>
                         {leafCount > 0 && (
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() => openConfirm('leaves')}
-                                disabled={dryRunMutation.isPending}
-                            >
-                                <Trash2 className="w-3 h-3 mr-1" /> Prune &lt;{degreeLt}
-                            </Button>
+                            <TooltipProvider>
+                                <Tooltip delayDuration={150}>
+                                    <TooltipTrigger asChild>
+                                        <span tabIndex={0}>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-6 px-2 text-[10px]"
+                                                onClick={() => openConfirm('leaves')}
+                                                disabled={!BULK_PRUNE_ENABLED || dryRunMutation.isPending}
+                                            >
+                                                <Trash2 className="w-3 h-3 mr-1" /> Prune &lt;{degreeLt}
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="max-w-[260px] text-xs">
+                                        {BULK_PRUNE_ENABLED
+                                            ? `Delete entities with degree < ${degreeLt}.`
+                                            : BULK_PRUNE_DISABLED_REASON}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                         )}
                     </div>
                 </li>
