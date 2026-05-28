@@ -70,7 +70,24 @@ class GraphData(BaseModel):
     edges: list[GraphEdge]
 
 
+class GraphHealth(BaseModel):
+    total_nodes: int
+    total_edges: int
+    orphan_nodes: int
+    community_count: int
+    avg_degree: float
+    max_degree: int
+    leaf_nodes: int
+
+
 # --- Endpoints ---
+
+
+@router.get("/health", response_model=GraphHealth)
+async def get_graph_health(tenant_id: str = Depends(get_current_user_tenant_id)):
+    """Aggregated health metrics for the tenant graph."""
+    stats = await platform.neo4j_client.get_health_stats(tenant_id)
+    return GraphHealth(**stats)
 
 
 @router.get("/top", response_model=list[GraphNode])

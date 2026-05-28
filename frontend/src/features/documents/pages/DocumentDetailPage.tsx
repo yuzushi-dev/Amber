@@ -42,6 +42,7 @@ import EntitiesTab from '../components/DocumentTabs/EntitiesTab';
 import RelationshipsTab from '../components/DocumentTabs/RelationshipsTab';
 import CommunitiesTab from '../components/DocumentTabs/CommunitiesTab';
 import SimilaritiesTab from '../components/DocumentTabs/SimilaritiesTab';
+import DocumentSubgraph from '../components/DocumentTabs/DocumentSubgraph';
 import LiveStatusBadge from '../components/LiveStatusBadge';
 import DeleteDocumentModal from '../components/DeleteDocumentModal';
 import DocumentShareDialog from '../components/DocumentShareDialog';
@@ -266,15 +267,14 @@ export default function DocumentDetailPage() {
                     </AccordionItem>
                 </Accordion>
 
-                {/* Graph Visualization Section (Placeholder/Feature) */}
+                {/* Graph Subgraph Section */}
                 <div className="pt-4">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                         <VectorSquare className="w-5 h-5" />
-                        Graph Explorer
+                        Document Subgraph
                     </h2>
                     <div className="border rounded-xl h-[500px] bg-card overflow-hidden">
-                        {/* Reuse RelationshipsTab as the 'Graph' view for now, or a dedicated Graph component if available */}
-                        <RelationshipsTab documentId={docId} />
+                        <DocumentSubgraph documentId={docId} />
                     </div>
                 </div>
 

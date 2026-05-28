@@ -1147,6 +1147,61 @@ async def get_document_entities(
 
 
 @router.get(
+    "/{document_id}/subgraph",
+    summary="Get Document Subgraph",
+    description="Get document subgraph as nodes + edges, compatible with the graph viewer.",
+)
+async def get_document_subgraph(
+    document_id: str,
+    limit_nodes: int = 200,
+    limit_edges: int = 500,
+    http_request: Request = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return entities and edges belonging to the document in a graph-friendly shape."""
+    await _get_visible_document_or_404(document_id, http_request, session)
+
+    from src.core.ingestion.application.use_cases_documents import resolve_graph_document_id
+
+    graph_doc_id = await resolve_graph_document_id(session, document_id)
+
+    nodes_cypher = """
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (c)-[:MENTIONS]->(e:Entity)
+        WITH e, count(c) AS mentions
+        RETURN e.name AS id, e.name AS label, e.type AS type,
+               e.community_id AS community_id, mentions AS degree
+        ORDER BY mentions DESC
+        LIMIT $limit
+    """
+    edges_cypher = """
+        MATCH (d:Document {id: $document_id})-[:HAS_CHUNK]->(c:Chunk)
+        MATCH (c)-[:MENTIONS]->(s:Entity)
+        MATCH (s)-[r]->(t:Entity)
+        WHERE EXISTS {
+            MATCH (d)-[:HAS_CHUNK]->(c2:Chunk)-[:MENTIONS]->(t)
+        }
+        RETURN DISTINCT s.name AS source, t.name AS target, type(r) AS type
+        LIMIT $limit
+    """
+
+    try:
+        node_records = await platform.neo4j_client.execute_read(
+            nodes_cypher, {"document_id": graph_doc_id, "limit": limit_nodes}
+        )
+        edge_records = await platform.neo4j_client.execute_read(
+            edges_cypher, {"document_id": graph_doc_id, "limit": limit_edges}
+        )
+        return {
+            "nodes": [dict(r) for r in node_records],
+            "edges": [dict(r) for r in edge_records],
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch subgraph for document {document_id}: {e}")
+        return {"nodes": [], "edges": []}
+
+
+@router.get(
     "/{document_id}/relationships",
     summary="Get Document Relationships",
     description="Get relationships between entities in this document with pagination.",

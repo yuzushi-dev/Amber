@@ -7,6 +7,8 @@ import ThreeGraph from '../../documents/components/Graph/ThreeGraph';
 import { GraphToolbar, GraphMode } from '../../documents/components/Graph/GraphToolbar';
 import { GraphSearchInput } from '../components/GraphSearchInput';
 import { GraphHistoryModal } from '../components/GraphHistoryModal';
+import { HealSuggestionsDialog } from '../components/HealSuggestionsDialog';
+import { GraphHealthPanel } from '../components/GraphHealthPanel';
 import { Loader2, Settings2, Trash2, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -34,6 +36,7 @@ export default function GlobalGraphPage() {
     const [graphMode, setGraphMode] = useState<GraphMode>('view');
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+    const [healTarget, setHealTarget] = useState<GraphNode | null>(null);
 
     // Query for pending edit count
     const { data: pendingCount = 0 } = useQuery({
@@ -216,10 +219,7 @@ export default function GlobalGraphPage() {
         }
 
         if (graphMode === 'heal') {
-            // AI-assisted healing - show suggestions for this node
-            toast.info(`Heal mode for "${node.label}"`, {
-                description: 'AI suggestions coming soon'
-            });
+            setHealTarget(node);
             return;
         }
 
@@ -430,21 +430,39 @@ export default function GlobalGraphPage() {
                 )}
             </div>
 
-            {/* Stats / Legend Bottom Right */}
+            {/* Health Panel + View Stats Bottom Right */}
             {isInteractive && (
                 <motion.div
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="absolute bottom-8 right-8 pointer-events-auto"
+                    className="absolute bottom-8 right-8 pointer-events-auto space-y-3 w-64"
                 >
-                    <div className="p-4 rounded-xl bg-surface-950/80 backdrop-blur-md border border-white/5 shadow-xl">
-                        <div className="text-xs text-muted-foreground space-y-1">
-                            <p>Nodes: <span className="text-primary font-mono">{graphData.nodes.length}</span></p>
-                            <p>Edges: <span className="text-primary font-mono">{graphData.edges.length}</span></p>
+                    <GraphHealthPanel />
+                    <div className="p-3 rounded-xl bg-surface-950/80 backdrop-blur-md border border-white/5 shadow-xl text-xs text-muted-foreground space-y-1">
+                        <div className="flex justify-between">
+                            <span>Visible nodes</span>
+                            <span className="text-primary font-mono">{graphData.nodes.length}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Visible edges</span>
+                            <span className="text-primary font-mono">{graphData.edges.length}</span>
                         </div>
                     </div>
                 </motion.div>
             )}
+
+            {/* Heal Suggestions Dialog */}
+            <HealSuggestionsDialog
+                open={!!healTarget}
+                nodeId={healTarget?.id ?? null}
+                nodeLabel={healTarget?.label ?? ''}
+                sourceView="global"
+                onOpenChange={(open) => !open && setHealTarget(null)}
+                onQueued={() => {
+                    queryClient.invalidateQueries({ queryKey: ['graph-history-pending-count'] });
+                    queryClient.invalidateQueries({ queryKey: ['graph-history'] });
+                }}
+            />
 
             {/* History Modal */}
             <GraphHistoryModal
