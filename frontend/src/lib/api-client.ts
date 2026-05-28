@@ -109,9 +109,32 @@ export interface GraphHealth {
     leaf_nodes: number;
 }
 
+export interface GraphAnomalies {
+    orphans: Array<{ id: string; label: string; type: string | null }>;
+    leaves: Array<{ id: string; label: string; type: string | null; degree: number }>;
+    dense_communities: Array<{ community_id: number; count: number }>;
+    duplicate_candidates: Array<{ a: string; b: string }>;
+}
+
+export interface BulkPruneResponse {
+    dry_run: boolean;
+    criterion: string;
+    deleted: number;
+    would_delete: string[];
+    ids: string[];
+}
+
 export const graphEditorApi = {
     getHealth: async () => {
         const response = await apiClient.get<GraphHealth>('/graph/editor/health');
+        return response.data;
+    },
+    getAnomalies: async (params?: { limit?: number; degree_threshold?: number }) => {
+        const response = await apiClient.get<GraphAnomalies>('/graph/editor/anomalies', { params });
+        return response.data;
+    },
+    bulkPrune: async (body: { criterion: 'orphans' | 'leaves'; degree_lt?: number; dry_run?: boolean; cap?: number }) => {
+        const response = await apiClient.post<BulkPruneResponse>('/graph/editor/bulk-prune', body);
         return response.data;
     },
     getTopNodes: async (limit: number = 15) => {
