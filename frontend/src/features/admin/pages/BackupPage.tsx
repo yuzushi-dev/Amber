@@ -427,6 +427,12 @@ export default function BackupPage() {
                                                     <Badge variant={getStatusBadgeVariant(backup.status)}>
                                                         {backup.status}
                                                     </Badge>
+                                                    {backup.is_scheduled && (
+                                                        <Badge variant="outline" className="text-xs">
+                                                            <Calendar className="h-3 w-3 mr-1" />
+                                                            scheduled
+                                                        </Badge>
+                                                    )}
                                                 </div>
                                                 <div className="text-sm text-muted-foreground">
                                                     {formatDate(backup.created_at)} • {formatBytes(backup.file_size)}

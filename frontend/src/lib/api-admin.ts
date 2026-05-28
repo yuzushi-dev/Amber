@@ -233,6 +233,7 @@ export interface VectorCollectionsResponse {
 export interface ChatHistoryItem {
     request_id: string
     tenant_id: string
+    group_name: string | null
     query_text: string | null
     response_preview: string | null
     model: string
@@ -1074,6 +1075,7 @@ export interface BackupJob {
     created_at?: string | null
     completed_at?: string | null
     error_message?: string | null
+    is_scheduled?: boolean
 }
 
 export interface BackupListResponse {
@@ -1132,7 +1134,7 @@ export const backupApi = {
         return response.data
     },
 
-    listBackups: async (params?: { page?: number; size?: number }) => {
+    listBackups: async (params?: { page?: number; size?: number; status_filter?: string }) => {
         const response = await apiClient.get<BackupListResponse>('/admin/backup/list', { params })
         return response.data
     },

@@ -15,7 +15,7 @@ import os
 import subprocess
 import zipfile
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,8 +230,15 @@ class RestoreService:
                 await self._restore_document_files(zf, target_tenant_id)
                 update_progress()
 
-                # Restore Vectors (Milvus)
-                await self._restore_vectors(zf, target_tenant_id, mode)
+                # Restore Vectors (Milvus). If vectors are missing or empty,
+                # mark chunks as pending so the ingestion pipeline re-embeds them.
+                vectors_imported = await self._restore_vectors(zf, target_tenant_id, mode)
+                if vectors_imported == 0:
+                    reset = await self._reset_chunks_embedding_status(target_tenant_id)
+                    logger.warning(
+                        f"No vectors restored for tenant {target_tenant_id}; "
+                        f"reset {reset} chunks to PENDING for re-embedding"
+                    )
                 update_progress()
 
                 # Restore Graph (Neo4j)
@@ -505,6 +512,12 @@ class RestoreService:
                 if existing.scalar_one_or_none():
                     continue
 
+            raw_enabled = schedule_data.get("enabled", False)
+            if isinstance(raw_enabled, str):
+                enabled = raw_enabled.lower() == "true"
+            else:
+                enabled = bool(raw_enabled)
+
             schedule = BackupSchedule(
                 id=schedule_id,
                 tenant_id=tenant_id,
@@ -515,7 +528,7 @@ class RestoreService:
                 scope=BackupScope(schedule_data.get("scope"))
                 if schedule_data.get("scope")
                 else None,
-                enabled=schedule_data.get("enabled", "false"),
+                enabled=enabled,
             )
             self.session.add(schedule)
             count += 1
@@ -575,15 +588,15 @@ class RestoreService:
 
     async def _restore_vectors(
         self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode
-    ) -> None:
-        """Restore vectors to Milvus."""
+    ) -> int:
+        """Restore vectors to Milvus. Returns the number of vectors imported."""
         from src.core.tenants.application.active_vector_collection import (
             resolve_active_vector_collection,
         )
         from src.core.tenants.domain.tenant import Tenant
 
         if "vectors/vectors.jsonl" not in zf.namelist():
-            return
+            return 0
 
         # Resolve collection
         res = await self.session.execute(select(Tenant).where(Tenant.id == tenant_id))
@@ -608,8 +621,21 @@ class RestoreService:
 
                 count = await vector_store.import_vectors(vector_gen())
                 logger.info(f"Restored {count} vectors")
+                return count or 0
         finally:
             await vector_store.close()
+
+    async def _reset_chunks_embedding_status(self, tenant_id: str) -> int:
+        """Mark all tenant chunks as pending so they get re-embedded."""
+        from sqlalchemy import update
+
+        result = await self.session.execute(
+            update(Chunk)
+            .where(Chunk.tenant_id == tenant_id)
+            .values(embedding_status=EmbeddingStatus.PENDING)
+        )
+        await self.session.flush()
+        return result.rowcount or 0
 
     async def _restore_graph(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> None:
         """Restore graph to Neo4j."""
@@ -624,7 +650,7 @@ class RestoreService:
                     if line.strip():
                         yield json.loads(line)
 
-            stats = await self.graph_client.import_graph(graph_gen(), mode=mode.value.lower())
+            stats = await self.graph_client.import_graph(graph_gen(), mode=mode.value)
             logger.info(f"Restored graph: {stats}")
 
     async def _restore_postgres_dump(self, zf: zipfile.ZipFile) -> None:
@@ -635,7 +661,7 @@ class RestoreService:
 
         settings = get_settings()
         try:
-            tmp_path = f"/tmp/restore_dump_{datetime.now().timestamp()}.sql"
+            tmp_path = f"/tmp/restore_dump_{datetime.now(UTC).timestamp()}.sql"
             with open(tmp_path, "wb") as f:
                 f.write(zf.read("database/postgres_dump.sql"))
 
