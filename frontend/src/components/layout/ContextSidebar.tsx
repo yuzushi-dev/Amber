@@ -251,6 +251,7 @@ export default function ContextSidebar() {
                     <DatabaseSidebarContent
                         collapsed={collapsed}
                         onUploadClick={() => setUploadOpen(true)}
+                        hideDocumentList={currentPath === '/admin/data/documents'}
                     />
                 ) : (
                     <nav ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto py-4" aria-label="Section navigation">

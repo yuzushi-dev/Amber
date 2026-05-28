@@ -219,6 +219,8 @@ function DroppableFolder({ folder, isActiveFolder, isSelected, selectionMode, on
 interface DatabaseSidebarContentProps {
     collapsed?: boolean
     onUploadClick?: () => void
+    /** Hide the inline document list (used when the main view already lists documents). */
+    hideDocumentList?: boolean
 }
 
 // Helper Component for Contextual Actions
@@ -261,7 +263,8 @@ function BulkActionBar({ count, onClear, onDelete }: { count: number, onClear: (
 
 export default function DatabaseSidebarContent({
     collapsed = false,
-    onUploadClick
+    onUploadClick,
+    hideDocumentList = false,
 }: DatabaseSidebarContentProps) {
     const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set())
     const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
@@ -645,7 +648,16 @@ export default function DatabaseSidebarContent({
                                                 isActiveFolder={activeFolderId === folder.id}
                                                 isSelected={selectedFolderIds.has(folder.id)}
                                                 selectionMode={isSelectionMode && selectedFolderIds.size > 0}
-                                                onClick={setActiveFolderId}
+                                                onClick={(id: string) => {
+                                                    setActiveFolderId(id)
+                                                    if (hideDocumentList) {
+                                                        const folder_id = id === 'all' || id === 'unfiled' ? undefined : id
+                                                        navigate({
+                                                            to: '/admin/data/documents',
+                                                            search: (folder_id ? { folder_id } : {}) as never,
+                                                        })
+                                                    }
+                                                }}
                                                 onSelect={toggleFolderSelect}
                                             />
                                         ))}
@@ -653,7 +665,7 @@ export default function DatabaseSidebarContent({
                                 </div>
 
                                 {/* Documents List Section */}
-                                <div>
+                                <div className={hideDocumentList ? 'hidden' : undefined}>
                                     <div className="flex items-center justify-between px-2 mb-2">
                                         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                             Documents
