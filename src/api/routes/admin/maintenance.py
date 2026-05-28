@@ -222,14 +222,20 @@ async def get_query_metrics(limit: int = 100, tenant_id: str | None = None):
 
 
 @router.get("/stats", response_model=SystemStats)
-async def get_system_stats(tenant_id: str = Depends(get_current_tenant_id)):
+async def get_system_stats(
+    request: Request,
+    tenant_id: str = Depends(get_current_tenant_id),
+):
     """
     Get comprehensive system statistics.
 
     Returns counts and metrics from database, cache, and vector store.
+    Super-admin sees cross-tenant aggregates.
     """
     try:
-        db_stats = await _get_database_stats(tenant_id)
+        is_super_admin = getattr(request.state, "is_super_admin", False)
+        scope = None if is_super_admin else tenant_id
+        db_stats = await _get_database_stats(scope)
         cache_stats = await _get_cache_stats(tenant_id)
         vector_stats = await _get_vector_store_stats(tenant_id)
 
@@ -621,13 +627,16 @@ async def delete_vector_collection(collection_name: str):
 # =============================================================================
 
 
-async def _get_database_stats(tenant_id: str) -> DatabaseStats:
-    """Get PostgreSQL/Neo4j statistics with optimized queries and caching."""
+async def _get_database_stats(tenant_id: str | None) -> DatabaseStats:
+    """Get PostgreSQL/Neo4j statistics with optimized queries and caching.
+
+    ``tenant_id=None`` means aggregate across all tenants (super-admin view).
+    """
     try:
         from src.core.cache.decorators import get_from_cache, set_cache
 
-        # Check cache first
-        cache_key = f"admin:stats:database:{tenant_id}"
+        scope_key = tenant_id or "__all__"
+        cache_key = f"admin:stats:database:{scope_key}"
         cached = await get_from_cache(cache_key)
         if cached:
             return DatabaseStats(**cached)
@@ -641,7 +650,6 @@ async def _get_database_stats(tenant_id: str) -> DatabaseStats:
         from src.core.state.machine import DocumentStatus
 
         async with async_session_maker() as session:
-            # OPTIMIZED: Single query for all document counts using CASE
             count_query = select(
                 func.count(Document.id).label("total"),
                 func.sum(case((Document.status == DocumentStatus.READY, 1), else_=0)).label(
@@ -665,24 +673,19 @@ async def _get_database_stats(tenant_id: str) -> DatabaseStats:
                 func.sum(case((Document.status == DocumentStatus.FAILED, 1), else_=0)).label(
                     "failed"
                 ),
-            ).where(Document.tenant_id == tenant_id)
+            )
+            if tenant_id is not None:
+                count_query = count_query.where(Document.tenant_id == tenant_id)
 
             result = await session.execute(count_query)
             row = result.one()
 
-            # Chunk count (separate query as it's a different table)
-            # Need to join with Document if Chunk doesn't have tenant_id, OR check schema.
-            # Assuming Chunk has tenant_id based on typical multi-tenant design.
-            # If not, join: select(func.count(Chunk.id)).join(Document).where(Document.tenant_id == tenant_id)
-            # Let's check schema assumption. Assuming yes for now, but safer to join if unsure.
-            # Based on folders.py usage: select(Document).where... -> so Chunks likely child.
-            # In use_cases_documents.py: request.tenant_id is used.
-            # Let's use the explicit filter on Chunk if available, or Join.
-            # Given previous context, Chunks usually have tenant_id. Let's try simple filter.
-            chunk_query = select(func.count(Chunk.id)).where(Chunk.tenant_id == tenant_id)
+            chunk_query = select(func.count(Chunk.id))
+            if tenant_id is not None:
+                chunk_query = chunk_query.where(Chunk.tenant_id == tenant_id)
             chunk_count = await session.scalar(chunk_query)
 
-            # OPTIMIZED: Get all Neo4j counts in a single query
+            # Neo4j stats: pass the same scope (None = all tenants).
             neo4j_stats = await _get_neo4j_stats_consolidated(tenant_id)
 
             stats = DatabaseStats(
@@ -703,28 +706,46 @@ async def _get_database_stats(tenant_id: str) -> DatabaseStats:
         return DatabaseStats()
 
 
-async def _get_neo4j_stats_consolidated(tenant_id: str) -> dict:
-    """Get all Neo4j counts in a single optimized query."""
+async def _get_neo4j_stats_consolidated(tenant_id: str | None) -> dict:
+    """Get all Neo4j counts in a single optimized query.
+
+    ``tenant_id=None`` aggregates across all tenants.
+    """
     try:
         from src.amber_platform.composition_root import platform
 
-        # OPTIMIZED: Single query returning all counts at once
-        cypher = """
-        MATCH (e:Entity {tenant_id: $tenant_id})
-        WHERE (e)<-[:MENTIONS]-()  // Count only entities mentioned by at least one active chunk
-        WITH count(e) as entity_count
+        if tenant_id is None:
+            cypher = """
+            MATCH (e:Entity)
+            WHERE (e)<-[:MENTIONS]-()
+            WITH count(e) as entity_count
 
-        MATCH (c:Community {tenant_id: $tenant_id})
-        WHERE EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) } // Count only non-empty communities
-        WITH entity_count, count(c) as community_count
+            MATCH (c:Community)
+            WHERE EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) }
+            WITH entity_count, count(c) as community_count
 
-        // Count relationships connected to valid entities
-        MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
-        WHERE (a)<-[:MENTIONS]-() AND (b)<-[:MENTIONS]-()
-        RETURN entity_count, count(r) as rel_count, community_count
-        """
+            MATCH (a:Entity)-[r]->(b:Entity)
+            WHERE (a)<-[:MENTIONS]-() AND (b)<-[:MENTIONS]-()
+            RETURN entity_count, count(r) as rel_count, community_count
+            """
+            params: dict = {}
+        else:
+            cypher = """
+            MATCH (e:Entity {tenant_id: $tenant_id})
+            WHERE (e)<-[:MENTIONS]-()
+            WITH count(e) as entity_count
 
-        result = await platform.neo4j_client.execute_read(cypher, {"tenant_id": tenant_id})
+            MATCH (c:Community {tenant_id: $tenant_id})
+            WHERE EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) }
+            WITH entity_count, count(c) as community_count
+
+            MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
+            WHERE (a)<-[:MENTIONS]-() AND (b)<-[:MENTIONS]-()
+            RETURN entity_count, count(r) as rel_count, community_count
+            """
+            params = {"tenant_id": tenant_id}
+
+        result = await platform.neo4j_client.execute_read(cypher, params)
         if result and len(result) > 0:
             row = result[0]
             return {
@@ -742,19 +763,19 @@ async def _get_neo4j_stats_consolidated(tenant_id: str) -> dict:
 # Legacy functions kept for backwards compatibility (now call consolidated function)
 async def _get_neo4j_entity_count() -> int:
     """Get entity count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated()
+    stats = await _get_neo4j_stats_consolidated(None)
     return stats.get("entities_total", 0)
 
 
 async def _get_neo4j_relationship_count() -> int:
     """Get relationship count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated()
+    stats = await _get_neo4j_stats_consolidated(None)
     return stats.get("relationships_total", 0)
 
 
 async def _get_neo4j_community_count() -> int:
     """Get community count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated()
+    stats = await _get_neo4j_stats_consolidated(None)
     return stats.get("communities_total", 0)
 
 
