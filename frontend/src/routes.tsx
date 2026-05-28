@@ -22,16 +22,12 @@ import MainLayout from './components/layout/MainLayout'
 import ClientLayout from './components/layout/ClientLayout'
 import ChatContainer from './features/chat/components/ChatContainer'
 import DocumentLibrary from './features/documents/components/DocumentLibrary'
-// import JobsPage from './features/admin/pages/JobsPage' // Deprecated
-// import QueuesPage from './features/admin/pages/QueuesPage' // Deprecated
-import JobsAndQueuesPage from './features/admin/pages/JobsAndQueuesPage'
 import TuningPage from './features/admin/pages/TuningPage'
 import LlmSettingsPage from './features/admin/pages/LlmSettingsPage'
 import CurationPage from './features/admin/pages/CurationPage'
 import VectorStorePage from './features/admin/pages/VectorStorePage'
 import DocumentDetailPage from './features/documents/pages/DocumentDetailPage'
 import TokenMetricsPage from './features/admin/pages/TokenMetricsPage'
-import RagasSubPanel from './features/admin/components/RagasSubPanel'
 import ApiKeyPage from './features/admin/pages/ApiKeyPage'
 import OptionalFeaturesPage from './features/admin/pages/OptionalFeaturesPage'
 import FeedbackPage from './features/admin/pages/FeedbackPage'
@@ -305,22 +301,10 @@ const metricsIndexRoute = createRoute({
     },
 })
 
-const metricsSystemRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/metrics/system',
-    component: () => <JobsAndQueuesPage />,
-})
-
 const metricsTokensRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/metrics/tokens',
     component: () => <TokenMetricsPage />,
-})
-
-const metricsRagasRoute = createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: '/metrics/ragas',
-    component: () => <RagasSubPanel />,
 })
 
 const metricsFeedbackRoute = createRoute({
@@ -337,17 +321,17 @@ const metricsFeedbackRoute = createRoute({
 const opsIndexRedirect = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/ops',
-    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/tokens' }) },
 })
 const opsJobsRedirect = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/ops/jobs',
-    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/tokens' }) },
 })
 const opsQueuesRedirect = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/ops/queues',
-    beforeLoad: () => { throw redirect({ to: '/admin/metrics/system' }) },
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/tokens' }) },
 })
 const opsTuningRedirect = createRoute({
     getParentRoute: () => adminLayoutRoute,
@@ -367,7 +351,7 @@ const opsMetricsRedirect = createRoute({
 const opsRagasRedirect = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/ops/ragas',
-    beforeLoad: () => { throw redirect({ to: '/admin/metrics/ragas' }) },
+    beforeLoad: () => { throw redirect({ to: '/admin/metrics/tokens' }) },
 })
 
 // Old legacy redirects
@@ -391,7 +375,7 @@ const legacyJobsRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/jobs',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/metrics/system' })
+        throw redirect({ to: '/admin/metrics/tokens' })
     },
 })
 
@@ -399,7 +383,7 @@ const legacyQueuesRoute = createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: '/queues',
     beforeLoad: () => {
-        throw redirect({ to: '/admin/metrics/system' })
+        throw redirect({ to: '/admin/metrics/tokens' })
     },
 })
 
@@ -453,9 +437,7 @@ const routeTree = rootRoute.addChildren([
         // Metrics section
 
         metricsIndexRoute,
-        metricsSystemRoute,
         metricsTokensRoute,
-        metricsRagasRoute,
         metricsFeedbackRoute,
         // Legacy redirects
         opsIndexRedirect,
