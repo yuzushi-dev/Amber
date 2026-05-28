@@ -16,6 +16,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    ProgressBar,
     Select,
     Static,
     Switch,
@@ -407,7 +408,7 @@ class LlmScreen(Vertical):
 
 
 class EvalScreen(Vertical):
-    """List benchmark runs + quick judge launcher hint."""
+    """List benchmark runs + live progress bar for the selected running run."""
 
     DEFAULT_CSS = """
     EvalScreen {
@@ -423,18 +424,33 @@ class EvalScreen(Vertical):
         color: $text-muted;
         margin-bottom: 1;
     }
+    EvalScreen .live {
+        height: auto;
+        padding: 1;
+        border: solid $accent;
+        margin-bottom: 1;
+    }
+    EvalScreen ProgressBar {
+        width: 1fr;
+    }
     """
+
+    _poll_task: Any = None
 
     def compose(self) -> ComposeResult:
         yield Static(
             "Launching runs is keyboard-driven from the CLI:\n"
             "  amber eval judge-run <dataset.jsonl> --judge-model ...\n"
+            "  amber eval locomo-run <locomo.json> --judge-model ...\n"
             "  amber eval ragas-run <dataset.json>\n"
-            "This screen polls the database and shows recent runs.",
+            "Select a running row below to follow live progress.",
             id="eval-hint",
         )
         with Horizontal(classes="row"):
             yield Button("Refresh", id="eval-refresh", variant="primary")
+            yield Static("(no run selected)", id="eval-live-status")
+        with Vertical(classes="live"):
+            yield ProgressBar(id="eval-progress", total=100, show_eta=False)
         yield DataTable(id="eval-runs", zebra_stripes=True, cursor_type="row")
 
     async def on_mount(self) -> None:
@@ -461,3 +477,56 @@ class EvalScreen(Vertical):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "eval-refresh":
             await self._refresh()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Start polling the live Redis state for the selected run."""
+        key = event.row_key.value if event.row_key else None
+        if not key:
+            return
+        run_id = str(key)
+        self._cancel_poll()
+        self._poll_task = self.app.run_worker(
+            self._poll_run(run_id), exclusive=True, group="eval-poll"
+        )
+
+    def _cancel_poll(self) -> None:
+        task = self._poll_task
+        if task is None:
+            return
+        try:
+            task.cancel()
+        except Exception:
+            pass
+        self._poll_task = None
+
+    async def _poll_run(self, run_id: str) -> None:
+        """Poll Redis eval:state:{id} until the run leaves running/pending."""
+        import asyncio
+
+        status_widget = self.query_one("#eval-live-status", Static)
+        bar = self.query_one("#eval-progress", ProgressBar)
+        bar.update(total=100, progress=0)
+        status_widget.update(f"watching [b]{run_id[:8]}[/b] …")
+
+        try:
+            for _ in range(900):  # ~30 minuti max @ 2s
+                state = await tui_data.read_eval_state(run_id)
+                if state is None:
+                    status_widget.update(
+                        f"{run_id[:8]} — no live state (run finished or never started)"
+                    )
+                    return
+                progress = int(state.get("progress", 0))
+                done = state.get("done", 0)
+                total = state.get("total", 0)
+                status = state.get("status", "?")
+                bar.update(total=100, progress=progress)
+                status_widget.update(
+                    f"{run_id[:8]} · [b]{status}[/b] · {done}/{total} ({progress}%)"
+                )
+                if status in ("completed", "failed", "cancelled"):
+                    await self._refresh()
+                    return
+                await asyncio.sleep(2.0)
+        except asyncio.CancelledError:
+            pass

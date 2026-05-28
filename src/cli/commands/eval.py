@@ -78,6 +78,7 @@ def judge_run(
 ) -> None:
     """Run an end-to-end LLM-as-judge evaluation against a JSONL dataset."""
     from src.core.admin_ops.application.evaluation.judge_eval import (
+        JudgeSample,
         run_judge_evaluation,
     )
     from src.core.generation.domain.ports.provider_factory import get_provider_factory
@@ -108,24 +109,22 @@ def judge_run(
             )
             return result.text
 
-        if mock_answers:
-            async def _answerer(question: str) -> str:
-                # Smoke-test: reuse the expected answer directly. We can't see it
-                # from here, so we just echo the question to keep the loop honest.
-                return question
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            transient=False,
+        ) as bar:
+            task_id = bar.add_task("Evaluating", total=1)
 
-            with Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-                transient=False,
-            ) as bar:
-                task_id = bar.add_task("Evaluating", total=1)
+            def _cb(done: int, total: int) -> None:
+                bar.update(task_id, total=total, completed=done)
 
-                def _cb(done: int, total: int) -> None:
-                    bar.update(task_id, total=total, completed=done)
+            if mock_answers:
+                async def _answerer(sample: JudgeSample) -> str:
+                    return sample.expected_answer
 
                 async with session_scope() as session:
                     return await run_judge_evaluation(
@@ -139,23 +138,10 @@ def judge_run(
                         progress_callback=_cb,
                     )
 
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        async with httpx.AsyncClient(headers=headers) as client:
-            async def _answerer(question: str) -> str:
-                return await _answerer_real(client, question)
-
-            with Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-                transient=False,
-            ) as bar:
-                task_id = bar.add_task("Evaluating", total=1)
-
-                def _cb(done: int, total: int) -> None:
-                    bar.update(task_id, total=total, completed=done)
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            async with httpx.AsyncClient(headers=headers) as client:
+                async def _answerer(sample: JudgeSample) -> str:
+                    return await _answerer_real(client, sample.question)
 
                 async with session_scope() as session:
                     return await run_judge_evaluation(
@@ -171,6 +157,113 @@ def judge_run(
 
     run_id = asyncio.run(_orchestrate())
     console.print(f"[green]Eval complete[/green] run_id=[cyan]{run_id}[/cyan]")
+
+
+@app.command("locomo-run")
+def locomo_run(
+    dataset: Path = typer.Argument(
+        ..., exists=True, readable=True, help="Locomo JSON file (sessions + qa)"
+    ),
+    tenant_id: str = typer.Option("default"),
+    judge_provider: str = typer.Option("openai"),
+    judge_model: str = typer.Option("gpt-4o-mini"),
+    api_base: str = typer.Option("http://localhost:8000/api/v1"),
+    api_key: str | None = typer.Option(None, envvar="AMBER_API_KEY"),
+    mock_answers: bool = typer.Option(False, "--mock-answers"),
+) -> None:
+    """Run a Locomo benchmark (long-context conversational, 5-criterion rubric)."""
+    from src.core.admin_ops.application.evaluation.judge_eval import (
+        JudgeSample,
+        run_judge_evaluation,
+    )
+    from src.core.admin_ops.application.evaluation.locomo_adapter import (
+        LOCOMO_RUBRIC,
+        load_locomo,
+    )
+    from src.core.generation.domain.ports.provider_factory import get_provider_factory
+
+    if not mock_answers and not api_key:
+        raise typer.BadParameter("--api-key required (or set AMBER_API_KEY) unless --mock-answers")
+
+    samples = load_locomo(dataset)
+    if not samples:
+        raise typer.BadParameter("Locomo dataset produced 0 samples")
+
+    async def _answerer_real(client: httpx.AsyncClient, question: str) -> str:
+        response = await client.post(
+            f"{api_base}/chat", json={"query": question, "stream": False}, timeout=120.0
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("response") or payload.get("answer") or ""
+
+    async def _orchestrate() -> str:
+        factory = get_provider_factory()
+        judge = factory.get_llm_provider(provider_name=judge_provider, model=judge_model)
+
+        async def _judge_caller(system_prompt: str, user_prompt: str) -> str:
+            result = await judge.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=judge_model,
+                temperature=0.0,
+            )
+            return result.text
+
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            transient=False,
+        ) as bar:
+            task_id = bar.add_task("Locomo eval", total=len(samples))
+
+            def _cb(done: int, total: int) -> None:
+                bar.update(task_id, total=total, completed=done)
+
+            if mock_answers:
+                async def _answerer(sample: JudgeSample) -> str:
+                    return sample.expected_answer
+
+                async with session_scope() as session:
+                    return await run_judge_evaluation(
+                        session,
+                        samples=samples,
+                        dataset_path=dataset,
+                        tenant_id=tenant_id,
+                        judge_provider_name=judge_provider,
+                        judge_model=judge_model,
+                        answerer=_answerer,
+                        judge_caller=_judge_caller,
+                        rubric=LOCOMO_RUBRIC,
+                        framework="locomo",
+                        progress_callback=_cb,
+                    )
+
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            async with httpx.AsyncClient(headers=headers) as client:
+                async def _answerer(sample: JudgeSample) -> str:
+                    return await _answerer_real(client, sample.question)
+
+                async with session_scope() as session:
+                    return await run_judge_evaluation(
+                        session,
+                        samples=samples,
+                        dataset_path=dataset,
+                        tenant_id=tenant_id,
+                        judge_provider_name=judge_provider,
+                        judge_model=judge_model,
+                        answerer=_answerer,
+                        judge_caller=_judge_caller,
+                        rubric=LOCOMO_RUBRIC,
+                        framework="locomo",
+                        progress_callback=_cb,
+                    )
+
+    run_id = asyncio.run(_orchestrate())
+    console.print(f"[green]Locomo eval complete[/green] run_id=[cyan]{run_id}[/cyan]")
 
 
 @app.command("list-runs")
