@@ -315,6 +315,13 @@ export default function DatabaseSidebarContent({
         queryFn: folderApi.list
     })
 
+    // Fetch counts (independent of paginated document list).
+    const { data: folderCounts } = useQuery({
+        queryKey: ['folder-counts'],
+        queryFn: folderApi.counts,
+        staleTime: 30_000,
+    })
+
     // Mutations
     const createFolderMutation = useMutation({
         mutationFn: folderApi.create,
@@ -465,13 +472,16 @@ export default function DatabaseSidebarContent({
 
 
 
-    // Computed folder list for UI
+    // Computed folder list for UI — counts come from the dedicated /folders/counts
+    // endpoint so a paginated document list does not under-report.
     const uiFolders = (() => {
-        const allCount = documents?.length || 0
-        const unfiledCount = documents?.filter(d => !d.folder_id).length || 0
+        const totalAll = folderCounts?.total ?? documents?.length ?? 0
+        const unfiledCount = folderCounts?.unfiled
+            ?? documents?.filter(d => !d.folder_id).length
+            ?? 0
 
         const base = [
-            { id: 'all', name: 'All documents', count: allCount, isReal: false },
+            { id: 'all', name: 'All documents', count: totalAll, isReal: false },
             { id: 'unfiled', name: 'Unfiled', count: unfiledCount, isReal: false },
         ]
 
@@ -480,7 +490,10 @@ export default function DatabaseSidebarContent({
         const folderItems = apiFolders.map(f => ({
             id: f.id,
             name: f.name,
-            count: documents?.filter(d => d.folder_id === f.id).length || 0,
+            count: folderCounts?.by_folder[f.id]
+                ?? f.document_count
+                ?? documents?.filter(d => d.folder_id === f.id).length
+                ?? 0,
             isReal: true
         }))
 

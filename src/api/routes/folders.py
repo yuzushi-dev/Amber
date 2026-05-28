@@ -3,7 +3,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_tenant_id
@@ -29,11 +29,33 @@ class FolderResponse(BaseModel):
     tenant_id: str
     name: str
     created_at: datetime
+    document_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
 
+class FolderCounts(BaseModel):
+    by_folder: dict[str, int]
+    unfiled: int
+    total: int
+
+
 # --- Endpoints ---
+
+
+async def _count_documents_by_folder(
+    session: AsyncSession, *, tenant_id: str | None = None
+) -> tuple[dict[str | None, int], int]:
+    """Return (counts_by_folder_id, total). folder_id=None bucket counts unfiled."""
+    stmt = select(Document.folder_id, func.count(Document.id))
+    if tenant_id:
+        stmt = stmt.where(Document.tenant_id == tenant_id)
+    stmt = stmt.group_by(Document.folder_id)
+    raw = await session.execute(stmt)
+    counts: dict[str | None, int] = {}
+    for folder_id, count in raw.all():
+        counts[folder_id] = int(count or 0)
+    return counts, sum(counts.values())
 
 
 @router.get("", response_model=list[FolderResponse])
@@ -63,7 +85,18 @@ async def list_folders(
             result = await session.execute(
                 select(Folder).where(Folder.tenant_id == tenant_id).order_by(Folder.name)
             )
-        return result.scalars().all()
+        folders = result.scalars().all()
+        counts, _ = await _count_documents_by_folder(session, tenant_id=tenant_id)
+        return [
+            FolderResponse(
+                id=f.id,
+                tenant_id=f.tenant_id,
+                name=f.name,
+                created_at=f.created_at,
+                document_count=counts.get(f.id, 0),
+            )
+            for f in folders
+        ]
 
     # Super-admin: fetch all valid folders, deduplicate by name.
     # Use the 'default' tenant's folder as canonical when a same-name folder exists there;
@@ -95,7 +128,49 @@ async def list_folders(
     result = await session.execute(
         select(Folder).where(Folder.id.in_(canonical_ids)).order_by(Folder.name)
     )
-    return result.scalars().all()
+    folders = result.scalars().all()
+
+    # Aggregate counts across all tenants by canonical (matching name).
+    counts_raw, _ = await _count_documents_by_folder(session)
+    # Build name -> canonical_id map (canonical is in `folders` list).
+    name_to_canonical = {f.name: f.id for f in folders}
+    # Build folder_id -> name map from raw rows (need all folders, not just canonical).
+    all_folders_raw = await session.execute(select(Folder.id, Folder.name))
+    folder_id_to_name = {fid: name for fid, name in all_folders_raw.all()}
+
+    canonical_counts: dict[str, int] = {f.id: 0 for f in folders}
+    for fid, c in counts_raw.items():
+        name = folder_id_to_name.get(fid)
+        canonical_id = name_to_canonical.get(name) if name else None
+        if canonical_id:
+            canonical_counts[canonical_id] = canonical_counts.get(canonical_id, 0) + c
+
+    return [
+        FolderResponse(
+            id=f.id,
+            tenant_id=f.tenant_id,
+            name=f.name,
+            created_at=f.created_at,
+            document_count=canonical_counts.get(f.id, 0),
+        )
+        for f in folders
+    ]
+
+
+@router.get("/counts", response_model=FolderCounts)
+async def folder_counts(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    """Document counts per folder (cheap GROUP BY)."""
+    is_super_admin = getattr(request.state, "is_super_admin", False)
+    counts_raw, total = await _count_documents_by_folder(
+        session, tenant_id=None if is_super_admin else tenant_id
+    )
+    unfiled = counts_raw.pop(None, 0)
+    by_folder: dict[str, int] = {fid: count for fid, count in counts_raw.items() if fid}
+    return FolderCounts(by_folder=by_folder, unfiled=unfiled, total=total)
 
 
 @router.post("", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
