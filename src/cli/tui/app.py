@@ -1,25 +1,11 @@
-"""Amber operator TUI.
-
-Skeleton with one screen per CLI domain. Each screen wraps the same service
-calls used by the CLI commands; it is NOT a separate API surface.
-"""
+"""Amber operator TUI."""
 
 from __future__ import annotations
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal
-from textual.widgets import Footer, Header, Static, Tab, TabbedContent, TabPane
+from textual.widgets import Footer, Header, TabbedContent, TabPane
 
-
-class _PlaceholderPane(Static):
-    """Minimal placeholder body until each domain screen is fleshed out."""
-
-    DEFAULT_CSS = """
-    _PlaceholderPane {
-        padding: 1 2;
-        color: $text-muted;
-    }
-    """
+from src.cli.tui.screens import BackupScreen, EvalScreen, LlmScreen, TuningScreen
 
 
 class AmberConsole(App):
@@ -35,36 +21,46 @@ class AmberConsole(App):
     """
 
     TITLE = "Amber Operator Console"
-    SUB_TITLE = "F4 skeleton — fill screens as features land"
+    SUB_TITLE = "Backup · Tuning · LLMs · Eval"
 
     BINDINGS = [
         ("q", "quit", "Quit"),
+        ("r", "refresh", "Refresh"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with TabbedContent(initial="backup"):
             with TabPane("Backup", id="backup"):
-                yield _PlaceholderPane(
-                    "Backup screen — TODO: list jobs (BackupJob), trigger create/restore, edit schedule.\n"
-                    "Wire to: src.cli.commands.backup"
-                )
+                yield BackupScreen()
             with TabPane("Tuning", id="tuning"):
-                yield _PlaceholderPane(
-                    "Tuning screen — TODO: prompt editor, retrieval params, per-tenant config viewer.\n"
-                    "Wire to: src.cli.commands.tuning"
-                )
+                yield TuningScreen()
             with TabPane("LLMs", id="llm"):
-                yield _PlaceholderPane(
-                    "LLM screen — TODO: default provider/model, per-step overrides, ollama url.\n"
-                    "Wire to: src.cli.commands.llm"
-                )
+                yield LlmScreen()
             with TabPane("Eval", id="eval"):
-                yield _PlaceholderPane(
-                    "Eval screen — TODO: pick framework (locomo/ragas), launch run, watch progress.\n"
-                    "Wire to: src.cli.commands.eval"
-                )
+                yield EvalScreen()
         yield Footer()
+
+    async def action_refresh(self) -> None:
+        """Forward 'r' to the active tab's refresh button if it has one."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            active = tabs.active
+        except Exception:
+            return
+        button_id = {
+            "backup": "refresh",
+            "tuning": "load-prompt",
+            "llm": "llm-refresh",
+            "eval": "eval-refresh",
+        }.get(active)
+        if not button_id:
+            return
+        try:
+            btn = self.query_one(f"#{button_id}")
+            btn.press()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":  # pragma: no cover

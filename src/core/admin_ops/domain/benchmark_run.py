@@ -31,6 +31,7 @@ class BenchmarkRun(Base, TimestampMixin):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     tenant_id = Column(String, index=True, nullable=False)
+    framework = Column(String, default="ragas", nullable=False, index=True)  # ragas | judge | locomo
     dataset_name = Column(String, nullable=False)  # e.g., "golden_dataset.json"
     status = Column(
         Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x]),

@@ -47,34 +47,59 @@ Limiti volutamente accettati:
 - Le sub-commands stampano output Rich; nessun JSON output flag (può arrivare con `--format=json`).
 - Non c'è autenticazione: il CLI opera con i privilegi del database. Documentazione operativa raccomanderà di restringerne l'esecuzione.
 
-## F4b — Evaluation framework
+## F4b — Evaluation framework (consegnato)
 
-Da decidere: **Locomo** vs **LLM-as-judge custom** vs **ragas mantenuto solo CLI**.
+Scelta: **LLM-as-judge custom** come default. Ragas rimane runner legacy. Locomo
+resta task aperto (richiede dataset + adapter dedicato).
 
-Decisione richiesta (tracciata in ticket separato):
-- Locomo è long-context multi-turn — adatto per il caso d'uso Amber (conversational RAG).
-- ragas è già installato come optional extra; può restare come baseline.
-- Custom LLM-as-judge con rubric definite per dominio dà controllo ma costa engineering.
+Backend:
+- `BenchmarkRun.framework` (string, default `ragas`) discriminator. Migration
+  `20260528_1100_benchmark_framework.py`.
+- `src/core/admin_ops/application/evaluation/judge_eval.py`: caricamento JSONL,
+  rubrica 3 voci (relevance/faithfulness/completeness) 0-10 → metrica `overall`.
+  Tollerante a noise nell'output del judge (regex JSON, fence stripping).
 
-Output comandi previsti:
-- `amber eval locomo-run <dataset.jsonl> [--model judge_model]`
+CLI:
+- `amber eval list-frameworks`
+- `amber eval ragas-run <dataset>` (legacy worker)
+- `amber eval judge-run <dataset.jsonl> --judge-provider --judge-model [--api-base --api-key | --mock-answers]`
+- `amber eval list-runs [--framework]`
+- `amber eval show <run_id> [--full]`
 - `amber eval compare <run_id_a> <run_id_b>`
-- `amber eval report <run_id> [--format md|json|csv]`
+- `amber eval report <run_id> [--format md|json|csv] [--out file]`
 
-I run vengono persistiti in `BenchmarkRun` (tabella già esistente da ragas) — schema da estendere con `framework` discriminator.
+Formato dataset JSONL (una riga per sample):
+```
+{"question": "...", "expected_answer": "...", "contexts": "optional context"}
+```
 
-## F4c — TUI fleshed-out
+Locomo (planned): adapter che legge il formato Locomo e proietta su
+`JudgeSample`, più rubrica estesa con `temporal_consistency`.
 
-Lo skeleton ha 4 tabs placeholder. Per ognuno il piano:
+## F4c — TUI fleshed-out (consegnato)
 
-- **Backup tab**: tabella jobs paginata (DataTable), bottoni Create/Restore/Delete, schedule editor inline. Polling via Redis state già esistente (stesso meccanismo della UI web). Auto-refresh ogni 5s.
-- **Tuning tab**: tree dei campi config, editor multi-line per prompt (TextArea con preview default), apply/reset.
-- **LLMs tab**: matrix view degli step (riga = step, colonna = provider/model attuale vs default). Click per editor.
-- **Eval tab**: lista frameworks, picker dataset, log streaming output del worker via Celery result backend o file stream.
+Quattro tab funzionanti in `src/cli/tui/screens.py`:
 
-Decisioni aperte:
-- Connessione DB diretta vs API call. Skeleton usa connessione DB diretta come la CLI; significa che la TUI gira **sul server** e accede a Postgres/Neo4j locali. Per uso remote-headless serve un wrapper SSH oppure pivot su HTTP API.
-- Auth nella TUI: oggi nessuna. Se la TUI dovesse girare con permessi non-root in futuro, va riusato lo schema `verify_super_admin` esistente (richiede session token).
+- **Backup**: `DataTable` di job + bottoni Create user_data/full_system, Restore
+  merge/replace (sulla riga selezionata), e form Schedule (Switch enabled,
+  frequency, time UTC, scope, retention). Refresh manuale via `r` o bottone.
+- **Tuning**: prompt editor (TextArea multi-line) con picker tra i 5 prompt
+  fields. Load / Save / Reset (drop override).
+- **LLMs**: defaults + matrice degli override per-step (riga = step_id, colonne
+  provider/model/temperature/seed). Edit avviene via CLI `amber llm set-step` —
+  la TUI è read-mostly per non duplicare la logica di provider validation.
+- **Eval**: lista runs (DataTable), refresh manuale. Lancio runs sempre via
+  CLI per non bloccare la TUI con job lunghi.
+
+Connessione DB diretta — la TUI gira sul server (stessa scelta della CLI). Per
+uso remote-headless: SSH + container `worker.Dockerfile` con `command:
+amber tui` (vedi docker-compose).
+
+Decisioni aperte (non bloccanti):
+- Auth nella TUI: nessuna oggi. Se serve, aggiungere ticket integration con
+  `verify_super_admin` (session token).
+- Log streaming worker (Eval tab): da fare se servirà watch real-time;
+  per ora il polling delle metric su DB è sufficiente.
 
 ## Note operative
 
