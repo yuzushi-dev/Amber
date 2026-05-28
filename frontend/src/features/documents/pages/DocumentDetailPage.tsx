@@ -9,7 +9,7 @@
  * - Graph Visualization
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -17,7 +17,6 @@ import { useAuth } from '@/features/auth';
 import {
     ChevronLeft,
     ExternalLink,
-    FileText,
     Layers,
     Share2,
     Database,
@@ -25,14 +24,14 @@ import {
     GitMerge,
     Trash2,
     VectorSquare,
-    Info
+    Info,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { DocumentViewer } from '../components/DocumentViewer'
 
@@ -80,8 +79,7 @@ export default function DocumentDetailPage() {
     // React Query Client
     const queryClient = useQueryClient();
 
-    // State for Modals
-    const [activeModal, setActiveModal] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<string>('chunks');
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
     const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
@@ -117,28 +115,13 @@ export default function DocumentDetailPage() {
     const isDefaultOwnedDocument = (document.owner_tenant_id ?? document.tenant_id) === 'default';
     const sourceUrl = document.metadata?.source_url as string | undefined;
 
-    const statsCards = [
-        { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0, color: 'text-chart-1', bg: 'bg-chart-1/10' },
-        { id: 'entities', label: 'Entities', icon: Layers, count: document.stats?.entities || 0, color: 'text-chart-2', bg: 'bg-chart-2/10' },
-        { id: 'relationships', label: 'Relationships', icon: Share2, count: document.stats?.relationships || 0, color: 'text-chart-3', bg: 'bg-chart-3/10' },
-        { id: 'communities', label: 'Communities', icon: Network, count: document.stats?.communities || 0, color: 'text-chart-4', bg: 'bg-chart-4/10' },
-        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: document.stats?.similarities || 0, color: 'text-chart-5', bg: 'bg-chart-5/10' },
+    const tabs = [
+        { id: 'chunks', label: 'Chunks', icon: Database, count: document.stats?.chunks || 0 },
+        { id: 'entities', label: 'Entities', icon: Layers, count: document.stats?.entities || 0 },
+        { id: 'relationships', label: 'Relationships', icon: Share2, count: document.stats?.relationships || 0 },
+        { id: 'communities', label: 'Communities', icon: Network, count: document.stats?.communities || 0 },
+        { id: 'similarities', label: 'Similarities', icon: GitMerge, count: document.stats?.similarities || 0 },
     ];
-
-    const renderModalContent = () => {
-        switch (activeModal) {
-            case 'chunks': return <ChunksTab documentId={docId} />;
-            case 'entities': return <EntitiesTab documentId={docId} />;
-            case 'relationships': return <RelationshipsTab documentId={docId} />;
-            case 'communities': return <CommunitiesTab documentId={docId} />;
-            case 'similarities': return <SimilaritiesTab documentId={docId} />;
-            default: return null;
-        }
-    };
-
-    const getModalTitle = (id: string) => {
-        return statsCards.find(c => c.id === id)?.label || 'Details';
-    };
 
     return (
         <div className="flex flex-col h-full bg-background overflow-y-auto">
@@ -208,9 +191,9 @@ export default function DocumentDetailPage() {
                 </div>
             </div>
 
-            <div className="p-6 space-y-8 max-w-6xl mx-auto w-full">
+            <div className="p-6 space-y-6 max-w-6xl mx-auto w-full">
 
-                {/* Summary Section */}
+                {/* 1. Summary — compact, at-a-glance */}
                 <Card>
                     <CardHeader className="pb-3">
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -225,7 +208,7 @@ export default function DocumentDetailPage() {
                         {document.keywords && document.keywords.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-4">
                                 {document.keywords.map((keyword: string, i: number) => (
-                                    <Badge key={i} variant="secondary" className="text-xs hover:bg-secondary/80 transition-colors">
+                                    <Badge key={i} variant="secondary" className="text-xs">
                                         {keyword}
                                     </Badge>
                                 ))}
@@ -234,28 +217,7 @@ export default function DocumentDetailPage() {
                     </CardContent>
                 </Card>
 
-                {/* Statistics Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                    {statsCards.map((card) => (
-                        <Card
-                            key={card.id}
-                            className="cursor-pointer hover:shadow-md transition-[border-color,box-shadow] duration-200 ease-out hover:border-primary/50 group"
-                            onClick={() => setActiveModal(card.id)}
-                        >
-                            <CardContent className="p-4 flex flex-col items-center justify-center text-center space-y-2">
-                                <div className={`p-3 rounded-full ${card.bg} ${card.color} group-hover:scale-110 transition-transform`}>
-                                    <card.icon className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="text-2xl font-bold">{card.count !== null ? card.count : '—'}</div>
-                                    <div className="text-xs text-muted-foreground font-medium">{card.label}</div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))}
-                </div>
-
-                {/* Metadata Accordion */}
+                {/* 2. Metadata — expanded by default for debugging */}
                 <Accordion type="single" collapsible defaultValue="metadata">
                     <AccordionItem value="metadata">
                         <AccordionTrigger>Metadata</AccordionTrigger>
@@ -267,41 +229,54 @@ export default function DocumentDetailPage() {
                     </AccordionItem>
                 </Accordion>
 
-                {/* Graph Subgraph Section */}
-                <div className="pt-4">
-                    <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                {/* 3. Document Subgraph — visual context */}
+                <div>
+                    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
                         <VectorSquare className="w-5 h-5" />
                         Document Subgraph
                     </h2>
-                    <div className="border rounded-xl h-[500px] bg-card overflow-hidden">
+                    <div className="border rounded-xl h-[420px] bg-card overflow-hidden">
                         <DocumentSubgraph documentId={docId} />
                     </div>
                 </div>
 
-            </div>
-
-            {/* Details Modal */}
-            <Dialog open={!!activeModal} onOpenChange={(open) => !open && setActiveModal(null)}>
-                <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 relative">
-                    <DialogClose onClose={() => setActiveModal(null)} />
-                    <DialogHeader className="px-6 py-4 border-b pr-12">
-                        <DialogTitle className="flex items-center gap-2">
-                            {activeModal && (
-                                <>
-                                    {React.createElement(
-                                        statsCards.find(c => c.id === activeModal)?.icon || FileText,
-                                        { className: "w-5 h-5 text-primary" }
-                                    )}
-                                    {getModalTitle(activeModal)}
-                                </>
-                            )}
-                        </DialogTitle>
-                    </DialogHeader>
-                    <div className="flex-1 overflow-y-auto p-0">
-                        {renderModalContent()}
+                {/* 4. Inline detail tabs (replace modal stats) */}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
+                    <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full h-auto bg-muted/40">
+                        {tabs.map(t => (
+                            <TabsTrigger
+                                key={t.id}
+                                value={t.id}
+                                className="flex items-center gap-2 py-2 data-[state=active]:bg-background"
+                            >
+                                <t.icon className="w-3.5 h-3.5" />
+                                <span>{t.label}</span>
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-auto">
+                                    {t.count}
+                                </Badge>
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    <div className="border rounded-xl bg-card min-h-[400px] overflow-hidden">
+                        <TabsContent value="chunks" className="m-0">
+                            <ChunksTab documentId={docId} />
+                        </TabsContent>
+                        <TabsContent value="entities" className="m-0">
+                            <EntitiesTab documentId={docId} />
+                        </TabsContent>
+                        <TabsContent value="relationships" className="m-0">
+                            <RelationshipsTab documentId={docId} />
+                        </TabsContent>
+                        <TabsContent value="communities" className="m-0">
+                            <CommunitiesTab documentId={docId} />
+                        </TabsContent>
+                        <TabsContent value="similarities" className="m-0">
+                            <SimilaritiesTab documentId={docId} />
+                        </TabsContent>
                     </div>
-                </DialogContent>
-            </Dialog>
+                </Tabs>
+
+            </div>
 
             {/* Delete Confirmation Modal */}
             <DeleteDocumentModal
