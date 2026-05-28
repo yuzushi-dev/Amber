@@ -65,11 +65,22 @@ export interface Folder {
     name: string
     tenant_id: string
     created_at: string
+    document_count?: number
+}
+
+export interface FolderCounts {
+    by_folder: Record<string, number>
+    unfiled: number
+    total: number
 }
 
 export const folderApi = {
     list: async () => {
         const response = await apiClient.get<Folder[]>('/folders')
+        return response.data
+    },
+    counts: async () => {
+        const response = await apiClient.get<FolderCounts>('/folders/counts')
         return response.data
     },
     create: async (name: string) => {
