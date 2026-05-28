@@ -88,7 +88,21 @@ export const folderApi = {
 
 import { HealRequest, HealingSuggestion, MergeRequest, EdgeRequest, GraphNode, GraphEdge } from '@/types/graph';
 
+export interface GraphHealth {
+    total_nodes: number;
+    total_edges: number;
+    orphan_nodes: number;
+    community_count: number;
+    avg_degree: number;
+    max_degree: number;
+    leaf_nodes: number;
+}
+
 export const graphEditorApi = {
+    getHealth: async () => {
+        const response = await apiClient.get<GraphHealth>('/graph/editor/health');
+        return response.data;
+    },
     getTopNodes: async (limit: number = 15) => {
         const response = await apiClient.get<GraphNode[]>('/graph/editor/top', { params: { limit } });
         return response.data;

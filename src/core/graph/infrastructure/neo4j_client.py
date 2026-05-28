@@ -283,6 +283,63 @@ class Neo4jClient:
         # Note: chunk_ids usually already scoped by tenant, but we add tenant_id for safety
         return await self.execute_read(query, {"chunk_ids": chunk_ids, "tenant_id": tenant_id})
 
+    async def get_health_stats(self, tenant_id: str) -> dict[str, Any]:
+        """Aggregate health metrics for the tenant graph."""
+        query = """
+        CALL {
+            MATCH (n:Entity {tenant_id: $tenant_id})
+            RETURN count(n) as total_nodes
+        }
+        CALL {
+            MATCH (:Entity {tenant_id: $tenant_id})-[r]->(:Entity {tenant_id: $tenant_id})
+            RETURN count(r) as total_edges
+        }
+        CALL {
+            MATCH (n:Entity {tenant_id: $tenant_id})
+            WHERE NOT (n)--()
+            RETURN count(n) as orphan_nodes
+        }
+        CALL {
+            MATCH (n:Entity {tenant_id: $tenant_id})
+            WHERE n.community_id IS NOT NULL
+            RETURN count(DISTINCT n.community_id) as community_count
+        }
+        CALL {
+            MATCH (n:Entity {tenant_id: $tenant_id})-[r]-(:Entity {tenant_id: $tenant_id})
+            WITH n, count(r) as degree
+            RETURN avg(toFloat(degree)) as avg_degree, max(degree) as max_degree
+        }
+        CALL {
+            MATCH (n:Entity {tenant_id: $tenant_id})-[r]-(:Entity {tenant_id: $tenant_id})
+            WITH n, count(r) as degree
+            WHERE degree = 1
+            RETURN count(n) as leaf_nodes
+        }
+        RETURN total_nodes, total_edges, orphan_nodes, community_count,
+               avg_degree, max_degree, leaf_nodes
+        """
+        result = await self.execute_read(query, {"tenant_id": tenant_id})
+        if not result:
+            return {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "orphan_nodes": 0,
+                "community_count": 0,
+                "avg_degree": 0.0,
+                "max_degree": 0,
+                "leaf_nodes": 0,
+            }
+        row = result[0]
+        return {
+            "total_nodes": row.get("total_nodes") or 0,
+            "total_edges": row.get("total_edges") or 0,
+            "orphan_nodes": row.get("orphan_nodes") or 0,
+            "community_count": row.get("community_count") or 0,
+            "avg_degree": float(row.get("avg_degree") or 0.0),
+            "max_degree": row.get("max_degree") or 0,
+            "leaf_nodes": row.get("leaf_nodes") or 0,
+        }
+
     async def verify_connectivity(self) -> bool:
         """Check if connected to Neo4j."""
         try:
