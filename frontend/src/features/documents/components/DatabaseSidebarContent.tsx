@@ -294,12 +294,18 @@ export default function DatabaseSidebarContent({
         useSensor(KeyboardSensor)
     )
 
-    // Fetch documents
+    // Fetch documents (paged backend returns {items, total}; we ask for the cap and read items)
     const { data: documents, isLoading: isLoadingDocs } = useQuery({
-        queryKey: ['documents'],
+        queryKey: ['documents', 'sidebar'],
         queryFn: async () => {
-            const response = await apiClient.get<Document[]>('/documents', { params: { limit: 10000 } })
-            return response.data
+            const response = await apiClient.get<{ items: Document[]; total: number } | Document[]>(
+                '/documents',
+                { params: { limit: 500 } }
+            )
+            // Defensive: backend used to return a bare array; new shape is {items, total}.
+            const payload = response.data as unknown
+            if (Array.isArray(payload)) return payload as Document[]
+            return (payload as { items?: Document[] }).items ?? []
         }
     })
 
