@@ -73,8 +73,24 @@ Formato dataset JSONL (una riga per sample):
 {"question": "...", "expected_answer": "...", "contexts": "optional context"}
 ```
 
-Locomo (planned): adapter che legge il formato Locomo e proietta su
-`JudgeSample`, più rubrica estesa con `temporal_consistency`.
+## F4d — Locomo adapter + log streaming Redis (consegnato)
+
+**Locomo adapter** (`src/core/admin_ops/application/evaluation/locomo_adapter.py`):
+- Carica JSON ufficiale Locomo `{sessions:[{session_id, date, dialog:[{speaker, text}]}], qa:[{question, answer, category, evidence:[session_id]}]}`.
+- Proietta su `JudgeSample` con `ground_truth_context` = concatenazione delle session evidence (fallback: tutte le session se evidence vuoto).
+- Rubrica estesa `LOCOMO_RUBRIC` (5 voci): relevance, faithfulness, completeness, temporal_consistency, memory_recall.
+- CLI: `amber eval locomo-run <file.json> [--judge-provider --judge-model | --mock-answers]`. Framework discriminator = `locomo`.
+
+**Log streaming Redis** (`judge_eval.publish_eval_state` / `publish_eval_log`):
+- Su ogni sample il runner pubblica state JSON su `eval:state:{run_id}` (setex 1h) + `eval:{run_id}:status` (pub/sub).
+- Log lines su `eval:{run_id}:logs` (pub/sub) + `eval:logs:{run_id}` lista (lpush + ltrim 500).
+- Best-effort: nessuna eccezione propagata, no Redis no problem.
+
+**TUI EvalScreen live**:
+- Click su riga → polling 2s di `eval:state:{run_id}` via `tui_data.read_eval_state`.
+- `ProgressBar` + status text mostrano `status · done/total · progress%`.
+- Stop automatico su `completed/failed/cancelled` o quando la chiave Redis scade.
+- Decisione: niente pannello log testuale (scelta utente F4d). Per debug puntuale resta `amber eval show <id> --full`.
 
 ## F4c — TUI fleshed-out (consegnato)
 

@@ -80,6 +80,32 @@ async def save_tenant_field(tenant_id: str, field: str, value: Any) -> None:
         await session.commit()
 
 
+async def read_eval_state(run_id: str) -> dict[str, Any] | None:
+    """Read the latest eval state cached by judge_eval on Redis. None if absent."""
+    import json
+
+    try:
+        import redis  # type: ignore
+
+        from src.api.config import settings
+    except Exception:
+        return None
+
+    try:
+        client = redis.Redis.from_url(settings.db.redis_url)
+        try:
+            raw = client.get(f"eval:state:{run_id}")
+            if not raw:
+                return None
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            return json.loads(raw)
+        finally:
+            client.close()
+    except Exception:
+        return None
+
+
 async def list_benchmark_runs(tenant_id: str, limit: int = 30) -> list[dict[str, Any]]:
     from src.core.admin_ops.domain.benchmark_run import BenchmarkRun
 
