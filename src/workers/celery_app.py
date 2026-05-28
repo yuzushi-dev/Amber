@@ -97,6 +97,14 @@ celery_app.conf.update(
     task_eager_propagates=True,  # Propagate exceptions in eager mode
 )
 
+# Beat schedule (Celery Beat ticks; backup heartbeat scans BackupSchedule table)
+celery_app.conf.beat_schedule = {
+    "backup-heartbeat": {
+        "task": "src.workers.backup_tasks.check_due_backups",
+        "schedule": 60.0,  # seconds
+    },
+}
+
 # Task routing (optional, can be configured later)
 celery_app.conf.task_routes = {
     "src.workers.tasks.process_document": {"queue": "high_priority"},

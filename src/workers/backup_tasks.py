@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _publish_backup_status(job_id: str, status: str, progress: int, error: str = None):
-    """Publish backup status update to Redis Pub/Sub."""
+    """Publish backup status update to Redis Pub/Sub and cache last known state."""
     import json
 
     try:
@@ -30,7 +30,10 @@ def _publish_backup_status(job_id: str, status: str, progress: int, error: str =
             if error:
                 message["error"] = error
 
-            r.publish(channel, json.dumps(message))
+            payload = json.dumps(message)
+            r.publish(channel, payload)
+            # Cache state for polling clients (1h TTL)
+            r.setex(f"backup:state:{job_id}", 3600, payload)
         finally:
             r.close()
     except Exception as e:
@@ -38,7 +41,7 @@ def _publish_backup_status(job_id: str, status: str, progress: int, error: str =
 
 
 def _publish_restore_status(job_id: str, status: str, progress: int, error: str = None):
-    """Publish restore status update to Redis Pub/Sub."""
+    """Publish restore status update to Redis Pub/Sub and cache last known state."""
     import json
 
     try:
@@ -53,7 +56,9 @@ def _publish_restore_status(job_id: str, status: str, progress: int, error: str 
             if error:
                 message["error"] = error
 
-            r.publish(channel, json.dumps(message))
+            payload = json.dumps(message)
+            r.publish(channel, payload)
+            r.setex(f"restore:state:{job_id}", 3600, payload)
         finally:
             r.close()
     except Exception as e:
@@ -418,9 +423,161 @@ async def _create_scheduled_backup_job(job_id: str, tenant_id: str, scope: str):
                 tenant_id=tenant_id,
                 scope=BackupScope(scope),
                 status=BackupStatus.PENDING,
-                is_scheduled="true",
+                is_scheduled=True,
             )
             session.add(job)
             await session.commit()
     finally:
         await engine.dispose()
+
+
+@celery_app.task(bind=True, name="src.workers.backup_tasks.check_due_backups", base=BaseTask)
+def check_due_backups(self) -> dict:
+    """
+    Heartbeat task invoked by Celery Beat every minute.
+
+    Scans BackupSchedule for enabled schedules and dispatches `scheduled_backup`
+    when the configured time slot has arrived and the last run is from a previous
+    slot. After dispatching, applies retention pruning by removing oldest backups
+    above `retention_count` (DB row + MinIO file).
+    """
+    try:
+        return run_async(_check_due_backups_async())
+    except Exception as e:
+        logger.error(f"check_due_backups failed: {e}")
+        raise
+
+
+async def _check_due_backups_async() -> dict:
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.api.config import settings
+    from src.core.admin_ops.domain.backup_job import BackupSchedule
+
+    now = datetime.now(UTC)
+    dispatched: list[str] = []
+    pruned: list[str] = []
+
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+
+            await configure_worker_session(session)
+
+            result = await session.execute(
+                select(BackupSchedule).where(BackupSchedule.enabled.is_(True))
+            )
+            schedules = result.scalars().all()
+
+            for sched in schedules:
+                if not _is_schedule_due(sched, now):
+                    continue
+
+                logger.info(
+                    f"[Heartbeat] Dispatching scheduled backup for tenant={sched.tenant_id}, "
+                    f"freq={sched.frequency}, time={sched.time_utc}"
+                )
+
+                # Mark the schedule as having run for this slot so the next tick
+                # within the same minute does not dispatch again.
+                sched.last_run_at = now
+                sched.last_run_status = "dispatched"
+                await session.flush()
+
+                scope_value = sched.scope.value if sched.scope else "user_data"
+                scheduled_backup.delay(sched.tenant_id, scope_value)
+                dispatched.append(sched.tenant_id)
+
+                # Retention: keep only the latest N completed scheduled backups per tenant.
+                pruned_ids = await _prune_old_backups(
+                    session, sched.tenant_id, sched.retention_count
+                )
+                pruned.extend(pruned_ids)
+
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+    return {"dispatched": dispatched, "pruned": pruned, "now": now.isoformat()}
+
+
+def _is_schedule_due(schedule, now: datetime) -> bool:
+    """Decide if a schedule is due to run at the current heartbeat tick."""
+    try:
+        hh, mm = schedule.time_utc.split(":")
+        target_hour = int(hh)
+        target_minute = int(mm)
+    except (AttributeError, ValueError):
+        logger.warning(f"Invalid time_utc for schedule {schedule.id}: {schedule.time_utc!r}")
+        return False
+
+    if now.hour != target_hour or now.minute != target_minute:
+        return False
+
+    if schedule.frequency == "weekly":
+        # day_of_week stored as 0=Monday..6=Sunday (Python weekday convention).
+        if schedule.day_of_week is None or now.weekday() != int(schedule.day_of_week):
+            return False
+    elif schedule.frequency != "daily":
+        logger.warning(f"Unknown frequency for schedule {schedule.id}: {schedule.frequency!r}")
+        return False
+
+    # Avoid dispatching multiple times within the same minute slot.
+    if schedule.last_run_at is not None:
+        last = schedule.last_run_at
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        # Same minute already handled?
+        if (
+            last.year == now.year
+            and last.month == now.month
+            and last.day == now.day
+            and last.hour == now.hour
+            and last.minute == now.minute
+        ):
+            return False
+
+    return True
+
+
+async def _prune_old_backups(session, tenant_id: str, retention_count: int) -> list[str]:
+    """Delete completed scheduled backups beyond the retention window."""
+    from sqlalchemy import desc, select
+
+    from src.core.admin_ops.domain.backup_job import BackupJob, BackupStatus
+    from src.core.ingestion.infrastructure.storage.storage_client import MinIOClient
+
+    if retention_count is None or retention_count <= 0:
+        return []
+
+    result = await session.execute(
+        select(BackupJob)
+        .where(BackupJob.tenant_id == tenant_id)
+        .where(BackupJob.is_scheduled.is_(True))
+        .where(BackupJob.status == BackupStatus.COMPLETED)
+        .order_by(desc(BackupJob.created_at))
+    )
+    rows = list(result.scalars().all())
+
+    if len(rows) <= retention_count:
+        return []
+
+    to_prune = rows[retention_count:]
+    pruned_ids: list[str] = []
+
+    storage = MinIOClient()
+    for job in to_prune:
+        if job.result_path:
+            try:
+                storage.delete_file(job.result_path)
+            except Exception as e:
+                logger.warning(f"Could not delete backup file {job.result_path}: {e}")
+        await session.delete(job)
+        pruned_ids.append(job.id)
+
+    await session.flush()
+    return pruned_ids

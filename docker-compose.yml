@@ -232,6 +232,43 @@ services:
       - graphrag-network
 
   # ---------------------------------------------------------------------------
+  # Celery Beat - Scheduler for periodic tasks (backup heartbeat, etc.)
+  # ---------------------------------------------------------------------------
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
+      - APP_DATABASE_URL=${APP_DATABASE_URL:-}
+      - TENANT_ID=${TENANT_ID:-default}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - PYTHONPATH=/app:/app/src:/app/.packages
+      - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+      - GRAPHRAG_APP_PASSWORD=${GRAPHRAG_APP_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - AMBER_RUNTIME=docker
+    command: celery -A src.workers.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - pip-packages:/app/.packages
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - graphrag-network
+
+  # ---------------------------------------------------------------------------
   # Redis - Cache and Message Broker
   # ---------------------------------------------------------------------------
   redis:

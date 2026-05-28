@@ -73,7 +73,7 @@ class BackupService:
         zip_buffer = io.BytesIO()
 
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            total_steps = 9 if scope == BackupScope.USER_DATA else 13
+            total_steps = 8 if scope == BackupScope.USER_DATA else 12
             current_step = 0
 
             def update_progress():
@@ -104,38 +104,33 @@ class BackupService:
             await self._add_user_facts(zf, tenant_id)
             update_progress()
 
-            # 6. Conversation Summaries (memory)
-            await self._add_conversation_summaries(zf, tenant_id)
-            update_progress()
-
-            # ===== FULL_SYSTEM scope (additional) =====
-            # 7. Chunks Table (Critical for re-indexing)
+            # 6. Chunks Table (Critical for re-indexing)
             await self._add_chunks_table(zf, tenant_id)
             update_progress()
 
-            # 8. Vectors (Milvus)
+            # 7. Vectors (Milvus)
             await self._add_vectors(zf, tenant_id)
             update_progress()
 
-            # 9. Graph (Neo4j)
+            # 8. Graph (Neo4j)
             await self._add_graph(zf, tenant_id)
             update_progress()
 
             # ===== FULL_SYSTEM scope (additional) =====
             if scope == BackupScope.FULL_SYSTEM:
-                # 10. Global rules
+                # 9. Global rules
                 await self._add_global_rules(zf, tenant_id)
                 update_progress()
 
-                # 11. Tenant configuration
+                # 10. Tenant configuration
                 await self._add_tenant_config(zf, tenant_id)
                 update_progress()
 
-                # 12. Backup Schedules
+                # 11. Backup Schedules
                 await self._add_backup_schedules(zf, tenant_id)
                 update_progress()
 
-                # 13. Full Postgres Dump
+                # 12. Full Postgres Dump
                 await self._add_postgres_dump(zf)
                 update_progress()
 
@@ -272,12 +267,6 @@ class BackupService:
         zf.writestr("memory/user_facts.json", json.dumps(data, indent=2))
         logger.info(f"Added {len(data)} user facts")
 
-    async def _add_conversation_summaries(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
-        """Export conversation summaries (memory context) as JSON."""
-        # This overlaps with conversations but may have different structure
-        # For now, we reuse the conversation export
-        pass  # Already covered in _add_conversations
-
     async def _add_global_rules(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export global rules as JSON."""
         result = await self.session.execute(
@@ -394,7 +383,7 @@ class BackupService:
                 "scope": job.scope.value if job.scope else None,
                 "file_size": job.file_size,
                 "created_at": job.created_at.isoformat() if job.created_at else None,
-                "is_scheduled": job.is_scheduled == "true",
+                "is_scheduled": bool(job.is_scheduled),
             }
             for job in jobs
         ]

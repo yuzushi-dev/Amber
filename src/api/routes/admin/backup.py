@@ -31,6 +31,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/backup", tags=["admin-backup"], dependencies=[Depends(verify_super_admin)])
 
 
+def _read_live_state(key: str) -> dict | None:
+    """Read cached live job state from Redis (status + progress). Best-effort."""
+    import json
+
+    try:
+        import redis
+
+        from src.api.config import settings
+
+        r = redis.Redis.from_url(settings.db.redis_url)
+        try:
+            raw = r.get(key)
+            if not raw:
+                return None
+            return json.loads(raw)
+        finally:
+            r.close()
+    except Exception as e:
+        logger.debug(f"Could not read live state {key}: {e}")
+        return None
+
+
 # ===== Schemas =====
 
 
@@ -53,6 +75,7 @@ class BackupJobResponse(BaseModel):
     created_at: str | None = None
     completed_at: str | None = None
     error_message: str | None = None
+    is_scheduled: bool = False
 
 
 class BackupListResponse(BaseModel):
@@ -144,15 +167,28 @@ async def get_backup_job(job_id: str, tenant_id: str = "default"):
         if not job:
             raise HTTPException(status_code=404, detail="Backup job not found")
 
+        db_status = job.status.value if job.status else "pending"
+        db_progress = job.progress or 0
+
+        # Prefer live state from Redis when the job is still in flight — worker
+        # updates Redis on every progress tick while the DB row is only flushed
+        # at start/end. Once the job is completed/failed, trust the DB.
+        if db_status not in ("completed", "failed", "cancelled"):
+            live = _read_live_state(f"backup:state:{job_id}")
+            if live:
+                db_status = live.get("status", db_status)
+                db_progress = live.get("progress", db_progress)
+
         return BackupJobResponse(
             id=job.id,
             scope=job.scope.value if job.scope else "user_data",
-            status=job.status.value if job.status else "pending",
-            progress=job.progress or 0,
+            status=db_status,
+            progress=db_progress,
             file_size=job.file_size,
             created_at=job.created_at.isoformat() if job.created_at else None,
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
             error_message=job.error_message,
+            is_scheduled=bool(job.is_scheduled),
         )
 
 
@@ -226,22 +262,32 @@ async def delete_backup(job_id: str, tenant_id: str = "default"):
 
 @router.get("/list", response_model=BackupListResponse)
 async def list_backups(
-    tenant_id: str = "default", page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100)
+    tenant_id: str = "default",
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    status_filter: str | None = Query(None, description="Filter by job status (e.g. 'completed')"),
 ):
     """List available backups."""
     async with get_session_maker()() as session:
-        # Get total count
         from sqlalchemy import func
 
+        filters = [BackupJob.tenant_id == tenant_id]
+        if status_filter:
+            try:
+                filters.append(BackupJob.status == BackupStatus(status_filter))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid status: {status_filter}"
+                ) from e
+
         count_result = await session.execute(
-            select(func.count()).select_from(BackupJob).where(BackupJob.tenant_id == tenant_id)
+            select(func.count()).select_from(BackupJob).where(*filters)
         )
         total = count_result.scalar() or 0
 
-        # Get backups
         result = await session.execute(
             select(BackupJob)
-            .where(BackupJob.tenant_id == tenant_id)
+            .where(*filters)
             .order_by(desc(BackupJob.created_at))
             .offset((page - 1) * size)
             .limit(size)
@@ -258,6 +304,7 @@ async def list_backups(
                 created_at=job.created_at.isoformat() if job.created_at else None,
                 completed_at=job.completed_at.isoformat() if job.completed_at else None,
                 error_message=job.error_message,
+                is_scheduled=bool(job.is_scheduled),
             )
             for job in jobs
         ]
@@ -338,11 +385,20 @@ async def get_restore_job(job_id: str, tenant_id: str = "default"):
         if not job:
             raise HTTPException(status_code=404, detail="Restore job not found")
 
+        db_status = job.status.value if job.status else "pending"
+        db_progress = job.progress or 0
+
+        if db_status not in ("completed", "failed", "cancelled"):
+            live = _read_live_state(f"restore:state:{job_id}")
+            if live:
+                db_status = live.get("status", db_status)
+                db_progress = live.get("progress", db_progress)
+
         return RestoreJobResponse(
             id=job.id,
             mode=job.mode.value if job.mode else "merge",
-            status=job.status.value if job.status else "pending",
-            progress=job.progress or 0,
+            status=db_status,
+            progress=db_progress,
             items_restored=job.items_restored or 0,
             started_at=job.started_at.isoformat() if job.started_at else None,
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
@@ -374,7 +430,7 @@ async def get_schedule(tenant_id: str = "default"):
             )
 
         return ScheduleResponse(
-            enabled=schedule.enabled == "true",
+            enabled=bool(schedule.enabled),
             frequency=schedule.frequency,
             time_utc=schedule.time_utc,
             day_of_week=schedule.day_of_week,
@@ -402,7 +458,7 @@ async def set_schedule(request: ScheduleRequest, tenant_id: str = "default"):
 
         if schedule:
             # Update existing
-            schedule.enabled = "true" if request.enabled else "false"
+            schedule.enabled = bool(request.enabled)
             schedule.frequency = request.frequency
             schedule.time_utc = request.time_utc
             schedule.day_of_week = request.day_of_week
@@ -413,7 +469,7 @@ async def set_schedule(request: ScheduleRequest, tenant_id: str = "default"):
             schedule = BackupSchedule(
                 id=str(uuid4()),
                 tenant_id=tenant_id,
-                enabled="true" if request.enabled else "false",
+                enabled=bool(request.enabled),
                 frequency=request.frequency,
                 time_utc=request.time_utc,
                 day_of_week=request.day_of_week,
@@ -425,7 +481,7 @@ async def set_schedule(request: ScheduleRequest, tenant_id: str = "default"):
         await session.commit()
 
         return ScheduleResponse(
-            enabled=schedule.enabled == "true",
+            enabled=bool(schedule.enabled),
             frequency=schedule.frequency,
             time_utc=schedule.time_utc,
             day_of_week=schedule.day_of_week,
@@ -446,7 +502,7 @@ async def delete_schedule(tenant_id: str = "default"):
         schedule = result.scalar_one_or_none()
 
         if schedule:
-            schedule.enabled = "false"
+            schedule.enabled = False
             await session.commit()
 
     return {"status": "disabled"}

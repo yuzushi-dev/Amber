@@ -8,7 +8,7 @@ Tracks background backup/restore jobs for system backup operations.
 import enum
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, Text
 
 from src.shared.kernel.models.base import Base, TimestampMixin
 
@@ -77,7 +77,7 @@ class BackupJob(Base, TimestampMixin):
     error_message = Column(Text, nullable=True)
 
     # Scheduled backup flag
-    is_scheduled = Column(String, default="false", nullable=False)
+    is_scheduled = Column(Boolean, default=False, nullable=False)
 
     def __repr__(self) -> str:
         return f"<BackupJob(id={self.id}, scope={self.scope}, status={self.status})>"
@@ -137,7 +137,7 @@ class BackupSchedule(Base, TimestampMixin):
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     tenant_id = Column(String, index=True, unique=True, nullable=False)
 
-    enabled = Column(String, default="false", nullable=False)  # "true" or "false"
+    enabled = Column(Boolean, default=False, nullable=False)
 
     # Schedule configuration
     frequency = Column(String, default="daily", nullable=False)  # daily, weekly
