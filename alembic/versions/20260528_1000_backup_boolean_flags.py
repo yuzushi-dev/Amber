@@ -17,6 +17,8 @@ depends_on = None
 
 def upgrade() -> None:
     # backup_schedules.enabled : VARCHAR ("true"/"false") -> BOOLEAN
+    # 1. drop the string default so PG won't try to cast 'false' -> bool
+    op.execute("ALTER TABLE backup_schedules ALTER COLUMN enabled DROP DEFAULT")
     op.alter_column(
         "backup_schedules",
         "enabled",
@@ -24,10 +26,17 @@ def upgrade() -> None:
         type_=sa.Boolean(),
         existing_nullable=False,
         postgresql_using="(enabled = 'true')",
+    )
+    op.alter_column(
+        "backup_schedules",
+        "enabled",
+        existing_type=sa.Boolean(),
+        existing_nullable=False,
         server_default=sa.text("false"),
     )
 
     # backup_jobs.is_scheduled : VARCHAR ("true"/"false") -> BOOLEAN
+    op.execute("ALTER TABLE backup_jobs ALTER COLUMN is_scheduled DROP DEFAULT")
     op.alter_column(
         "backup_jobs",
         "is_scheduled",
@@ -35,11 +44,18 @@ def upgrade() -> None:
         type_=sa.Boolean(),
         existing_nullable=False,
         postgresql_using="(is_scheduled = 'true')",
+    )
+    op.alter_column(
+        "backup_jobs",
+        "is_scheduled",
+        existing_type=sa.Boolean(),
+        existing_nullable=False,
         server_default=sa.text("false"),
     )
 
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE backup_jobs ALTER COLUMN is_scheduled DROP DEFAULT")
     op.alter_column(
         "backup_jobs",
         "is_scheduled",
@@ -47,8 +63,16 @@ def downgrade() -> None:
         type_=sa.String(),
         existing_nullable=False,
         postgresql_using="CASE WHEN is_scheduled THEN 'true' ELSE 'false' END",
+    )
+    op.alter_column(
+        "backup_jobs",
+        "is_scheduled",
+        existing_type=sa.String(),
+        existing_nullable=False,
         server_default="false",
     )
+
+    op.execute("ALTER TABLE backup_schedules ALTER COLUMN enabled DROP DEFAULT")
     op.alter_column(
         "backup_schedules",
         "enabled",
@@ -56,5 +80,11 @@ def downgrade() -> None:
         type_=sa.String(),
         existing_nullable=False,
         postgresql_using="CASE WHEN enabled THEN 'true' ELSE 'false' END",
+    )
+    op.alter_column(
+        "backup_schedules",
+        "enabled",
+        existing_type=sa.String(),
+        existing_nullable=False,
         server_default="false",
     )
