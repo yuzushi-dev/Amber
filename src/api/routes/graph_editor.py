@@ -90,6 +90,62 @@ async def get_graph_health(tenant_id: str = Depends(get_current_user_tenant_id))
     return GraphHealth(**stats)
 
 
+class GraphAnomalies(BaseModel):
+    orphans: list[dict]
+    leaves: list[dict]
+    dense_communities: list[dict]
+    duplicate_candidates: list[dict]
+
+
+class BulkPruneRequest(BaseModel):
+    criterion: str  # "orphans" | "leaves"
+    degree_lt: int | None = None
+    dry_run: bool = True
+    cap: int = 500
+
+
+class BulkPruneResponse(BaseModel):
+    dry_run: bool
+    criterion: str
+    deleted: int = 0
+    would_delete: list[str] = []
+    ids: list[str] = []
+
+
+@router.get("/anomalies", response_model=GraphAnomalies)
+async def get_graph_anomalies(
+    limit: int = 50,
+    degree_threshold: int = 1,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
+    """List operator-visible graph anomalies (orphans, leaves, dense communities, dup candidates)."""
+    data = await platform.neo4j_client.get_anomalies(
+        tenant_id, limit=limit, degree_threshold=degree_threshold
+    )
+    return GraphAnomalies(**data)
+
+
+@router.post("/bulk-prune", response_model=BulkPruneResponse)
+async def bulk_prune(
+    request: BulkPruneRequest,
+    tenant_id: str = Depends(get_current_user_tenant_id),
+    _: None = Depends(verify_tenant_admin),
+):
+    """Bulk-prune Entity nodes by criterion. Safety: ``dry_run`` default, cap <= 5000."""
+    try:
+        result = await platform.neo4j_client.prune_by_criteria(
+            tenant_id,
+            criterion=request.criterion,
+            degree_lt=request.degree_lt,
+            dry_run=request.dry_run,
+            cap=request.cap,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkPruneResponse(**result)
+
+
 @router.get("/top", response_model=list[GraphNode])
 async def get_top_nodes(limit: int = 15, tenant_id: str = Depends(get_current_user_tenant_id)):
     """Get top connected nodes for initial view."""

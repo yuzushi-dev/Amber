@@ -340,6 +340,134 @@ class Neo4jClient:
             "leaf_nodes": row.get("leaf_nodes") or 0,
         }
 
+    async def get_anomalies(
+        self, tenant_id: str, *, limit: int = 50, degree_threshold: int = 1
+    ) -> dict[str, Any]:
+        """
+        Identify graph anomalies worth operator attention.
+
+        Returns:
+            {
+              "orphans": [{"id", "label", "type"}, ...],         # nodes with no edges
+              "leaves": [{"id", "label", "type", "degree"}, ...], # nodes with degree <= threshold
+              "dense_communities": [{"community_id", "count"}, ...], # over-populated communities
+              "duplicate_candidates": [{"a", "b"}, ...]           # same name, different ids
+            }
+        """
+        orphans_q = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        WHERE NOT (n)--()
+        RETURN n.name AS id, n.name AS label, n.type AS type
+        ORDER BY n.name
+        LIMIT $limit
+        """
+        orphans = await self.execute_read(
+            orphans_q, {"tenant_id": tenant_id, "limit": limit}
+        )
+
+        leaves_q = """
+        MATCH (n:Entity {tenant_id: $tenant_id})-[r]-(:Entity {tenant_id: $tenant_id})
+        WITH n, count(r) AS degree
+        WHERE degree <= $threshold
+        RETURN n.name AS id, n.name AS label, n.type AS type, degree
+        ORDER BY degree ASC, n.name
+        LIMIT $limit
+        """
+        leaves = await self.execute_read(
+            leaves_q,
+            {"tenant_id": tenant_id, "threshold": degree_threshold, "limit": limit},
+        )
+
+        dense_q = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        WHERE n.community_id IS NOT NULL
+        WITH n.community_id AS community_id, count(n) AS members
+        RETURN community_id, members AS count
+        ORDER BY members DESC
+        LIMIT $limit
+        """
+        dense = await self.execute_read(
+            dense_q, {"tenant_id": tenant_id, "limit": min(limit, 20)}
+        )
+
+        dup_q = """
+        MATCH (a:Entity {tenant_id: $tenant_id})
+        WITH a.name AS name, collect(a.name) AS ids
+        WHERE size(ids) > 1
+        RETURN ids[0] AS a, ids[1] AS b
+        LIMIT $limit
+        """
+        dups = await self.execute_read(
+            dup_q, {"tenant_id": tenant_id, "limit": min(limit, 50)}
+        )
+
+        return {
+            "orphans": [dict(r) for r in orphans],
+            "leaves": [dict(r) for r in leaves],
+            "dense_communities": [dict(r) for r in dense],
+            "duplicate_candidates": [dict(r) for r in dups],
+        }
+
+    async def prune_by_criteria(
+        self,
+        tenant_id: str,
+        *,
+        criterion: str,
+        degree_lt: int | None = None,
+        dry_run: bool = True,
+        cap: int = 500,
+    ) -> dict[str, Any]:
+        """
+        Bulk prune Entity nodes by simple criteria, with safety cap.
+
+        Supported criteria:
+          - "orphans"  : nodes with no edges
+          - "leaves"   : nodes whose degree is strictly less than degree_lt (default 2)
+
+        ``dry_run=True`` returns ids that would be deleted but commits nothing.
+        ``cap`` upper-bounds the number of affected nodes per call.
+        """
+        cap = max(1, min(cap, 5000))
+        deg_threshold = max(1, int(degree_lt or 2))
+
+        if criterion == "orphans":
+            select_q = """
+            MATCH (n:Entity {tenant_id: $tenant_id})
+            WHERE NOT (n)--()
+            RETURN n.name AS id LIMIT $cap
+            """
+            params: dict[str, Any] = {"tenant_id": tenant_id, "cap": cap}
+        elif criterion == "leaves":
+            select_q = """
+            MATCH (n:Entity {tenant_id: $tenant_id})-[r]-(:Entity {tenant_id: $tenant_id})
+            WITH n, count(r) AS degree
+            WHERE degree < $threshold
+            RETURN n.name AS id LIMIT $cap
+            """
+            params = {"tenant_id": tenant_id, "threshold": deg_threshold, "cap": cap}
+        else:
+            raise ValueError(f"Unsupported criterion: {criterion}")
+
+        targets = await self.execute_read(select_q, params)
+        ids = [r["id"] for r in targets]
+
+        if dry_run or not ids:
+            return {"dry_run": dry_run, "criterion": criterion, "would_delete": ids, "deleted": 0}
+
+        delete_q = """
+        MATCH (n:Entity {tenant_id: $tenant_id})
+        WHERE n.name IN $ids
+        DETACH DELETE n
+        RETURN count(n) AS deleted
+        """
+        res = await self.execute_write(delete_q, {"tenant_id": tenant_id, "ids": ids})
+        return {
+            "dry_run": False,
+            "criterion": criterion,
+            "deleted": int(res[0]["deleted"]) if res else 0,
+            "ids": ids,
+        }
+
     async def verify_connectivity(self) -> bool:
         """Check if connected to Neo4j."""
         try:

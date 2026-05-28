@@ -9,6 +9,7 @@ import { GraphSearchInput } from '../components/GraphSearchInput';
 import { GraphHistoryModal } from '../components/GraphHistoryModal';
 import { HealSuggestionsDialog } from '../components/HealSuggestionsDialog';
 import { GraphHealthPanel } from '../components/GraphHealthPanel';
+import { GraphAnomaliesPanel } from '../components/GraphAnomaliesPanel';
 import { Loader2, Settings2, Trash2, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -438,6 +439,7 @@ export default function GlobalGraphPage() {
                     className="absolute bottom-8 right-8 pointer-events-auto space-y-3 w-64"
                 >
                     <GraphHealthPanel />
+                    <GraphAnomaliesPanel />
                     <div className="p-3 rounded-xl bg-surface-950/80 backdrop-blur-md border border-white/5 shadow-xl text-xs text-muted-foreground space-y-1">
                         <div className="flex justify-between">
                             <span>Visible nodes</span>
