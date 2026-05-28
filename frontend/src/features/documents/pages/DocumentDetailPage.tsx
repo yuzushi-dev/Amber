@@ -255,7 +255,7 @@ export default function DocumentDetailPage() {
                 </div>
 
                 {/* Metadata Accordion */}
-                <Accordion type="single" collapsible>
+                <Accordion type="single" collapsible defaultValue="metadata">
                     <AccordionItem value="metadata">
                         <AccordionTrigger>Metadata</AccordionTrigger>
                         <AccordionContent>

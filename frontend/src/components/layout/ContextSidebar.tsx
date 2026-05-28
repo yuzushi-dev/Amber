@@ -12,7 +12,6 @@ import {
     Files,
     Layers,
     Activity,
-    Gauge,
     Sliders,
     BookOpen,
     Sparkles,
@@ -24,7 +23,6 @@ import {
     Trash2,
     Key,
     Package,
-    Server,
     Users,
     Archive,
     DatabaseBackup
@@ -85,14 +83,7 @@ const sidebarConfig: Record<string, SidebarSection[]> = {
             title: 'Evaluation',
             items: [
                 { label: 'Token Metrics', icon: Activity, to: '/admin/metrics/tokens' },
-                { label: 'RAGAS Evaluation', icon: Gauge, to: '/admin/metrics/ragas' },
                 { label: 'Feedback', icon: MessageSquarePlus, to: '/admin/metrics/feedback' },
-            ]
-        },
-        {
-            title: 'System',
-            items: [
-                { label: 'System Status', icon: Server, to: '/admin/metrics/system' },
             ]
         }
     ],
