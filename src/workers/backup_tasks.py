@@ -506,7 +506,15 @@ async def _check_due_backups_async() -> dict:
 
 
 def _is_schedule_due(schedule, now: datetime) -> bool:
-    """Decide if a schedule is due to run at the current heartbeat tick."""
+    """Decide if a schedule is due to run.
+
+    Period-based instead of exact-minute matching: a schedule is due when the
+    current period's scheduled instant has passed and we have not yet dispatched
+    for that instant. This is robust to Celery Beat jitter (a tick landing a few
+    seconds off the target minute no longer skips the whole day/week).
+    """
+    from datetime import timedelta
+
     try:
         hh, mm = schedule.time_utc.split(":")
         target_hour = int(hh)
@@ -515,30 +523,35 @@ def _is_schedule_due(schedule, now: datetime) -> bool:
         logger.warning(f"Invalid time_utc for schedule {schedule.id}: {schedule.time_utc!r}")
         return False
 
-    if now.hour != target_hour or now.minute != target_minute:
-        return False
-
-    if schedule.frequency == "weekly":
-        # day_of_week stored as 0=Monday..6=Sunday (Python weekday convention).
-        if schedule.day_of_week is None or now.weekday() != int(schedule.day_of_week):
+    # Compute the most recent scheduled instant <= now for this schedule.
+    if schedule.frequency == "daily":
+        scheduled = now.replace(
+            hour=target_hour, minute=target_minute, second=0, microsecond=0
+        )
+        if scheduled > now:
+            scheduled -= timedelta(days=1)
+    elif schedule.frequency == "weekly":
+        if schedule.day_of_week is None:
             return False
-    elif schedule.frequency != "daily":
+        target_dow = int(schedule.day_of_week)  # 0=Monday..6=Sunday
+        scheduled = now.replace(
+            hour=target_hour, minute=target_minute, second=0, microsecond=0
+        )
+        # Walk back to the most recent occurrence of target_dow at/<= now.
+        day_delta = (now.weekday() - target_dow) % 7
+        scheduled -= timedelta(days=day_delta)
+        if scheduled > now:
+            scheduled -= timedelta(days=7)
+    else:
         logger.warning(f"Unknown frequency for schedule {schedule.id}: {schedule.frequency!r}")
         return False
 
-    # Avoid dispatching multiple times within the same minute slot.
-    if schedule.last_run_at is not None:
-        last = schedule.last_run_at
+    # Already dispatched for this scheduled instant?
+    last = schedule.last_run_at
+    if last is not None:
         if last.tzinfo is None:
             last = last.replace(tzinfo=UTC)
-        # Same minute already handled?
-        if (
-            last.year == now.year
-            and last.month == now.month
-            and last.day == now.day
-            and last.hour == now.hour
-            and last.minute == now.minute
-        ):
+        if last >= scheduled:
             return False
 
     return True

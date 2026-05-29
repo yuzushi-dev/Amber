@@ -110,8 +110,10 @@ def _parse_judge_response(
     scores_raw = data.get("scores") or {}
     scores: dict[str, int] = {}
     for key, _desc in rubric:
+        raw = scores_raw.get(key, 0)
         try:
-            scores[key] = int(scores_raw.get(key, 0))
+            # Tolerate float-like judge output ("8.5", 8.5) by rounding instead of failing to 0.
+            scores[key] = int(round(float(raw)))
         except (TypeError, ValueError):
             scores[key] = 0
     rationale = str(data.get("rationale", ""))

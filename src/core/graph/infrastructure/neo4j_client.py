@@ -390,11 +390,14 @@ class Neo4jClient:
             dense_q, {"tenant_id": tenant_id, "limit": min(limit, 20)}
         )
 
+        # Duplicate candidates: entities whose names collide case-insensitively
+        # (e.g. "Postgres" vs "postgres"). Entities are MERGE'd by exact name so
+        # exact-name dups don't occur — case variants are the real signal.
         dup_q = """
-        MATCH (a:Entity {tenant_id: $tenant_id})
-        WITH a.name AS name, collect(a.name) AS ids
-        WHERE size(ids) > 1
-        RETURN ids[0] AS a, ids[1] AS b
+        MATCH (e:Entity {tenant_id: $tenant_id})
+        WITH toLower(e.name) AS norm, collect(DISTINCT e.name) AS names
+        WHERE size(names) > 1
+        RETURN names[0] AS a, names[1] AS b
         LIMIT $limit
         """
         dups = await self.execute_read(
