@@ -87,14 +87,15 @@ def judge_run(
         raise typer.BadParameter("--api-key required (or set AMBER_API_KEY) unless --mock-answers")
 
     async def _answerer_real(client: httpx.AsyncClient, question: str) -> str:
+        # RAG endpoint is POST /query (not /chat — that path has no POST handler).
         response = await client.post(
-            f"{api_base}/chat",
-            json={"query": question, "stream": False},
+            f"{api_base}/query",
+            json={"query": question},
             timeout=120.0,
         )
         response.raise_for_status()
         payload = response.json()
-        return payload.get("response") or payload.get("answer") or ""
+        return payload.get("answer") or payload.get("response") or ""
 
     async def _orchestrate() -> str:
         factory = get_provider_factory()
@@ -190,12 +191,13 @@ def locomo_run(
         raise typer.BadParameter("Locomo dataset produced 0 samples")
 
     async def _answerer_real(client: httpx.AsyncClient, question: str) -> str:
+        # RAG endpoint is POST /query (not /chat — that path has no POST handler).
         response = await client.post(
-            f"{api_base}/chat", json={"query": question, "stream": False}, timeout=120.0
+            f"{api_base}/query", json={"query": question}, timeout=120.0
         )
         response.raise_for_status()
         payload = response.json()
-        return payload.get("response") or payload.get("answer") or ""
+        return payload.get("answer") or payload.get("response") or ""
 
     async def _orchestrate() -> str:
         factory = get_provider_factory()
