@@ -43,6 +43,15 @@ async def recover_stale_documents() -> dict[str, Any]:
         DocumentStatus.EXTRACTING,
         DocumentStatus.CLASSIFYING,
         DocumentStatus.CHUNKING,
+        DocumentStatus.EMBEDDING,
+        DocumentStatus.GRAPH_SYNC,
+    ]
+    # States where chunks already exist but downstream (embedding / graph sync)
+    # was interrupted. These are requeued for a full, idempotent reprocess
+    # (chunk ids are deterministic, so no duplicates) instead of being failed.
+    REQUEUE_STATES = [
+        DocumentStatus.EMBEDDING,
+        DocumentStatus.GRAPH_SYNC,
     ]
 
     logger.info("Starting stale document recovery check...")
@@ -77,6 +86,8 @@ async def recover_stale_documents() -> dict[str, Any]:
 
                 logger.info(f"Found {total} stale document(s) to process")
 
+                requeue: list[tuple[str, str]] = []  # (document_id, tenant_id) dispatched after commit
+
                 for document in stale_documents:
                     try:
                         # Check if document has chunks
@@ -95,6 +106,22 @@ async def recover_stale_documents() -> dict[str, Any]:
                             logger.info(
                                 f"Recovered document {document.id} ({document.filename}) -> READY"
                             )
+                        elif original_status in REQUEUE_STATES:
+                            # Embedding / graph-sync interrupted: reset to INGESTED so the
+                            # pipeline's optimistic guard (old_status=INGESTED) lets it rerun,
+                            # then requeue a full reprocess after commit. Deterministic chunk
+                            # ids make the rerun idempotent (overwrite, no duplicates).
+                            document.status = DocumentStatus.INGESTED
+                            document.updated_at = datetime.now(UTC)
+                            document.error_message = None
+                            requeue.append((document.id, document.tenant_id))
+                            recovered += 1
+                            logger.info(
+                                f"Requeued document {document.id} ({document.filename}) for reprocess "
+                                f"(was in {getattr(original_status, 'value', original_status)} state)"
+                            )
+                            _publish_recovery_status(document.id, document.status.value)
+                            continue
                         else:
                             # Document was interrupted before completion - mark as failed
                             document.status = DocumentStatus.FAILED
@@ -119,6 +146,18 @@ async def recover_stale_documents() -> dict[str, Any]:
 
                 # Commit all changes
                 await session.commit()
+
+            # After the status reset is committed, dispatch reprocess tasks.
+            # Local import avoids a circular import (tasks -> recovery at worker boot).
+            if requeue:
+                from src.workers.tasks import process_document
+
+                for doc_id, tid in requeue:
+                    try:
+                        process_document.delay(doc_id, tid)
+                        logger.info(f"Dispatched reprocess for {doc_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to dispatch reprocess for {doc_id}: {e}")
 
         finally:
             # Fix: Ensure engine is disposed to prevent resource leaks
