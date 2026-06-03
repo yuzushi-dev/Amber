@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_db_session, verify_super_admin, verify_tenant_admin
 from src.core.admin_ops.domain.feedback import Feedback
 
+# Content shown only when the conversation has user feedback attached.
+REDACTED = "[REDACTED - no user feedback]"
+
 router = APIRouter(
     prefix="/chat",
     tags=["Admin - Chat History"],
@@ -188,20 +191,25 @@ async def list_chat_history(
 
             if len(history) <= 1:
                 # Single-turn: original behaviour
-                query_text = metadata.get("query")
-                response_text = metadata.get("answer")
-                response_preview = None
-                if response_text:
-                    response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
-                elif conv.summary:
-                    response_preview = conv.summary[:100]
+                if has_feedback:
+                    query_text = metadata.get("query")
+                    response_text = metadata.get("answer")
+                    response_preview = None
+                    if response_text:
+                        response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                    elif conv.summary:
+                        response_preview = conv.summary[:100]
+                    display_query = query_text or conv.title
+                else:
+                    display_query = REDACTED
+                    response_preview = REDACTED
 
                 conversations.append(
                     ChatHistoryItem(
                         request_id=conv.id,
                         tenant_id=conv.tenant_id,
                         group_name=group_name,
-                        query_text=query_text or conv.title,
+                        query_text=display_query,
                         response_preview=response_preview,
                         model=model,
                         provider=provider,
@@ -215,8 +223,6 @@ async def list_chat_history(
             else:
                 # Multi-turn: one row per turn; tokens/cost on first turn only
                 for idx, turn in enumerate(history):
-                    turn_query = turn.get("query", "")
-                    turn_answer = turn.get("answer", "")
                     turn_ts_str = turn.get("timestamp")
                     try:
                         from datetime import timezone as _tz
@@ -224,14 +230,21 @@ async def list_chat_history(
                     except Exception:
                         turn_ts = conv.created_at
 
-                    response_preview = (turn_answer[:100] + "...") if len(turn_answer) > 100 else turn_answer or None
+                    if has_feedback:
+                        turn_query = turn.get("query", "")
+                        turn_answer = turn.get("answer", "")
+                        display_turn_query = turn_query or conv.title
+                        response_preview = (turn_answer[:100] + "...") if len(turn_answer) > 100 else turn_answer or None
+                    else:
+                        display_turn_query = REDACTED
+                        response_preview = REDACTED
 
                     conversations.append(
                         ChatHistoryItem(
                             request_id=f"{conv.id}:{idx}",
                             tenant_id=conv.tenant_id,
                             group_name=group_name,
-                            query_text=turn_query or conv.title,
+                            query_text=display_turn_query,
                             response_preview=response_preview,
                             model=model,
                             provider=provider,
@@ -300,12 +313,17 @@ async def get_conversation_detail(
     # Check if conversation has feedback
     feedback_query = select(Feedback).where(Feedback.request_id == conv_id).limit(1)
     feedback_result = await session.execute(feedback_query)
-    _ = feedback_result.scalar_one_or_none()
+    feedback_row = feedback_result.scalar_one_or_none()
+    has_feedback = feedback_row is not None
 
     # Extract details
     metadata = conv.metadata_ or {}
-    query_text = metadata.get("query")
-    response_text = metadata.get("answer")
+    if has_feedback:
+        query_text = metadata.get("query")
+        response_text = metadata.get("answer")
+    else:
+        query_text = REDACTED
+        response_text = REDACTED
     model = metadata.get("model", "default")
     provider = "openai"
 
@@ -333,12 +351,20 @@ async def get_conversation_detail(
             if hasattr(m, "provider"):
                 provider = getattr(m, "provider", provider)
 
+    # Build a safe copy of metadata: redact raw content when no feedback.
+    safe_metadata = dict(metadata)
+    if not has_feedback:
+        if "query" in safe_metadata:
+            safe_metadata["query"] = REDACTED
+        if "answer" in safe_metadata:
+            safe_metadata["answer"] = REDACTED
+
     return ConversationDetail(
         request_id=conv.id,
         tenant_id=conv.tenant_id,
         trace_id=None,
-        query_text=query_text or conv.title,
-        response_text=response_text or conv.summary,
+        query_text=query_text or conv.title if has_feedback else REDACTED,
+        response_text=response_text or conv.summary if has_feedback else REDACTED,
         model=model,
         provider=provider,
         input_tokens=input_tokens,
@@ -347,7 +373,7 @@ async def get_conversation_detail(
         cost=cost,
         feedback=None,
         sources=metadata.get("sources"),
-        metadata=metadata,
+        metadata=safe_metadata,
         created_at=conv.created_at,
     )
 
