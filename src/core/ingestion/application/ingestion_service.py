@@ -32,7 +32,7 @@ from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.unit_of_work import UnitOfWork
 from src.core.ingestion.domain.ports.vector_store import VectorStorePort
 from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.core.state.machine import DocumentStatus
+from src.core.state.machine import DocumentStatus, InvalidTransitionError, TransitionManager
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.context import set_current_tenant
@@ -208,6 +208,13 @@ class IngestionService:
         set_current_tenant(document.tenant_id)
 
         # 2. Check State & Transition (INGESTED -> EXTRACTING)
+        try:
+            TransitionManager.validate_transition(document.status, DocumentStatus.EXTRACTING)
+        except InvalidTransitionError as e:
+            logger.warning(
+                f"Invalid status transition for {document_id}: {e}. Skipping."
+            )
+            return
         updated = await self.document_repository.update_status(
             document_id, DocumentStatus.EXTRACTING, old_status=DocumentStatus.INGESTED
         )
@@ -300,6 +307,9 @@ class IngestionService:
                     f"Document {document_id} failed quality gate: {reason}. "
                     f"Setting status to NEEDS_REVIEW."
                 )
+                TransitionManager.validate_transition(
+                    document.status, DocumentStatus.NEEDS_REVIEW
+                )
                 await self.document_repository.update_status(
                     document.id, DocumentStatus.NEEDS_REVIEW
                 )
@@ -317,6 +327,7 @@ class IngestionService:
                 return
 
             # 5. Classify Domain (Stage 1.4)
+            TransitionManager.validate_transition(document.status, DocumentStatus.CLASSIFYING)
             await self.document_repository.update_status(document.id, DocumentStatus.CLASSIFYING)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.CLASSIFYING
@@ -374,6 +385,7 @@ class IngestionService:
             }
 
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
+            TransitionManager.validate_transition(document.status, DocumentStatus.CHUNKING)
             await self.document_repository.update_status(document.id, DocumentStatus.CHUNKING)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.CHUNKING
@@ -428,6 +440,7 @@ class IngestionService:
             await self.document_repository.save(document)
 
             # 8. Generate Embeddings and Store in Milvus
+            TransitionManager.validate_transition(document.status, DocumentStatus.EMBEDDING)
             await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.EMBEDDING
@@ -681,6 +694,7 @@ class IngestionService:
                         logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
 
             # 9. Build Knowledge Graph
+            TransitionManager.validate_transition(document.status, DocumentStatus.GRAPH_SYNC)
             await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.GRAPH_SYNC
@@ -783,6 +797,7 @@ class IngestionService:
                 logger.warning(f"Failed to set upload duration: {e}")
 
             # 11. Update Document Status -> READY
+            TransitionManager.validate_transition(document.status, DocumentStatus.READY)
             await self.document_repository.update_status(document.id, DocumentStatus.READY)
             await self.unit_of_work.commit()
             document.status = DocumentStatus.READY
