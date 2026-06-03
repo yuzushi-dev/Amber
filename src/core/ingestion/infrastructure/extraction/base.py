@@ -41,13 +41,13 @@ class BaseExtractor(ABC):
         pass
 
     @abstractmethod
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract content from file bytes.
 
         Args:
             file_content: Raw file bytes
-            file_type: MIME type or extension (e.g. 'application/pdf', '.pdf')
+            mime_type: MIME type of the file (e.g. 'application/pdf', 'text/plain')
             **kwargs: Additional arguments
 
         Returns:

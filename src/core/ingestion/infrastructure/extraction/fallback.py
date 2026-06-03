@@ -40,7 +40,7 @@ class FallbackManager:
         for extractor in chain:
             try:
                 logger.info(f"Attempting extraction with {extractor.name} for {filename}")
-                return await extractor.extract(file_content=file_content, file_type=mime_type)
+                return await extractor.extract(file_content=file_content, mime_type=mime_type)
             except Exception as e:
                 logger.warning(f"Extractor {extractor.name} failed for {filename}: {e}")
                 errors[extractor.name] = str(e)

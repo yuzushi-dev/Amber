@@ -46,7 +46,7 @@ class KreuzbergExtractor(BaseExtractor):
     def name(self) -> str:
         return "kreuzberg"
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """Extract content from file bytes using Kreuzberg."""
         if not HAS_KREUZBERG:
             raise ImportError("kreuzberg is not installed.")
@@ -54,7 +54,7 @@ class KreuzbergExtractor(BaseExtractor):
         start_time = time.time()
 
         try:
-            mime_type = _normalize_mime(file_type)
+            mime_type = _normalize_mime(mime_type)
             config = ExtractionConfig(output_format=OutputFormat.MARKDOWN)
 
             # extract_bytes_sync(data, mime_type, config=...)
