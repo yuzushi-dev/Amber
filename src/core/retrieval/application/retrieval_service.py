@@ -614,14 +614,16 @@ class RetrievalService:
         t_provider = tenant_config.get("embedding_provider")
         t_model = tenant_config.get("embedding_model")
         t_ollama_url = tenant_config.get("ollama_base_url")
+        t_dimensions: int | None = tenant_config.get("embedding_dimensions")
 
         # If no overrides, return default
-        if not (t_provider or t_model or t_ollama_url):
+        if not (t_provider or t_model or t_ollama_url or t_dimensions):
             return self.embedding_service
 
         # Build scoped factory
         from src.core.generation.domain.ports.provider_factory import build_provider_factory
         from src.shared.kernel.runtime import get_settings
+        from src.shared.model_registry import embedding_supports_dimensions
 
         settings = get_settings()
 
@@ -642,13 +644,25 @@ class RetrievalService:
         # Safe default: if ollama_url is set, likely want ollama? Not necessarily.
 
         provider_name = t_provider or self.config.default_embedding_provider
+        effective_model = t_model or self.config.default_embedding_model
+
+        # Enforce supports_dimensions: reject reduced-dim requests on models that don't support it.
+        if t_dimensions and effective_model:
+            if not embedding_supports_dimensions(effective_model, provider=provider_name):
+                raise ValueError(
+                    f"Embedding model '{effective_model}' (provider '{provider_name}') does not "
+                    f"support dimension reduction. Cannot use embedding_dimensions={t_dimensions}. "
+                    "Remove embedding_dimensions from the tenant config or switch to a model "
+                    "that supports Matryoshka dimension reduction (e.g. text-embedding-3-small)."
+                )
 
         return EmbeddingService(
             provider=factory.get_embedding_provider(
                 provider_name=provider_name,
-                model=t_model or self.config.default_embedding_model,
+                model=effective_model,
             ),
-            model=t_model or self.config.default_embedding_model,
+            model=effective_model,
+            dimensions=t_dimensions,
         )
 
     @trace_span("RetrievalService.retrieve")

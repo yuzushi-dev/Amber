@@ -422,6 +422,29 @@ class IngestionService:
                 # Reduce batch size for Ollama to prevent runner crashes on large inputs
                 max_tokens = 2048 if res_prov == "ollama" else None
 
+                # Enforce supports_dimensions: reject reduced-dim requests on unsupported models.
+                # A custom/tenant-specified dimension triggers this check; the system default
+                # (sys_dims) may also be an explicit reduced dim, so we check whenever res_dims
+                # comes from the tenant config or differs from the model's natural dimension.
+                if res_dims and res_model:
+                    from src.shared.model_registry import (
+                        EMBEDDING_MODELS,
+                        embedding_supports_dimensions,
+                    )
+                    model_info = EMBEDDING_MODELS.get(res_prov or "", {}).get(res_model, {})
+                    model_native_dims = model_info.get("dimensions")
+                    # Only enforce when asking for a reduced (non-native) dimension.
+                    if model_native_dims and res_dims != model_native_dims:
+                        if not embedding_supports_dimensions(res_model, provider=res_prov):
+                            raise ValueError(
+                                f"Embedding model '{res_model}' (provider '{res_prov}') does not "
+                                f"support dimension reduction. Cannot use "
+                                f"embedding_dimensions={res_dims} (model native dim: "
+                                f"{model_native_dims}). Remove embedding_dimensions from the "
+                                "tenant/system config or switch to a model that supports "
+                                "Matryoshka dimension reduction (e.g. text-embedding-3-small)."
+                            )
+
                 embedding_service = EmbeddingService(
                     provider=factory.get_embedding_provider(
                         provider_name=res_prov,
