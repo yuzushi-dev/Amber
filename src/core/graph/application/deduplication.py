@@ -25,10 +25,13 @@ class DeduplicationService:
         """
         # Retrieve entities with potentially similar names (start with same letter/prefix)
         # to avoid N^2 in python.
+        # TODO: replace with index-assisted blocking (e.g. same first 3 chars) to scale
+        #       beyond the cap below.
+        _ENTITY_CAP = 1000
         query = f"""
         MATCH (e:{NodeLabel.Entity.value} {{tenant_id: $tenant_id}})
         RETURN elementId(e) as id, e.name as name
-        LIMIT 1000
+        LIMIT {_ENTITY_CAP}
         """
 
         try:
@@ -36,6 +39,15 @@ class DeduplicationService:
         except Exception as e:
             logger.error(f"Failed to fetch entities for deduplication: {e}")
             return []
+
+        if len(results) == _ENTITY_CAP:
+            logger.warning(
+                "find_candidates: entity cap (%d) reached for tenant %s — "
+                "entities beyond the cap are silently excluded from deduplication. "
+                "Implement blocking to handle larger entity sets.",
+                _ENTITY_CAP,
+                tenant_id,
+            )
 
         candidates = []
         # Python-side comparison (O(N^2) naive, optimize later)
@@ -103,12 +115,13 @@ class DeduplicationService:
             logger.info(f"Soft linked entities {entity_id_keep} and {entity_id_merge}")
 
         elif strategy == "hard_merge":
-            # Placeholder for hard merge complexity
-            # Would require re-linking all relationships
-            logger.warning("Hard Merge strategy not yet implemented safely.")
-            # We could implement a simple logic here if required:
-            # COPY RELS -> DELETE OLD
-            pass
+            # Hard merge requires re-pointing all incoming/outgoing relationships from the
+            # merged entity to the kept entity and then deleting the duplicate node.
+            # This is not yet implemented — raise explicitly rather than silently no-op.
+            raise NotImplementedError(
+                "hard_merge strategy is not implemented. "
+                "Use strategy='soft_link' to create a POTENTIALLY_SAME_AS relationship instead."
+            )
 
 
 deduplication_service = DeduplicationService()
