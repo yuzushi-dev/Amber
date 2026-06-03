@@ -17,6 +17,7 @@ from src.core.ingestion.infrastructure.extraction.local.plaintext_extractor impo
     PlainTextExtractor,
 )
 from src.core.ingestion.infrastructure.extraction.local.pymupdf_extractor import PyMuPDFExtractor
+from src.core.ingestion.infrastructure.extraction.local.html_extractor import HtmlExtractor
 from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
     UnstructuredExtractor,
 )
@@ -66,6 +67,10 @@ class ExtractorRegistry:
             )
 
             return cls._get_instance("treesitter", TreeSitterExtractor)
+
+        # HTML
+        if "text/html" in mime_type.lower() or file_extension.lower() in (".html", ".htm"):
+            return cls._get_instance("html_bs4", HtmlExtractor)
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":
