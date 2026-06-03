@@ -261,6 +261,61 @@ class IngestionService:
                 file_content=file_content, mime_type=mime_type, filename=document.filename
             )
 
+            # 4b. Quality Gate: check extraction result against configured thresholds.
+            # If any threshold is breached and mark_low_quality_as_needs_review is enabled,
+            # transition to NEEDS_REVIEW and stop processing.
+            from src.core.ingestion.infrastructure.extraction.config import extraction_settings
+
+            content_length = len(extraction_result.content) if extraction_result.content else 0
+            page_count = (
+                extraction_result.metadata.get("page_count") if extraction_result.metadata else None
+            )
+            content_density = (
+                content_length / page_count if page_count and page_count > 0 else None
+            )
+
+            quality_failures = []
+            if extraction_result.confidence < extraction_settings.min_ocr_confidence:
+                quality_failures.append(
+                    f"confidence={extraction_result.confidence:.2f} < "
+                    f"min={extraction_settings.min_ocr_confidence}"
+                )
+            if content_length < extraction_settings.min_content_length:
+                quality_failures.append(
+                    f"content_length={content_length} < "
+                    f"min={extraction_settings.min_content_length}"
+                )
+            if (
+                content_density is not None
+                and content_density < extraction_settings.min_content_density
+            ):
+                quality_failures.append(
+                    f"content_density={content_density:.2f} < "
+                    f"min={extraction_settings.min_content_density}"
+                )
+
+            if quality_failures and extraction_settings.mark_low_quality_as_needs_review:
+                reason = "; ".join(quality_failures)
+                logger.warning(
+                    f"Document {document_id} failed quality gate: {reason}. "
+                    f"Setting status to NEEDS_REVIEW."
+                )
+                await self.document_repository.update_status(
+                    document.id, DocumentStatus.NEEDS_REVIEW
+                )
+                await self.unit_of_work.commit()
+                document.status = DocumentStatus.NEEDS_REVIEW
+                await self.event_dispatcher.emit_state_change(
+                    StateChangeEvent(
+                        document_id=document.id,
+                        old_status=DocumentStatus.EXTRACTING,
+                        new_status=DocumentStatus.NEEDS_REVIEW,
+                        tenant_id=document.tenant_id,
+                        details={"reason": reason, "progress": 15},
+                    )
+                )
+                return
+
             # 5. Classify Domain (Stage 1.4)
             await self.document_repository.update_status(document.id, DocumentStatus.CLASSIFYING)
             await self.unit_of_work.commit()
