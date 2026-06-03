@@ -87,6 +87,12 @@ celery_app.conf.update(
     # Task execution settings
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    # Time limits: soft raises SoftTimeLimitExceeded (catchable) at 1h; hard
+    # SIGKILL at 2h.  Generous defaults let legitimate long ingestion/graph-sync
+    # runs finish while still reaping truly-wedged tasks.
+    # Per-task overrides: @task(time_limit=X, soft_time_limit=Y)
+    task_soft_time_limit=3600,   # 1 hour
+    task_time_limit=7200,        # 2 hours
     # Result settings
     result_expires=3600,  # 1 hour
     # Retry settings
