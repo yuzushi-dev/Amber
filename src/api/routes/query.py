@@ -154,15 +154,86 @@ async def query(
         # Persist conversation summary in Postgres (mirrors streaming path)
         if user_id and response.conversation_id:
             try:
-                from src.core.generation.application.memory.manager import memory_manager
-                await memory_manager.save_conversation_summary(
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    conversation_id=response.conversation_id,
-                    title=request.query[:100],
-                    summary=response.answer[:500] if response.answer else "",
-                    metadata={"query": request.query, "mode": "rag"},
+                from src.api.deps import _get_async_session_maker
+                from src.core.generation.domain.memory_models import ConversationSummary
+                from sqlalchemy.orm.attributes import flag_modified
+
+                # Serialize sources to plain dicts (matching stream path's collected_sources shape)
+                response_sources = [
+                    s.model_dump() if hasattr(s, "model_dump") else dict(s)
+                    for s in (response.sources or [])
+                ]
+                title_text = (
+                    request.query[:50] + "..." if len(request.query) > 50 else request.query
                 )
+                summary_text = (
+                    response.answer[:200] + "..." if len(response.answer) > 200 else response.answer
+                ) if response.answer else ""
+
+                async with _get_async_session_maker()() as mem_session:
+                    existing_summary = await mem_session.get(
+                        ConversationSummary, response.conversation_id
+                    )
+
+                    # Ownership check: reject foreign-tenant summaries
+                    if existing_summary and existing_summary.tenant_id != tenant_id:
+                        existing_summary = None
+
+                    if existing_summary:
+                        # UPDATE: append current turn to history[], refresh top-level fields
+                        history = existing_summary.metadata_.get("history", [])
+                        history.append(
+                            {
+                                "query": request.query,
+                                "answer": response.answer,
+                                "sources": response_sources,
+                                "routing_info": {"categories": ["Imported Docs"], "confidence": 1.0},
+                                "timestamp": _utc_now_iso(),
+                            }
+                        )
+                        existing_summary.metadata_["history"] = history
+                        existing_summary.metadata_["query"] = request.query
+                        existing_summary.metadata_["answer"] = response.answer
+                        existing_summary.metadata_["timestamp"] = _utc_now_iso()
+                        flag_modified(existing_summary, "metadata_")
+                        mem_session.add(existing_summary)
+                        await mem_session.commit()
+                        logger.info(
+                            f"Updated non-stream RAG conversation history: {existing_summary.id}"
+                        )
+                    else:
+                        # INSERT: new conversation with first-turn history entry
+                        new_summary = ConversationSummary(
+                            id=response.conversation_id,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            title=title_text,
+                            summary=summary_text,
+                            metadata_={
+                                "query": request.query,
+                                "answer": response.answer,
+                                "sources": response_sources,
+                                "model": "rag-default",
+                                "mode": "rag",
+                                "history": [
+                                    {
+                                        "query": request.query,
+                                        "answer": response.answer,
+                                        "sources": response_sources,
+                                        "routing_info": {
+                                            "categories": ["Imported Docs"],
+                                            "confidence": 1.0,
+                                        },
+                                        "timestamp": _utc_now_iso(),
+                                    }
+                                ],
+                            },
+                        )
+                        mem_session.add(new_summary)
+                        await mem_session.commit()
+                        logger.info(
+                            f"Saved non-stream RAG conversation history: {new_summary.id}"
+                        )
             except Exception as mem_e:
                 logger.warning(f"Conversation history save skipped: {mem_e}")
 
