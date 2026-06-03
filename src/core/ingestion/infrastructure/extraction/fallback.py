@@ -30,7 +30,10 @@ class FallbackManager:
         """
         Extract content by trying a sequence of extractors.
         """
-        chain = cls._build_chain(mime_type)
+        import os
+
+        file_extension = os.path.splitext(filename)[1] if filename else ""
+        chain = cls._build_chain(mime_type, file_extension)
 
         errors = {}
 
@@ -50,7 +53,7 @@ class FallbackManager:
         )
 
     @classmethod
-    def _build_chain(cls, mime_type: str) -> list[BaseExtractor]:
+    def _build_chain(cls, mime_type: str, file_extension: str = "") -> list[BaseExtractor]:
         """
         Build the prioritized list of extractors based on configuration and file type.
         """
@@ -58,7 +61,7 @@ class FallbackManager:
 
         # 1. Primary (Fast Path)
         try:
-            primary = ExtractorRegistry.get_extractor(mime_type)
+            primary = ExtractorRegistry.get_extractor(mime_type, file_extension)
             chain.append(primary)
         except ValueError:
             pass  # No primary found? Should fall back to unstructured usually.
