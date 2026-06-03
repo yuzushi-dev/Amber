@@ -16,6 +16,24 @@ from src.core.generation.domain.provider_models import TokenUsage
 logger = structlog.get_logger(__name__)
 
 
+async def _configure_worker_session(session: Any) -> None:
+    """Set GUCs required by FORCE RLS on usage_logs.
+
+    Usage logging is an internal, privileged operation that records events for
+    any tenant.  We use the super-admin bypass so the INSERT is never blocked
+    by the tenant-isolation policy regardless of which tenant is being logged.
+    Mirrors configure_worker_session() from src.core.database.session.
+    """
+    from sqlalchemy import text
+
+    await session.execute(
+        text("SELECT set_config('app.is_super_admin', 'true', false)")
+    )
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', '', false)")
+    )
+
+
 class UsageTracker:
     """
     Asynchronous service to record model usage events.
@@ -46,6 +64,7 @@ class UsageTracker:
         try:
             logger.debug("record_usage.start", operation=operation, provider=provider, model=model)
             async with self.session_factory() as session:
+                await _configure_worker_session(session)
                 log_entry = UsageLog(
                     tenant_id=tenant_id,
                     operation=operation,
