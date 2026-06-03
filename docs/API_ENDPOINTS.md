@@ -42,6 +42,12 @@ This document provides a comprehensive reference of all API endpoints available 
 - [Admin - Embeddings](#admin---embeddings)
 - [Admin - Providers](#admin---providers)
 - [Admin - Seed Data](#admin---seed-data)
+- [Admin - Backup](#admin---backup)
+- [Admin - Observability](#admin---observability)
+- [Admin - Provisioning](#admin---provisioning)
+- [Authentication Ticket](#authentication-ticket)
+- [Chat History (User)](#chat-history-user)
+- [Groups](#groups)
 - [Response Codes](#response-codes)
 - [OpenAPI Specification](#openapi-specification)
 
@@ -126,6 +132,7 @@ All setup endpoints require an API key with `super_admin` scope.
 | `GET`    | `/v1/documents/{document_id}/relationships`     | Get entity relationships with pagination             |
 | `GET`    | `/v1/documents/{document_id}/similarities`      | Get similarity relationships between chunks          |
 | `GET`    | `/v1/documents/{document_id}/communities`       | Get entity clusters/communities                      |
+| `GET`    | `/v1/documents/{document_id}/subgraph`          | Get the document-scoped knowledge subgraph       |
 | `GET`    | `/v1/documents/{document_id}/shares`            | List tenant targets that can access a shared document (super_admin / default tenant admin) |
 | `POST`   | `/v1/documents/{document_id}/shares`            | Add tenant targets to a document share list          |
 | `PUT`    | `/v1/documents/{document_id}/shares`            | Replace all tenant targets on a document share list  |
@@ -185,6 +192,7 @@ curl -X POST /v1/documents \
 | Method   | Endpoint                  | Description         |
 | -------- | ------------------------- | ------------------- |
 | `GET`    | `/v1/folders`             | List all folders    |
+| `GET`    | `/v1/folders/counts`      | Get document counts per folder |
 | `POST`   | `/v1/folders`             | Create a new folder |
 | `DELETE` | `/v1/folders/{folder_id}` | Delete a folder     |
 
@@ -200,6 +208,9 @@ curl -X POST /v1/documents \
 | `POST`   | `/v1/graph/editor/edge`           | Create an edge                        |
 | `DELETE` | `/v1/graph/editor/edge`           | Delete an edge                        |
 | `DELETE` | `/v1/graph/editor/node/{node_id}` | Delete a node                         |
+| `GET`    | `/v1/graph/editor/health`         | Graph health summary (orphans, dup candidates) |
+| `GET`    | `/v1/graph/editor/anomalies`      | List graph anomalies for review       |
+| `POST`   | `/v1/graph/editor/bulk-prune`     | Bulk-prune nodes/edges by anomaly criteria |
 
 ## Graph History
 
@@ -220,6 +231,7 @@ curl -X POST /v1/documents \
 | `GET`  | `/v1/admin/jobs/{task_id}`        | Get task details and status        |
 | `POST` | `/v1/admin/jobs/{task_id}/cancel` | Cancel or revoke a task            |
 | `GET`  | `/v1/admin/jobs/queues/status`    | Get queue depths and worker status |
+| `POST` | `/v1/admin/jobs/cancel-all`       | Cancel all active/pending tasks    |
 
 ### Job Status Values
 
@@ -236,6 +248,7 @@ curl -X POST /v1/documents \
 | Method | Endpoint                                     | Description                     |
 | ------ | -------------------------------------------- | ------------------------------- |
 | `GET`  | `/v1/admin/config/schema`                    | Get configuration schema        |
+| `GET`  | `/v1/admin/config/llm-steps`                 | List per-step LLM model assignments |
 | `GET`  | `/v1/admin/config/prompts/defaults`          | Get default prompts             |
 | `GET`  | `/v1/admin/config/tenants/{tenant_id}`       | Get tenant configuration        |
 | `PUT`  | `/v1/admin/config/tenants/{tenant_id}`       | Update tenant configuration     |
@@ -395,12 +408,91 @@ curl -X POST /v1/documents \
 | ------ | ------------------------------- | ------------------------------ |
 | `GET`  | `/v1/admin/providers/available` | List available model providers |
 | `POST` | `/v1/admin/providers/validate`  | Validate provider credentials  |
+| `POST` | `/v1/admin/providers/ollama/test-connection` | Test Ollama endpoint reachability |
 
 ## Admin - Seed Data
 
 | Method | Endpoint                     | Description           |
 | ------ | ---------------------------- | --------------------- |
 | `POST` | `/v1/admin/seed-sample-data` | Seed sample documents |
+| `GET`  | `/v1/admin/sample-datasets`  | List bundled sample datasets |
+
+## Authentication Ticket
+
+| Method | Endpoint          | Description                                               |
+| ------ | ----------------- | -------------------------------------------------------- |
+| `POST` | `/v1/auth/ticket` | Issue a short-lived ticket for SSE/stream authentication |
+
+## Chat History (User)
+
+> User-facing conversation history for the authenticated key. Distinct from the admin chat history under `/v1/admin/chat/*`.
+
+| Method   | Endpoint                             | Description                      |
+| -------- | ------------------------------------ | -------------------------------- |
+| `GET`    | `/v1/chat/history`                   | List the caller conversations    |
+| `GET`    | `/v1/chat/history/{conversation_id}` | Get a conversation full detail   |
+| `DELETE` | `/v1/chat/history/{conversation_id}` | Delete a conversation            |
+
+## Groups
+
+> Groups bind API keys (members) and folders to control access to shared collections.
+
+| Method   | Endpoint                                     | Description                     |
+| -------- | -------------------------------------------- | ------------------------------- |
+| `GET`    | `/v1/groups`                                 | List groups                     |
+| `POST`   | `/v1/groups`                                 | Create a group                  |
+| `GET`    | `/v1/groups/{group_id}`                      | Get group details               |
+| `PATCH`  | `/v1/groups/{group_id}`                      | Update a group                  |
+| `DELETE` | `/v1/groups/{group_id}`                      | Delete a group                  |
+| `GET`    | `/v1/groups/{group_id}/members`              | List group members (API keys)   |
+| `POST`   | `/v1/groups/{group_id}/members`              | Add a member to the group       |
+| `DELETE` | `/v1/groups/{group_id}/members/{api_key_id}` | Remove a member                 |
+| `GET`    | `/v1/groups/{group_id}/folders`              | List folders bound to the group |
+| `POST`   | `/v1/groups/{group_id}/folders`              | Bind a folder to the group      |
+| `DELETE` | `/v1/groups/{group_id}/folders/{folder_id}`  | Unbind a folder                 |
+| `GET`    | `/v1/me/groups`                              | List groups for the current key |
+
+## Admin - Backup
+
+> Requires `super_admin` scope. See [disaster_recovery_runbook.md](./disaster_recovery_runbook.md).
+
+| Method   | Endpoint                                 | Description                    |
+| -------- | ---------------------------------------- | ------------------------------ |
+| `POST`   | `/v1/admin/backup/create`                | Start a backup job             |
+| `GET`    | `/v1/admin/backup/list`                  | List available backups         |
+| `GET`    | `/v1/admin/backup/job/{job_id}`          | Get backup job status          |
+| `GET`    | `/v1/admin/backup/job/{job_id}/download` | Download a completed backup    |
+| `DELETE` | `/v1/admin/backup/job/{job_id}`          | Delete a backup job/artifact   |
+| `POST`   | `/v1/admin/backup/restore`               | Start a restore job            |
+| `GET`    | `/v1/admin/backup/restore/{job_id}`      | Get restore job status         |
+| `GET`    | `/v1/admin/backup/schedule`              | Get scheduled backup config    |
+| `POST`   | `/v1/admin/backup/schedule`              | Create/update scheduled backup |
+| `DELETE` | `/v1/admin/backup/schedule`              | Remove scheduled backup        |
+
+## Admin - Observability
+
+> Requires `super_admin` scope. Metrics, deep health, token usage and document-share auditing.
+
+| Method | Endpoint                                          | Description                            |
+| ------ | ------------------------------------------------- | -------------------------------------- |
+| `GET`  | `/v1/admin/observability/metrics/aggregated`      | Aggregated query metrics over a period |
+| `GET`  | `/v1/admin/observability/metrics/recent`          | Recent query metrics                   |
+| `GET`  | `/v1/admin/observability/usage/tokens`            | Token usage / cost breakdown           |
+| `GET`  | `/v1/admin/observability/health/deep`             | Deep dependency health check           |
+| `GET`  | `/v1/admin/observability/document-shares/summary` | Cross-tenant document share summary    |
+| `GET`  | `/v1/admin/observability/document-shares/audit`   | Document share audit log               |
+| `GET`  | `/v1/admin/observability/taxonomy/corpus-summary` | Corpus taxonomy summary                |
+
+## Admin - Provisioning
+
+> Requires `super_admin` scope. Async tenant provisioning (seed config + vector collections).
+
+| Method   | Endpoint                                                 | Description                         |
+| -------- | -------------------------------------------------------- | ----------------------------------- |
+| `POST`   | `/v1/admin/provisioning/tenants/{target_tenant_id}`      | Start provisioning a tenant         |
+| `GET`    | `/v1/admin/provisioning/tenants/{target_tenant_id}/jobs` | List provisioning jobs for a tenant |
+| `GET`    | `/v1/admin/provisioning/jobs/{job_id}`                   | Get provisioning job status         |
+| `DELETE` | `/v1/admin/provisioning/jobs/{job_id}`                   | Cancel a provisioning job           |
 
 ## Response Codes
 
