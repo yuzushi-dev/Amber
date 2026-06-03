@@ -26,6 +26,22 @@ from src.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
+def _is_revoked(task_id: str) -> bool:
+    """
+    Return True if the given Celery task has been revoked.
+
+    Checks the result-backend state (Redis).  Falls back to False on any error
+    so that a transient Redis hiccup never silently aborts work.
+    """
+    try:
+        from celery.result import AsyncResult
+        state = AsyncResult(task_id, app=celery_app).state
+        return state == "REVOKED"
+    except Exception as exc:
+        logger.warning(f"[Task {task_id}] revocation check failed (ignoring): {exc}")
+        return False
+
+
 def _background_warmup():
     """Run heavy model warming in a background thread."""
     try:
@@ -140,6 +156,15 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
         dict: Processing result summary.
     """
     logger.info(f"[Task {self.request.id}] Starting processing for document {document_id}")
+
+    # Cooperative cancellation: bail out before starting expensive work if the
+    # task was already revoked (e.g. cancel called while task was in the queue).
+    if _is_revoked(self.request.id):
+        logger.info(
+            f"[Task {self.request.id}] Task revoked before start; "
+            f"skipping document {document_id}"
+        )
+        return {"document_id": document_id, "status": "cancelled", "task_id": self.request.id}
 
     try:
         result = run_async(_process_document_async(document_id, tenant_id, self.request.id))
@@ -259,9 +284,22 @@ def process_communities(self, tenant_id: str, skip_detection: bool = False) -> d
         return {"status": "skipped", "reason": "already_running", "tenant_id": tenant_id}
 
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
+
+    # Cooperative cancellation: check before doing any work.
+    if _is_revoked(self.request.id):
+        logger.info(
+            f"[Task {self.request.id}] Task revoked before start; "
+            f"skipping community processing for tenant {tenant_id}"
+        )
+        return {"status": "cancelled", "tenant_id": tenant_id}
+
     deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
-        result = run_async(_process_communities_async(tenant_id, skip_detection=skip_detection))
+        result = run_async(
+            _process_communities_async(
+                tenant_id, skip_detection=skip_detection, task_id=self.request.id
+            )
+        )
         return result
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
@@ -281,7 +319,9 @@ def process_communities(self, tenant_id: str, skip_detection: bool = False) -> d
                 pass
 
 
-async def _process_communities_async(tenant_id: str, skip_detection: bool = False) -> dict:
+async def _process_communities_async(
+    tenant_id: str, skip_detection: bool = False, task_id: str = ""
+) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
     from src.api.config import settings
@@ -306,6 +346,17 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         # 1. Detection (skip if flag is set — useful for retrying summarization/embedding only)
         detect_res = {"status": "skipped_by_flag", "community_count": 0}
         if not skip_detection:
+            # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
+            # wipe that detect_communities() performs at the start of every full-Leiden run.
+            # If the task was revoked after we started running but before the destructive
+            # step, abort here so acks_late re-delivery can't silently re-wipe communities.
+            if task_id and _is_revoked(task_id):
+                logger.info(
+                    f"[Task {task_id}] Revoked before community detection/wipe; "
+                    f"aborting for tenant {tenant_id}"
+                )
+                return {"status": "cancelled", "tenant_id": tenant_id}
+
             detector = CommunityDetector(platform.neo4j_client)
             detect_res = await detector.detect_communities(tenant_id)
 
@@ -441,16 +492,32 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         # Embed + upsert in batches of 200 — incremental progress, avoids tiny segments
         _batch_size = 200
         total_batches = -(-len(ready_comms) // _batch_size)
+        embedded_count = 0
         for batch_idx in range(0, len(ready_comms), _batch_size):
+            # Cooperative cancellation: stop between batches if revoked.
+            if task_id and _is_revoked(task_id):
+                logger.info(
+                    f"[Task {task_id}] Revoked during embedding loop at batch "
+                    f"{batch_idx // _batch_size + 1}/{total_batches}; "
+                    f"stopping cleanly for tenant {tenant_id} "
+                    f"({embedded_count}/{len(ready_comms)} communities embedded so far)"
+                )
+                return {
+                    "status": "cancelled",
+                    "tenant_id": tenant_id,
+                    "communities_detected": detect_res.get("community_count", 0),
+                    "communities_embedded": embedded_count,
+                }
             batch = ready_comms[batch_idx:batch_idx + _batch_size]
             payloads = await _asyncio.gather(*[_embed_only(c) for c in batch])
             await comm_embedding_svc.vector_store.upsert_chunks(list(payloads))
+            embedded_count += len(payloads)
             logger.info(f"Community embeddings batch {batch_idx // _batch_size + 1}/{total_batches} done ({len(payloads)} vettori)")
 
         return {
             "status": "success",
             "communities_detected": detect_res.get("community_count", 0),
-            "communities_embedded": len(ready_comms),
+            "communities_embedded": embedded_count,
         }
     finally:
         # Close Neo4j connection to prevent event loop conflicts
