@@ -38,15 +38,6 @@ LLM_STEP_DEFS: dict[str, LLMStepDef] = {
         seed_strategy="settings",
         default_temperature=0.0,
     ),
-    "ingestion.entity_summarization": LLMStepDef(
-        id="ingestion.entity_summarization",
-        label="Entity Summarization",
-        feature="ingestion",
-        description="Consolidate entity descriptions",
-        temperature_strategy="fixed",
-        seed_strategy="provider",
-        default_temperature=0.3,
-    ),
     "ingestion.document_summarization": LLMStepDef(
         id="ingestion.document_summarization",
         label="Document Summarization",
