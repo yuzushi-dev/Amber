@@ -78,16 +78,19 @@ class SqlAlchemyUnitOfWork:
         # These are used by RLS policies to filter data.
         from sqlalchemy import text
 
-        if self._tenant_id and not self._is_super_admin:
-            await self.session.execute(
-                text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
-                {"tenant_id": self._tenant_id},
-            )
-
-        if self._is_super_admin:
-            await self.session.execute(
-                text("SELECT set_config('app.is_super_admin', 'true', false)")
-            )
+        # Always set both GUCs unconditionally so pooled connections cannot
+        # bleed a previous request's super-admin privilege into a new request
+        # (RLS bypass prevention).  app.current_tenant is set to the tenant_id
+        # for normal requests and to an empty string for super-admin requests
+        # (super-admin uses is_super_admin='true' instead of a tenant filter).
+        await self.session.execute(
+            text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+            {"tenant_id": self._tenant_id if not self._is_super_admin else ""},
+        )
+        await self.session.execute(
+            text("SELECT set_config('app.is_super_admin', :is_super, false)"),
+            {"is_super": "true" if self._is_super_admin else "false"},
+        )
 
         await self.session.execute(
             text("SELECT set_config('app.current_groups', :groups, false)"),

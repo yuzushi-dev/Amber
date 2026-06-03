@@ -57,12 +57,15 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
                 {"tenant_id": str(tenant_id) if tenant_id else ""},
             )
 
-            # Check for super admin privilege from request state
+            # Always set app.is_super_admin unconditionally so pooled connections
+            # that previously served a super-admin request cannot bleed 'true'
+            # into subsequent non-super-admin requests (RLS bypass prevention).
             permissions = getattr(request.state, "permissions", [])
-            if "super_admin" in permissions:
-                await session.execute(
-                    text("SELECT set_config('app.is_super_admin', 'true', false)")
-                )
+            is_super_admin = "super_admin" in permissions
+            await session.execute(
+                text("SELECT set_config('app.is_super_admin', :is_super, false)"),
+                {"is_super": "true" if is_super_admin else "false"},
+            )
 
             # Inject group context for RLS group enforcement
             group_ids = getattr(request.state, "group_ids", [])
