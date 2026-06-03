@@ -1,9 +1,9 @@
-from src.core.system.circuit_breaker import CircuitBreaker
+from src.core.system.circuit_breaker import LatencyMonitor
 
 
 def test_circuit_breaker_degradation():
     """Verify that circuit breaker triggers degradation on high latency."""
-    cb = CircuitBreaker(window_size=10, latency_threshold_ms=100.0, degradation_ratio=0.5)
+    cb = LatencyMonitor(window_size=10, latency_threshold_ms=100.0, degradation_ratio=0.5)
 
     # Record low latencies
     for _ in range(10):
@@ -19,7 +19,7 @@ def test_circuit_breaker_degradation():
 
 def test_circuit_breaker_recovery():
     """Verify recovery once latency drops."""
-    cb = CircuitBreaker(window_size=10, latency_threshold_ms=100.0, degradation_ratio=0.5)
+    cb = LatencyMonitor(window_size=10, latency_threshold_ms=100.0, degradation_ratio=0.5)
 
     # Force degradation
     for _ in range(10):

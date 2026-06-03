@@ -38,7 +38,7 @@ from src.core.retrieval.application.search.vector import VectorSearcher
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
 from src.core.retrieval.domain.ports.vector_store_port import SearchResult, VectorStorePort
-from src.core.system.circuit_breaker import CircuitBreaker
+from src.core.system.circuit_breaker import LatencyMonitor
 from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.application.query_scopes import QueryScopes, resolve_query_scopes
 from src.shared.kernel.models.query import QueryOptions, SearchMode
@@ -230,7 +230,7 @@ class RetrievalService:
         self.drift_search = DriftSearchService(self, llm, provider_factory=factory)
 
         # Resilience
-        self.circuit_breaker = CircuitBreaker()
+        self.circuit_breaker = LatencyMonitor()
 
         # Initialize reranker
         self.reranker: RerankerProviderPort | None = None
