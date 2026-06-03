@@ -72,14 +72,16 @@ JSON Sub-queries:
 
 QUERY_MODE_PROMPT = """
 You are an intelligent query router for a Hybrid GraphRAG system.
-Your goal is to classify the user's query into one of four search modes:
+Your goal is to classify the user's query into one of five search modes:
 
 1. **basic**: Simple factual lookups or keyword searches.
 2. **local**: Questions about specific entities or their direct relationships.
 3. **global**: Holistic, thematic, or summary-level questions about the entire corpus (e.g., "What are the main themes?", "Summarize the findings").
 4. **drift**: Complex questions requiring multi-hop reasoning or exploratory traversal across many entities.
+5. **structured**: Direct database queries for lists, counts, or statistics (e.g., "List all documents", "How many entities are there?", "Show database stats").
 
 ### Logic:
+- List/count/stats operations on database objects (documents, entities, chunks) -> structured.
 - Aggregation keywords ("all", "main", "themes", "summarize", "trends") -> global.
 - Multiple entities + comparison/reasoning -> drift.
 - Single entity + specific fact -> local.
