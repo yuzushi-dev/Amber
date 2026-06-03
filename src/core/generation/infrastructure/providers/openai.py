@@ -237,7 +237,10 @@ class OpenAILLMProvider(BaseLLMProvider):
         """
         Direct chat completion with tool support.
         """
-        model = self.default_model
+        # Pop internal-only kwargs that must not be forwarded to the SDK.
+        kwargs.pop("work_class", None)
+        # Use caller-supplied model if provided, else fall back to the default.
+        model = kwargs.pop("model", None) or self.default_model
 
         try:
             response = await self.client.chat.completions.create(

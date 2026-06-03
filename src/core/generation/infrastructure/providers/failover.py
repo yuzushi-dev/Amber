@@ -131,6 +131,69 @@ class FailoverLLMProvider(BaseLLMProvider):
             provider="failover",
         )
 
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = "auto",
+        **kwargs: Any,
+    ) -> Any:
+        """Chat completion with failover across providers."""
+        last_error = None
+        is_primary = True
+
+        for provider in self.providers:
+            circuit = self.circuits[provider.provider_name]
+
+            if not circuit.allow_request():
+                logger.warning(
+                    f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})"
+                )
+                is_primary = False
+                continue
+
+            try:
+                logger.info(f"Trying chat provider: {provider.provider_name}")
+                result = await provider.chat(
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs,
+                )
+                circuit.record_success()
+                return result
+
+            except RateLimitError as e:
+                logger.warning(f"Rate limited by {provider.provider_name}: {e}")
+                circuit.record_failure()
+                last_error = e
+                is_primary = False
+                continue
+
+            except ProviderUnavailableError as e:
+                logger.warning(f"Provider {provider.provider_name} unavailable: {e}")
+                circuit.record_failure()
+                last_error = e
+                is_primary = False
+                continue
+
+            except ProviderError as e:
+                logger.error(f"Provider {provider.provider_name} error: {e}")
+                last_error = e
+                is_primary = False
+                if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
+                    continue
+                circuit.record_failure()
+                break
+
+        if not last_error:
+            last_error = "All providers skipped or unavailable"
+
+        raise ProviderUnavailableError(
+            f"All providers failed for chat. Last error: {last_error}",
+            provider="failover",
+        )
+
     async def generate_stream(
         self,
         prompt: str,
