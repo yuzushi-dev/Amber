@@ -78,5 +78,5 @@ Smoke tests here include integration, E2E, or manual scripts that exercise a pip
 
 ## Related Documentation
 
-- **GraphRAG determinism verification**: `docs/determinism_report.md`
+- **GraphRAG determinism verification**: `docs/archive/determinism_report.md`
 - **Testing coverage** (non-core): `docs/TESTING.md`
