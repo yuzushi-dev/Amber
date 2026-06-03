@@ -4,7 +4,7 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 
-class CircuitBreaker:
+class LatencyMonitor:
     """
     Monitors system latency and determines if the system should enter 'Degraded Mode'.
     Uses a sliding window of recent latencies.
