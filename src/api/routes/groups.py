@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_tenant_id, get_db_session, verify_admin
+from src.api.deps import get_current_tenant_id, get_db_session, verify_tenant_admin
 from src.core.admin_ops.domain.api_key import ApiKeyTenant
 from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
@@ -93,7 +93,7 @@ async def _get_group_or_404(session: AsyncSession, group_id: str, tenant_id: str
 # --- Group CRUD ---
 @router.post(
     "", response_model=GroupResponse, status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(verify_admin)],
+    dependencies=[Depends(verify_tenant_admin)],
 )
 async def create_group(
     group_in: GroupCreate,
@@ -135,7 +135,7 @@ async def get_group(
     return await _get_group_or_404(session, group_id, tenant_id)
 
 
-@router.patch("/{group_id}", response_model=GroupResponse, dependencies=[Depends(verify_admin)])
+@router.patch("/{group_id}", response_model=GroupResponse, dependencies=[Depends(verify_tenant_admin)])
 async def update_group(
     group_id: str,
     group_in: GroupUpdate,
@@ -154,7 +154,7 @@ async def update_group(
     return group
 
 
-@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_admin)])
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_tenant_admin)])
 async def delete_group(
     group_id: str,
     session: AsyncSession = Depends(get_db_session),
@@ -171,7 +171,7 @@ async def delete_group(
 # --- Members ---
 @router.post(
     "/{group_id}/members", response_model=GroupMemberResponse,
-    status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_admin)],
+    status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_tenant_admin)],
 )
 async def add_group_member(
     group_id: str,
@@ -221,7 +221,7 @@ async def add_group_member(
 
 @router.delete(
     "/{group_id}/members/{api_key_id}", status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(verify_admin)],
+    dependencies=[Depends(verify_tenant_admin)],
 )
 async def remove_group_member(
     group_id: str,
@@ -270,7 +270,7 @@ async def list_group_members(
 # --- Folder grants ---
 @router.post(
     "/{group_id}/folders", response_model=GroupFolderResponse,
-    status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_admin)],
+    status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_tenant_admin)],
 )
 async def grant_group_folder(
     group_id: str,
@@ -319,7 +319,7 @@ async def grant_group_folder(
 
 @router.delete(
     "/{group_id}/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(verify_admin)],
+    dependencies=[Depends(verify_tenant_admin)],
 )
 async def revoke_group_folder(
     group_id: str,
