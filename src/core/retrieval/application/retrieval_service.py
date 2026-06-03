@@ -1054,6 +1054,14 @@ class RetrievalService:
 
         logger.debug("Vector search running %d query variant(s)", len(queries_to_run))
 
+        # Resolve embedding service once (tenant_config is constant for the loop) so we
+        # can read model/provider for cache-key construction without redundant calls.
+        _emb_svc_for_key = self._resolve_embedding_service(tenant_config)
+        _cache_embedding_model: str = _emb_svc_for_key.model or ""
+        _cache_embedding_provider: str = getattr(_emb_svc_for_key.provider, "provider_name", "") or ""
+        _cache_collection_names: list[str] = [t.collection_name for t in vector_targets]
+        _cache_search_mode: str = options.search_mode.value if options.search_mode else ""
+
         all_chunks = []
         seen_chunk_ids = set()
 
@@ -1080,7 +1088,16 @@ class RetrievalService:
             # Check result cache for this specific sub-query
             step_start = time.perf_counter()
             cache_filters = {"document_ids": document_ids, **(filters or {})}
-            cached_result = await self.result_cache.get(search_query, tenant_id, cache_filters)
+            cached_result = await self.result_cache.get(
+                search_query,
+                tenant_id,
+                cache_filters,
+                search_mode=_cache_search_mode,
+                top_k=top_k,
+                embedding_model=_cache_embedding_model,
+                embedding_provider=_cache_embedding_provider,
+                collection_names=_cache_collection_names,
+            )
 
             logger.debug("Result cache lookup for '%s' hit=%s", search_query, bool(cached_result))
 
@@ -1262,6 +1279,11 @@ class RetrievalService:
                 chunk_ids=[c["chunk_id"] for c in sub_chunks_to_cache],
                 scores=[c["score"] for c in sub_chunks_to_cache],
                 filters=cache_filters,
+                search_mode=_cache_search_mode,
+                top_k=top_k,
+                embedding_model=_cache_embedding_model,
+                embedding_provider=_cache_embedding_provider,
+                collection_names=_cache_collection_names,
             )
 
         # Final sort and limit

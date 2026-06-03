@@ -88,19 +88,38 @@ class ResultCache:
         query: str,
         tenant_id: str,
         filters: dict[str, Any] | None = None,
+        search_mode: str | None = None,
+        top_k: int | None = None,
+        embedding_model: str | None = None,
+        embedding_provider: str | None = None,
+        collection_names: list[str] | None = None,
     ) -> str:
-        """Create a hash key for a search request."""
+        """Create a hash key for a search request.
+
+        All dimensions that affect the result set must be included:
+        - query + tenant + filters: the original key components
+        - search_mode: BASIC / LOCAL / GLOBAL / DRIFT produce different result shapes
+        - top_k: cached list may be smaller than a new request's top_k, so we key by it
+        - embedding_model / embedding_provider: different models produce different vectors
+        - collection_names: different collections hold different data
+        tenant_id is both in the hash payload (defense) and in the key prefix (for SCAN).
+        """
         data = {
             "query": query.strip().lower(),
             "tenant_id": tenant_id,
             "filters": filters or {},
+            "search_mode": search_mode or "",
+            "top_k": top_k,
+            "embedding_model": embedding_model or "",
+            "embedding_provider": embedding_provider or "",
+            "collection_names": sorted(collection_names or []),
         }
         serialized = json.dumps(data, sort_keys=True)
         return hashlib.sha256(serialized.encode()).hexdigest()[:32]
 
-    def _make_key(self, request_hash: str) -> str:
-        """Create a Redis key for results."""
-        return f"{self.config.key_prefix}:results:{request_hash}"
+    def _make_key(self, tenant_id: str, request_hash: str) -> str:
+        """Create a Redis key for results, namespaced by tenant for SCAN-based invalidation."""
+        return f"result:{tenant_id}:{request_hash}"
 
     def _make_tenant_key(self, tenant_id: str) -> str:
         """Create a Redis key for tenant timestamp."""
@@ -111,6 +130,11 @@ class ResultCache:
         query: str,
         tenant_id: str,
         filters: dict[str, Any] | None = None,
+        search_mode: str | None = None,
+        top_k: int | None = None,
+        embedding_model: str | None = None,
+        embedding_provider: str | None = None,
+        collection_names: list[str] | None = None,
     ) -> CachedResult | None:
         """
         Get cached retrieval result.
@@ -119,6 +143,11 @@ class ResultCache:
             query: The search query
             tenant_id: Tenant ID
             filters: Optional search filters
+            search_mode: The resolved search mode (affects result shape)
+            top_k: Number of results requested
+            embedding_model: Resolved embedding model name
+            embedding_provider: Resolved embedding provider name
+            collection_names: Active vector collection names searched
 
         Returns:
             CachedResult or None if not found/stale
@@ -128,8 +157,15 @@ class ResultCache:
 
         try:
             client = await self._get_client()
-            request_hash = self._hash_request(query, tenant_id, filters)
-            key = self._make_key(request_hash)
+            request_hash = self._hash_request(
+                query, tenant_id, filters,
+                search_mode=search_mode,
+                top_k=top_k,
+                embedding_model=embedding_model,
+                embedding_provider=embedding_provider,
+                collection_names=collection_names,
+            )
+            key = self._make_key(tenant_id, request_hash)
 
             data = await client.get(key)
             if not data:
@@ -169,6 +205,11 @@ class ResultCache:
         scores: list[float],
         filters: dict[str, Any] | None = None,
         ttl: int | None = None,
+        search_mode: str | None = None,
+        top_k: int | None = None,
+        embedding_model: str | None = None,
+        embedding_provider: str | None = None,
+        collection_names: list[str] | None = None,
     ) -> bool:
         """
         Cache a retrieval result.
@@ -180,6 +221,11 @@ class ResultCache:
             scores: Corresponding similarity scores
             filters: Optional search filters used
             ttl: Optional TTL override
+            search_mode: The resolved search mode (affects result shape)
+            top_k: Number of results requested
+            embedding_model: Resolved embedding model name
+            embedding_provider: Resolved embedding provider name
+            collection_names: Active vector collection names searched
 
         Returns:
             True if cached successfully
@@ -191,8 +237,15 @@ class ResultCache:
             from datetime import UTC, datetime
 
             client = await self._get_client()
-            request_hash = self._hash_request(query, tenant_id, filters)
-            key = self._make_key(request_hash)
+            request_hash = self._hash_request(
+                query, tenant_id, filters,
+                search_mode=search_mode,
+                top_k=top_k,
+                embedding_model=embedding_model,
+                embedding_provider=embedding_provider,
+                collection_names=collection_names,
+            )
+            key = self._make_key(tenant_id, request_hash)
             ttl = ttl or self.config.ttl_seconds
 
             data = json.dumps(
@@ -214,20 +267,14 @@ class ResultCache:
 
     async def invalidate_tenant(self, tenant_id: str) -> bool:
         """
-        Invalidate all cached results for a tenant.
+        Invalidate all cached results for a tenant by deleting all keys under
+        the result:{tenant_id}:* namespace.
 
         Call this when documents are added/modified/deleted.
         """
         try:
-            from datetime import UTC, datetime
-
-            client = await self._get_client()
-            tenant_key = self._make_tenant_key(tenant_id)
-
-            # Set timestamp to now, making all previous cache entries stale
-            await client.set(tenant_key, datetime.now(UTC).isoformat())
-
-            logger.info(f"Invalidated result cache for tenant {tenant_id}")
+            deleted = await self.clear_tenant(tenant_id)
+            logger.info(f"Invalidated result cache for tenant {tenant_id} ({deleted} keys deleted)")
             return True
 
         except Exception as e:
@@ -235,29 +282,26 @@ class ResultCache:
             return False
 
     async def clear_tenant(self, tenant_id: str) -> int:
-        """Clear all cached results for a tenant."""
+        """
+        Clear all cached results for a tenant.
+
+        Keys are namespaced as result:{tenant_id}:{hash}, so we can SCAN
+        exactly the tenant's entries without inspecting values or iterating
+        the whole keyspace.
+        """
         try:
             client = await self._get_client()
-            pattern = f"{self.config.key_prefix}:results:*"
+            pattern = f"result:{tenant_id}:*"
 
-            # Note: This is not efficient for large caches
-            # A better approach would be to prefix keys with tenant_id
             deleted = 0
+            keys_to_delete = []
             async for key in client.scan_iter(match=pattern):
-                data = await client.get(key)
-                if data:
-                    try:
-                        json.loads(data)
-                        # We can't filter by tenant without tenant in key
-                        # For now, just use invalidation instead
-                        pass
-                    except Exception:
-                        pass
+                keys_to_delete.append(key)
 
-            # Update the tenant timestamp
-            await self.invalidate_tenant(tenant_id)
+            if keys_to_delete:
+                deleted = await client.delete(*keys_to_delete)
 
-            logger.info(f"Cleared cache for tenant {tenant_id}")
+            logger.info(f"Cleared {deleted} cache entries for tenant {tenant_id}")
             return deleted
 
         except Exception as e:
