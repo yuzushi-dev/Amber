@@ -651,6 +651,7 @@ class IngestionService:
                     )
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
+                raise
 
             # 10. Document Enrichment
             try:
@@ -688,6 +689,7 @@ class IngestionService:
 
             except Exception as e:
                 logger.error(f"Document enrichment failed for {document_id}: {e}")
+                raise
 
             # 11. Update Document Status -> READY
             # 11b. Finalize Metadata (Duration)
