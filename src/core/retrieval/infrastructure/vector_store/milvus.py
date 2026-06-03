@@ -320,6 +320,18 @@ class MilvusVectorStore:
 
         await self.connect()
 
+        # Parity guard: every embedding must match the collection's configured dimension.
+        collection_dim = self.config.dimensions
+        for c in chunks:
+            vec = c.get("embedding", [])
+            if vec and len(vec) != collection_dim:
+                raise ValueError(
+                    f"Embedding dimension mismatch on upsert: vector has {len(vec)} dimensions "
+                    f"but collection '{self.config.collection_name}' expects {collection_dim}. "
+                    "Ensure the embedding model and tenant collection were provisioned with the "
+                    "same dimension."
+                )
+
         # Prepare data for insertion
         # With enable_dynamic_field=True, we can pass extra keys in the dict.
         data = []
@@ -402,6 +414,16 @@ class MilvusVectorStore:
             List of SearchResult ordered by similarity
         """
         await self.connect()
+
+        # Parity guard: query vector must match the collection's configured dimension.
+        collection_dim = self.config.dimensions
+        if query_vector and len(query_vector) != collection_dim:
+            raise ValueError(
+                f"Embedding dimension mismatch on search: query vector has {len(query_vector)} "
+                f"dimensions but collection '{self.config.collection_name}' expects {collection_dim}. "
+                "Ensure the embedding model and tenant collection were provisioned with the "
+                "same dimension."
+            )
 
         collection = self._collection
         if collection_name and collection_name != self.config.collection_name:
@@ -685,6 +707,17 @@ class MilvusVectorStore:
         """
         await self.connect()
         milvus = _get_milvus()
+
+        # Parity guard: dense query vector must match the collection's configured dimension.
+        collection_dim = self.config.dimensions
+        if dense_vector and len(dense_vector) != collection_dim:
+            raise ValueError(
+                f"Embedding dimension mismatch on hybrid search: dense vector has "
+                f"{len(dense_vector)} dimensions but collection '{self.config.collection_name}' "
+                f"expects {collection_dim}. Ensure the embedding model and tenant collection "
+                "were provisioned with the same dimension."
+            )
+
         collection = self._collection
 
         # Handle collection_name - use specific collection if provided
