@@ -2,46 +2,26 @@ from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_GRAPH_SYNC_PROFILE = "default"
+
+# Shared knobs that are identical across all profiles.  Per-profile overrides
+# only change concurrency; everything else is inherited from this base so it
+# lives in exactly one place.
+_BASE_GRAPH_SYNC_KNOBS: dict[str, Any] = {
+    "adaptive_concurrency_enabled": False,
+    "use_gleaning": True,
+    "max_gleaning_steps": 1,
+    "cache_enabled": False,
+    "cache_ttl_hours": 168,
+    "smart_gleaning_enabled": False,
+    "smart_gleaning_entity_threshold": 2,
+    "smart_gleaning_relationship_threshold": 1,
+    "smart_gleaning_min_chunk_chars": 250,
+}
+
 DEFAULT_GRAPH_SYNC_PROFILES: dict[str, dict[str, Any]] = {
-    "default": {
-        "initial_concurrency": 3,
-        "max_concurrency": 5,
-        "adaptive_concurrency_enabled": False,
-        "use_gleaning": True,
-        "max_gleaning_steps": 1,
-        "cache_enabled": False,
-        "cache_ttl_hours": 168,
-        "smart_gleaning_enabled": False,
-        "smart_gleaning_entity_threshold": 2,
-        "smart_gleaning_relationship_threshold": 1,
-        "smart_gleaning_min_chunk_chars": 250,
-    },
-    "local_weak": {
-        "initial_concurrency": 1,
-        "max_concurrency": 2,
-        "adaptive_concurrency_enabled": False,
-        "use_gleaning": True,
-        "max_gleaning_steps": 1,
-        "cache_enabled": False,
-        "cache_ttl_hours": 168,
-        "smart_gleaning_enabled": False,
-        "smart_gleaning_entity_threshold": 2,
-        "smart_gleaning_relationship_threshold": 1,
-        "smart_gleaning_min_chunk_chars": 250,
-    },
-    "cloud_strong": {
-        "initial_concurrency": 3,
-        "max_concurrency": 5,
-        "adaptive_concurrency_enabled": False,
-        "use_gleaning": True,
-        "max_gleaning_steps": 1,
-        "cache_enabled": False,
-        "cache_ttl_hours": 168,
-        "smart_gleaning_enabled": False,
-        "smart_gleaning_entity_threshold": 2,
-        "smart_gleaning_relationship_threshold": 1,
-        "smart_gleaning_min_chunk_chars": 250,
-    },
+    "default": {**_BASE_GRAPH_SYNC_KNOBS, "initial_concurrency": 3, "max_concurrency": 5},
+    "local_weak": {**_BASE_GRAPH_SYNC_KNOBS, "initial_concurrency": 1, "max_concurrency": 2},
+    "cloud_strong": {**_BASE_GRAPH_SYNC_KNOBS, "initial_concurrency": 3, "max_concurrency": 5},
 }
 
 
