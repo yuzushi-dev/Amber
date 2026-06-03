@@ -1342,29 +1342,6 @@ class RetrievalService:
         except Exception as e:
             logger.error(f"Failed to fetch chunks from repository: {e}")
             return []
-        """Fetch full chunk data by IDs (from cache hit)."""
-        # Fetch content from vector store
-        chunks_data = await self.vector_store.get_chunks(chunk_ids)
-
-        # Create lookup map
-        chunk_map = {c["chunk_id"]: c for c in chunks_data}
-
-        results = []
-        for cid, score in zip(chunk_ids, scores, strict=False):
-            chunk = chunk_map.get(cid)
-            if chunk:
-                # Add score and ensure standardized format
-                results.append(
-                    {
-                        "chunk_id": cid,
-                        "document_id": chunk.get("document_id"),
-                        "score": score,  # Use cached score
-                        "content": chunk.get("content", ""),
-                        "metadata": chunk.get("metadata", {}),
-                    }
-                )
-
-        return results
 
     async def invalidate_cache(self, tenant_id: str) -> None:
         """Invalidate all caches for a tenant."""
