@@ -361,16 +361,22 @@ async def _process_communities_async(tenant_id: str, skip_detection: bool = Fals
         )
 
         # 3. Embeddings
-        # Use the already-configured ProviderFactory (which respects default_embedding_provider)
-        # to get the correct embedding provider, instead of letting EmbeddingService create
-        # its own factory that may default to OpenAI.
+        # Resolve embedding provider/model from tenant_config first (mirrors
+        # RetrievalService._resolve_embedding_service), falling back to system defaults.
+        # This ensures community embedding WRITES use the same vector space as GLOBAL
+        # search QUERIES, which also honour the tenant override.
+        t_embedding_provider = tenant_config.get("embedding_provider") or settings.default_embedding_provider
+        t_embedding_model = tenant_config.get("embedding_model") or settings.default_embedding_model
+
+        # Use the already-configured ProviderFactory (which carries the tenant's ollama URL)
+        # to get the correct embedding provider.
         embedding_provider = factory.get_embedding_provider(
-            provider_name=settings.default_embedding_provider,
-            model=settings.default_embedding_model,
+            provider_name=t_embedding_provider,
+            model=t_embedding_model,
         )
         embedding_model = (
-            settings.default_embedding_model
-            or DEFAULT_EMBEDDING_MODEL.get(settings.default_embedding_provider or "ollama")
+            t_embedding_model
+            or DEFAULT_EMBEDDING_MODEL.get(t_embedding_provider or "ollama")
         )
         embedding_svc = EmbeddingService(
             provider=embedding_provider,
