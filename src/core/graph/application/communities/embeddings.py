@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
@@ -30,83 +29,11 @@ class CommunityEmbeddingService:
         self.vector_store = vector_store
         self.sparse_embedding_service = sparse_embedding_service
 
-    async def embed_and_store_community(self, community_data: dict[str, Any]):
-        """
-        Embeds a community summary and stores it in the vector store.
-
-        Args:
-            community_data: Dict with id, tenant_id, level, title, summary
-        """
-        text_to_embed = f"{community_data['title']}: {community_data['summary']}"
-        embedding = await self.embedding_service.embed_single(text_to_embed)
-
-        # Generate sparse vector if service available
-        sparse_vector = None
-        if self.sparse_embedding_service:
-            try:
-                sparse_vector = self.sparse_embedding_service.embed_sparse(text_to_embed)
-            except Exception as e:
-                logger.warning(f"Failed to generate sparse embedding for community {community_data['id']}: {e}")
-
-        payload = {
-            "chunk_id": community_data["id"],
-            "document_id": community_data["id"],
-            "tenant_id": community_data["tenant_id"],
-            "content": community_data["summary"],
-            "embedding": embedding,
-            "title": community_data["title"],
-            "level": community_data["level"],
-        }
-
-        if sparse_vector:
-            payload["sparse_vector"] = sparse_vector
-
-        try:
-            await self.vector_store.upsert_chunks([payload])
-            logger.info(f"Stored embedding for community {community_data['id']}")
-        except Exception as e:
-            logger.error(f"Failed to store community embedding: {e}")
-            raise
-
-    async def search_communities(
-        self, query_vector: list[float], tenant_id: str, level: int | None = None, limit: int = 5
-    ) -> list[dict[str, Any]]:
-        """
-        Searches for communities semantically similar to the query.
-        """
-        filters = {"level": level} if level is not None else None
-
-        # Check if vector store supports hybrid search (MilvusVectorStore) and we have sparse service
-        if (
-            hasattr(self.vector_store, "hybrid_search")
-            and self.sparse_embedding_service
-        ):
-            # Generate sparse query vector (sync call but fast enough for now)
-            # Ideally should be async or thread-pooled if model is heavy
-            try:
-                # Text isn't passed here, query_vector is pre-computed elsewhere usually.
-                # But here search_communities takes query_vector (dense).
-                # We can't easily regenerate sparse vector from dense vector.
-                # The caller should ideally provide text or both vectors.
-                # For now, we fallback to dense search as we don't have the query text here.
-                pass
-            except Exception:
-                pass
-
-        results = await self.vector_store.search(
-            query_vector=query_vector,
-            tenant_id=tenant_id,
-            limit=limit,
-            filters=filters,
-        )
-
-        return [
-            {
-                "id": r.chunk_id,
-                "title": r.metadata.get("title"),
-                "summary": r.metadata.get("content", ""),
-                "level": r.metadata.get("level"),
-                "score": r.score,
-            }
-            for r in results
-        ]
+    # NOTE: embed_and_store_community and search_communities were removed.
+    # The community pipeline (process_communities task) uses an inlined _embed_only
+    # loop that writes payloads directly via vector_store.upsert_chunks, making
+    # embed_and_store_community unreachable in production.
+    # search_communities had no callers anywhere in the codebase.
+    # This class is kept as a named container for embedding_service /
+    # sparse_embedding_service so that tasks.py can initialise both services
+    # under a single object and reference them by attribute.
