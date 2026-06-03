@@ -16,6 +16,7 @@ from src.core.generation.domain.memory_models import ConversationSummary
 from src.core.graph.application.context_writer import context_graph_writer
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.shared.context import get_current_tenant
+from src.shared.kernel.runtime import get_settings
 
 router = APIRouter(prefix="/feedback", tags=["admin-feedback"], dependencies=[Depends(verify_tenant_admin)])
 
@@ -146,7 +147,7 @@ async def verify_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
     # 5. Application Effects (Tuning & Graph)
     try:
         # Tuning Analysis
-        tuning = TuningService(session_factory=async_session_maker)
+        tuning = TuningService(session_factory=async_session_maker, redis_url=get_settings().db.redis_url)
         await tuning.analyze_feedback_for_tuning(
             tenant_id=tenant_id,
             request_id=feedback.request_id,
