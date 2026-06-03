@@ -358,7 +358,12 @@ async def _process_communities_async(
                 return {"status": "cancelled", "tenant_id": tenant_id}
 
             detector = CommunityDetector(platform.neo4j_client)
-            detect_res = await detector.detect_communities(tenant_id)
+            detect_res = await detector.detect_communities(
+                tenant_id,
+                resolution=settings.leiden_resolution,
+                max_levels=settings.leiden_max_levels,
+                seed=settings.leiden_seed,
+            )
 
             if detect_res["status"] == "skipped":
                 return detect_res
@@ -453,15 +458,24 @@ async def _process_communities_async(
             sparse_embedding_service=sparse_svc,
         )
 
-        # Fetch all communities that need embedding (just summarized)
-        # Actually, we can just fetch all 'ready' communities for this tenant for now
-        # or track which ones were just updated.
-        # For MVP, we'll re-sync all 'ready' communities to Milvus.
+        # Fetch all communities that need embedding.
+        # TODO(perf): This re-embeds ALL status='ready' communities on every run, even
+        # those whose summary has not changed since the last embedding pass.  At ~3 000+
+        # communities this becomes expensive (one embedding API call per community plus
+        # a Milvus upsert).  A targeted fix would be to add an `is_embedded` / `embedded_at`
+        # flag to :Community nodes and query only WHERE is_embedded IS NULL OR is_embedded = false,
+        # setting the flag after a successful upsert.  Left as a future optimisation; the
+        # correctness cost of re-syncing all communities is an overshoot in API calls, not
+        # incorrect data.
         query = """
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
         RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title, c.summary as summary
         """
         ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+        logger.info(
+            f"Embedding pass for tenant {tenant_id}: {len(ready_comms)} ready communities to embed "
+            f"(full re-sync — see TODO above for targeted optimisation)"
+        )
 
         import asyncio as _asyncio
         _sem = _asyncio.Semaphore(5)
