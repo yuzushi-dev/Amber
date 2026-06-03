@@ -322,10 +322,11 @@ class QueryUseCase:
                 tool_map[t["name"]] = t["func"]
                 tool_schemas.append(t["schema"])
         elif _agent_flag("ENABLE_AGENT_GRAPH_TOOL"):
-            from src.core.tools.graph import GRAPH_TOOLS, query_graph
+            from src.core.tools.graph import create_graph_tool
 
-            tool_map["query_graph"] = query_graph
-            tool_schemas.extend(GRAPH_TOOLS)
+            _graph_tool = create_graph_tool(tenant_id)
+            tool_map["query_graph"] = _graph_tool["func"]
+            tool_schemas.append(_graph_tool["schema"])
 
         agent = AgentOrchestrator(
             generation_service=self.generation_service,
