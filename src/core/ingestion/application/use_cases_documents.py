@@ -440,6 +440,17 @@ class DeleteDocumentUseCase:
         except Exception as e:
             logger.warning(f"Failed to invalidate stats cache: {e}")
 
+        # Invalidate result cache so stale answers are not served after document deletion
+        try:
+            from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+            from src.shared.kernel.runtime import get_settings
+
+            _rc_settings = get_settings()
+            _rc = ResultCache(ResultCacheConfig(redis_url=_rc_settings.db.redis_url))
+            await _rc.invalidate_tenant(tenant_id)
+        except Exception as e:
+            logger.warning(f"Failed to invalidate result cache on document delete: {e}")
+
         return DeleteDocumentResult(document_id=request.document_id)
 
 

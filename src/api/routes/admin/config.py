@@ -664,6 +664,16 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                     )
 
                 logger.info("Updated LLM config for all tenants: %s", list(llm_update.keys()))
+
+                # Invalidate result cache for all affected tenants (best-effort)
+                try:
+                    from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+
+                    _rc = ResultCache(ResultCacheConfig(redis_url=settings.db.redis_url))
+                    for _t in tenants:
+                        await _rc.invalidate_tenant(_t.id)
+                except Exception as _rc_exc:
+                    logger.warning(f"Failed to invalidate result cache after config update: {_rc_exc}")
             else:
                 result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
                 tenant = result.scalar_one_or_none()
@@ -700,6 +710,15 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
 
                     # 2. Re-trigger for this tenant
                     await invalidate_and_retrigger_communities(tenant_id)
+
+                # Invalidate result cache for this tenant (best-effort)
+                try:
+                    from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+
+                    _rc = ResultCache(ResultCacheConfig(redis_url=settings.db.redis_url))
+                    await _rc.invalidate_tenant(tenant_id)
+                except Exception as _rc_exc:
+                    logger.warning(f"Failed to invalidate result cache after config update: {_rc_exc}")
 
         # Propagate ollama_base_url change to running factory
         if "ollama_base_url" in update_dict:
@@ -766,6 +785,15 @@ async def reset_tenant_config(tenant_id: str, request: Request = None):
             )
 
             logger.info(f"Reset config for tenant {tenant_id}")
+
+        # Invalidate result cache so stale answers are not served after config reset (best-effort)
+        try:
+            from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+
+            _rc = ResultCache(ResultCacheConfig(redis_url=settings.db.redis_url))
+            await _rc.invalidate_tenant(tenant_id)
+        except Exception as e:
+            logger.warning(f"Failed to invalidate result cache after config reset: {e}")
 
         return {"status": "success", "message": f"Configuration reset for tenant {tenant_id}"}
 

@@ -717,6 +717,17 @@ class IngestionService:
                 )
             )
 
+            # Invalidate result cache so stale answers are not served after new doc is ready
+            try:
+                from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+                from src.shared.kernel.runtime import get_settings
+
+                _rc_settings = get_settings()
+                _rc = ResultCache(ResultCacheConfig(redis_url=_rc_settings.db.redis_url))
+                await _rc.invalidate_tenant(document.tenant_id)
+            except Exception as _rc_exc:
+                logger.warning(f"Failed to invalidate result cache on READY for {document_id}: {_rc_exc}")
+
             logger.info(f"Processed document {document_id}")
 
         except Exception as e:
