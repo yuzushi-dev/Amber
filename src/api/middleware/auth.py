@@ -127,6 +127,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 origin,
             )
 
+        # Resolve settings once (needed later for linkless-key guard)
+        from src.api.config import get_settings as _get_settings
+
+        _settings = _get_settings()
+
         # Validate API key via Service
         from src.api.deps import _get_async_session_maker
         from src.core.admin_ops.application.api_key_service import ApiKeyService
@@ -158,14 +163,31 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             ):  # Allow Super Admin to impersonate any tenant
                 tenant_id = TenantId(header_tenant_id)
             elif not allowed_tenants:
-                # Legacy/Bootstrap: If key has no specific links, allow 'default' if requested
-                # This ensures unmigrated keys still work for default tenant
-                if header_tenant_id == "default":
+                # Legacy/Bootstrap: key has no api_key_tenants links.
+                # Gate behind ALLOW_LINKLESS_KEY_DEFAULT_TENANT (default True) so
+                # operators can disable this once all keys are properly linked.
+                if header_tenant_id == "default" and _settings.allow_linkless_key_default_tenant:
+                    logger.warning(
+                        "SECURITY: API key '%s' has no tenant links and is falling back to "
+                        "the 'default' tenant (legacy bootstrap path). "
+                        "Link this key to a tenant or set "
+                        "ALLOW_LINKLESS_KEY_DEFAULT_TENANT=false to disable this fallback.",
+                        valid_key.name,
+                    )
                     tenant_id = TenantId("default")
                 else:
-                    logger.warning(
-                        f"Access denied for key {valid_key.name} to tenant {header_tenant_id} (No links)"
-                    )
+                    if header_tenant_id == "default" and not _settings.allow_linkless_key_default_tenant:
+                        logger.warning(
+                            "SECURITY: API key '%s' attempted linkless default-tenant access "
+                            "but ALLOW_LINKLESS_KEY_DEFAULT_TENANT is disabled.",
+                            valid_key.name,
+                        )
+                    else:
+                        logger.warning(
+                            "Access denied for key '%s' to tenant %s (no tenant links)",
+                            valid_key.name,
+                            header_tenant_id,
+                        )
                     return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
             else:
                 logger.warning(
@@ -178,8 +200,24 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 # Ambiguity resolved: exact one match
                 tenant_id = TenantId(list(allowed_tenants)[0])
             elif not allowed_tenants:
-                # Fallback to default
-                tenant_id = TenantId("default")
+                # Legacy/Bootstrap: key has no api_key_tenants links; fall back to default.
+                # Gate behind ALLOW_LINKLESS_KEY_DEFAULT_TENANT (default True).
+                if _settings.allow_linkless_key_default_tenant:
+                    logger.warning(
+                        "SECURITY: API key '%s' has no tenant links and is falling back to "
+                        "the 'default' tenant (legacy bootstrap path). "
+                        "Link this key to a tenant or set "
+                        "ALLOW_LINKLESS_KEY_DEFAULT_TENANT=false to disable this fallback.",
+                        valid_key.name,
+                    )
+                    tenant_id = TenantId("default")
+                else:
+                    logger.warning(
+                        "SECURITY: API key '%s' has no tenant links and "
+                        "ALLOW_LINKLESS_KEY_DEFAULT_TENANT is disabled — rejecting.",
+                        valid_key.name,
+                    )
+                    return _cors_error_response(403, "FORBIDDEN", "Access to tenant denied", origin)
             else:
                 # Ambiguous
                 return _cors_error_response(

@@ -456,6 +456,19 @@ class Settings(BaseSettings):
         description="Enable graph/global retrieval filtering against explicit document share ACLs.",
     )
 
+    # Security: legacy bootstrap fallback for unlinked API keys
+    allow_linkless_key_default_tenant: bool = Field(
+        default=True,
+        alias="ALLOW_LINKLESS_KEY_DEFAULT_TENANT",
+        description=(
+            "When True (default), an API key with no api_key_tenants links is silently "
+            "allowed onto the 'default' tenant. This is a legacy bootstrap behaviour for "
+            "deployments that pre-date the api_key_tenants linking requirement. "
+            "Set to False once all keys have explicit tenant links to prevent linkless "
+            "keys from accessing any tenant."
+        ),
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
