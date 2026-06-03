@@ -72,16 +72,29 @@ class SystemStats(BaseModel):
     timestamp: datetime
 
 
-class ReconciliationStatus(BaseModel):
-    """Dual-write reconciliation status."""
+class StoreCounts(BaseModel):
+    """Per-store document/chunk/entity counts for a single tenant."""
 
-    sync_status: str  # "healthy", "degraded", "error"
-    last_sync_at: datetime | None = None
-    sync_lag_seconds: float = 0
-    pending_writes: int = 0
-    failed_writes: int = 0
-    retry_queue_depth: int = 0
-    errors: list = Field(default_factory=list)
+    tenant_id: str
+    postgres_documents: int = 0
+    postgres_chunks: int = 0
+    neo4j_chunks: int = 0
+    milvus_vectors: int = 0
+    drift: bool = False
+
+
+class ReconciliationStatus(BaseModel):
+    """Cross-store reconciliation status (detection only, no auto-repair)."""
+
+    sync_status: str  # "healthy" | "drift_detected" | "error"
+    checked_at: datetime
+    tenant_counts: list[StoreCounts] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    note: str = (
+        "Detection only — reports per-tenant count mismatches between "
+        "Postgres, Neo4j (:Chunk nodes), and Milvus vectors. "
+        "No automatic repair is performed."
+    )
 
 
 class MaintenanceResult(BaseModel):
@@ -397,22 +410,125 @@ async def prune_stale_communities(max_age_days: int = 30):
 @router.get("/reconciliation", response_model=ReconciliationStatus)
 async def get_reconciliation_status():
     """
-    Get dual-write reconciliation status.
+    Cross-store reconciliation status (detection only, no auto-repair).
 
-    Shows sync health between primary (Neo4j) and secondary (Milvus) stores.
+    Compares per-tenant document/chunk counts from Postgres, Neo4j (:Chunk nodes),
+    and Milvus vectors and reports whether the stores agree.  A mismatch means
+    data is present in one store but not (yet) in another — useful to detect
+    partially-failed ingestion pipelines.
+
+    NOTE: This endpoint performs READ-only count queries and does NOT repair drift.
     """
+    errors: list[str] = []
+    tenant_counts: list[StoreCounts] = []
+
     try:
-        # TODO: Implement actual reconciliation tracking
-        # This would monitor the dual-write pipeline
+        from sqlalchemy import func
+        from sqlalchemy.future import select
+
+        from src.amber_platform.composition_root import platform
+        from src.core.database.session import async_session_maker
+        from src.core.ingestion.domain.chunk import Chunk
+        from src.core.ingestion.domain.document import Document
+
+        # --- 1. Postgres: documents and chunks per tenant ---
+        pg_doc_counts: dict[str, int] = {}
+        pg_chunk_counts: dict[str, int] = {}
+        try:
+            async with async_session_maker() as session:
+                doc_rows = await session.execute(
+                    select(Document.tenant_id, func.count(Document.id)).group_by(Document.tenant_id)
+                )
+                for row in doc_rows:
+                    pg_doc_counts[row[0]] = row[1]
+
+                chunk_rows = await session.execute(
+                    select(Chunk.tenant_id, func.count(Chunk.id)).group_by(Chunk.tenant_id)
+                )
+                for row in chunk_rows:
+                    pg_chunk_counts[row[0]] = row[1]
+        except Exception as e:
+            errors.append(f"postgres: {e}")
+
+        # --- 2. Neo4j: :Chunk nodes per tenant ---
+        neo4j_chunk_counts: dict[str, int] = {}
+        try:
+            cypher = """
+            MATCH (c:Chunk)
+            RETURN c.tenant_id AS tenant_id, count(c) AS cnt
+            """
+            rows = await platform.neo4j_client.execute_read(cypher, {})
+            for row in rows:
+                if row.get("tenant_id"):
+                    neo4j_chunk_counts[row["tenant_id"]] = row["cnt"]
+        except Exception as e:
+            errors.append(f"neo4j: {e}")
+
+        # --- 3. Milvus: vector count per tenant collection (amber_<tenant_id>) ---
+        milvus_counts: dict[str, int] = {}
+        try:
+            from pymilvus import Collection, connections, utility
+
+            milvus_host = os.getenv("MILVUS_HOST", "localhost")
+            milvus_port = int(os.getenv("MILVUS_PORT", "19530"))
+            try:
+                connections.connect(alias="default", host=milvus_host, port=milvus_port)
+            except Exception:
+                pass
+            for coll_name in utility.list_collections():
+                if coll_name.startswith("amber_"):
+                    tenant_id = coll_name[len("amber_"):]
+                    try:
+                        milvus_counts[tenant_id] = Collection(coll_name).num_entities
+                    except Exception:
+                        pass
+        except ImportError:
+            errors.append("milvus: pymilvus not installed")
+        except Exception as e:
+            errors.append(f"milvus: {e}")
+
+        # --- 4. Build per-tenant report ---
+        all_tenants = (
+            set(pg_doc_counts)
+            | set(pg_chunk_counts)
+            | set(neo4j_chunk_counts)
+            | set(milvus_counts)
+        )
+
+        drift_detected = False
+        for tid in sorted(all_tenants):
+            pg_docs = pg_doc_counts.get(tid, 0)
+            pg_chunks = pg_chunk_counts.get(tid, 0)
+            neo4j_chunks = neo4j_chunk_counts.get(tid, 0)
+            milvus_vecs = milvus_counts.get(tid, 0)
+
+            # Drift = Neo4j :Chunk count or Milvus vector count differs from Postgres chunks.
+            # Milvus may have more vectors per chunk (multi-vector), so only flag strict
+            # mismatches between Postgres↔Neo4j which should be 1:1 after ingestion.
+            has_drift = pg_chunks != neo4j_chunks
+            if has_drift:
+                drift_detected = True
+
+            tenant_counts.append(
+                StoreCounts(
+                    tenant_id=tid,
+                    postgres_documents=pg_docs,
+                    postgres_chunks=pg_chunks,
+                    neo4j_chunks=neo4j_chunks,
+                    milvus_vectors=milvus_vecs,
+                    drift=has_drift,
+                )
+            )
+
+        sync_status = "error" if errors and not tenant_counts else (
+            "drift_detected" if drift_detected else "healthy"
+        )
 
         return ReconciliationStatus(
-            sync_status="healthy",
-            last_sync_at=datetime.now(UTC),
-            sync_lag_seconds=0.0,
-            pending_writes=0,
-            failed_writes=0,
-            retry_queue_depth=0,
-            errors=[],
+            sync_status=sync_status,
+            checked_at=datetime.now(UTC),
+            tenant_counts=tenant_counts,
+            errors=errors,
         )
 
     except Exception as e:
