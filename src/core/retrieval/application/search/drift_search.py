@@ -44,7 +44,11 @@ class DriftSearchService:
         Execute DRIFT Search:
         1. Primer: Initial retrieval and follow-up generation.
         2. Expansion: Iteratively retrieve for high-confidence follow-ups.
-        3. Synthesis: Final grounded answer generation.
+
+        Returns ``{"candidates": [...], "follow_ups": [...]}``; synthesis (LLM
+        answer generation) is intentionally omitted here — the caller
+        (``retrieve()``) only uses ``candidates`` and generation is handled
+        downstream by GenerationService.
         """
         all_candidates = []
         follow_ups_history = []
@@ -66,11 +70,6 @@ class DriftSearchService:
         followup_cfg = resolve_llm_step_config(
             tenant_config=tenant_config,
             step_id="retrieval.drift_followups",
-            settings=settings,
-        )
-        synthesis_cfg = resolve_llm_step_config(
-            tenant_config=tenant_config,
-            step_id="retrieval.drift_synthesis",
             settings=settings,
         )
 
@@ -154,30 +153,7 @@ class DriftSearchService:
             if not new_info_found:
                 break
 
-        # 3. Synthesis Phase
-        synthesis_prompt = f"""
-        You are an expert analyst. Answer the user query using the provided context.
-        Query: {query}
-        Context: {current_context}
-
-        Provide a detailed, grounded answer with citations where appropriate.
-        Answer:
-        """
-
-        synthesis_provider = self._get_provider(synthesis_cfg)
-        synthesis_kwargs: dict[str, Any] = {}
-        if synthesis_cfg.temperature is not None:
-            synthesis_kwargs["temperature"] = synthesis_cfg.temperature
-        if synthesis_cfg.seed is not None:
-            synthesis_kwargs["seed"] = synthesis_cfg.seed
-
-        synthesis_res = await synthesis_provider.generate(
-            synthesis_prompt, work_class="chat", **synthesis_kwargs
-        )
-        final_answer = synthesis_res.text or ""
-
         return {
-            "answer": final_answer,
             "candidates": all_candidates,
             "follow_ups": follow_ups_history,
         }
