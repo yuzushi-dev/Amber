@@ -18,6 +18,7 @@ from src.core.ingestion.domain.document import Document
 from src.core.ingestion.domain.ports.dispatcher import TaskDispatcher
 from src.core.retrieval.domain.ports.vector_store_admin_port import VectorStoreAdminPort
 from src.core.state.machine import DocumentStatus
+from src.core.tenants.application.active_vector_collection import resolve_active_vector_collection
 from src.core.tenants.domain.tenant import Tenant
 from src.shared.model_registry import (
     EMBEDDING_MODELS,
@@ -166,7 +167,12 @@ class EmbeddingMigrationService:
         """Get actual vector dimensions from Milvus collection for this tenant."""
         try:
             dimensions = self.settings.embedding_dimensions or 1536
-            store = self.vector_store_factory(dimensions, collection_name=f"amber_{tenant_id}")
+            # Use the tenant's actual active collection, not the hardcoded default name.
+            tenant_query = select(Tenant).where(Tenant.id == tenant_id)
+            tenant = (await self.session.execute(tenant_query)).scalars().first()
+            t_config = tenant.config if tenant else {}
+            collection_name = resolve_active_vector_collection(tenant_id, t_config)
+            store = self.vector_store_factory(dimensions, collection_name=collection_name)
             return await store.get_collection_dimensions()
         except Exception as e:
             logger.debug(f"Failed to get vector dimensions for {tenant_id}: {e}")
@@ -174,12 +180,21 @@ class EmbeddingMigrationService:
 
     async def migrate_tenant(self, tenant_id: str) -> dict[str, Any]:
         """
-        Perform destructive migration for a tenant.
+        Perform destructive in-place migration for a tenant.
 
-        1. Drop Vector Collection
-        2. Delete Chunk records
-        3. Reset Document Config/Status
-        4. Update Tenant Config (if needed)
+        Steps:
+        1. Update tenant config to lock in new embedding model/dimensions.
+        2. Drop the tenant's ACTIVE Milvus collection (resolved via
+           resolve_active_vector_collection so a customised active_vector_collection
+           is never skipped in favour of the default amber_{tenant_id} name).
+        3. Clear Neo4j graph nodes for the tenant.
+        4. Delete Chunk records.
+        5. Reset Documents to INGESTED and re-dispatch ingestion tasks.
+
+        NOTE: This migration is destructive and in-place — the collection is empty
+        from drop until re-ingestion completes, so retrieval returns no results
+        during that window.  A blue/green variant (migrate into a NEW collection,
+        flip active_vector_collection on success) is tracked as future work.
         """
         logger.warning(f"Starting destructive embedding migration for tenant {tenant_id}")
 
@@ -237,19 +252,21 @@ class EmbeddingMigrationService:
         self.session.add(tenant)
 
         # 2. Drop Milvus Collection
-        # Note: In single-collection architecture (document_chunks), this drops ALL data.
-        # This is expected for a global model migration.
+        # Resolve the ACTUAL active collection for this tenant.  A tenant that has had
+        # active_vector_collection customised must not have its real collection ignored
+        # while the old default-named collection is dropped instead.
+        active_collection = resolve_active_vector_collection(tenant_id, new_config)
         store = self.vector_store_factory(
             new_config["embedding_dimensions"],
-            collection_name=f"amber_{tenant_id}",
+            collection_name=active_collection,
         )
         await store.drop_collection()
 
-        # FIX: Pre-create the collection to avoid race condition
-        # Workers will now find an existing collection instead of racing to create it
+        # Pre-create the collection to avoid race condition in workers
         await store.connect()
         logger.info(
-            f"Pre-created collection amber_{tenant_id} with {new_config['embedding_dimensions']} dimensions"
+            f"Pre-created collection {active_collection!r} with "
+            f"{new_config['embedding_dimensions']} dimensions for tenant {tenant_id}"
         )
 
         # Also drop the legacy/global one just in case
