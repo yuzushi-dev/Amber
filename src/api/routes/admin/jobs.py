@@ -54,10 +54,23 @@ class JobInfo(BaseModel):
     completed_at: datetime | None = None
     runtime_seconds: float | None = None
     retries: int = 0
+    # Set to True when status=PENDING but the task is not known to any live
+    # worker (i.e. it may have completed/expired from the result backend or
+    # was never dispatched).  Callers should not conflate this with an actively
+    # queued task.
+    state_unknown: bool = False
 
 
 class JobListResponse(BaseModel):
-    """List of jobs response."""
+    """List of jobs response.
+
+    Coverage note: this endpoint queries live Celery workers (active /
+    reserved / scheduled inspect).  It does NOT scan the result backend, so
+    tasks that have already reached a terminal state (SUCCESS, FAILURE,
+    REVOKED) will not appear here.  Use GET /jobs/{id} with a known task_id
+    to retrieve terminal-state results while they remain within the result
+    TTL (result_expires, default 1 h).
+    """
 
     jobs: list[JobInfo]
     total: int
@@ -123,7 +136,12 @@ async def list_jobs(
     """
     List active and recent Celery tasks.
 
-    Returns a list of tasks with their current status, progress, and metadata.
+    Returns tasks currently known to live workers (active, reserved, scheduled).
+    **Terminal-state tasks** (SUCCESS, FAILURE, REVOKED) are NOT included —
+    they are no longer visible to worker inspection.  Use GET /jobs/{id} to
+    query a specific task's result while it remains within the result TTL
+    (default 1 h).  Fields ``progress`` and ``started_at`` are not available
+    from worker inspection and are always null in list responses.
     """
     try:
         # Get active tasks from all workers
@@ -181,12 +199,42 @@ async def get_job(task_id: str):
     Get detailed information about a specific task.
 
     Returns the task's current status, progress, result, or error.
+
+    **PENDING ambiguity**: Celery returns PENDING both for tasks that are
+    genuinely queued/waiting *and* for task IDs that are unknown to the
+    backend (e.g. because the result has expired after ``result_expires``
+    seconds, default 1 h, or because the ID was never dispatched).  When
+    the backend reports PENDING and no live worker has the task in its
+    active/reserved list, ``state_unknown=true`` is set in the response so
+    callers can distinguish the two cases.
     """
     try:
         result = celery_app.AsyncResult(task_id)
 
         # Get task info from meta
         info = result.info or {}
+
+        # Detect the PENDING-but-unknown case: the result backend returns
+        # PENDING for *both* queued tasks and expired/unknown task IDs.
+        # Cross-check with live worker inspection to set state_unknown.
+        state_unknown = False
+        if result.status == "PENDING":
+            try:
+                inspect = celery_app.control.inspect(timeout=1.0)
+                active = inspect.active() or {}
+                reserved = inspect.reserved() or {}
+                known_ids = {
+                    t.get("id")
+                    for tasks in list(active.values()) + list(reserved.values())
+                    for t in tasks
+                }
+                if task_id not in known_ids:
+                    # Not found in any live worker — likely expired or unknown.
+                    state_unknown = True
+            except Exception as inspect_err:
+                # Inspection failure is non-fatal; leave state_unknown=False so
+                # we don't falsely flag a task as unknown when workers are busy.
+                logger.debug(f"Worker inspection failed for state_unknown check: {inspect_err}")
 
         job_info = JobInfo(
             task_id=task_id,
@@ -199,6 +247,7 @@ async def get_job(task_id: str):
             started_at=info.get("started_at") if isinstance(info, dict) else None,
             completed_at=result.date_done,
             retries=info.get("retries", 0) if isinstance(info, dict) else 0,
+            state_unknown=state_unknown,
         )
 
         # Calculate runtime if we have start time
