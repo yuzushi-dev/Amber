@@ -70,6 +70,7 @@ celery_app = Celery(
         "src.workers.export_tasks",
         "src.workers.backup_tasks",
         "src.workers.provisioning_tasks",
+        "src.workers.recovery",  # exposes periodic_recovery_sweep beat task
     ],
 )
 
@@ -108,6 +109,13 @@ celery_app.conf.beat_schedule = {
     "backup-heartbeat": {
         "task": "src.workers.backup_tasks.check_due_backups",
         "schedule": 60.0,  # seconds
+    },
+    # Periodic sweep for documents stuck in EXTRACTING/CLASSIFYING/CHUNKING/
+    # EMBEDDING/GRAPH_SYNC while workers remain up (complements the boot-time
+    # worker_ready recovery in on_worker_ready).
+    "recovery-sweep": {
+        "task": "src.workers.recovery.periodic_recovery_sweep",
+        "schedule": 600.0,  # 10 minutes
     },
 }
 

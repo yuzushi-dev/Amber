@@ -211,3 +211,59 @@ def run_recovery_sync() -> dict[str, Any]:
         return loop.run_until_complete(recover_stale_documents())
     finally:
         loop.close()
+
+
+# ---------------------------------------------------------------------------
+# Periodic recovery task
+# ---------------------------------------------------------------------------
+# Registered in celery_app.beat_schedule so Celery Beat dispatches it on a
+# regular interval (default every 10 minutes).  The task simply delegates to
+# run_recovery_sync so the actual recovery logic lives in one place.
+#
+# Import of celery_app is deferred to inside the function to avoid the
+# circular import that would arise from importing it at module level
+# (celery_app -> include[tasks] -> tasks -> recovery -> celery_app).
+
+
+def _get_celery_app():
+    """Lazy import of celery_app to break the circular-import cycle."""
+    from src.workers.celery_app import celery_app as _app  # noqa: PLC0415
+
+    return _app
+
+
+# Build the task using a lazy-binding pattern so we don't import celery_app at
+# module load time.  The shared_task decorator from Celery achieves exactly
+# this: it binds to whatever app is active at call time rather than at import
+# time.
+from celery import shared_task  # noqa: E402
+
+
+@shared_task(
+    name="src.workers.recovery.periodic_recovery_sweep",
+    bind=False,
+    ignore_result=True,
+    # Prevent overlapping runs if a sweep takes longer than the interval.
+    # Requires the celery-redbeat or django-celery-beat lock backend; for the
+    # built-in scheduler this is advisory only.
+    acks_late=True,
+)
+def periodic_recovery_sweep() -> dict[str, Any]:
+    """
+    Periodic Celery Beat task: recover documents stuck in processing states.
+
+    Runs on the beat_schedule interval (default every 10 minutes).  Delegates
+    entirely to ``run_recovery_sync`` so the recovery logic is not duplicated.
+    Idempotent and tenant-agnostic (queries all documents across all tenants).
+    """
+    logger.info("Periodic recovery sweep triggered by Celery Beat")
+    result = run_recovery_sync()
+    if result.get("total", 0) > 0:
+        logger.info(
+            "Periodic recovery sweep: %(recovered)s recovered, %(failed)s failed, "
+            "%(total)s total",
+            result,
+        )
+    else:
+        logger.debug("Periodic recovery sweep: no stale documents found")
+    return result
