@@ -377,22 +377,51 @@ async def prune_orphans():
 
 
 @router.post("/prune/stale-communities", response_model=MaintenanceResult)
-async def prune_stale_communities(max_age_days: int = 30):
+async def prune_stale_communities(
+    tenant_id: str = Depends(get_current_tenant_id),
+    max_age_days: int = 30,
+):
     """
-    Remove stale community summaries.
+    Remove stale Community nodes for the current tenant.
 
-    Removes community summaries older than the specified age that haven't been refreshed.
+    Deletes (DETACH DELETE) :Community nodes that have ``is_stale = true`` and whose
+    ``updated_at`` timestamp is older than ``max_age_days`` days.  Only :Community nodes
+    are removed; :Entity nodes and all other graph data are left intact.
+
+    A community is considered durably stale (safe to purge) when it has been marked
+    stale but has not been re-summarised within the age window.  Short-lived staleness
+    (e.g. mid-run) is not affected because ``updated_at`` will be recent.
     """
     import time
+
+    from src.amber_platform.composition_root import platform
 
     start = time.time()
 
     try:
-        # TODO: Implement with Neo4j
-        communities_removed = 0
+        # DETACH DELETE removes the node and all its relationships in one step.
+        # Scoped to tenant_id so cross-tenant data is never touched.
+        # Duration threshold expressed as an ISO-8601 duration string for Neo4j.
+        cypher = """
+        MATCH (c:Community {tenant_id: $tenant_id})
+        WHERE c.is_stale = true
+          AND c.updated_at IS NOT NULL
+          AND datetime(c.updated_at) < datetime() - duration({days: $max_age_days})
+        WITH c
+        DETACH DELETE c
+        RETURN count(c) AS deleted
+        """
+        result = await platform.neo4j_client.execute_write(
+            cypher, {"tenant_id": tenant_id, "max_age_days": max_age_days}
+        )
+        communities_removed = result[0]["deleted"] if result else 0
 
         duration = time.time() - start
-        message = f"Removed {communities_removed} stale community summaries"
+        message = (
+            f"Removed {communities_removed} stale Community nodes "
+            f"(tenant={tenant_id}, max_age_days={max_age_days})"
+        )
+        logger.info(message)
 
         return MaintenanceResult(
             operation="prune_stale_communities",
