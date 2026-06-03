@@ -111,12 +111,16 @@ celery_app.conf.beat_schedule = {
     },
 }
 
-# Task routing (optional, can be configured later)
+# Task routing
+# NOTE: The "ingestion" and "extraction" queue globs were removed — no task is
+# actually named under the src.workers.tasks.ingestion.* or .extraction.*
+# namespaces (real task names are process_document, process_communities, etc.),
+# so those routes were dead config and the "ingestion"/"extraction" queues never
+# received work.  The worker -Q list and cancel-all queue list have been updated
+# to match.
 celery_app.conf.task_routes = {
     "src.workers.tasks.process_document": {"queue": "high_priority"},
     "src.workers.tasks.process_communities": {"queue": "low_priority"},
-    "src.workers.tasks.ingestion.*": {"queue": "ingestion"},
-    "src.workers.tasks.extraction.*": {"queue": "extraction"},
     "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
     # export_tasks uses default celery queue
     "src.workers.provisioning_tasks.provision_tenant": {"queue": "low_priority"},
