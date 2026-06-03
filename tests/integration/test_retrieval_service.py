@@ -28,10 +28,6 @@ def test_basic_search_orchestration(mock_rc, mock_sc, mock_builder):
     # Fix: Also mock the underlying vector_store.search since the fallback mechanism calls it directly
     service.vector_store.search = AsyncMock(return_value=[])
 
-    service.entity_searcher.search = AsyncMock(return_value=[])
-    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
-    service.graph_traversal.beam_search = AsyncMock(return_value=[])
-
     # Mock result cache (needs to be async)
     service.result_cache.get = AsyncMock(return_value=None)
     service.result_cache.set = AsyncMock()
