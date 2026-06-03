@@ -97,6 +97,53 @@ class LoadBalancedLLMProvider(BaseLLMProvider):
             provider="load_balanced",
         )
 
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = "auto",
+        **kwargs: Any,
+    ) -> Any:
+        """Chat completion with load-balanced failover."""
+        pool = list(self.providers)
+        random.shuffle(pool)
+
+        last_error = None
+        for provider in pool:
+            circuit = self.circuits[provider.provider_name]
+
+            if not circuit.allow_request():
+                continue
+
+            try:
+                logger.info(f"[LoadBalance] Trying chat provider: {provider.provider_name}")
+                result = await provider.chat(
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs,
+                )
+                circuit.record_success()
+                return result
+
+            except (RateLimitError, ProviderUnavailableError) as e:
+                logger.warning(f"Provider {provider.provider_name} busy or unavailable: {e}")
+                circuit.record_failure()
+                last_error = e
+                continue
+
+            except ProviderError as e:
+                logger.error(f"Provider {provider.provider_name} error: {e}")
+                last_error = e
+                if "Authentication" not in type(e).__name__:
+                    circuit.record_failure()
+                continue
+
+        raise ProviderUnavailableError(
+            f"All load-balanced providers failed for chat. Last error: {last_error}",
+            provider="load_balanced",
+        )
+
     async def generate_stream(
         self,
         prompt: str,
