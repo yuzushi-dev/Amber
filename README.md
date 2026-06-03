@@ -476,7 +476,7 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
     *   **Knowledge Agent** (default): Vector + Graph tools only. Safe for production.
     *   **Maintainer Agent**: Adds filesystem tools. Requires explicit opt-in.
 *   **Resilient Content Fallback**: If Milvus returns empty content, the system automatically fetches from PostgreSQL, with full observability (OTel event + log metric).
-*   **Documentation**: See [docs/agentic-retrieval.md](docs/agentic-retrieval.md) for full implementation details.
+*   **Implementation**: `src/core/generation/application/agent/`, `src/core/tools/`.
 
 ---
 
