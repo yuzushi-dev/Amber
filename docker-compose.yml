@@ -203,7 +203,7 @@ services:
 
       - AMBER_RUNTIME=docker
       - HF_HOME=/home/appuser/.cache/huggingface
-    command: celery -A src.workers.celery_app worker --loglevel=info -Q high_priority,celery,ingestion,extraction,evaluation,low_priority
+    command: celery -A src.workers.celery_app worker --loglevel=info -Q high_priority,celery,evaluation,low_priority
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro

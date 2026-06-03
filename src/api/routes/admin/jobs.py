@@ -300,7 +300,7 @@ async def cancel_all_jobs():
                 logger.warning(f"Failed to revoke task {task_id}: {e}")
 
         # Also purge any queued messages from all active queues
-        queues_to_purge = ["high_priority", "celery", "ingestion", "extraction", "evaluation", "low_priority"]
+        queues_to_purge = ["high_priority", "celery", "evaluation", "low_priority"]
 
         # Add any queues found in inspector
         try:
@@ -388,8 +388,6 @@ async def get_queue_status():
                 queue_names = [
                     "high_priority",
                     "celery",
-                    "ingestion",
-                    "extraction",
                     "evaluation",
                     "low_priority",
                 ]
