@@ -69,14 +69,14 @@ class PyMuPDFExtractor(BaseExtractor):
     def name(self) -> str:
         return "pymupdf4llm"
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract content from PDF bytes.
         """
         if not HAS_PYMUPDF:
             raise ImportError("pymupdf4llm is not installed.")
 
-        if not file_type.lower().endswith("pdf") and "pdf" not in file_type.lower():
+        if not mime_type.lower().endswith("pdf") and "pdf" not in mime_type.lower():
             # PyMuPDF4LLM basically only does PDF.
             # We might support generic file types if supported by lib, but mostly PDF.
             pass

@@ -34,7 +34,7 @@ class TesseractExtractor(BaseExtractor):
     def name(self) -> str:
         return "tesseract"
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract text using Tesseract OCR.
         """

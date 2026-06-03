@@ -24,13 +24,13 @@ class PlainTextExtractor(BaseExtractor):
         """Always available - no dependencies."""
         return True
 
-    async def extract(self, file_content: bytes, file_type: str = "") -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str = "") -> ExtractionResult:
         """
         Extract text content from plain text files.
 
         Args:
             file_content: Raw file bytes
-            file_type: MIME type (ignored for plain text)
+            mime_type: MIME type (used for markdown detection)
 
         Returns:
             ExtractionResult with extracted text
@@ -51,7 +51,7 @@ class PlainTextExtractor(BaseExtractor):
                 text = file_content.decode("utf-8", errors="replace")
 
             # Basic markdown detection for metadata
-            is_markdown = file_type in ("text/markdown", "text/x-markdown")
+            is_markdown = mime_type in ("text/markdown", "text/x-markdown")
 
             extraction_time = (time.time() - start_time) * 1000
 

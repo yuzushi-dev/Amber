@@ -49,7 +49,7 @@ class PaddleOCRExtractor(BaseExtractor):
             self._ocr = PaddleOCR(use_angle_cls=True, lang=self.lang, show_log=False)
         return self._ocr
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract text using PaddleOCR.
         """
@@ -59,7 +59,7 @@ class PaddleOCRExtractor(BaseExtractor):
         start_time = time.time()
 
         # Check if it's a PDF - need to convert to images first
-        is_pdf = "pdf" in file_type.lower()
+        is_pdf = "pdf" in mime_type.lower()
 
         with tempfile.NamedTemporaryFile(suffix=".pdf" if is_pdf else ".png", delete=False) as tmp:
             tmp.write(file_content)

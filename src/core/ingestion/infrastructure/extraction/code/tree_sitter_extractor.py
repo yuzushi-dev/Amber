@@ -52,16 +52,16 @@ class TreeSitterExtractor(BaseExtractor):
                 return None
         return self._parsers.get(lang_name)
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract code structure from content.
         """
         # 1. Determine language
-        lang_name = self.supported_langs.get(file_type)
+        lang_name = self.supported_langs.get(mime_type)
         if not lang_name:
             # Fallback for common extensions if passed as type like ".py"
             for ext, name in self.supported_langs.items():
-                if file_type.endswith(ext):
+                if mime_type.endswith(ext):
                     lang_name = name
                     break
 

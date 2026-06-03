@@ -30,7 +30,7 @@ class UnstructuredExtractor(BaseExtractor):
     def name(self) -> str:
         return "unstructured"
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract content using Unstructured's auto-partition.
         """
@@ -49,14 +49,10 @@ class UnstructuredExtractor(BaseExtractor):
             # partition auto-detects based on content/extension if provided.
             # providing content_type would be good, but auto works well.
             # We pass file object. We can also pass content_type to help it.
-            # Convert file_type to something unstructured understands if needed,
-            # generally standard MIME types work.
-
-            # Map simple extensions to MIME if needed, but registry passes MIME or ext.
 
             kwargs_partition = {"file": file}
-            if "/" in file_type:
-                kwargs_partition["content_type"] = file_type
+            if "/" in mime_type:
+                kwargs_partition["content_type"] = mime_type
 
             elements = partition(**kwargs_partition)
 

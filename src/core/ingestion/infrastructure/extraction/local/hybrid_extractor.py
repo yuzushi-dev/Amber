@@ -66,7 +66,7 @@ class HybridMarkerExtractor(BaseExtractor):
             self._marker = MarkerExtractor()
         return self._marker
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         """
         Extract content using a hybrid strategy.
         """

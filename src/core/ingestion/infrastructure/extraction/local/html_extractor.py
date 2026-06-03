@@ -78,7 +78,7 @@ class HtmlExtractor(BaseExtractor):
     def name(self) -> str:
         return "html_bs4"
 
-    async def extract(self, file_content: bytes, file_type: str, **kwargs) -> ExtractionResult:
+    async def extract(self, file_content: bytes, mime_type: str, **kwargs) -> ExtractionResult:
         try:
             from bs4 import BeautifulSoup
         except ImportError as exc:
