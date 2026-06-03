@@ -248,3 +248,6 @@ archive/
 
 # Production API keys backup
 api_keys_backup.sql
+
+# AI assistant working notes (host-local)
+CLAUDE.md
