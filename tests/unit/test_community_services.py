@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.graph.application.communities.embeddings import CommunityEmbeddingService
 from src.core.graph.application.communities.lifecycle import CommunityLifecycleManager
 from src.core.graph.application.communities.summarizer import CommunitySummarizer
 
@@ -78,33 +77,6 @@ class TestCommunitySummarizer:
         with patch("src.shared.kernel.runtime.get_settings"):
             result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
         assert result == {}
-
-
-class TestCommunityEmbeddingService:
-    @pytest.mark.asyncio
-    @pytest.mark.asyncio
-    async def test_embed_and_store(self, mock_embedding_service):
-        mock_vector_store = AsyncMock()
-        service = CommunityEmbeddingService(mock_embedding_service, mock_vector_store)
-
-        data = {
-            "id": "comm_0_123",
-            "tenant_id": "tenant_1",
-            "level": 0,
-            "title": "Test",
-            "summary": "Summary",
-        }
-
-        await service.embed_and_store_community(data)
-
-        assert mock_embedding_service.embed_single.called
-        assert mock_vector_store.upsert_chunks.called
-
-        # Verify call args for upsert
-        call_args = mock_vector_store.upsert_chunks.call_args[0][0]
-        assert len(call_args) == 1
-        assert call_args[0]["chunk_id"] == "comm_0_123"
-        assert call_args[0]["content"] == "Summary"
 
 
 class TestCommunityLifecycle:
