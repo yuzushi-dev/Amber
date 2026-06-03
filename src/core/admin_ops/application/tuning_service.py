@@ -7,6 +7,7 @@ Handles retrieval of tenant configuration and dynamic weight adjustments.
 
 import json
 import logging
+import time
 from typing import Any
 
 from sqlalchemy.future import select
@@ -21,21 +22,118 @@ from src.core.tenants.domain.tenant import Tenant
 
 logger = logging.getLogger(__name__)
 
+# Bounded TTL for in-process config cache entries.  Any replica that missed a
+# local invalidate_cache() call (e.g. a config update served by a different
+# pod) will self-refresh within this window.
+_CONFIG_CACHE_TTL_SECONDS: float = 30.0
+
+# Redis key prefix for the cross-replica version counter.
+# On every local config update we INCR this key; readers do a best-effort GET
+# and drop their local cache entry when the version has advanced.
+_REDIS_VERSION_KEY_PREFIX = "tenant_config_version:"
+
 
 class TuningService:
     """
     Manages per-tenant retrieval settings and dynamic optimization.
     """
 
-    def __init__(self, session_factory: Any):
+    def __init__(self, session_factory: Any, redis_url: str | None = None):
         self.session_factory = session_factory
-        self._config_cache: dict[str, dict[str, Any]] = {}
-        self._effective_config_cache: dict[str, dict[str, Any]] = {}
+        self._redis_url = redis_url
+        self._redis: Any | None = None  # redis.asyncio.Redis, lazily created
+
+        # Cache entries: tenant_id → (value, cached_at_monotonic, redis_version_at_cache_time)
+        self._config_cache: dict[str, tuple[dict[str, Any], float, int | None]] = {}
+        self._effective_config_cache: dict[str, tuple[dict[str, Any], float, int | None]] = {}
+
+    # ------------------------------------------------------------------
+    # Redis helpers (best-effort – failures never break the read path)
+    # ------------------------------------------------------------------
+
+    async def _get_redis(self) -> Any | None:
+        """Return a lazily-created async Redis client, or None if unavailable."""
+        if self._redis is not None:
+            return self._redis
+        if not self._redis_url:
+            return None
+        try:
+            import redis.asyncio as aioredis
+
+            self._redis = aioredis.from_url(self._redis_url, decode_responses=True)
+        except Exception as exc:
+            logger.debug("TuningService: could not create Redis client: %s", exc)
+        return self._redis
+
+    async def _get_redis_version(self, tenant_id: str) -> int | None:
+        """Best-effort fetch of the cross-replica version counter for *tenant_id*."""
+        try:
+            client = await self._get_redis()
+            if client is None:
+                return None
+            raw = await client.get(f"{_REDIS_VERSION_KEY_PREFIX}{tenant_id}")
+            return int(raw) if raw is not None else 0
+        except Exception as exc:
+            logger.debug("TuningService: Redis version check failed for %s: %s", tenant_id, exc)
+            return None
+
+    async def _bump_redis_version(self, tenant_id: str) -> None:
+        """Best-effort INCR of the cross-replica version counter for *tenant_id*."""
+        try:
+            client = await self._get_redis()
+            if client is None:
+                return
+            key = f"{_REDIS_VERSION_KEY_PREFIX}{tenant_id}"
+            await client.incr(key)
+            # Also bump the default tenant key when a non-default tenant changes,
+            # because effective-config for the default tenant affects all tenants.
+            if tenant_id != DEFAULT_TENANT_ID:
+                await client.incr(f"{_REDIS_VERSION_KEY_PREFIX}{DEFAULT_TENANT_ID}")
+        except Exception as exc:
+            logger.debug("TuningService: Redis version bump failed for %s: %s", tenant_id, exc)
+
+    # ------------------------------------------------------------------
+    # Cache validity helpers
+    # ------------------------------------------------------------------
+
+    async def _is_cache_entry_valid(
+        self,
+        tenant_id: str,
+        cached_at: float,
+        cached_version: int | None,
+    ) -> bool:
+        """
+        Return True if the cached entry is still usable.
+
+        An entry is considered stale when:
+        - its age exceeds _CONFIG_CACHE_TTL_SECONDS (bounded TTL), OR
+        - the Redis version counter has advanced since it was cached (cross-replica signal).
+        """
+        # TTL check
+        if time.monotonic() - cached_at > _CONFIG_CACHE_TTL_SECONDS:
+            return False
+
+        # Best-effort Redis version check
+        if cached_version is not None:
+            current_version = await self._get_redis_version(tenant_id)
+            if current_version is not None and current_version != cached_version:
+                return False
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def get_tenant_config(self, tenant_id: str) -> dict[str, Any]:
         """Retrieve the raw configuration stored on a tenant."""
-        if tenant_id in self._config_cache:
-            return self._config_cache[tenant_id]
+        entry = self._config_cache.get(tenant_id)
+        if entry is not None:
+            value, cached_at, cached_version = entry
+            if await self._is_cache_entry_valid(tenant_id, cached_at, cached_version):
+                return value
+            # Stale – evict and re-fetch
+            self._config_cache.pop(tenant_id, None)
 
         try:
             async with self.session_factory() as session:
@@ -43,7 +141,8 @@ class TuningService:
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     config = tenant.config or {}
-                    self._config_cache[tenant_id] = config
+                    redis_version = await self._get_redis_version(tenant_id)
+                    self._config_cache[tenant_id] = (config, time.monotonic(), redis_version)
                     return config
         except Exception as e:
             logger.error(f"Failed to fetch tenant config for {tenant_id}: {e}")
@@ -52,8 +151,13 @@ class TuningService:
 
     async def get_effective_tenant_config(self, tenant_id: str) -> dict[str, Any]:
         """Resolve config inheritance from the default tenant into the current tenant."""
-        if tenant_id in self._effective_config_cache:
-            return self._effective_config_cache[tenant_id]
+        entry = self._effective_config_cache.get(tenant_id)
+        if entry is not None:
+            value, cached_at, cached_version = entry
+            if await self._is_cache_entry_valid(tenant_id, cached_at, cached_version):
+                return value
+            # Stale – evict and re-fetch
+            self._effective_config_cache.pop(tenant_id, None)
 
         tenant_config = await self.get_tenant_config(tenant_id)
         if tenant_id == DEFAULT_TENANT_ID:
@@ -62,7 +166,8 @@ class TuningService:
             default_config = await self.get_tenant_config(DEFAULT_TENANT_ID)
             effective_config = merge_tenant_config(default_config, tenant_config)
 
-        self._effective_config_cache[tenant_id] = effective_config
+        redis_version = await self._get_redis_version(tenant_id)
+        self._effective_config_cache[tenant_id] = (effective_config, time.monotonic(), redis_version)
         return effective_config
 
     async def update_tenant_weights(self, tenant_id: str, weights: dict[str, float]):
@@ -93,6 +198,10 @@ class TuningService:
                     )
 
                     self.invalidate_cache(tenant_id)
+                    # Eagerly await the version bump (we are already in an async
+                    # context); invalidate_cache also schedules it, but awaiting
+                    # here ensures the key is set before this coroutine returns.
+                    await self._bump_redis_version(tenant_id)
         except Exception as e:
             logger.error(f"Failed to update tenant weights for {tenant_id}: {e}")
 
@@ -207,12 +316,28 @@ class TuningService:
         except Exception as e:
             logger.error(f"Failed to run smart tuning analysis: {e}")
 
-    def invalidate_cache(self, tenant_id: str):
-        """Clear cached config for a tenant, cascading when the default tenant changes."""
+    def invalidate_cache(self, tenant_id: str) -> None:
+        """
+        Clear cached config for a tenant locally and signal other replicas via Redis.
+
+        The local invalidation is synchronous (no awaiting).  The Redis version
+        bump is fire-and-forget: callers that need the await can call
+        _bump_redis_version directly.  Here we schedule it as a best-effort
+        background task via asyncio if a loop is running, otherwise skip it.
+        """
         if tenant_id == DEFAULT_TENANT_ID:
             self._config_cache = {}
             self._effective_config_cache = {}
-            return
+        else:
+            self._config_cache.pop(tenant_id, None)
+            self._effective_config_cache.pop(tenant_id, None)
 
-        self._config_cache.pop(tenant_id, None)
-        self._effective_config_cache.pop(tenant_id, None)
+        # Best-effort: bump the cross-replica Redis version counter.
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._bump_redis_version(tenant_id))
+        except RuntimeError:
+            # No running event loop (e.g. called from sync context / tests).
+            pass

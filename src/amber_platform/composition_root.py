@@ -538,7 +538,7 @@ def build_retrieval_service(session=None):
     # Use platform managed one
     neo4j_client = platform.neo4j_client
 
-    tuning_service = TuningService(build_session_factory())
+    tuning_service = TuningService(build_session_factory(), redis_url=settings.db.redis_url)
 
     return RetrievalService(
         document_repository=document_repo,

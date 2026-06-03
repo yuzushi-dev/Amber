@@ -618,7 +618,7 @@ async def _query_stream_impl(
                 # 2. If no override, fetch Tenant Config
                 if not effective_model:
                     settings = get_settings()
-                    tuning_service = TuningService(_get_async_session_maker())
+                    tuning_service = TuningService(_get_async_session_maker(), redis_url=settings.db.redis_url)
                     tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
                     effective_model, _ = resolve_tenant_llm_model(
                         tenant_config,

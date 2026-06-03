@@ -375,7 +375,7 @@ async def _process_communities_async(
             )
             detect_res = {"status": "incremental", **incremental_res}
 
-        tuning_service = TuningService(get_session_maker())
+        tuning_service = TuningService(get_session_maker(), redis_url=settings.db.redis_url)
         tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
 
         # Resolve Ollama URL from Tenant Config -> Settings
