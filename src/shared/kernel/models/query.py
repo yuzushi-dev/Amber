@@ -87,12 +87,6 @@ class QueryOptions(BaseModel):
         le=50,
         description="Maximum chunks to retrieve",
     )
-    traversal_depth: int = Field(
-        2,
-        ge=0,
-        le=5,
-        description="Graph traversal depth for entity expansion",
-    )
     include_sources: bool = Field(
         True,
         description="Include source citations in response",
