@@ -307,8 +307,7 @@ curl -X POST /v1/documents \
 
 ## Admin - Chat History
 
-> Requires `super_admin` scope. Conversation content is redacted for
-> conversations without user feedback (see [TENANT_SECURITY.md](./TENANT_SECURITY.md)).
+> Requires `super_admin` scope.
 
 | Method   | Endpoint                              | Description                    |
 | -------- | ------------------------------------- | ------------------------------ |

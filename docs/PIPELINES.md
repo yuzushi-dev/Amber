@@ -8,7 +8,7 @@ End-to-end application flow for the two primary user paths:
 - **Ingestion path**: document upload enters the ingestion pipeline and is processed asynchronously until the document is ready for querying.
 - **Query path**: user queries flow through query processing and retrieval/generation to return a response.
 
-Sources: `README.md`, `docs/agentic-retrieval.md`
+Sources: `README.md`
 
 ## Core Pipelines
 
@@ -34,7 +34,7 @@ Sources: `src/api/routes/query.py`, `src/core/retrieval/application/use_cases_qu
 
 Optional agent-driven loop (ReAct-style) that iteratively calls tools (retrieval, graph, filesystem) until an answer is produced or a step limit is reached.
 
-Sources: `docs/agentic-retrieval.md`
+Sources: `src/core/generation/application/agent/`, `src/core/tools/`
 
 ## Supporting Sub-Pipelines
 
