@@ -17,12 +17,27 @@ async def setup_constraints():
         f"CREATE CONSTRAINT document_id_unique IF NOT EXISTS FOR (d:{NodeLabel.Document.value}) REQUIRE d.id IS UNIQUE",
         # Chunk constraints
         f"CREATE CONSTRAINT chunk_id_unique IF NOT EXISTS FOR (c:{NodeLabel.Chunk.value}) REQUIRE c.id IS UNIQUE",
-        # Entity constraints (Unique per Name + Tenant)
-        # Note: Neo4j partial uniqueness (composite keys) or just enforce in application logic + index
-        # We'll use a composite constraint for strict enforcement if Enterprise,
-        # but for Community edition we often rely on application or single-property constraint.
-        # Let's assume standard uniqueness on ID first, BUT for entities we really want name+tenant uniqueness.
-        # We'll create a composite index for lookup performance.
+        # Entity deduplication index — Community Edition limitation documented here.
+        #
+        # Desired invariant: (name, tenant_id) is unique per :Entity node.
+        #
+        # Neo4j Community Edition does NOT support NODE KEY or composite uniqueness
+        # constraints (those require Enterprise Edition).  Therefore a database-level
+        # uniqueness constraint cannot be created here.
+        #
+        # Instead, uniqueness is enforced application-side:
+        #   • All entity upserts use MERGE on (name, tenant_id) as the match key, so
+        #     duplicate nodes are never intentionally created.
+        #   • Deduplication logic in src/core/graph/application/deduplication.py
+        #     handles any residual duplicates introduced by concurrent writes.
+        #
+        # This composite index supports fast MERGE lookup and query predicates on
+        # (name, tenant_id) — the same fields used as the MERGE key.
+        #
+        # If this deployment is upgraded to Neo4j Enterprise Edition, replace this
+        # index with a NODE KEY constraint to get DB-enforced uniqueness:
+        #   CREATE CONSTRAINT entity_name_tenant_unique IF NOT EXISTS
+        #   FOR (e:Entity) REQUIRE (e.name, e.tenant_id) IS NODE KEY
         f"CREATE INDEX entity_lookup IF NOT EXISTS FOR (e:{NodeLabel.Entity.value}) ON (e.name, e.tenant_id)",
         # Community constraints
         f"CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (c:{NodeLabel.Community.value}) REQUIRE c.id IS UNIQUE",
