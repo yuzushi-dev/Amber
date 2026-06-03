@@ -28,10 +28,8 @@ class FailoverLLMProvider(BaseLLMProvider):
     def __init__(
         self,
         providers: list[BaseLLMProvider],
-        max_retries: int = 2,
     ):
         self.providers = providers
-        self.max_retries = max_retries
         # Initialize circuit breaker for each provider
         self.circuits = {
             p.provider_name: CircuitBreaker(failure_threshold=5, recovery_timeout=300)
