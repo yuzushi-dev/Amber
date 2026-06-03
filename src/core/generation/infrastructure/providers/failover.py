@@ -108,17 +108,26 @@ class FailoverLLMProvider(BaseLLMProvider):
                 continue
 
             except ProviderError as e:
-                logger.error(f"Provider {provider.provider_name} error: {e}")
+                logger.warning(f"Provider {provider.provider_name} error: {e}")
                 last_error = e
                 is_primary = False
-                # Don't retry/record failure on auth/invalid request errors
-                # (these are permanent config issues, not transient failures)
+                # Auth/config errors are permanent for this provider; skip without
+                # penalising the circuit breaker (the next provider may be fine).
                 if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
                     continue
 
-                # Treat unknown provider errors as failures
+                # Other provider errors are treated as transient failures.
                 circuit.record_failure()
-                break
+                continue
+
+            except Exception as e:
+                # Non-ProviderError exceptions (e.g. httpx timeouts, TypeError from
+                # a misconfigured provider) must not abort the whole failover loop.
+                logger.warning(f"Provider {provider.provider_name} unexpected error: {e}")
+                circuit.record_failure()
+                last_error = e
+                is_primary = False
+                continue
 
         # All providers failed
         if not last_error:
@@ -176,13 +185,20 @@ class FailoverLLMProvider(BaseLLMProvider):
                 continue
 
             except ProviderError as e:
-                logger.error(f"Provider {provider.provider_name} error: {e}")
+                logger.warning(f"Provider {provider.provider_name} error: {e}")
                 last_error = e
                 is_primary = False
                 if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
                     continue
                 circuit.record_failure()
-                break
+                continue
+
+            except Exception as e:
+                logger.warning(f"Provider {provider.provider_name} unexpected error: {e}")
+                circuit.record_failure()
+                last_error = e
+                is_primary = False
+                continue
 
         if not last_error:
             last_error = "All providers skipped or unavailable"
