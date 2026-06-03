@@ -32,6 +32,7 @@ class ChatHistoryItem(BaseModel):
 
     request_id: str
     tenant_id: str
+    group_name: str | None = None
     query_text: str | None = None
     response_preview: str | None = None
     model: str
@@ -161,51 +162,93 @@ async def list_chat_history(
         feedback_result = await session.execute(feedback_query)
         conversations_with_feedback = {row[0] for row in feedback_result.fetchall()}
 
+        # Build key_name → group_name lookup
+        from sqlalchemy import text as sa_text
+        grp_result = await session.execute(sa_text("""
+            SELECT ak.name AS key_name, g.name AS group_name
+            FROM api_keys ak
+            JOIN group_members gm ON gm.api_key_id = ak.id
+            JOIN groups g ON g.id = gm.group_id
+            WHERE g.is_active = true
+        """))
+        key_to_group: dict[str, str] = {r.key_name: r.group_name for r in grp_result.fetchall()}
+
         for conv in rows:
-            # Extract query/response from metadata
             metadata = conv.metadata_ or {}
-            query_text = metadata.get("query")
-            response_text = metadata.get("answer")
             model = metadata.get("model", "default")
-
             has_feedback = conv.id in conversations_with_feedback
+            group_name = key_to_group.get(conv.user_id)
 
-            # Create preview
-            response_preview = None
-            if response_text:
-                response_preview = (
-                    response_text[:100] + "..." if len(response_text) > 100 else response_text
-                )
-            elif conv.summary:
-                response_preview = conv.summary[:100]
-
-            # Get metrics from lookup
             conv_metrics = metrics_by_conv.get(conv.id, {})
-            total_tokens = conv_metrics.get("total_tokens", 0)
-            cost = conv_metrics.get("cost", 0.0)
             if conv_metrics.get("model"):
                 model = conv_metrics["model"]
             provider = conv_metrics.get("provider", "openai")
 
-            conversations.append(
-                ChatHistoryItem(
-                    request_id=conv.id,
-                    tenant_id=conv.tenant_id,
-                    query_text=query_text or conv.title,
-                    response_preview=response_preview,
-                    model=model,
-                    provider=provider,
-                    total_tokens=total_tokens,
-                    cost=cost,
-                    has_feedback=has_feedback,
-                    feedback_score=None,
-                    created_at=conv.created_at,
+            history: list[dict] = metadata.get("history") or []
+
+            if len(history) <= 1:
+                # Single-turn: original behaviour
+                query_text = metadata.get("query")
+                response_text = metadata.get("answer")
+                response_preview = None
+                if response_text:
+                    response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                elif conv.summary:
+                    response_preview = conv.summary[:100]
+
+                conversations.append(
+                    ChatHistoryItem(
+                        request_id=conv.id,
+                        tenant_id=conv.tenant_id,
+                        group_name=group_name,
+                        query_text=query_text or conv.title,
+                        response_preview=response_preview,
+                        model=model,
+                        provider=provider,
+                        total_tokens=conv_metrics.get("total_tokens", 0),
+                        cost=conv_metrics.get("cost", 0.0),
+                        has_feedback=has_feedback,
+                        feedback_score=None,
+                        created_at=conv.created_at,
+                    )
                 )
-            )
+            else:
+                # Multi-turn: one row per turn; tokens/cost on first turn only
+                for idx, turn in enumerate(history):
+                    turn_query = turn.get("query", "")
+                    turn_answer = turn.get("answer", "")
+                    turn_ts_str = turn.get("timestamp")
+                    try:
+                        from datetime import timezone as _tz
+                        turn_ts = datetime.fromisoformat(turn_ts_str) if turn_ts_str else conv.created_at
+                    except Exception:
+                        turn_ts = conv.created_at
+
+                    response_preview = (turn_answer[:100] + "...") if len(turn_answer) > 100 else turn_answer or None
+
+                    conversations.append(
+                        ChatHistoryItem(
+                            request_id=f"{conv.id}:{idx}",
+                            tenant_id=conv.tenant_id,
+                            group_name=group_name,
+                            query_text=turn_query or conv.title,
+                            response_preview=response_preview,
+                            model=model,
+                            provider=provider,
+                            total_tokens=conv_metrics.get("total_tokens", 0) if idx == 0 else 0,
+                            cost=conv_metrics.get("cost", 0.0) if idx == 0 else 0.0,
+                            has_feedback=has_feedback and idx == 0,
+                            feedback_score=None,
+                            created_at=turn_ts,
+                        )
+                    )
+
+        # Sort by created_at desc after flattening multi-turn conversations
+        conversations.sort(key=lambda x: x.created_at, reverse=True)
 
         return ChatHistoryResponse(
             conversations=conversations,
-            total=total,
+            total=len(conversations),
             limit=limit,
             offset=offset,
         )
@@ -240,8 +283,11 @@ async def get_conversation_detail(
     if not is_super:
         request_tenant = str(getattr(request.state, "tenant_id", ""))
 
+    # Multi-turn rows use "{conv_id}:{turn_idx}" — strip the suffix
+    conv_id = request_id.split(":")[0]
+
     # Query conversation summary
-    query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    query = select(ConversationSummary).where(ConversationSummary.id == conv_id)
     if not is_super:
         query = query.where(ConversationSummary.tenant_id == request_tenant)
 
@@ -252,7 +298,7 @@ async def get_conversation_detail(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Check if conversation has feedback
-    feedback_query = select(Feedback).where(Feedback.request_id == request_id).limit(1)
+    feedback_query = select(Feedback).where(Feedback.request_id == conv_id).limit(1)
     feedback_result = await session.execute(feedback_query)
     _ = feedback_result.scalar_one_or_none()
 
@@ -321,8 +367,9 @@ async def delete_conversation(
     if not is_super:
         request_tenant = str(getattr(request.state, "tenant_id", ""))
 
-    # Query conversation summary
-    query = select(ConversationSummary).where(ConversationSummary.id == request_id)
+    conv_id = request_id.split(":")[0]
+
+    query = select(ConversationSummary).where(ConversationSummary.id == conv_id)
     if not is_super:
         query = query.where(ConversationSummary.tenant_id == request_tenant)
 

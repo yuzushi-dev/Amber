@@ -82,7 +82,7 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                     <TableHeader className="bg-muted/40">
                         <TableRow className="border-border hover:bg-muted/30">
                             <TableHead className="w-[100px]">Time</TableHead>
-                            <TableHead className="w-[120px]">Tenant</TableHead>
+                            <TableHead className="w-[120px]">Gruppo</TableHead>
                             <TableHead className="min-w-[200px]">Query</TableHead>
                             <TableHead className="min-w-[200px]">Response</TableHead>
                             <TableHead className="w-[100px] text-center">Feedback</TableHead>
@@ -111,11 +111,15 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                                         </div>
                                     </TableCell>
 
-                                    {/* Tenant */}
+                                    {/* Gruppo */}
                                     <TableCell>
-                                        <Badge variant="outline" className="font-mono text-[10px] truncate max-w-[100px]" title={row.tenant_id}>
-                                            {row.tenant_id}
-                                        </Badge>
+                                        {row.group_name ? (
+                                            <Badge variant="outline" className="text-[10px] truncate max-w-[110px]" title={row.group_name}>
+                                                {row.group_name}
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground/50">—</span>
+                                        )}
                                     </TableCell>
 
                                     {/* Input (Query) */}
