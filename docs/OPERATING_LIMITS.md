@@ -7,7 +7,7 @@ configuration.
 
 > **Warning:** These limits are based on the last recorded load test and may
 > vary based on infrastructure updates. See
-> [load_test_results.md](./load_test_results.md).
+> [load_test_results.md](./archive/load_test_results.md).
 
 ## Concurrent Users
 
