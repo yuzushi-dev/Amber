@@ -20,8 +20,15 @@ async def test_process_document_handles_quota_exceeded():
     # Mock Document
     mock_doc = MagicMock()
     mock_doc.id = "doc_123"
-    mock_doc.status = DocumentStatus.EMBEDDING
+    mock_doc.status = DocumentStatus.INGESTED
     document_repo.get.return_value = mock_doc
+
+    # Simulate status updates so validate_transition sees the correct current status
+    async def _update_status(doc_id, status, old_status=None):
+        mock_doc.status = status
+        return True
+
+    document_repo.update_status.side_effect = _update_status
 
     # Patch dependencies
     # Patch global import (used in __init__)
@@ -62,9 +69,10 @@ async def test_process_document_handles_quota_exceeded():
         # Setup Content Extractor Mock
         mock_extractor = AsyncMock()
         mock_extraction_result = MagicMock()
-        mock_extraction_result.content = "Filtered content"
+        mock_extraction_result.content = "Filtered content " * 10  # >100 chars to pass quality gate
         mock_extraction_result.metadata = {}
         mock_extraction_result.extractor_used = "text"
+        mock_extraction_result.confidence = 1.0
         mock_extractor.extract.return_value = mock_extraction_result
 
         # Mock Settings

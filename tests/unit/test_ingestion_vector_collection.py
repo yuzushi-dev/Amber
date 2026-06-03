@@ -15,6 +15,8 @@ class FakeDocumentRepository:
         return self._document
 
     async def update_status(self, document_id, status, old_status=None):
+        # Track status so validate_transition sees the correct current state
+        self._document.status = status
         return True
 
     async def save(self, document):
@@ -34,7 +36,7 @@ class FakeStorage:
 class FakeExtractor:
     async def extract(self, **kwargs):
         return SimpleNamespace(
-            content="hello world",
+            content="hello world " * 20,  # >100 chars to pass quality gate
             metadata={},
             extractor_used="text",
             confidence=1.0,
