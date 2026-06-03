@@ -389,6 +389,26 @@ class Settings(BaseSettings):
         description="Concurrency level for community summarization",
     )
 
+    # Community Detection (Leiden algorithm)
+    leiden_resolution: float = Field(
+        default=1.0,
+        alias="LEIDEN_RESOLUTION",
+        description=(
+            "Leiden resolution parameter — higher values produce smaller, more granular "
+            "communities; lower values produce larger, coarser communities."
+        ),
+    )
+    leiden_max_levels: int = Field(
+        default=2,
+        alias="LEIDEN_MAX_LEVELS",
+        description="Maximum hierarchy depth for hierarchical Leiden community detection.",
+    )
+    leiden_seed: int = Field(
+        default=42,
+        alias="LEIDEN_SEED",
+        description="Random seed for reproducible Leiden partitioning.",
+    )
+
     # Agent Mode Feature Flags
     # All three default to False so production deployments are safe without explicit opt-in.
     enable_agent_mode: bool = Field(
