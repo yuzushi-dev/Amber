@@ -538,6 +538,42 @@ class IngestionService:
                     logger.debug("Using provided vector store")
                     vector_store = self.vector_store
 
+                # Re-process cleanup: delete stale Milvus vectors and Neo4j chunk nodes
+                # from any previous ingestion run before writing new ones.  On first-time
+                # ingestion this is a no-op (nothing to delete).
+                if vector_store is not None:
+                    try:
+                        deleted_count = await vector_store.delete_by_document(
+                            document.id, document.tenant_id
+                        )
+                        logger.info(
+                            f"Pre-ingest cleanup: removed {deleted_count} stale Milvus vectors "
+                            f"for document {document.id} (tenant {document.tenant_id})"
+                        )
+                    except Exception as _vs_del_err:
+                        logger.warning(
+                            f"Failed to delete stale Milvus vectors for {document.id}: "
+                            f"{_vs_del_err} (continuing)"
+                        )
+
+                try:
+                    await self.neo4j_client.execute_write(
+                        """
+                        MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+                        DETACH DELETE c
+                        """,
+                        {"document_id": document.id, "tenant_id": document.tenant_id},
+                    )
+                    logger.info(
+                        f"Pre-ingest cleanup: removed stale Neo4j chunk nodes "
+                        f"for document {document.id} (tenant {document.tenant_id})"
+                    )
+                except Exception as _neo_del_err:
+                    logger.warning(
+                        f"Failed to delete stale Neo4j chunk nodes for {document.id}: "
+                        f"{_neo_del_err} (continuing)"
+                    )
+
                 logger.info(
                     f"RESOLVED EMBEDDING CONFIG | Document: {document.id} | Tenant: {document.tenant_id}"
                 )
