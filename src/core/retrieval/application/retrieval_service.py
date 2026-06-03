@@ -32,13 +32,9 @@ from src.core.retrieval.application.query.product_context_resolver import (
 from src.core.retrieval.application.query.rewriter import QueryRewriter
 from src.core.retrieval.application.query.router import QueryRouter
 from src.core.retrieval.application.search.drift_search import DriftSearchService
-from src.core.retrieval.application.search.entity import EntitySearcher
-from src.core.retrieval.application.search.fusion import fuse_results
 from src.core.retrieval.application.search.global_search import GlobalSearchService
 from src.core.retrieval.application.search.graph import GraphSearcher
-from src.core.retrieval.application.search.graph_traversal import GraphTraversalService
 from src.core.retrieval.application.search.vector import VectorSearcher
-from src.core.retrieval.application.search.weights import get_adaptive_weights
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
 from src.core.retrieval.domain.ports.vector_store_port import SearchResult, VectorStorePort
@@ -219,8 +215,6 @@ class RetrievalService:
 
         # Use injected neo4j_client (already set in __init__ start)
         self.graph_searcher = GraphSearcher(self.neo4j_client)
-        self.entity_searcher = EntitySearcher(self.vector_store)
-        self.graph_traversal = GraphTraversalService(self.neo4j_client)
 
         # Advanced Search Modes
         llm = factory.get_llm_provider(
@@ -909,139 +903,6 @@ class RetrievalService:
             result.trace = trace
 
         return result
-
-    @trace_span("RetrievalService.hybrid_search")
-    async def _execute_hybrid_search(
-        self,
-        structured_query: StructuredQuery,
-        tenant_id: str,
-        document_ids: list[str] | None,
-        filters: dict[str, Any],
-        top_k: int,
-        options: QueryOptions,
-        trace: list[dict],
-        collection_name: str | None,
-        tenant_config: dict[str, Any] | None = None,
-    ) -> RetrievalResult:
-        """Executes Hybrid (Vector + Graph) retrieval with RRF fusion."""
-        step_start = time.perf_counter()
-
-        # Parallel retrieval tasks
-        query_text = structured_query.cleaned_query
-
-        # 1. Vector Search
-        # We need an embedding first
-        embedding_svc = self._resolve_embedding_service(tenant_config)
-        embedding = await embedding_svc.embed_single(query_text)
-
-        vector_task = self.vector_searcher.search(
-            query_vector=embedding,
-            tenant_id=tenant_id,
-            document_ids=document_ids,
-            limit=self.config.initial_k,
-            collection_name=collection_name,
-        )
-
-        # 2. Entity + Graph Search
-        entity_task = self.entity_searcher.search(
-            query_vector=embedding, tenant_id=tenant_id, limit=5
-        )
-
-        # Run vector and entity search in parallel with timeout
-        try:
-            vector_results, entity_results = await asyncio.wait_for(
-                asyncio.gather(vector_task, entity_task, return_exceptions=True), timeout=10.0
-            )
-            # Handle individual task failures
-            if isinstance(vector_results, Exception):
-                logger.warning(f"Vector search failed: {vector_results}")
-                vector_results = []
-            if isinstance(entity_results, Exception):
-                logger.warning(f"Entity search failed: {entity_results}")
-                entity_results = []
-        except TimeoutError:
-            logger.warning("Hybrid search timed out, falling back to empty results")
-            vector_results = []
-            entity_results = []
-
-        graph_results = []
-        if entity_results:
-            entity_ids = [e["entity_id"] for e in entity_results]
-            graph_results = await self.graph_searcher.search_by_entities(
-                entity_ids=entity_ids,
-                tenant_id=tenant_id,
-                limit=self.config.initial_k,
-                allowed_doc_ids=document_ids,
-            )
-
-            # 3. Optional Multi-hop Traversal (if not degraded)
-            if not self.circuit_breaker.should_degrade:
-                traversal_results = await self.graph_traversal.beam_search(
-                    seed_entity_ids=entity_ids,
-                    tenant_id=tenant_id,
-                    depth=1,  # Keep it shallow for performance
-                    beam_width=3,
-                    allowed_doc_ids=document_ids,
-                )
-                graph_results.extend(traversal_results)
-
-        # 4. Fusion
-        groups = {"vector": vector_results, "graph": graph_results}
-
-        # Adaptive weights with tenant overrides
-        weights = get_adaptive_weights(
-            query_type=options.search_mode, tenant_config=(tenant_config or {}).get("weights", {})
-        )
-        fused = fuse_results(groups, weights=weights)
-
-        # 5. Reranking (if not degraded)
-        reranked_chunks = []
-        reranked_flag = False
-
-        if self.reranker and fused and not self.circuit_breaker.should_degrade:
-            logger.debug("Hybrid reranking %d fused candidates", len(fused))
-            try:
-                rerank_start = time.perf_counter()
-                texts = [c.content for c in fused[:20]]  # Rerank top 20
-                rerank_res = await self.reranker.rerank(
-                    query=query_text, documents=texts, top_k=top_k
-                )
-
-                # Map back to Candidates
-                for item in rerank_res.results:
-                    cand = fused[item.index]
-                    cand.score = item.score
-                    reranked_chunks.append(cand.to_dict())
-
-                logger.debug("Hybrid reranking completed with %d chunks", len(reranked_chunks))
-                reranked_flag = True
-                trace.append(
-                    {"step": "rerank", "duration_ms": (time.perf_counter() - rerank_start) * 1000}
-                )
-            except Exception as e:
-                logger.warning(f"Reranking failed in hybrid mode: {e}")
-                reranked_chunks = [c.to_dict() for c in fused[:top_k]]
-        else:
-            reranked_chunks = [c.to_dict() for c in fused[:top_k]]
-
-        trace.append(
-            {
-                "step": "hybrid_retrieval",
-                "duration_ms": (time.perf_counter() - step_start) * 1000,
-                "vector_count": len(vector_results),
-                "graph_count": len(graph_results),
-                "fused_count": len(fused),
-            }
-        )
-
-        return RetrievalResult(
-            chunks=reranked_chunks,
-            query=query_text,
-            tenant_id=tenant_id,
-            latency_ms=0,
-            reranked=reranked_flag,
-            trace=trace,
-        )
 
     @trace_span("RetrievalService.vector_search")
     async def _execute_vector_search(

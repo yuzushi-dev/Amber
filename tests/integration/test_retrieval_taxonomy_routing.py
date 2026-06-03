@@ -43,9 +43,6 @@ def _make_service(visible_ids_by_taxonomy=None):
 
     service.embedding_service.embed_single = AsyncMock(return_value=[0.1] * 8)
     service.vector_searcher.search = AsyncMock(return_value=[])
-    service.entity_searcher.search = AsyncMock(return_value=[])
-    service.graph_searcher.search_by_entities = AsyncMock(return_value=[])
-    service.graph_traversal.beam_search = AsyncMock(return_value=[])
     service.reranker = None
     # Async-mock the cache so retrieve() doesn't fail on await
     service.result_cache.get = AsyncMock(return_value=None)
@@ -61,10 +58,7 @@ async def test_admin_query_calls_taxonomy_filter_with_admin():
     """An admin query triggers list_visible_document_ids_by_taxonomy with audience=admin."""
     service = _make_service(visible_ids_by_taxonomy=["doc-admin-1"])
 
-    with (
-        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
-        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
-    ):
+    with patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes:
         mock_scopes.return_value = MagicMock(
             effective_tenant_id="default",
             vector_scopes=["default"],
@@ -87,10 +81,7 @@ async def test_ce_query_calls_taxonomy_filter_with_ce_edition():
     """A CE-explicit query triggers taxonomy filter with edition=ce."""
     service = _make_service(visible_ids_by_taxonomy=["doc-ce-1"])
 
-    with (
-        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
-        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
-    ):
+    with patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes:
         mock_scopes.return_value = MagicMock(
             effective_tenant_id="default",
             vector_scopes=["default"],
@@ -113,10 +104,7 @@ async def test_taxonomy_trace_step_is_added():
     """Taxonomy resolution step appears in the trace when include_trace=True."""
     service = _make_service(visible_ids_by_taxonomy=["doc-1"])
 
-    with (
-        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
-        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
-    ):
+    with patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes:
         mock_scopes.return_value = MagicMock(
             effective_tenant_id="default",
             vector_scopes=["default"],
@@ -151,10 +139,7 @@ async def test_broadening_happens_when_strict_returns_empty():
         side_effect=side_effect
     )
 
-    with (
-        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
-        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
-    ):
+    with patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes:
         mock_scopes.return_value = MagicMock(
             effective_tenant_id="default",
             vector_scopes=["default"],
@@ -174,10 +159,7 @@ async def test_explicit_filter_overrides_inferred_context():
     """When filters.edition is set explicitly, it overrides query inference."""
     service = _make_service(visible_ids_by_taxonomy=["doc-ce-2"])
 
-    with (
-        patch("src.core.retrieval.application.retrieval_service.fuse_results", return_value=[]),
-        patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes,
-    ):
+    with patch("src.core.retrieval.application.retrieval_service.resolve_query_scopes") as mock_scopes:
         mock_scopes.return_value = MagicMock(
             effective_tenant_id="default",
             vector_scopes=["default"],
