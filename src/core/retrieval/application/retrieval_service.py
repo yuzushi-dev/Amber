@@ -841,6 +841,50 @@ class RetrievalService:
                     tenant_id=resolved_tenant_id,
                     latency_ms=0,
                 )
+            elif search_mode == SearchMode.STRUCTURED:
+                from src.core.retrieval.application.query.structured_query import structured_executor
+
+                structured_result = await structured_executor.try_execute(
+                    query=structured_query.cleaned_query,
+                    tenant_id=resolved_tenant_id,
+                )
+                if structured_result and structured_result.success:
+                    # Wrap tabular data as chunk-like dicts so the caller gets a
+                    # consistent RetrievalResult regardless of mode.
+                    chunks = [
+                        {"chunk_id": f"structured:{i}", "score": 1.0, "content": str(row), **row}
+                        for i, row in enumerate(structured_result.data)
+                    ]
+                    result = RetrievalResult(
+                        chunks=chunks,
+                        query=query,
+                        tenant_id=resolved_tenant_id,
+                        latency_ms=0,
+                    )
+                else:
+                    # Executor failed (e.g. graph client unavailable); fall back to vector search
+                    logger.warning(
+                        "STRUCTURED query execution failed for tenant=%s; falling back to vector search",
+                        resolved_tenant_id,
+                    )
+                    vector_targets = await self._resolve_vector_targets(
+                        viewer_tenant_id=resolved_tenant_id,
+                        query_scopes=resolved_scopes,
+                        candidate_document_ids=all_document_ids or None,
+                        include_trace=include_trace,
+                        trace=trace,
+                    )
+                    result = await self._execute_vector_search(
+                        structured_query=structured_query,
+                        tenant_id=resolved_tenant_id,
+                        document_ids=all_document_ids,
+                        filters=all_filters,
+                        top_k=top_k,
+                        options=options,
+                        trace=trace,
+                        vector_targets=vector_targets,
+                        tenant_config=tenant_config,
+                    )
             else:
                 vector_targets = await self._resolve_vector_targets(
                     viewer_tenant_id=resolved_tenant_id,
