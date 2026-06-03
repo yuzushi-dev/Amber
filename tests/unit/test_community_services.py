@@ -113,18 +113,23 @@ class TestCommunityLifecycle:
         manager = CommunityLifecycleManager(mock_neo4j)
         mock_neo4j.execute_write.return_value = [{"count": 2}]
 
-        await manager.mark_stale_by_entities(["ent_1", "ent_2"])
+        await manager.mark_stale_by_entities(["EntityA", "EntityB"], "tenant_1")
 
         assert mock_neo4j.execute_write.called
-        assert "WHERE e.id IN $entity_ids" in mock_neo4j.execute_write.call_args[0][0]
+        query = mock_neo4j.execute_write.call_args[0][0]
+        assert "WHERE e.name IN $names" in query
 
     @pytest.mark.asyncio
     async def test_cleanup_orphans(self, mock_neo4j):
         manager = CommunityLifecycleManager(mock_neo4j)
-        mock_neo4j.execute_read.return_value = [{"id": "ent_orph"}]
+        mock_neo4j.execute_read.return_value = [{"name": "OrphanEntity"}]
 
         await manager.cleanup_orphans("tenant_1")
 
         assert mock_neo4j.execute_read.called
+        query = mock_neo4j.execute_read.call_args[0][0]
+        assert "RETURN e.name as name" in query
         # Check that it tried to create misc community and link orphans
         assert mock_neo4j.execute_write.call_count == 2
+        link_query = mock_neo4j.execute_write.call_args[0][0]
+        assert "e.name IN $entity_names" in link_query

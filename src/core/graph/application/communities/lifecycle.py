@@ -14,23 +14,15 @@ class CommunityLifecycleManager:
     def __init__(self, graph_client: GraphClientPort):
         self.graph = graph_client
 
-    async def mark_stale_by_entities(self, entity_ids: list[str]):
+    async def mark_stale_by_entities(self, entity_names: list[str], tenant_id: str):
         """
-        Marks communities as stale if they contain any of the given entity IDs.
-        """
-        if not entity_ids:
-            return
+        Marks communities as stale if they contain any of the given entity names.
 
-        query = """
-        MATCH (e:Entity)-[:BELONGS_TO]->(c:Community)
-        WHERE e.id IN $entity_ids
-        SET c.is_stale = true, c.updated_at = datetime()
-        RETURN count(DISTINCT c) as count
+        NOTE: :Entity nodes have no ``id`` property; identity is (name, tenant_id).
+        This method is equivalent to ``mark_stale_by_entities_by_name`` and delegates
+        to it so there is a single implementation.
         """
-        result = await self.graph.execute_write(query, {"entity_ids": entity_ids})
-        count = result[0]["count"] if result else 0
-        if count > 0:
-            logger.info(f"Marked {count} communities as stale due to entity changes")
+        await self.mark_stale_by_entities_by_name(entity_names, tenant_id)
 
     async def mark_stale_by_entities_by_name(self, entity_names: list[str], tenant_id: str):
         """
@@ -69,18 +61,18 @@ class CommunityLifecycleManager:
         """
         Finds entities without communities and assigns them to a 'Misc' community.
         """
-        # 1. Find entities without BELONGS_TO
+        # 1. Find entities without BELONGS_TO — key on (name, tenant_id), not e.id
         query = """
         MATCH (e:Entity {tenant_id: $tenant_id})
         WHERE NOT (e)-[:BELONGS_TO]->(:Community)
-        RETURN e.id as id
+        RETURN e.name as name
         """
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
         if not results:
             return
 
-        entity_ids = [r["id"] for r in results]
-        logger.info(f"Found {len(entity_ids)} orphaned entities for tenant {tenant_id}")
+        entity_names = [r["name"] for r in results]
+        logger.info(f"Found {len(entity_names)} orphaned entities for tenant {tenant_id}")
 
         # 2. Get or create 'Misc' community at Level 0
         misc_query = """
@@ -94,16 +86,16 @@ class CommunityLifecycleManager:
         """
         await self.graph.execute_write(misc_query, {"tenant_id": tenant_id})
 
-        # 3. Link orphans
+        # 3. Link orphans — match on (name, tenant_id) since :Entity has no id property
         link_query = """
         MATCH (e:Entity {tenant_id: $tenant_id}), (c:Community {id: 'comm_0_misc', tenant_id: $tenant_id})
-        WHERE e.id IN $entity_ids
+        WHERE e.name IN $entity_names
         MERGE (e)-[:BELONGS_TO]->(c)
         """
         await self.graph.execute_write(
-            link_query, {"tenant_id": tenant_id, "entity_ids": entity_ids}
+            link_query, {"tenant_id": tenant_id, "entity_names": entity_names}
         )
-        logger.info(f"Assigned {len(entity_ids)} entities to 'Misc' community")
+        logger.info(f"Assigned {len(entity_names)} entities to 'Misc' community")
 
     async def get_community_stats(self, tenant_id: str) -> dict[str, Any]:
         """Returns stats about communities for a tenant."""
