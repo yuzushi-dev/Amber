@@ -189,9 +189,12 @@ async def list_chat_history(
 
             history: list[dict] = metadata.get("history") or []
 
+            from src.api.config import settings as _settings
+            redact_enabled = _settings.chat_redact_without_feedback
+
             if len(history) <= 1:
                 # Single-turn: original behaviour
-                if has_feedback:
+                if has_feedback or not redact_enabled:
                     query_text = metadata.get("query")
                     response_text = metadata.get("answer")
                     response_preview = None
@@ -230,7 +233,7 @@ async def list_chat_history(
                     except Exception:
                         turn_ts = conv.created_at
 
-                    if has_feedback:
+                    if has_feedback or not redact_enabled:
                         turn_query = turn.get("query", "")
                         turn_answer = turn.get("answer", "")
                         display_turn_query = turn_query or conv.title
@@ -317,8 +320,11 @@ async def get_conversation_detail(
     has_feedback = feedback_row is not None
 
     # Extract details
+    from src.api.config import settings as _settings
+    redact_enabled = _settings.chat_redact_without_feedback
+
     metadata = conv.metadata_ or {}
-    if has_feedback:
+    if has_feedback or not redact_enabled:
         query_text = metadata.get("query")
         response_text = metadata.get("answer")
     else:
@@ -351,9 +357,9 @@ async def get_conversation_detail(
             if hasattr(m, "provider"):
                 provider = getattr(m, "provider", provider)
 
-    # Build a safe copy of metadata: redact raw content when no feedback.
+    # Build a safe copy of metadata: redact raw content when no feedback and redaction enabled.
     safe_metadata = dict(metadata)
-    if not has_feedback:
+    if not has_feedback and redact_enabled:
         if "query" in safe_metadata:
             safe_metadata["query"] = REDACTED
         if "answer" in safe_metadata:
@@ -363,8 +369,8 @@ async def get_conversation_detail(
         request_id=conv.id,
         tenant_id=conv.tenant_id,
         trace_id=None,
-        query_text=query_text or conv.title if has_feedback else REDACTED,
-        response_text=response_text or conv.summary if has_feedback else REDACTED,
+        query_text=(query_text or conv.title) if (has_feedback or not redact_enabled) else REDACTED,
+        response_text=(response_text or conv.summary) if (has_feedback or not redact_enabled) else REDACTED,
         model=model,
         provider=provider,
         input_tokens=input_tokens,
