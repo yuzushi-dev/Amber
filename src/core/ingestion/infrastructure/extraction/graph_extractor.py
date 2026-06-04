@@ -391,25 +391,6 @@ class GraphExtractor:
         deduped_entities = self._deduplicate_entities(final_entities)
         deduped_relationships = self._deduplicate_relationships(all_relationships)
 
-        # --- POST-EXTRACTION QUALITY FILTER (New) ---
-        # If the chunk had low initial quality AND yielded zero entities/relationships,
-        # we flag it as noise. This doesn't stop return here, but callers
-        # (like the ingestion pipeline) can check for empty results.
-        #
-        # Note: In a full pipeline, we would return a signal to discard the chunk.
-        # Here, returning empty lists is the equivalent of "no knowledge extracted".
-
-        # Check extraction yield
-        len(deduped_entities) > 0 or len(deduped_relationships) > 0
-
-        # We don't have access to the raw chunk quality score here easily unless passed in.
-        # However, the GraphExtractor's job is just extraction.
-        # If we extract nothing, we return nothing.
-        # The calling service (IngestionService) should use the chunk's quality_score metadata
-        # combined with this empty result to decide whether to index the chunk vector or not.
-
-        # For now, we proceed to return what we found (or didn't find).
-
         # Convert to Pydantic ExtractionResult for backward compatibility
         # We need to map our semantic Entity model to the Pydantic one expected by callers
         # Note: prompts.entity_extraction.ExtractedEntity matches our schema mostly
