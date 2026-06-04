@@ -140,13 +140,20 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
     Steps:
     1. Fetch document from DB
-    2. Update status to EXTRACTING
-    3. Run extraction (FallbackManager)
-    4. Update status to CLASSIFYING
-    5. Run domain classification
-    6. Update status to CHUNKING
-    7. Run semantic chunking
-    8. Update status to READY
+    2. Transition status INGESTED -> EXTRACTING
+    3. Get file from storage
+    4. Extract content (FallbackManager / mime-type detection)
+    4b. Quality gate — if thresholds breached, transition to NEEDS_REVIEW and stop
+    5. Transition to CLASSIFYING; run domain classification
+    6. Transition to CHUNKING; run semantic chunking
+    7. Transition to EMBEDDING; generate dense + sparse embeddings, upsert to Milvus,
+       write Chunk nodes to Neo4j, build similarity edges
+    8. Transition to GRAPH_SYNC; extract entities/relationships and build knowledge graph
+    9. Document enrichment: summary, document_type, hashtags, keywords via LLM
+    10. Transition to READY; invalidate result cache
+
+    After the pipeline, triggers community detection/update (incremental if communities
+    already exist, full Leiden if first ingestion) — deferred when other docs are in flight.
 
     Args:
         document_id: ID of the document to process.
