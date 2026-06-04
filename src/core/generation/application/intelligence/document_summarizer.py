@@ -320,7 +320,11 @@ class DocumentSummarizer:
 
         except Exception as e:
             logger.error(f"Failed to extract document summary: {e}")
-            return self._empty_result()
+            # Tag the empty result so the caller can surface the failure instead of
+            # silently shipping a document with no summary.
+            result = self._empty_result()
+            result["enrichment_error"] = str(e)
+            return result
 
     def _build_system_prompt(self, max_length: int) -> str:
         """Build system prompt for LLM."""
