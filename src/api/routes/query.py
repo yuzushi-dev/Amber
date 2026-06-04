@@ -171,6 +171,17 @@ async def query(
                 ) if response.answer else ""
 
                 async with _get_async_session_maker()() as mem_session:
+                    # Set tenant RLS GUCs so conversation_summaries (FORCE RLS)
+                    # allows both the SELECT (.get) and the INSERT/UPDATE.
+                    # Mirrors the exact idiom in src/api/deps.py get_db_session.
+                    from sqlalchemy import text as _text
+                    await mem_session.execute(
+                        _text("SELECT set_config('app.current_tenant', :t, false)"),
+                        {"t": tenant_id},
+                    )
+                    await mem_session.execute(
+                        _text("SELECT set_config('app.is_super_admin', 'false', false)")
+                    )
                     existing_summary = await mem_session.get(
                         ConversationSummary, response.conversation_id
                     )
