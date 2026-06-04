@@ -170,3 +170,31 @@ async def verify_tenant_admin(request: Request):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Tenant Admin privileges required"
         )
+
+
+async def verify_group_admin(request: Request):
+    """
+    Dependency to verify group management privileges.
+
+    Allows access if ANY of the following is true:
+    - The caller is a super-admin (platform-wide access).
+    - The caller holds the global 'admin' scope (existing prod admin keys).
+    - The caller has the per-tenant 'admin' role.
+
+    This union gate ensures no class of admin is locked out of group management.
+    """
+    if getattr(request.state, "is_super_admin", False):
+        return  # Super Admin has all rights
+
+    permissions = getattr(request.state, "permissions", [])
+    if "admin" in permissions:
+        return  # Global admin scope
+
+    tenant_role = getattr(request.state, "tenant_role", None)
+    if tenant_role == "admin":
+        return  # Per-tenant admin role
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin privileges required to manage groups",
+    )
