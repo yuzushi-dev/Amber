@@ -419,6 +419,40 @@ async def _query_stream_impl(
 
         try:
             # =========================================================================
+            # STRUCTURED QUERY PRE-CHECK (mirrors non-stream POST /v1/query behaviour)
+            # =========================================================================
+            # List/count queries must short-circuit here so stream and non-stream
+            # paths behave identically.  The result is emitted as a single
+            # "structured_result" event followed by "done".
+            try:
+                from src.core.retrieval.application.query.structured_query import structured_executor
+
+                _structured_result = await structured_executor.try_execute(
+                    query=request.query,
+                    tenant_id=tenant_id,
+                )
+                if _structured_result and _structured_result.success:
+                    logger.info(
+                        f"SSE: structured query executed: {_structured_result.query_type.value} "
+                        f"in {_structured_result.execution_time_ms:.1f}ms"
+                    )
+                    _sq_payload = {
+                        "query_type": _structured_result.query_type.value,
+                        "data": _structured_result.data,
+                        "count": _structured_result.count,
+                        "timing": {
+                            "total_ms": round(_structured_result.execution_time_ms, 2),
+                            "retrieval_ms": round(_structured_result.execution_time_ms, 2),
+                            "generation_ms": 0,
+                        },
+                    }
+                    yield f"event: structured_result\ndata: {json.dumps(_sq_payload)}\n\n"
+                    yield f"event: done\ndata: {json.dumps('[DONE]')}\n\n"
+                    return
+            except Exception as _se:
+                logger.debug(f"SSE: structured query check failed, continuing to RAG/agent: {_se}")
+
+            # =========================================================================
             # AGENTIC MODE SUPPORT
             # =========================================================================
             if request.options and request.options.agent_mode:
