@@ -120,6 +120,12 @@ class QueryUseCase:
         # 2. AGENTIC MODE
         if request.options and request.options.agent_mode:
             # ── Privilege checks (must be outside the broad except below) ──────
+            # NOTE: flag-source drift — this path reads ENABLE_AGENT_MODE from raw
+            # os.environ via _agent_flag(), while the SSE stream path reads the same
+            # env var through `src.api.config.settings.enable_agent_mode` (a parsed
+            # Pydantic field).  Both resolve to the same environment variable so
+            # runtime behaviour is identical, but the two entry-points should
+            # eventually be unified to read from settings directly.
             if not _agent_flag("ENABLE_AGENT_MODE"):
                 raise HTTPException(
                     status_code=403,
