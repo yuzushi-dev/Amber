@@ -456,6 +456,17 @@ class Settings(BaseSettings):
         description="Enable graph/global retrieval filtering against explicit document share ACLs.",
     )
 
+    # Privacy: chat-history redaction for conversations without user feedback
+    chat_redact_without_feedback: bool = Field(
+        default=False,
+        alias="CHAT_REDACT_WITHOUT_FEEDBACK",
+        description=(
+            "When True, redact query/response content for conversations that have no user "
+            "feedback attached. Defaults to False so admins see full chat history unless an "
+            "operator explicitly opts in to redaction."
+        ),
+    )
+
     # Security: legacy bootstrap fallback for unlinked API keys
     allow_linkless_key_default_tenant: bool = Field(
         default=True,
