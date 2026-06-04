@@ -801,6 +801,22 @@ class IngestionService:
                 if domain and domain.value and domain.value not in document.keywords:
                     document.keywords.append(domain.value)
 
+                # Surface enrichment failures instead of silently shipping an empty
+                # summary. extract_summary swallows LLM/parse errors and returns an
+                # empty result tagged with `enrichment_error`; flag it on the document
+                # (visible in metadata/UI + logs) without failing the whole pipeline.
+                enrichment_error = enrichment.get("enrichment_error")
+                if enrichment_error or not (document.summary or "").strip():
+                    logger.warning(
+                        f"Document enrichment produced no summary for {document_id} "
+                        f"(reason: {enrichment_error or 'empty result'})"
+                    )
+                    enr_meta = document.metadata_ or {}
+                    enr_meta["enrichmentStatus"] = "failed" if enrichment_error else "empty"
+                    if enrichment_error:
+                        enr_meta["enrichmentError"] = str(enrichment_error)[:300]
+                    document.metadata_ = dict(enr_meta)
+
                 # Capture LLM Metadata
                 try:
                     llm_cfg = resolve_llm_step_config(
