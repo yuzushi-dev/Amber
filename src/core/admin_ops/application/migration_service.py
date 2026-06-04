@@ -166,12 +166,30 @@ class EmbeddingMigrationService:
     async def _get_milvus_dimensions(self, tenant_id: str) -> int | None:
         """Get actual vector dimensions from Milvus collection for this tenant."""
         try:
-            dimensions = self.settings.embedding_dimensions or 1536
             # Use the tenant's actual active collection, not the hardcoded default name.
             tenant_query = select(Tenant).where(Tenant.id == tenant_id)
             tenant = (await self.session.execute(tenant_query)).scalars().first()
             t_config = tenant.config if tenant else {}
             collection_name = resolve_active_vector_collection(tenant_id, t_config)
+
+            # Resolve expected dimensions: tenant config → system settings →
+            # model-registry lookup for the configured embedding model.
+            dimensions = (
+                t_config.get("embedding_dimensions")
+                or self.settings.embedding_dimensions
+                or EMBEDDING_MODELS.get(
+                    t_config.get("embedding_provider")
+                    or self.settings.default_embedding_provider
+                    or "",
+                    {},
+                ).get(
+                    t_config.get("embedding_model")
+                    or self.settings.default_embedding_model
+                    or "",
+                    {},
+                ).get("dimensions")
+            )
+
             store = self.vector_store_factory(dimensions, collection_name=collection_name)
             return await store.get_collection_dimensions()
         except Exception as e:
