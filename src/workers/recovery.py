@@ -6,7 +6,7 @@ Handles recovery of documents stuck in processing states after worker restart.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger(__name__)
 
 
-async def recover_stale_documents() -> dict[str, Any]:
+async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
     """
     Find and recover documents stuck in processing states.
 
@@ -29,6 +29,14 @@ async def recover_stale_documents() -> dict[str, Any]:
        - If has chunks and status is 'chunking' -> mark as 'ready'
        - Otherwise -> mark as 'failed' with error message
     3. Publish status updates via Redis for UI consistency
+
+    Args:
+        min_age_minutes: Only recover documents whose updated_at is older than
+            this many minutes.  Use 0 (default) to recover everything immediately
+            (safe at worker boot when nothing is in-flight).  The periodic sweep
+            should pass a positive value (e.g. 30) so legitimately in-progress
+            documents (graph-sync can take ~30 min) are not reset and requeued
+            concurrently.
 
     Returns:
         dict: {"recovered": int, "failed": int, "total": int}
@@ -72,11 +80,19 @@ async def recover_stale_documents() -> dict[str, Any]:
                 await configure_worker_session(session)
                 # Find all documents in stale states
                 # Fix: Use SKIP LOCKED to prevent race conditions between multiple workers
-                result = await session.execute(
+                stale_query = (
                     select(Document)
                     .where(Document.status.in_(STALE_STATES))
-                    .with_for_update(skip_locked=True)
                 )
+                # Age threshold: skip documents updated recently so the periodic
+                # sweep does not reset documents that are legitimately in-flight
+                # (e.g. graph-sync can take ~30 min).  At worker boot
+                # min_age_minutes=0, so everything is recovered immediately.
+                if min_age_minutes > 0:
+                    cutoff = datetime.now(UTC) - timedelta(minutes=min_age_minutes)
+                    stale_query = stale_query.where(Document.updated_at < cutoff)
+                stale_query = stale_query.with_for_update(skip_locked=True)
+                result = await session.execute(stale_query)
                 stale_documents = result.scalars().all()
                 total = len(stale_documents)
 
@@ -199,16 +215,20 @@ def _publish_recovery_status(document_id: str, status: str) -> None:
         logger.debug(f"Failed to publish recovery status: {e}")
 
 
-def run_recovery_sync() -> dict[str, Any]:
+def run_recovery_sync(min_age_minutes: int = 0) -> dict[str, Any]:
     """
     Synchronous wrapper for recovery function.
     Used by Celery signals which run in sync context.
+
+    Args:
+        min_age_minutes: Forwarded to recover_stale_documents.  Default 0
+            recovers everything (safe at worker boot).
     """
     import asyncio
 
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(recover_stale_documents())
+        return loop.run_until_complete(recover_stale_documents(min_age_minutes=min_age_minutes))
     finally:
         loop.close()
 
@@ -257,7 +277,11 @@ def periodic_recovery_sweep() -> dict[str, Any]:
     Idempotent and tenant-agnostic (queries all documents across all tenants).
     """
     logger.info("Periodic recovery sweep triggered by Celery Beat")
-    result = run_recovery_sync()
+    # 30-minute age threshold: skip documents updated within the last 30 min so
+    # legitimately in-flight processing (e.g. graph-sync can take ~30 min) is not
+    # reset and requeued concurrently.  The boot-time path uses min_age_minutes=0
+    # (recover everything immediately, since nothing is in-flight at startup).
+    result = run_recovery_sync(min_age_minutes=30)
     if result.get("total", 0) > 0:
         logger.info(
             "Periodic recovery sweep: %(recovered)s recovered, %(failed)s failed, "
