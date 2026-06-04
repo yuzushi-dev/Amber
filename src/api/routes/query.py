@@ -527,6 +527,18 @@ async def _query_stream_impl(
                     )
                     agent_sources = getattr(agent_response, "sources", []) or []
 
+                    # Derive tools_actually_called from the orchestrator trace.
+                    # Trace entries for tool invocations have step="tool_call:<name>".
+                    _agent_trace = getattr(agent_response, "trace", []) or []
+                    tools_actually_called = list(
+                        dict.fromkeys(  # preserve order, deduplicate
+                            step["step"].split(":", 1)[1]
+                            for step in _agent_trace
+                            if isinstance(step, dict)
+                            and step.get("step", "").startswith("tool_call:")
+                        )
+                    )
+
                     full_answer = agent_response.answer
                     summary_text = (
                         full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
@@ -593,10 +605,10 @@ async def _query_stream_impl(
                                     "answer": full_answer,
                                     "model": "agent-default",
                                     "mode": "agent",
-                                    "tools_used": [
-                                        t.get("function", {}).get("name", t.get("name", "unknown"))
-                                        for t in tool_schemas
-                                    ],
+                                    # tools_actually_called: names of tools invoked
+                                    # during this run (from orchestrator trace),
+                                    # not the full available tool_schemas list.
+                                    "tools_used": tools_actually_called,
                                     "history": [
                                         {
                                             "query": request.query,
@@ -615,8 +627,12 @@ async def _query_stream_impl(
                             await session.commit()
                             logger.info(f"Saved AGENT conversation history: {new_summary.id}")
 
-                    # Stream the result as tokens (AgentOrchestrator returns full answer currently)
-                    # Preserve whitespace to keep formatting intact.
+                    # NOTE: pseudo-streaming — AgentOrchestrator awaits the complete LLM
+                    # response before returning; there is no real token-by-token streaming.
+                    # The answer is re-tokenized (split on whitespace/non-whitespace) and
+                    # emitted word-by-word to maintain SSE event-contract compatibility with
+                    # the RAG stream path.  True streaming would require the orchestrator to
+                    # call generation_service.generate_stream() inside its ReAct loop.
                     answer_text = agent_response.answer or ""
                     for chunk in re.findall(r"\S+|\s+", answer_text):
                         yield f"event: token\ndata: {json.dumps(chunk)}\n\n"
