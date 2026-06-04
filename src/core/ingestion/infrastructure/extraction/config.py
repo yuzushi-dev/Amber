@@ -49,7 +49,11 @@ class ExtractionSettings(BaseSettings):
     ocr_text_density_threshold: int = 50  # Character count threshold for triggering OCR
 
     # Quality actions
-    mark_low_quality_as_needs_review: bool = True
+    # Default OFF: when True, low-quality extractions stop at NEEDS_REVIEW, but no
+    # endpoint yet releases NEEDS_REVIEW docs, so they would get stuck. Keep False
+    # for zero-regression deploys; enable (env MARK_LOW_QUALITY_AS_NEEDS_REVIEW=true)
+    # once a review/release workflow exists.
+    mark_low_quality_as_needs_review: bool = False
 
 
 extraction_settings = ExtractionSettings()
