@@ -103,10 +103,11 @@ QUERY_SUFFICIENCY_PROMPT = """
 You are a retrieval quality controller for a RAG system.
 Decide whether the retrieved context snippets contain ENOUGH information to fully and faithfully answer the user query.
 
-### Rules:
+### Rules (be STRICT — default to NOT sufficient on any doubt):
 - Judge ONLY by the snippets provided. Do not use outside knowledge.
-- "sufficient" means a grounded, complete answer can be written from the snippets alone.
-- If something required by the query is missing, it is NOT sufficient.
+- Decompose the query into ALL its distinct aspects/sub-questions. The context is "sufficient" ONLY if EVERY aspect is explicitly and completely supported by the snippets with the concrete specifics the query implies (e.g. exact commands, parameters, version numbers, ordered steps, prerequisites, ports, limits, exceptions/edge-cases).
+- If ANY aspect is missing, only partially covered, generic/vague, or would require inference or assumptions to answer, mark it NOT sufficient. Partial coverage is NOT sufficient.
+- Do not be charitable: when uncertain whether the snippets fully cover an aspect, treat it as NOT sufficient.
 - When not sufficient, identify the SPECIFIC missing aspects and propose up to {max_gap_queries} short, targeted follow-up search queries that would retrieve the missing information. Each gap query must focus on one missing aspect (do NOT repeat the original query verbatim).
 {tried_block}{draft_block}
 ### Output:
