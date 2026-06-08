@@ -31,6 +31,7 @@ from src.core.retrieval.application.query.product_context_resolver import (
 )
 from src.core.retrieval.application.query.rewriter import QueryRewriter
 from src.core.retrieval.application.query.router import QueryRouter
+from src.core.retrieval.application.query.sufficiency import SufficiencyEvaluator
 from src.core.retrieval.application.search.drift_search import DriftSearchService
 from src.core.retrieval.application.search.global_search import GlobalSearchService
 from src.core.retrieval.application.search.graph import GraphSearcher
@@ -206,6 +207,11 @@ class RetrievalService:
             provider_factory=factory,
         )
         self.router = QueryRouter(
+            openai_api_key=openai_api_key,
+            anthropic_api_key=anthropic_api_key,
+            provider_factory=factory,
+        )
+        self.sufficiency_evaluator = SufficiencyEvaluator(
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
             provider_factory=factory,
@@ -934,6 +940,29 @@ class RetrievalService:
                 vector_targets=vector_targets,
             )
 
+        # Step 9: Sufficient-context gate + iterative retrieval.
+        # Only meaningful for vector-based modes (GLOBAL/DRIFT do their own
+        # iteration; STRUCTURED returns tabular rows). Gated by option, off by
+        # default — fails open so it never blocks a response.
+        if (
+            options.use_sufficiency_loop
+            and options.max_sufficiency_rounds > 0
+            and vector_targets
+        ):
+            await self._run_sufficiency_loop(
+                result=result,
+                processed_query=processed_query,
+                tenant_id=resolved_tenant_id,
+                document_ids=all_document_ids,
+                filters=all_filters,
+                top_k=top_k,
+                options=options,
+                trace=trace,
+                vector_targets=vector_targets,
+                tenant_config=tenant_config,
+                include_trace=include_trace,
+            )
+
         # Record latency for circuit breaker
         total_latency = (time.perf_counter() - start_time) * 1000
         self.circuit_breaker.record_latency(total_latency)
@@ -947,6 +976,111 @@ class RetrievalService:
             result.trace = trace
 
         return result
+
+    async def _run_sufficiency_loop(
+        self,
+        *,
+        result: RetrievalResult,
+        processed_query: str,
+        tenant_id: str,
+        document_ids: list[str] | None,
+        filters: dict[str, Any],
+        top_k: int,
+        options: QueryOptions,
+        trace: list[dict],
+        vector_targets: list[VectorSearchTarget],
+        tenant_config: dict[str, Any] | None,
+        include_trace: bool,
+    ) -> None:
+        """
+        Iterative retrieval gate (Sufficient Context Agent pattern).
+
+        Judges whether `result.chunks` are sufficient to answer `processed_query`.
+        While insufficient and rounds remain, runs the proposed gap queries
+        through vector search and merges new chunks into `result` in place.
+        Mutates `result.chunks` (kept score-sorted, capped at top_k).
+        """
+        seen_ids = {c.get("chunk_id") for c in result.chunks}
+        # Decomposition off for gap queries to avoid combinatorial fan-out.
+        gap_options = options.model_copy(update={"use_decomposition": False})
+        # Context budget: gap chunks are ADDED (the loop fills gaps), not capped
+        # back to top_k — otherwise narrow gap chunks evict the original best
+        # chunks and the loop hurts more than it helps.
+        budget = options.sufficiency_max_chunks or (
+            top_k + options.max_sufficiency_rounds * 3
+        )
+        budget = max(budget, top_k)
+        # Track gap queries already attempted so the judge proposes new angles
+        # instead of repeating the same gaps every round (progressive feedback).
+        tried: list[str] = []
+        tried_norm: set[str] = set()
+
+        for round_idx in range(options.max_sufficiency_rounds):
+            verdict = await self.sufficiency_evaluator.evaluate(
+                query=processed_query,
+                chunks=result.chunks,
+                tenant_config=tenant_config,
+                tried_gap_queries=tried,
+            )
+
+            # Drop gaps already attempted in earlier rounds (defends against the
+            # judge repeating them despite the prompt).
+            fresh_gaps = [
+                g for g in verdict.gap_queries if g.strip().lower() not in tried_norm
+            ]
+
+            if include_trace:
+                trace.append(
+                    {
+                        "step": "sufficiency_check",
+                        "round": round_idx + 1,
+                        "sufficient": verdict.is_sufficient,
+                        "reason": verdict.reason,
+                        "gap_queries": verdict.gap_queries,
+                        "fresh_gap_queries": fresh_gaps,
+                    }
+                )
+
+            # Stop when sufficient, or when no genuinely new gap query remains.
+            if verdict.is_sufficient or not fresh_gaps:
+                break
+
+            added = 0
+            for gap_q in fresh_gaps:
+                tried.append(gap_q)
+                tried_norm.add(gap_q.strip().lower())
+                gap_structured = QueryParser.parse(gap_q)
+                try:
+                    gap_result = await self._execute_vector_search(
+                        structured_query=gap_structured,
+                        tenant_id=tenant_id,
+                        document_ids=document_ids,
+                        filters=filters,
+                        top_k=top_k,
+                        options=gap_options,
+                        trace=trace,
+                        vector_targets=vector_targets,
+                        tenant_config=tenant_config,
+                    )
+                except Exception as e:
+                    logger.warning("Gap retrieval failed for %r: %s", gap_q[:80], e)
+                    continue
+
+                for c in gap_result.chunks:
+                    cid = c.get("chunk_id")
+                    if cid not in seen_ids:
+                        result.chunks.append(c)
+                        seen_ids.add(cid)
+                        added += 1
+
+            # Keep score-sorted and bounded by the expanded budget; stop early if
+            # nothing new surfaced. seen_ids stays cumulative so trimmed-out
+            # chunks are not re-fetched.
+            result.chunks.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+            result.chunks = result.chunks[:budget]
+
+            if added == 0:
+                break
 
     @trace_span("RetrievalService.vector_search")
     async def _execute_vector_search(

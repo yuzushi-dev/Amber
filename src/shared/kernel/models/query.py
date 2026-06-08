@@ -77,6 +77,26 @@ class QueryOptions(BaseModel):
         False,
         description="Enable query decomposition for complex questions",
     )
+    use_sufficiency_loop: bool = Field(
+        False,
+        description="Enable iterative retrieval: judge context sufficiency and re-retrieve on gaps",
+    )
+    max_sufficiency_rounds: int = Field(
+        2,
+        ge=0,
+        le=4,
+        description="Max additional gap-driven retrieval rounds when use_sufficiency_loop is on",
+    )
+    sufficiency_max_chunks: int = Field(
+        0,
+        ge=0,
+        le=50,
+        description=(
+            "Context budget for the sufficiency loop: gap-retrieved chunks are ADDED up to "
+            "this many (not capped back to top_k). 0 = derive (top_k + rounds*3). The loop "
+            "expands context to fill gaps rather than evicting the original top_k."
+        ),
+    )
     include_trace: bool = Field(
         False,
         description="Include execution trace in response",

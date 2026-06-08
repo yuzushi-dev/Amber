@@ -96,6 +96,34 @@ Search Mode:
 """
 
 # =============================================================================
+# Sufficient Context Check (iterative retrieval gate)
+# =============================================================================
+
+QUERY_SUFFICIENCY_PROMPT = """
+You are a retrieval quality controller for a RAG system.
+Decide whether the retrieved context snippets contain ENOUGH information to fully and faithfully answer the user query.
+
+### Rules:
+- Judge ONLY by the snippets provided. Do not use outside knowledge.
+- "sufficient" means a grounded, complete answer can be written from the snippets alone.
+- If something required by the query is missing, it is NOT sufficient.
+- When not sufficient, identify the SPECIFIC missing aspects and propose up to {max_gap_queries} short, targeted follow-up search queries that would retrieve the missing information. Each gap query must focus on one missing aspect (do NOT repeat the original query verbatim).
+{tried_block}{draft_block}
+### Output:
+Return ONLY a JSON object, no prose:
+{{"sufficient": <true|false>, "reason": "<one short sentence>", "gap_queries": ["...", "..."]}}
+If sufficient, return an empty gap_queries list.
+
+---
+User Query: "{query}"
+
+Retrieved Snippets:
+{snippets}
+
+JSON Verdict:
+"""
+
+# =============================================================================
 # HyDE (Hypothetical Document Embedding)
 # =============================================================================
 
