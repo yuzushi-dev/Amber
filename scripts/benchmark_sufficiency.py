@@ -37,11 +37,8 @@ from src.amber_platform.composition_root import configure_settings, get_settings
 from src.api.config import settings as _settings  # noqa: E402
 from src.core.admin_ops.application.evaluation.judge import JudgeService  # noqa: E402
 from src.core.generation.application.registry import PromptRegistry  # noqa: E402
-from src.core.generation.domain.ports.provider_factory import (  # noqa: E402
-    get_provider_factory,
-    set_provider_factory_builder,
-)
-from src.core.generation.infrastructure.providers.factory import ProviderFactory  # noqa: E402
+from src.core.generation.domain.ports.provider_factory import get_provider_factory  # noqa: E402
+from src.core.generation.infrastructure.providers.factory import init_providers  # noqa: E402
 
 DEFAULT_QUESTIONS = [
     "What are the prerequisites and the steps to install Acme Mail in a high-availability setup?",
@@ -54,12 +51,33 @@ DEFAULT_QUESTIONS = [
 
 def _bootstrap_judge() -> JudgeService:
     configure_settings(_settings)
-    set_provider_factory_builder(ProviderFactory)
+    s = get_settings()
+    # Initialize the provider factory from settings (same mapping as api/main).
+    init_providers(
+        openai_api_key=s.openai_api_key,
+        anthropic_api_key=s.anthropic_api_key,
+        ollama_base_url=s.ollama_base_url,
+        default_llm_provider=s.default_llm_provider,
+        default_llm_model=s.default_llm_model,
+        default_embedding_provider=s.default_embedding_provider,
+        default_embedding_model=s.default_embedding_model,
+        llm_fallback_local=s.llm_fallback_local,
+        llm_fallback_economy=s.llm_fallback_economy,
+        llm_fallback_standard=s.llm_fallback_standard,
+        llm_fallback_premium=s.llm_fallback_premium,
+        embedding_fallback_order=s.embedding_fallback_order,
+        openrouter_api_key=s.openrouter_api_key,
+        openrouter_base_url=s.openrouter_base_url,
+        nvidia_nim_api_key=s.nvidia_nim_api_key,
+        nvidia_nim_base_url=s.nvidia_nim_base_url,
+        llm_fallback_enabled=s.llm_fallback_enabled,
+        ollama_cloud_base_url=s.ollama_cloud_base_url,
+        ollama_cloud_api_keys=s.ollama_cloud_api_keys,
+    )
     # Best-effort DB config (usage logging); ignore if already configured.
     try:
         from src.core.database.session import configure_database
 
-        s = get_settings()
         configure_database(database_url=s.db.app_database_url or s.db.database_url)
     except Exception:
         pass
