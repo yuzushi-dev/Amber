@@ -264,3 +264,10 @@ memory/security-log.md
 *.pptx
 docs/Amber_Stakeholder_Presentation.md
 docs/Amber_Business_Document.md
+
+# Auto-generated memory dump + internal artifacts (do not commit)
+AGENTS.md
+docs/MEMORY_AUDIT.md
+scripts/amber_log_archive.sh
+scripts/fix_usage_logs_created_at.py
+scripts/html_reingest_dryrun.py
