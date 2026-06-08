@@ -464,18 +464,29 @@ async def get_reconciliation_status():
         pg_doc_counts: dict[str, int] = {}
         pg_chunk_counts: dict[str, int] = {}
         try:
-            async with async_session_maker() as session:
-                doc_rows = await session.execute(
-                    select(Document.tenant_id, func.count(Document.id)).group_by(Document.tenant_id)
-                )
-                for row in doc_rows:
-                    pg_doc_counts[row[0]] = row[1]
+            from sqlalchemy import text as _sql_text
 
-                chunk_rows = await session.execute(
-                    select(Chunk.tenant_id, func.count(Chunk.id)).group_by(Chunk.tenant_id)
+            async with async_session_maker() as session:
+                # RLS on documents/chunks is anchored to app.current_tenant; a raw
+                # session with no GUC sees zero rows (a group_by would silently
+                # return nothing, making Postgres look empty vs Neo4j/Milvus =
+                # false drift). Mark the session super-admin and count per-tenant.
+                await session.execute(
+                    _sql_text("SELECT set_config('app.is_super_admin', 'true', false)")
                 )
-                for row in chunk_rows:
-                    pg_chunk_counts[row[0]] = row[1]
+                tenant_rows = await session.execute(_sql_text("SELECT id FROM tenants"))
+                tenant_ids = [r[0] for r in tenant_rows.fetchall()]
+                for tid in tenant_ids:
+                    await session.execute(
+                        _sql_text("SELECT set_config('app.current_tenant', :t, false)"),
+                        {"t": tid},
+                    )
+                    dcount = await session.scalar(select(func.count(Document.id)))
+                    if dcount:
+                        pg_doc_counts[tid] = dcount
+                    ccount = await session.scalar(select(func.count(Chunk.id)))
+                    if ccount:
+                        pg_chunk_counts[tid] = ccount
         except Exception as e:
             errors.append(f"postgres: {e}")
 
