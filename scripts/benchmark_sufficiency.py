@@ -110,12 +110,43 @@ def _rounds(trace):
     return sum(1 for s in (trace or []) if s.get("step") == "sufficiency_check")
 
 
+CORRECTNESS_PROMPT = """You are grading an AI answer against a reference (ground-truth) answer.
+Score how well the AI answer captures the facts of the reference, ignoring style.
+
+QUESTION: {query}
+
+REFERENCE ANSWER:
+{ideal}
+
+AI ANSWER:
+{answer}
+
+Output exactly:
+Score: <0.0-1.0>
+Reasoning: <one short sentence>"""
+
+
+async def _correctness(provider, query, ideal, answer):
+    """Grade `answer` against the ground-truth `ideal` answer (0..1)."""
+    prompt = CORRECTNESS_PROMPT.format(query=query, ideal=ideal, answer=answer)
+    res = await provider.generate(prompt=prompt, temperature=0.0)
+    for line in (res.text or "").splitlines():
+        if line.lower().strip().startswith("score:"):
+            try:
+                return max(0.0, min(1.0, float(line.split(":", 1)[1].strip().split()[0])))
+            except (ValueError, IndexError):
+                return 0.0
+    return 0.0
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--api-key", default=os.getenv("AMBER_API_KEY") or os.getenv("DEV_API_KEY", ""))
     ap.add_argument("--tenant", default="default")
     ap.add_argument("--questions", default=None, help="JSON file: list of question strings")
+    ap.add_argument("--golden", default=None,
+                    help="JSON file: list of {query, ideal_answer} for ground-truth correctness")
     ap.add_argument("--max-chunks", type=int, default=5)
     ap.add_argument("--max-rounds", type=int, default=2)
     ap.add_argument("--timeout", type=float, default=180.0)
@@ -124,13 +155,20 @@ async def main():
     if not args.api_key:
         sys.exit("No API key. Pass --api-key or set AMBER_API_KEY / DEV_API_KEY.")
 
-    questions = DEFAULT_QUESTIONS
-    if args.questions:
+    # ideal[query] = ground-truth answer (golden mode) for correctness scoring.
+    ideal: dict[str, str] = {}
+    if args.golden:
+        entries = json.load(open(args.golden))
+        questions = [e["query"] for e in entries]
+        ideal = {e["query"]: (e.get("ideal_answer") or "") for e in entries}
+    elif args.questions:
         questions = json.load(open(args.questions))
+    else:
+        questions = DEFAULT_QUESTIONS
 
     judge = _bootstrap_judge()
     variants = [("OFF (baseline)", False), ("ON (loop)", True)]
-    agg = {v: {"faith": [], "rel": [], "src": [], "docs": [], "rounds": [], "lat": []}
+    agg = {v: {"faith": [], "rel": [], "corr": [], "src": [], "docs": [], "rounds": [], "lat": []}
            for v, _ in variants}
 
     async with httpx.AsyncClient(timeout=args.timeout) as client:
@@ -147,15 +185,21 @@ async def main():
 
                 f = await judge.evaluate_faithfulness(query=q, context=ctx, answer=ans)
                 rel = await judge.evaluate_relevance(query=q, answer=ans)
+                corr = None
+                if ideal.get(q):
+                    corr = await _correctness(judge.llm, q, ideal[q], ans)
 
                 a = agg[label]
                 a["faith"].append(f.score)
                 a["rel"].append(rel.score)
+                if corr is not None:
+                    a["corr"].append(corr)
                 a["src"].append(len(sources))
                 a["docs"].append(ndocs)
                 a["rounds"].append(rounds)
                 a["lat"].append(lat)
-                print(f"  {label:16s} faith={f.score:.2f} rel={rel.score:.2f} "
+                cstr = f" corr={corr:.2f}" if corr is not None else ""
+                print(f"  {label:16s} faith={f.score:.2f} rel={rel.score:.2f}{cstr} "
                       f"sources={len(sources)} docs={ndocs} rounds={rounds} lat={lat:.1f}s")
 
     def m(xs):
@@ -164,11 +208,12 @@ async def main():
     print("\n" + "=" * 80)
     print(f"BENCHMARK (n={len(questions)}, max_chunks={args.max_chunks}, max_rounds={args.max_rounds})")
     print("=" * 80)
-    print(f"{'variant':<16} {'faith':>7} {'relev':>7} {'docs':>6} {'sources':>8} {'rounds':>7} {'lat_s':>7}")
+    print(f"{'variant':<16} {'faith':>7} {'relev':>7} {'correct':>8} {'docs':>6} {'sources':>8} {'rounds':>7} {'lat_s':>7}")
     print("-" * 80)
     for label, _ in variants:
         a = agg[label]
-        print(f"{label:<16} {m(a['faith']):>7.3f} {m(a['rel']):>7.3f} {m(a['docs']):>6.2f} "
+        corr = f"{m(a['corr']):>8.3f}" if a["corr"] else f"{'n/a':>8}"
+        print(f"{label:<16} {m(a['faith']):>7.3f} {m(a['rel']):>7.3f} {corr} {m(a['docs']):>6.2f} "
               f"{m(a['src']):>8.2f} {m(a['rounds']):>7.2f} {m(a['lat']):>7.1f}")
     print("=" * 80)
 
