@@ -259,3 +259,8 @@ daily_html_dryrun.py
 daily_html_reingest.py
 # Runtime guardrail log (regenerated at runtime)
 memory/security-log.md
+
+# Internal business/stakeholder artifacts — never publish (purged from history)
+*.pptx
+docs/Amber_Stakeholder_Presentation.md
+docs/Amber_Business_Document.md
