@@ -453,7 +453,7 @@ curl -X POST /v1/documents \
 
 ## Admin - Backup
 
-> Requires `super_admin` scope. See [disaster_recovery_runbook.md](./disaster_recovery_runbook.md).
+> Requires `super_admin` scope.
 
 | Method   | Endpoint                                 | Description                    |
 | -------- | ---------------------------------------- | ------------------------------ |
