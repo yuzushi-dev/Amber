@@ -819,26 +819,47 @@ async def _get_database_stats(tenant_id: str | None) -> DatabaseStats:
                     "failed"
                 ),
             )
-            if tenant_id is not None:
-                count_query = count_query.where(Document.tenant_id == tenant_id)
+            from sqlalchemy import text as _sql_text
 
-            result = await session.execute(count_query)
-            row = result.one()
+            # RLS on documents/chunks is anchored to app.current_tenant: a session
+            # without GUCs set sees zero rows (this is what made the admin stats
+            # report 0 documents / 0 chunks after the RLS hardening). Mark the
+            # session super-admin and aggregate per-tenant. NOTE: super-admin alone
+            # does NOT grant cross-tenant visibility on these tables — the policy
+            # still requires tenant_id = app.current_tenant — so we iterate tenants.
+            await session.execute(
+                _sql_text("SELECT set_config('app.is_super_admin', 'true', false)")
+            )
+            if tenant_id is not None:
+                tenant_ids = [tenant_id]
+            else:
+                rows = await session.execute(_sql_text("SELECT id FROM tenants"))
+                tenant_ids = [r[0] for r in rows.fetchall()]
 
             chunk_query = select(func.count(Chunk.id))
-            if tenant_id is not None:
-                chunk_query = chunk_query.where(Chunk.tenant_id == tenant_id)
-            chunk_count = await session.scalar(chunk_query)
+            documents_total = documents_ready = documents_processing = documents_failed = 0
+            chunks_total = 0
+            for tid in tenant_ids:
+                await session.execute(
+                    _sql_text("SELECT set_config('app.current_tenant', :t, false)"),
+                    {"t": tid},
+                )
+                row = (await session.execute(count_query)).one()
+                documents_total += row.total or 0
+                documents_ready += row.ready or 0
+                documents_processing += row.processing or 0
+                documents_failed += row.failed or 0
+                chunks_total += await session.scalar(chunk_query) or 0
 
             # Neo4j stats: pass the same scope (None = all tenants).
             neo4j_stats = await _get_neo4j_stats_consolidated(tenant_id)
 
             stats = DatabaseStats(
-                documents_total=row.total or 0,
-                documents_ready=row.ready or 0,
-                documents_processing=row.processing or 0,
-                documents_failed=row.failed or 0,
-                chunks_total=chunk_count or 0,
+                documents_total=documents_total,
+                documents_ready=documents_ready,
+                documents_processing=documents_processing,
+                documents_failed=documents_failed,
+                chunks_total=chunks_total,
                 **neo4j_stats,
             )
 
