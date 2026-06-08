@@ -251,3 +251,11 @@ api_keys_backup.sql
 
 # AI assistant working notes (host-local)
 CLAUDE.md
+
+# Local scratch / analytics helpers (contain prod hosts or keys) — never publish
+scratch.py
+daily.py
+daily_html_dryrun.py
+daily_html_reingest.py
+# Runtime guardrail log (regenerated at runtime)
+memory/security-log.md
