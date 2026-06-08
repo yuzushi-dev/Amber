@@ -1,0 +1,7 @@
+[
+  "What are the prerequisites and the steps to install Acme Mail in a high-availability setup?",
+  "Which Acme Mail components run on which nodes in a multi-server deployment, and what does each do?",
+  "How do I prepare a server before installing Acme Mail, including package and repository prerequisites?",
+  "What is the role of the database component in Acme Mail and how is it configured during installation?",
+  "What monitoring components does Acme Mail provide and how are they installed and accessed?"
+]
