@@ -108,9 +108,13 @@ class GraphWriter:
             tenant_id: Tenant context
             result: The extraction result object
         """
-        if not result.entities and not result.relationships:
-            logger.info(f"No graph data to write for chunk {chunk_id}")
-            return
+        # NOTE: we intentionally do NOT early-return when a chunk has no entities/
+        # relationships. The base query also creates the structural backbone
+        # (Document, Chunk, HAS_CHUNK); skipping it would leave entity-less chunks
+        # orphaned from their Document in the graph (no HAS_CHUNK edge), which
+        # breaks (:Document)-[:HAS_CHUNK]->(:Chunk) traversals and causes
+        # Postgres↔Neo4j chunk drift on deletion. The entity/relationship parts
+        # below are already conditional on there being entities/relationships.
 
         # Prepare parameters
         # Normalize entity names slightly to reduce casing duplicates if LLM is inconsistent
