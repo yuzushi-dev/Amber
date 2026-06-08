@@ -360,6 +360,21 @@ class DeleteDocumentUseCase:
             )
             logger.info(f"Cleaned up Neo4j data for document {request.document_id}")
 
+            # Defensive sweep: the query above reaches chunks via the HAS_CHUNK
+            # edge, but some :Chunk nodes are only linked to the document by the
+            # `document_id` property (missing HAS_CHUNK). Those would survive the
+            # Document deletion and become orphaned chunks (the root cause of
+            # Neo4j↔Postgres chunk drift). Delete them by property too; the
+            # mention-less Entity sweep below then cleans any entity left behind.
+            orphan_chunk_cypher = """
+            MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            DETACH DELETE c
+            """
+            await self._graph_client.execute_write(
+                orphan_chunk_cypher,
+                {"document_id": request.document_id, "tenant_id": tenant_id},
+            )
+
             # Post-deletion cleanup: Remove communities and isolated entities that became orphans
             # This is a best-effort background cleanup to keep the graph healthy
             cleanup_cypher = """
