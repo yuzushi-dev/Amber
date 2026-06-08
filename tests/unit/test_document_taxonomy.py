@@ -14,7 +14,7 @@ def test_admin_guide_maps_to_commercial_admin():
     assert result["edition"] == "commercial"
     assert result["audience"] == "admin"
     assert result["source_family"] == "admin_guide"
-    assert result["product_line"] == "acme-mail"
+    assert result["product_line"] == "acme_mail"
 
 
 def test_ce_guide_maps_to_ce_admin():
@@ -22,7 +22,7 @@ def test_ce_guide_maps_to_ce_admin():
     assert result["edition"] == "ce"
     assert result["audience"] == "admin"
     assert result["source_family"] == "ce_guide"
-    assert result["product_line"] == "acme-mail"
+    assert result["product_line"] == "acme_mail"
 
 
 def test_user_guide_maps_to_commercial_user():
@@ -30,7 +30,7 @@ def test_user_guide_maps_to_commercial_user():
     assert result["edition"] == "commercial"
     assert result["audience"] == "user"
     assert result["source_family"] == "user_guide"
-    assert result["product_line"] == "acme-mail"
+    assert result["product_line"] == "acme_mail"
 
 
 def test_unknown_folder_yields_unknown():

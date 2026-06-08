@@ -90,7 +90,7 @@ describe('BulkDocumentShareDialog', () => {
                 open={true}
                 onOpenChange={onOpenChange}
                 documentIds={['doc-1', 'doc-2']}
-                documentTitles={['Acme Mail Guide', 'Engineering Runbook']}
+                documentTitles={['Product Guide', 'Engineering Runbook']}
                 onSaved={onSaved}
             />
         )

@@ -2,7 +2,6 @@ import { useParams } from '@tanstack/react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ZendeskConfigForm from '../components/Connectors/ZendeskConfigForm'
 import { ConfluenceConfigForm } from '../components/Connectors/ConfluenceConfigForm'
-import Acme MailConfigForm from '../components/Connectors/Acme MailConfigForm'
 import ConnectorContentBrowser from '../components/Connectors/ConnectorContentBrowser'
 import { useQuery } from '@tanstack/react-query'
 import { connectorsApi } from '@/lib/api-connectors'
@@ -74,8 +73,7 @@ export default function ConnectorDetailPage() {
                     <div className="max-w-xl">
                         {connectorType === 'zendesk' && <ZendeskConfigForm onSuccess={refetch} />}
                         {connectorType === 'confluence' && <ConfluenceConfigForm onSuccess={refetch} />}
-                        {connectorType === 'acme-mail' && <Acme MailConfigForm onSuccess={refetch} />}
-                        {!['zendesk', 'confluence', 'acme-mail'].includes(connectorType!) && (
+                        {!['zendesk', 'confluence'].includes(connectorType!) && (
                             <div className="p-6 border border-dashed rounded-lg bg-muted/5 text-center">
                                 <p className="text-muted-foreground">
                                     Configuration form for <span className="font-medium">{connectorType}</span> not implemented.

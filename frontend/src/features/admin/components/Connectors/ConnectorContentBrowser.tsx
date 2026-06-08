@@ -122,7 +122,7 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
         }
     }
 
-    const showSender = type === 'acme-mail'
+    const showSender = false
     const columnCount = showSender ? 5 : 4
 
     // Calculate pagination info
@@ -246,7 +246,7 @@ export default function ConnectorContentBrowser({ type }: ConnectorContentBrowse
                                                         {item.metadata.snippet}
                                                     </span>
                                                 )}
-                                                {type !== 'acme-mail' && item.url && (
+                                                {item.url && (
                                                     <span className="text-xs text-muted-foreground/70 truncate max-w-[300px]">
                                                         {item.url}
                                                     </span>

@@ -3,7 +3,7 @@ Document Taxonomy Classifier
 =============================
 
 Maps folder names and document titles to structured taxonomy fields:
-  - product_line: always "acme-mail" for known folders
+  - product_line: always "acme_mail" for known folders
   - edition:      commercial | ce | unknown
   - audience:     admin | user | mixed | unknown
   - source_family: admin_guide | ce_guide | user_guide | zendesk_kb | unknown
@@ -16,7 +16,7 @@ Usage::
         folder_name="AdminGuide",
         document_title="How to configure domains",
     )
-    # {"product_line": "acme-mail", "edition": "commercial",
+    # {"product_line": "acme_mail", "edition": "commercial",
     #  "audience": "admin", "source_family": "admin_guide"}
 """
 
@@ -68,31 +68,31 @@ _ADMIN_KEYWORDS: frozenset[str] = frozenset(
 
 _FOLDER_TAXONOMY: dict[str, dict[str, str]] = {
     "adminguide": {
-        "product_line": "acme-mail",
+        "product_line": "acme_mail",
         "edition": "commercial",
         "audience": "admin",
         "source_family": "admin_guide",
     },
     "ceguide": {
-        "product_line": "acme-mail",
+        "product_line": "acme_mail",
         "edition": "ce",
         "audience": "admin",
         "source_family": "ce_guide",
     },
     "userguide": {
-        "product_line": "acme-mail",
+        "product_line": "acme_mail",
         "edition": "commercial",
         "audience": "user",
         "source_family": "user_guide",
     },
     "sales": {
-        "product_line": "acme-mail",
+        "product_line": "acme_mail",
         "edition": "commercial",
         "audience": "admin",
         "source_family": "sales",
     },
     "partner hb": {
-        "product_line": "acme-mail",
+        "product_line": "acme_mail",
         "edition": "commercial",
         "audience": "admin",
         "source_family": "marketing",
@@ -100,7 +100,7 @@ _FOLDER_TAXONOMY: dict[str, dict[str, str]] = {
 }
 
 _UNKNOWN_TAXONOMY: dict[str, str] = {
-    "product_line": "acme-mail",
+    "product_line": "acme_mail",
     "edition": "unknown",
     "audience": "unknown",
     "source_family": "unknown",
@@ -153,7 +153,7 @@ def classify_document_taxonomy(
     # ZendeskKB: edition is commercial, audience inferred from title
     if key == "zendesk_kb" or key == "zendeskkb":
         return {
-            "product_line": "acme-mail",
+            "product_line": "acme_mail",
             "edition": "commercial",
             "audience": _classify_zendesk_audience(document_title),
             "source_family": "zendesk_kb",

@@ -79,5 +79,3 @@ opentelemetry-instrumentation-fastapi>=0.43b0
 structlog>=24.1.0
 rich>=13.7.0
 
-# XMPP for Acme Mail Chat
-slixmpp>=1.8.0

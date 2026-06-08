@@ -101,7 +101,7 @@ describe('DocumentShareDialog', () => {
                 open={true}
                 onOpenChange={onOpenChange}
                 documentId="doc-1"
-                documentTitle="Acme Mail Guide"
+                documentTitle="Product Guide"
                 onSaved={onSaved}
             />
         )

@@ -29,8 +29,6 @@ function getConnectorDescription(type: string): string {
             return 'Help Center Articles'
         case 'confluence':
             return 'Wiki & Documentation'
-        case 'acme-mail':
-            return 'Mail, Calendar & Chats'
         case 'jira':
             return 'Issue Tracking & Projects'
         default:

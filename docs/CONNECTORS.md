@@ -39,7 +39,7 @@ All connector endpoints are available at `/v1/connectors`.
 **Authenticate:**
 
 ```http
-POST /v1/connectors/acme-mail/auth
+POST /v1/connectors/zendesk/auth
 Content-Type: application/json
 
 {
@@ -54,7 +54,7 @@ Content-Type: application/json
 **Trigger Sync:**
 
 ```http
-POST /v1/connectors/acme-mail/sync
+POST /v1/connectors/zendesk/sync
 Content-Type: application/json
 
 {
@@ -65,13 +65,13 @@ Content-Type: application/json
 **List Items:**
 
 ```http
-GET /v1/connectors/acme-mail/items?page=1&page_size=20&search=invoice
+GET /v1/connectors/zendesk/items?page=1&page_size=20&search=invoice
 ```
 
 **Ingest Selected:**
 
 ```http
-POST /v1/connectors/acme-mail/ingest
+POST /v1/connectors/zendesk/ingest
 Content-Type: application/json
 
 {
@@ -80,39 +80,6 @@ Content-Type: application/json
 ```
 
 ## Available Connectors
-
-### Acme Mail (`acme-mail`)
-
-**Purpose:** Integrates with Acme Acme Mail suite (Mail, Calendar, Chats).
-
-**Authentication:** SOAP XML authentication with email/password -> returns auth
-token.
-
-**Agent Tools:**
-
-| Tool               | Description                                                                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_chats`     | Search chat conversations by person name. Handles disambiguation when multiple people match.                                                          |
-| `get_chat_history` | Retrieve message history from a specific chat. Supports date filtering (e.g., "January 9") and keyword search. Uses XMPP/WebSocket for real messages. |
-| `search_mail`      | Search emails by query (subject, sender, etc.)                                                                                                        |
-| `get_calendar`     | Retrieve calendar events for a date range or specific date.                                                                                           |
-
-**Configuration:**
-
-```json
-{
-  "host": "https://mail.example.com",
-  "email": "user@example.com",
-  "password": "<password>"
-}
-```
-
-**Technical Notes:**
-
-- Uses hybrid protocol: XML SOAP for auth, JSON REST for data
-- Chat history retrieval uses XMPP/WebSocket connection with XEP-0313 (MAM)
-- Date-aware filtering: queries like "January 9" match message timestamps
-- Real-time XMPP handled by `acme-mail_xmpp.py`
 
 ### Confluence (`confluence`)
 
@@ -263,7 +230,7 @@ holds only pagination state.
 | ------------------------ | ---------------------------------------------------- |
 | `id`                     | Connector state ID                                   |
 | `tenant_id`              | Tenant identifier                                    |
-| `connector_type`         | Unique identifier (e.g., "acme-mail")                 |
+| `connector_type`         | Unique identifier (e.g., "zendesk")                 |
 | `status`                 | `idle`, `syncing`, or `error`                        |
 | `last_sync_at`           | Timestamp of last successful sync                    |
 | `sync_cursor`            | Pagination/incremental sync cursor (no credentials)  |

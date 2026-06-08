@@ -25,7 +25,7 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 _CE_TERMS: frozenset[str] = frozenset(
-    ["acme-mail ce", "community edition", " ce ", " ce.", " ce,", " ce?", "(ce)"]
+    ["community edition", " ce ", " ce.", " ce,", " ce?", "(ce)"]
 )
 
 _USER_TERMS: frozenset[str] = frozenset(
@@ -82,7 +82,7 @@ class ProductContext:
 
     edition: str = "commercial"       # commercial | ce | unknown
     audience: str = "admin"           # admin | user | unknown
-    product_line: str = "acme-mail"
+    product_line: str = "acme_mail"
     confidence: float = 0.4
     reason: str = "default"
 

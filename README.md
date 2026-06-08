@@ -141,7 +141,7 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **PDF**: PyMuPDF4LLM, Marker-PDF, and Unstructured fallback
 - **Markdown**: Native parsing with structure preservation
 - **Text**: Direct ingestion
-- **External Sources**: Connectors for Acme Mail (Mail/Calendar/Chat), Confluence, Zendesk
+- **External Sources**: Connectors for Confluence, Zendesk
 
 #### Intelligent Chunking
 - **Semantic Chunking**: Respects document structure (headers, paragraphs, code blocks)
@@ -211,7 +211,6 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Conversation Export**: Export chat history as PDF or Markdown
 
 #### External Connectors (`/admin/connectors`)
-- **Acme Mail**: Integrate with Acme Mail, Calendar, and Chats (includes Agent tools)
 - **Confluence**: Sync wiki pages from Atlassian Confluence Cloud
 - **Zendesk**: Ingest Help Center articles from Zendesk
 - **Content Browser**: Browse and selectively ingest items from connected services

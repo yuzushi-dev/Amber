@@ -19,7 +19,6 @@ from src.api.deps import get_db_session as get_db_session
 from src.api.schemas.base import ResponseSchema
 from src.core.ingestion.application.ingestion_service import IngestionService
 from src.core.ingestion.domain.connector_state import ConnectorState
-from src.core.ingestion.infrastructure.connectors.acme-mail import Acme MailConnector
 from src.core.ingestion.infrastructure.connectors.confluence import ConfluenceConnector
 from src.core.ingestion.infrastructure.connectors.jira import JiraConnector
 from src.core.ingestion.infrastructure.connectors.zendesk import ZendeskConnector
@@ -69,7 +68,6 @@ class SyncJobResponse(BaseModel):
 CONNECTOR_REGISTRY = {
     "zendesk": ZendeskConnector,
     "confluence": ConfluenceConnector,
-    "acme-mail": Acme MailConnector,
     "jira": JiraConnector,
 }
 
@@ -171,14 +169,6 @@ async def authenticate_connector(
                     detail="Confluence requires 'base_url' in credentials",
                 )
             connector = ConnectorClass(base_url=base_url)
-        elif connector_type == "acme-mail":
-            host = request.credentials.get("host")
-            if not host:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Acme Mail requires 'host' in credentials",
-                )
-            connector = ConnectorClass(host=host)
         elif connector_type == "jira":
             base_url = request.credentials.get("base_url")
             if not base_url:
@@ -391,13 +381,6 @@ async def list_connector_items(
             "api_token": config.get("api_token"),
             "base_url": config.get("base_url"),
         }
-    elif connector_type == "acme-mail":
-        connector = ConnectorClass(host=config.get("host", ""))
-        auth_params = {
-            "email": config.get("email"),
-            "password": config.get("password"),
-            "host": config.get("host"),
-        }
     elif connector_type == "jira":
         connector = ConnectorClass(base_url=config.get("base_url", ""))
         auth_params = {
@@ -462,8 +445,6 @@ async def run_selective_ingestion(
             connector = ConnectorClass(subdomain=config.get("subdomain", ""))
         elif connector_type == "confluence":
             connector = ConnectorClass(base_url=config.get("base_url", ""))
-        elif connector_type == "acme-mail":
-            connector = ConnectorClass(host=config.get("host", ""))
 
         await connector.authenticate(config)
 
@@ -512,8 +493,6 @@ async def run_selective_ingestion(
                         filename = f"zendesk_{item_id}.html"
                     elif connector_type == "confluence":
                         filename = f"confluence_{item_id}.html"
-                    elif connector_type == "acme-mail":
-                        filename = f"acme-mail_{item_id}.html"
                     else:
                         filename = f"doc_{item_id}.html"
 

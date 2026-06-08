@@ -100,10 +100,10 @@ export function useChatStream() {
         let finalQuery = query
         let isAgentMode = false
 
-        if (query.startsWith('@agent') || query.startsWith('/agent') || query.startsWith('/acme-mail')) {
+        if (query.startsWith('@agent') || query.startsWith('/agent')) {
             isAgentMode = true
             // Remove trigger from query sent to backend
-            finalQuery = query.replace(/^(@agent|\/agent|\/acme-mail)\s*/, '')
+            finalQuery = query.replace(/^(@agent|\/agent)\s*/, '')
         }
 
         const apiKey = localStorage.getItem('api_key')

@@ -28,8 +28,6 @@ export function ConnectorIcon({ type, className, size = 'md' }: ConnectorIconPro
             return <ZendeskIcon className={baseClasses} />
         case 'confluence':
             return <ConfluenceIcon className={baseClasses} />
-        case 'acme-mail':
-            return <Acme MailIcon className={baseClasses} />
         case 'jira':
             return <JiraIcon className={baseClasses} />
         default:
@@ -165,62 +163,6 @@ function JiraIcon({ className }: { className?: string }) {
     )
 }
 
-/**
- * Acme Mail: Mail + Chat inspired icon
- * Abstract envelope with chat bubble accent
- */
-function Acme MailIcon({ className }: { className?: string }) {
-    return (
-        <div className={cn('relative', className)}>
-            <svg viewBox="0 0 48 48" fill="none" className="w-full h-full">
-                <defs>
-                    <linearGradient id="acme-mail-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="hsl(48, 100%, 62%)" />
-                        <stop offset="100%" stopColor="hsl(38, 100%, 50%)" />
-                    </linearGradient>
-                    <linearGradient id="acme-mail-accent" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="hsl(38, 100%, 55%)" />
-                        <stop offset="100%" stopColor="hsl(30, 95%, 45%)" />
-                    </linearGradient>
-                    <filter id="acme-mail-glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                        <feMerge>
-                            <feMergeNode in="coloredBlur" />
-                            <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                    </filter>
-                </defs>
-                {/* Main envelope body */}
-                <path
-                    d="M6 16C6 13.791 7.791 12 10 12H32C34.209 12 36 13.791 36 16V32C36 34.209 34.209 36 32 36H10C7.791 36 6 34.209 6 32V16Z"
-                    fill="url(#acme-mail-gradient)"
-                    filter="url(#acme-mail-glow)"
-                    className="opacity-90"
-                />
-                {/* Envelope flap */}
-                <path
-                    d="M6 16L21 26L36 16"
-                    stroke="hsl(30, 12%, 5%)"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                />
-                {/* Chat bubble accent */}
-                <circle
-                    cx="38" cy="14"
-                    r="8"
-                    fill="url(#acme-mail-accent)"
-                    stroke="hsl(32, 10%, 7%)"
-                    strokeWidth="2"
-                />
-                <circle cx="35" cy="14" r="1.5" fill="hsl(30, 12%, 5%)" />
-                <circle cx="38" cy="14" r="1.5" fill="hsl(30, 12%, 5%)" />
-                <circle cx="41" cy="14" r="1.5" fill="hsl(30, 12%, 5%)" />
-            </svg>
-        </div>
-    )
-}
 
 /**
  * Fallback generic connector icon

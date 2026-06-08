@@ -41,7 +41,7 @@ async def _make_doc(session, tenant_id: str, edition: str, audience: str, source
         metadata_={
             "content_type": "text/markdown",
             "taxonomy": {
-                "product_line": "acme-mail",
+                "product_line": "acme_mail",
                 "edition": edition,
                 "audience": audience,
                 "source_family": source_family,

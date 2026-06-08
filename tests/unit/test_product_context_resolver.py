@@ -49,7 +49,7 @@ def test_community_edition_phrase_resolves_ce():
     assert ctx.audience == "admin"
 
 
-def test_acme-mail_ce_phrase_resolves_ce():
+def test_acme_mail_ce_phrase_resolves_ce():
     ctx = resolve_product_context("How to upgrade Acme Mail CE on Ubuntu?")
     assert ctx.edition == "ce"
 
