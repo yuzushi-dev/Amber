@@ -271,3 +271,6 @@ docs/MEMORY_AUDIT.md
 scripts/amber_log_archive.sh
 scripts/fix_usage_logs_created_at.py
 scripts/html_reingest_dryrun.py
+
+# Local project guide (private, not for publication)
+CLAUDE.md
