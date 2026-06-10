@@ -63,7 +63,7 @@ leidenalg>=0.10.0
 python-igraph>=0.11.0
 
 # Document Processing
-unstructured>=0.11.0
+unstructured[docx]>=0.11.0
 python-magic>=0.4.27
 
 # Security
