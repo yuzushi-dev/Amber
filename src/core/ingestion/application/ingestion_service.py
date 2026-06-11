@@ -371,7 +371,10 @@ class IngestionService:
             created_date = local_dt.strftime("%d/%m/%Y")
             upload_time = local_dt.strftime("%H:%M")
 
-            document.metadata_ = {
+            # Merge over existing metadata: reprocessing must not drop fields
+            # set out-of-band (taxonomy routing, sync/source info, shares).
+            _preserved_metadata = dict(document.metadata_ or {})
+            _preserved_metadata.update({
                 "title": document.filename.rsplit(".", 1)[0],
                 "format": fmt,
                 "pageCount": extraction_result.metadata.get("page_count")
@@ -383,7 +386,8 @@ class IngestionService:
                 "content_type": mime_type,
                 "mime_type": mime_type,
                 "file_size": len(file_content),
-            }
+            })
+            document.metadata_ = _preserved_metadata
 
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
             TransitionManager.validate_transition(document.status, DocumentStatus.CHUNKING)
