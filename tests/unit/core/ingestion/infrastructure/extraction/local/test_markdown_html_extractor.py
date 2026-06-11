@@ -103,3 +103,27 @@ async def test_extract_falls_back_to_body_without_main_landmark():
 
     assert "# Title" in result.content
     assert "Plain page without landmarks." in result.content
+
+
+@pytest.mark.asyncio
+async def test_details_summary_and_topic_aside_survive():
+    if not HAS_MARKITDOWN:
+        pytest.skip("markitdown not installed")
+
+    html = b"""
+    <html><body><div role="main">
+      <h1>Monitoring</h1>
+      <aside class="topic"><p>Component: MTA</p>
+        <details><summary>SMTP</summary><p>Ports: 25, 465, 587</p></details>
+        <details><summary>Milter</summary><p>Port: 7026</p></details>
+      </aside>
+      <aside class="bd-sidebar">sidebar chrome to drop</aside>
+    </div></body></html>
+    """
+    result = await MarkdownHtmlExtractor().extract(html, "text/html")
+
+    assert "Component: MTA" in result.content
+    assert "SMTP" in result.content
+    assert "25, 465, 587" in result.content
+    assert "Port: 7026" in result.content
+    assert "sidebar chrome" not in result.content

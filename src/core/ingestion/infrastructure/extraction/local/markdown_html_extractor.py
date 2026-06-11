@@ -40,7 +40,8 @@ _CHROME_SELECTORS = (
     "nav",
     "header",
     "footer",
-    "aside",
+    # Sphinx "topic"/"sidebar" admonitions are content, not chrome
+    "aside:not(.topic):not(.sidebar)",
     "a.headerlink",  # Sphinx ¶/# permalink anchors that leak into text
     ".article-header-buttons",  # Sphinx pydata-theme "Repository / Open issue" buttons
     ".prev-next-area",
@@ -82,6 +83,18 @@ def _scope_main_content(html: str) -> str:
             tag.decompose()
     for tag in body.find_all(("script", "style", "noscript", "iframe")):
         tag.decompose()
+
+    # MarkItDown drops <details>/<summary> content: unwrap them so the text
+    # survives, with the summary promoted to a bold paragraph.
+    for summary in body.find_all("summary"):
+        text = summary.get_text(" ", strip=True)
+        summary.clear()
+        strong = soup.new_tag("strong")
+        strong.string = text
+        summary.append(strong)
+        summary.name = "p"
+    for details in body.find_all("details"):
+        details.unwrap()
 
     body_text_len = len(body.get_text(strip=True)) or 1
     for selector in _CONTENT_SELECTORS:
