@@ -68,6 +68,7 @@ dependencies = [
     # Extraction
     "pymupdf4llm>=0.0.1",
     "unstructured[all-docs]>=0.12.0",
+    "markitdown[html]>=0.1.6",
     "mistralai>=0.1.0",
     "marker-pdf>=0.2.0",
     "tiktoken>=0.5.0",

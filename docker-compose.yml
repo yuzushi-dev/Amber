@@ -157,6 +157,7 @@ services:
       - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
       - APP_DATABASE_URL=${APP_DATABASE_URL:-}
       - TENANT_ID=${TENANT_ID:-default}
+      - HTML_MARKDOWN_ENABLED=${HTML_MARKDOWN_ENABLED:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
       - PYTHONPATH=/app:/app/src:/app/.packages
@@ -245,6 +246,7 @@ services:
       - SECRET_KEY_OLD=${SECRET_KEY_OLD:-}
       - APP_DATABASE_URL=${APP_DATABASE_URL:-}
       - TENANT_ID=${TENANT_ID:-default}
+      - HTML_MARKDOWN_ENABLED=${HTML_MARKDOWN_ENABLED:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
       - PYTHONPATH=/app:/app/src:/app/.packages

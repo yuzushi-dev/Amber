@@ -70,10 +70,26 @@ class ExtractorRegistry:
 
         # HTML
         if "text/html" in mime_type.lower() or file_extension.lower() in (".html", ".htm"):
+            # Markdown normalization (content scoping + MarkItDown) when enabled
+            if extraction_settings.html_markdown_enabled:
+                from src.core.ingestion.infrastructure.extraction.local.markdown_html_extractor import (
+                    MarkdownHtmlExtractor,
+                )
+
+                return cls._get_instance("html_markdown", MarkdownHtmlExtractor)
+
             return cls._get_instance("html_bs4", HtmlExtractor)
 
         # PDF
         if "pdf" in mime_type.lower() or file_extension.lower() == ".pdf":
+            # Docling (structure-preserving Markdown: tables, multi-column, reading order)
+            if extraction_settings.docling_enabled:
+                from src.core.ingestion.infrastructure.extraction.local.docling_extractor import (
+                    DoclingExtractor,
+                )
+
+                return cls._get_instance("docling", DoclingExtractor)
+
             # Kreuzberg (High Performance / Local)
             if extraction_settings.kreuzberg_enabled:
                 return cls._get_instance("kreuzberg", KreuzbergExtractor)

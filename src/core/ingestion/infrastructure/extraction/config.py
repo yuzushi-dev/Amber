@@ -38,6 +38,10 @@ class ExtractionSettings(BaseSettings):
     # Kreuzberg (General purpose local)
     kreuzberg_enabled: bool = True
 
+    # HTML → Markdown normalization (content scoping + MarkItDown).
+    # Off by default: enable with HTML_MARKDOWN_ENABLED=true once validated.
+    html_markdown_enabled: bool = False
+
     # Quality Gate Thresholds
     min_ocr_confidence: float = 0.7  # Minimum OCR confidence to accept
     min_content_density: float = 0.1  # Minimum chars per page to accept
