@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import io
 import logging
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -435,6 +436,27 @@ class IngestionService:
                     embedding_status=EmbeddingStatus.PENDING,
                 )
                 chunks_to_process.append(chunk)
+
+            # 7.5 Contextual enrichment (Anthropic-style contextual retrieval, opt-in)
+            enrichment_enabled = bool(
+                tenant_config.get(
+                    "contextual_enrichment",
+                    os.getenv("CONTEXTUAL_ENRICHMENT_ENABLED", "false").lower() == "true",
+                )
+            )
+            if enrichment_enabled and chunks_to_process:
+                from src.core.ingestion.application.chunking.contextual import ContextualEnricher
+
+                try:
+                    enricher = ContextualEnricher()
+                    await enricher.enrich_chunks(
+                        chunks_to_process,
+                        extraction_result.content,
+                        tenant_config=tenant_config,
+                        settings=self.settings,
+                    )
+                except Exception as e:
+                    logger.warning(f"Contextual enrichment skipped (error): {e}")
 
             document.chunks = chunks_to_process
             await self.document_repository.save(document)

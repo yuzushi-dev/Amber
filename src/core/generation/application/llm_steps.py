@@ -47,6 +47,15 @@ LLM_STEP_DEFS: dict[str, LLMStepDef] = {
         seed_strategy="provider",
         default_temperature=0.3,
     ),
+    "ingestion.chunk_context": LLMStepDef(
+        id="ingestion.chunk_context",
+        label="Chunk Contextualization",
+        feature="ingestion",
+        description="Generate a short situating context for each chunk (contextual retrieval)",
+        temperature_strategy="fixed",
+        seed_strategy="provider",
+        default_temperature=0.0,
+    ),
     # Graph
     "graph.community_summary": LLMStepDef(
         id="graph.community_summary",
