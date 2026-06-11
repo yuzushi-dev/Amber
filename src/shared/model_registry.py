@@ -412,11 +412,29 @@ def get_openai_chat_overrides(model: str) -> dict[str, Any]:
     }
 
 
-def embedding_supports_dimensions(model: str, *, provider: str | None = None) -> bool:
+def _embedding_entry(model: str, provider: str | None = None) -> dict:
+    """Registry entry for an embedding model; falls back to the tag-less name
+    (Ollama-style "model:tag") since registry keys are stored without tags."""
+    candidates = [model]
+    base = model.split(":", 1)[0]
+    if base != model:
+        candidates.append(base)
     if provider:
-        return bool(EMBEDDING_MODELS.get(provider, {}).get(model, {}).get("supports_dimensions"))
-    providers = EMBEDDING_MODEL_TO_PROVIDERS.get(model)
-    if not providers or len(providers) != 1:
-        return False
-    provider = next(iter(providers))
-    return bool(EMBEDDING_MODELS.get(provider, {}).get(model, {}).get("supports_dimensions"))
+        models = EMBEDDING_MODELS.get(provider, {})
+        for name in candidates:
+            if name in models:
+                return models[name]
+        return {}
+    for name in candidates:
+        providers = EMBEDDING_MODEL_TO_PROVIDERS.get(name)
+        if providers and len(providers) == 1:
+            return EMBEDDING_MODELS.get(next(iter(providers)), {}).get(name, {})
+    return {}
+
+
+def embedding_native_dimensions(model: str, *, provider: str | None = None) -> int | None:
+    return _embedding_entry(model, provider).get("dimensions")
+
+
+def embedding_supports_dimensions(model: str, *, provider: str | None = None) -> bool:
+    return bool(_embedding_entry(model, provider).get("supports_dimensions"))

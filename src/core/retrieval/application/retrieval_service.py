@@ -646,9 +646,15 @@ class RetrievalService:
         provider_name = t_provider or self.config.default_embedding_provider
         effective_model = t_model or self.config.default_embedding_model
 
-        # Enforce supports_dimensions: reject reduced-dim requests on models that don't support it.
+        # Enforce supports_dimensions: reject reduced-dim requests on models that don't
+        # support it. Requesting the model's native dimension is not a reduction.
         if t_dimensions and effective_model:
-            if not embedding_supports_dimensions(effective_model, provider=provider_name):
+            from src.shared.model_registry import embedding_native_dimensions
+
+            native_dims = embedding_native_dimensions(effective_model, provider=provider_name)
+            if t_dimensions != native_dims and not embedding_supports_dimensions(
+                effective_model, provider=provider_name
+            ):
                 raise ValueError(
                     f"Embedding model '{effective_model}' (provider '{provider_name}') does not "
                     f"support dimension reduction. Cannot use embedding_dimensions={t_dimensions}. "
