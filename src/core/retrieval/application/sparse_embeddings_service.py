@@ -131,7 +131,7 @@ class SparseEmbeddingService:
         results = self.embed_batch([text])
         return results[0] if results else {}
 
-    def embed_batch(self, texts: list[str], batch_size: int = 32) -> list[dict[int, float]]:
+    def embed_batch(self, texts: list[str], batch_size: int = 8) -> list[dict[int, float]]:
         """
         Generate sparse embeddings for a batch of texts.
         """
