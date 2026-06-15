@@ -7,68 +7,68 @@
 
 # Web Framework
 fastapi==0.115.6
-uvicorn[standard]>=0.27.0
-python-multipart>=0.0.6
-sse-starlette>=2.0.0
+uvicorn[standard]==0.49.0
+python-multipart==0.0.32
+sse-starlette==3.0.3
 
 # Configuration & Validation
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
-pyyaml>=6.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
+pyyaml==6.0.3
 
 # Database - PostgreSQL
-sqlalchemy[asyncio]>=2.0.25
-asyncpg>=0.29.0
-alembic>=1.13.0
-psycopg2-binary>=2.9.0
+sqlalchemy[asyncio]==2.0.48
+asyncpg==0.31.0
+alembic==1.18.4
+psycopg2-binary==2.9.12
 
 # Database - Neo4j
-neo4j>=5.15.0
+neo4j==6.2.0
 
 # Database - Milvus
-pymilvus>=2.3.4
+pymilvus==3.0.0
 
 # Cache & Message Broker
-redis>=5.0.0
-celery[redis]>=5.3.0
+redis==6.4.0
+celery[redis]==5.6.3
 
 # HTTP Client
-httpx>=0.26.0
+httpx==0.28.1
 
 # LLM Providers (API-based, no heavy deps)
-openai>=1.10.0
-anthropic>=0.18.0
-tiktoken>=0.5.0
+openai==2.16.0
+anthropic==0.46.0
+tiktoken==0.12.0
 
 # Utilities
-python-dateutil>=2.8.2
-tenacity>=8.2.0
+python-dateutil==2.9.0.post0
+tenacity==9.1.4
 
 # Object Storage
-minio>=7.2.0
+minio==7.2.20
 
 # Security
-python-magic>=0.4.27
+python-magic==0.4.27
 
 # Extraction
-markitdown[html]>=0.1.6
-pymupdf4llm>=0.0.1
-pymupdf-layout>=1.26.6  # For enhanced layout analysis
-mistralai>=0.1.0
-tiktoken>=0.5.0
-kreuzberg>=0.1.0
+markitdown[html]==0.1.6
+pymupdf4llm==0.2.9
+pymupdf-layout==1.27.2.3  # For enhanced layout analysis
+mistralai==1.12.4
+tiktoken==0.12.0
+kreuzberg==4.9.9
 
 # Observability & Tracing
-opentelemetry-api>=1.22.0
-opentelemetry-sdk>=1.22.0
-opentelemetry-exporter-otlp>=1.22.0
-opentelemetry-instrumentation-fastapi>=0.43b0
+opentelemetry-api==1.40.0
+opentelemetry-sdk==1.40.0
+opentelemetry-exporter-otlp==1.39.1
+opentelemetry-instrumentation-fastapi==0.60b1
 
 # Structured Logging
-structlog>=24.1.0
-rich>=13.7.0
+structlog==26.1.0
+rich==14.3.3
 
 # Testing
-pytest>=7.4.0
-pytest-asyncio>=0.23.0
-pytest-cov>=4.1.0
+pytest==9.1.0
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
