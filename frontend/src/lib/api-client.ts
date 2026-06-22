@@ -236,6 +236,7 @@ export interface ChatHistoryItem {
     cost: number
     has_feedback: boolean
     feedback_score: number | null
+    feedback_positive: boolean | null
     created_at: string
 }
 

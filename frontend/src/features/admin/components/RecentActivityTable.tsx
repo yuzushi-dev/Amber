@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChatHistoryItem } from '@/lib/api-admin';
-import { ChevronLeft, ChevronRight, ShieldAlert, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShieldAlert, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { ChatDetailDialog } from './ChatDetailDialog';
 
 // Simple time ago helper
@@ -151,10 +151,22 @@ export default function RecentActivityTable({ records, isLoading = false }: Rece
                                     {/* Feedback */}
                                     <TableCell className="text-center">
                                         {row.has_feedback ? (
-                                            <Badge variant="outline" className="border-success/30 text-success bg-success/10 gap-1">
-                                                <Star className="w-3 h-3" fill="currentColor" />
-                                                Yes
-                                            </Badge>
+                                            row.feedback_positive === false ? (
+                                                <Badge variant="outline" className="border-destructive/30 text-destructive bg-destructive/10 gap-1">
+                                                    <ThumbsDown className="w-3 h-3" fill="currentColor" />
+                                                    Neg
+                                                </Badge>
+                                            ) : row.feedback_positive === true ? (
+                                                <Badge variant="outline" className="border-success/30 text-success bg-success/10 gap-1">
+                                                    <ThumbsUp className="w-3 h-3" fill="currentColor" />
+                                                    Pos
+                                                </Badge>
+                                            ) : (
+                                                // feedback present but sign unknown (e.g. multi-turn non-first row)
+                                                <Badge variant="outline" className="border-muted-foreground/30 text-muted-foreground bg-muted/10 gap-1">
+                                                    Yes
+                                                </Badge>
+                                            )
                                         ) : (
                                             <span className="text-xs text-muted-foreground/50">-</span>
                                         )}

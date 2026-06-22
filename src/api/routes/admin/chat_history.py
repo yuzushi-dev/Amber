@@ -44,6 +44,7 @@ class ChatHistoryItem(BaseModel):
     cost: float
     has_feedback: bool
     feedback_score: float | None = None
+    feedback_positive: bool | None = None  # None = no feedback; True/False = thumbs up/down
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -160,10 +161,16 @@ async def list_chat_history(
         # Fetch all conversation IDs with feedback for bulk lookup
         conv_ids = [conv.id for conv in rows]
         feedback_query = (
-            select(Feedback.request_id).where(Feedback.request_id.in_(conv_ids)).distinct()
+            select(Feedback.request_id, Feedback.is_positive)
+            .where(Feedback.request_id.in_(conv_ids))
+            .order_by(Feedback.created_at.desc())
         )
         feedback_result = await session.execute(feedback_query)
-        conversations_with_feedback = {row[0] for row in feedback_result.fetchall()}
+        # Latest feedback per conversation wins (rows ordered desc; first seen kept).
+        feedback_positive_by_conv: dict[str, bool | None] = {}
+        for req_id, is_positive in feedback_result.fetchall():
+            feedback_positive_by_conv.setdefault(req_id, is_positive)
+        conversations_with_feedback = set(feedback_positive_by_conv.keys())
 
         # Build key_name → group_name lookup
         from sqlalchemy import text as sa_text
@@ -180,6 +187,7 @@ async def list_chat_history(
             metadata = conv.metadata_ or {}
             model = metadata.get("model", "default")
             has_feedback = conv.id in conversations_with_feedback
+            feedback_positive = feedback_positive_by_conv.get(conv.id)
             group_name = key_to_group.get(conv.user_id)
 
             conv_metrics = metrics_by_conv.get(conv.id, {})
@@ -220,6 +228,7 @@ async def list_chat_history(
                         cost=conv_metrics.get("cost", 0.0),
                         has_feedback=has_feedback,
                         feedback_score=None,
+                        feedback_positive=feedback_positive,
                         created_at=conv.created_at,
                     )
                 )
@@ -255,6 +264,7 @@ async def list_chat_history(
                             cost=conv_metrics.get("cost", 0.0) if idx == 0 else 0.0,
                             has_feedback=has_feedback and idx == 0,
                             feedback_score=None,
+                            feedback_positive=feedback_positive if idx == 0 else None,
                             created_at=turn_ts,
                         )
                     )
@@ -318,6 +328,17 @@ async def get_conversation_detail(
     feedback_result = await session.execute(feedback_query)
     feedback_row = feedback_result.scalar_one_or_none()
     has_feedback = feedback_row is not None
+    feedback_payload = (
+        {
+            "is_positive": feedback_row.is_positive,
+            "score": feedback_row.score,
+            "comment": feedback_row.comment,
+            "correction": feedback_row.correction,
+            "created_at": feedback_row.created_at.isoformat() if feedback_row.created_at else None,
+        }
+        if has_feedback
+        else None
+    )
 
     # Extract details
     from src.api.config import settings as _settings
@@ -377,7 +398,7 @@ async def get_conversation_detail(
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         cost=cost,
-        feedback=None,
+        feedback=feedback_payload,
         sources=metadata.get("sources"),
         metadata=safe_metadata,
         created_at=conv.created_at,

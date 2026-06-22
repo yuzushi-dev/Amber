@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, User, Bot, AlertTriangle, ShieldAlert, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, User, Bot, AlertTriangle, ShieldAlert, ExternalLink, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { chatHistoryApi } from '@/lib/api-admin';
 import { ConversationDetail } from '@/lib/api-admin';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -132,6 +132,49 @@ export function ChatDetailDialog({ open, onOpenChange, requestId }: ChatDetailDi
                                         )}
                                     </div>
                                 </div>
+
+                                {/* User Feedback */}
+                                {detail.feedback && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                            {detail.feedback.is_positive ? (
+                                                <ThumbsUp className="w-4 h-4 text-success" />
+                                            ) : (
+                                                <ThumbsDown className="w-4 h-4 text-destructive" />
+                                            )}
+                                            <span>User Feedback</span>
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    "text-[10px] h-4",
+                                                    detail.feedback.is_positive
+                                                        ? "border-success/30 text-success bg-success/10"
+                                                        : "border-destructive/30 text-destructive bg-destructive/10"
+                                                )}
+                                            >
+                                                {detail.feedback.is_positive ? "Positive" : "Negative"}
+                                            </Badge>
+                                        </div>
+                                        {(detail.feedback.comment || detail.feedback.correction) && (
+                                            <div className={cn(
+                                                "p-4 rounded-lg text-sm border",
+                                                detail.feedback.is_positive
+                                                    ? "bg-success/5 border-success/10"
+                                                    : "bg-destructive/5 border-destructive/10"
+                                            )}>
+                                                {detail.feedback.comment && (
+                                                    <div className="whitespace-pre-wrap">{detail.feedback.comment}</div>
+                                                )}
+                                                {detail.feedback.correction && (
+                                                    <div className="mt-2 pt-2 border-t border-border/50">
+                                                        <span className="text-xs font-medium text-muted-foreground">Correction: </span>
+                                                        <span className="whitespace-pre-wrap">{detail.feedback.correction}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Sources */}
                                 {detail.sources && detail.sources.length > 0 && (
