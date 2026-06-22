@@ -61,8 +61,8 @@ kreuzberg==4.9.9
 # Observability & Tracing
 opentelemetry-api==1.40.0
 opentelemetry-sdk==1.40.0
-opentelemetry-exporter-otlp==1.39.1
-opentelemetry-instrumentation-fastapi==0.60b1
+opentelemetry-exporter-otlp==1.40.0
+opentelemetry-instrumentation-fastapi==0.61b0
 
 # Structured Logging
 structlog==26.1.0
