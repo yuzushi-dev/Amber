@@ -51,6 +51,12 @@ class SemanticChunker:
     PARAGRAPH_PATTERN = re.compile(r"\n\n+")
     SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 
+    # ponytail: nomic-embed-text (v1) embed ctx ceiling = 2048 nomic tokens
+    # (~1.1-1.3x cl100k). Oversized chunks (big code blocks/tables) exceed it -> embed 400
+    # -> ingestion FAILED. Hard-split contiguously (no data loss). Raise to ~7000 if
+    # upgraded to nomic v1.5 (ctx 8192).
+    EMBED_TOKEN_CAP = 1200  # cl100k tokens; ~1560 nomic at 1.3x -> safe margin under 2048
+
     def __init__(self, strategy: ChunkingStrategy, encoding_name: str = "cl100k_base"):
         """
         Initialize chunker with strategy parameters.
@@ -126,6 +132,9 @@ class SemanticChunker:
             section_chunks = self._split_section(restored_section, current_pos)
             chunks.extend(section_chunks)
             current_pos += len(restored_section)
+
+        # Step 3.5: Hard-split oversized chunks to fit embedding ctx ceiling (B1)
+        chunks = self._hard_split_chunks(chunks)
 
         # Step 4: Assign indices and add overlap
         final_chunks = self._apply_overlap(chunks)
@@ -341,6 +350,114 @@ class SemanticChunker:
             # Word-based fallback
             words = text.split()
             return " ".join(words[-n:]) if len(words) > n else text
+
+    def _hard_split_chunks(self, chunks: list[ChunkData]) -> list[ChunkData]:
+        """Split chunks exceeding EMBED_TOKEN_CAP so they fit the embedding ctx.
+
+        nomic-embed-text v1 caps at 2048 nomic tokens regardless of num_ctx; oversized
+        chunks (big code blocks/tables) hit 400 and fail ingestion. Split contiguously so
+        join(children) == parent content (no data loss). Normal chunks (<cap) untouched.
+        """
+        out: list[ChunkData] = []
+        for chunk in chunks:
+            # leave room for _apply_overlap which prepends chunk_overlap tokens AFTER this step
+            cap = max(self.EMBED_TOKEN_CAP - self.chunk_overlap, 1)
+            if self.count_tokens(chunk.content) <= cap:
+                out.append(chunk)
+                continue
+            pieces = self._hard_split_text(chunk.content, cap)
+            offset = chunk.start_char
+            for piece in pieces:
+                if not piece:
+                    continue
+                out.append(
+                    ChunkData(
+                        content=piece,
+                        index=0,
+                        start_char=offset,
+                        end_char=offset + len(piece),
+                        token_count=self.count_tokens(piece),
+                        metadata=dict(chunk.metadata),
+                    )
+                )
+                offset += len(piece)
+        return out
+
+    def _hard_split_text(self, text: str, cap: int | None = None) -> list[str]:
+        """Recursively split text into pieces <= cap tokens.
+
+        Separator hierarchy (coarse->fine): paragraph (\\n\\n), line (\\n),
+        sentence, char. join(pieces) == text exactly. No data loss.
+        """
+        if cap is None:
+            cap = self.EMBED_TOKEN_CAP
+        if self.count_tokens(text) <= cap:
+            return [text]
+
+        # paragraph / line separators (keep sep attached to previous piece so join holds)
+        for sep in ("\n\n", "\n"):
+            pieces = self._split_keep(text, sep)
+            if len(pieces) > 1:
+                return self._pack_or_recurse(pieces, cap)
+
+        # sentence separator
+        sent_keep = []
+        last = 0
+        for m in self.SENTENCE_PATTERN.finditer(text):
+            sent_keep.append(text[last : m.end()])
+            last = m.end()
+        sent_keep.append(text[last:])
+        if len(sent_keep) > 1:
+            return self._pack_or_recurse(sent_keep, cap, char_fallback=True)
+
+        # single unbreakable string
+        return self._char_split(text, cap)
+
+    def _split_keep(self, text: str, sep: str) -> list[str]:
+        """Split keeping separator attached to previous piece (join==text)."""
+        parts = text.split(sep)
+        return [p + sep for p in parts[:-1]] + [parts[-1]]
+
+    def _pack_or_recurse(self, pieces: list[str], cap: int, char_fallback: bool = False) -> list[str]:
+        """Greedily pack pieces into chunks <= cap; recurse oversized pieces."""
+        out: list[str] = []
+        cur = ""
+        for p in pieces:
+            if not p:
+                continue
+            if self.count_tokens(p) > cap:
+                if cur:
+                    out.append(cur)
+                    cur = ""
+                if char_fallback:
+                    out.extend(self._char_split(p, cap))
+                else:
+                    out.extend(self._hard_split_text(p, cap))
+            elif self.count_tokens(cur + p) <= cap:
+                cur += p
+            else:
+                if cur:
+                    out.append(cur)
+                cur = p
+        if cur:
+            out.append(cur)
+        return out
+
+    def _char_split(self, text: str, cap: int) -> list[str]:
+        """Last-resort: cut a single unbreakable string into <=cap-token pieces (join==text)."""
+        if self.count_tokens(text) <= cap:
+            return [text]
+        lo, hi = 1, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if self.count_tokens(text[:mid]) <= cap:
+                lo = mid
+            else:
+                hi = mid - 1
+        n = max(lo, 1)
+        head = text[:n]
+        tail = text[n:]
+        return [head] + self._char_split(tail, cap) if tail else [head]
 
     def _split_from_definitions(
         self, text: str, definitions: list[dict], document_title: str | None
