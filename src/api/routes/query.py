@@ -166,8 +166,17 @@ async def query(
                 title_text = (
                     request.query[:50] + "..." if len(request.query) > 50 else request.query
                 )
+                # Refusals aren't persisted as reusable summary text: fed back as
+                # PAST CONVERSATIONS memory context, they bias the retrieval-time
+                # query rewriter into repeating/worsening the same miss.
                 summary_text = (
-                    response.answer[:200] + "..." if len(response.answer) > 200 else response.answer
+                    ""
+                    if _looks_like_refusal(response.answer, response.sources)
+                    else (
+                        response.answer[:200] + "..."
+                        if len(response.answer) > 200
+                        else response.answer
+                    )
                 ) if response.answer else ""
 
                 async with _get_async_session_maker()() as mem_session:
@@ -318,6 +327,29 @@ def _build_graph_sources(collected_sources: list[dict[str, Any]] | None) -> list
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+_REFUSAL_PHRASES = (
+    "i don't have documentation",
+    "i do not have documentation",
+    "i don't have information",
+    "i do not have information",
+    "no documentation on",
+    "couldn't find any relevant",
+    "could not find any relevant",
+    "i'm unable to find",
+    "i am unable to find",
+)
+
+
+def _looks_like_refusal(answer: str, sources: list[Any] | None = None) -> bool:
+    """Detect a "no information found" answer so it isn't persisted as reusable
+    memory context — a refusal fed back as PAST CONVERSATIONS biases the
+    retrieval-time query rewriter into repeating/worsening the same miss."""
+    if not sources:
+        return True
+    lowered = (answer or "").lower()
+    return any(phrase in lowered for phrase in _REFUSAL_PHRASES)
 
 
 # =============================================================================
@@ -552,7 +584,11 @@ async def _query_stream_impl(
 
                     full_answer = agent_response.answer
                     summary_text = (
-                        full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                        ""
+                        if _looks_like_refusal(full_answer, agent_sources)
+                        else (
+                            full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                        )
                     )
                     title_text = (
                         request.query[:50] + "..." if len(request.query) > 50 else request.query
@@ -705,37 +741,14 @@ async def _query_stream_impl(
             # Add timeout to prevent hangs
             import asyncio
 
-            # NOTE: global_rules are intentionally NOT passed to retrieval.
-            # They are injected into the final-answer system prompt by
-            # generation_service (get_active_rules / build_system_prompt_addendum).
-            # Feeding them to the retrieval-time query rewriter caused edition
-            # keywords (e.g. "CE") to be injected into the query, misrouting the
-            # taxonomy filter and excluding the correct commercial docs.
-
-            memory_context_str = None
-            user_id = _get_user_id(http_request)
-            if user_id:
-                try:
-                    from src.core.generation.application.memory.manager import memory_manager
-
-                    # 1. Facts
-                    facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
-                    formatted_facts = "\n".join([f"- {f.content}" for f in facts])
-
-                    # 2. Summaries
-                    summaries = await memory_manager.get_recent_summaries(tenant_id, user_id, limit=3)
-                    formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
-
-                    parts = []
-                    if formatted_facts:
-                        parts.append(f"USER FACTS:\n{formatted_facts}")
-                    if formatted_summaries:
-                        parts.append(f"PAST CONVERSATIONS:\n{formatted_summaries}")
-
-                    if parts:
-                        memory_context_str = "\n\n".join(parts)
-                except Exception as e:
-                    logger.warning(f"Failed to fetch user memory for retrieval: {e}")
+            # NOTE: global_rules and memory_context are intentionally NOT passed
+            # to retrieval. Rules reach the final-answer system prompt via
+            # generation_service (get_active_rules / build_system_prompt_addendum);
+            # facts reach it via generation_service's own get_user_facts call.
+            # Feeding either into the retrieval-time query rewriter let it inject
+            # unrelated keywords (edition names, stale OS/tool facts) into the
+            # search query, misrouting taxonomy and drifting vector search away
+            # from the correct chunk.
 
             # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
@@ -748,7 +761,6 @@ async def _query_stream_impl(
                         include_trace=request.options.include_trace if request.options else False,
                         options=request.options,
                         history=None,
-                        memory_context=memory_context_str,
                     ),
                     timeout=120.0,
                 )
@@ -825,8 +837,15 @@ async def _query_stream_impl(
 
             # SAVE INTERACTION TO HISTORY
             try:
-                # Truncate for summary
-                summary_text = full_answer[:200] + "..." if len(full_answer) > 200 else full_answer
+                # Truncate for summary. Refusals aren't persisted as reusable
+                # summary text: fed back as PAST CONVERSATIONS memory context,
+                # they bias the retrieval-time query rewriter into repeating or
+                # worsening the same miss on the next identical/similar query.
+                summary_text = (
+                    ""
+                    if _looks_like_refusal(full_answer, collected_sources)
+                    else (full_answer[:200] + "..." if len(full_answer) > 200 else full_answer)
+                )
                 title_text = (
                     request.query[:50] + "..." if len(request.query) > 50 else request.query
                 )
