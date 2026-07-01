@@ -748,7 +748,12 @@ class RetrievalService:
         # one: the rewriter can inject edition-determining keywords (e.g. "CE") that
         # would misroute the taxonomy filter. Parse the raw query for a clean signal.
         _tax_ctx = resolve_product_context(QueryParser.parse(query).cleaned_query)
-        _tax_edition = _explicit_edition or (_tax_ctx.edition if _tax_ctx.edition != "unknown" else None)
+        # Prefer the full edition set when the query references both editions
+        # (dual mention). Falls back to the single scalar edition otherwise.
+        _inferred_edition = _tax_ctx.editions or (
+            _tax_ctx.edition if _tax_ctx.edition != "unknown" else None
+        )
+        _tax_edition = _explicit_edition or _inferred_edition
         _tax_audience = _explicit_audience or (_tax_ctx.audience if _tax_ctx.audience != "unknown" else None)
         _tax_source_family = _explicit_source_family
 

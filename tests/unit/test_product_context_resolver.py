@@ -85,6 +85,35 @@ def test_ce_user_query():
 
 
 # ---------------------------------------------------------------------------
+# Dual-edition mention (query references BOTH commercial and CE)
+# ---------------------------------------------------------------------------
+
+def test_dual_edition_2fa_query_matches_both_editions():
+    # Regression: this query previously resolved to ce-only, excluding the
+    # commercial 2FA docs and yielding "I don't have documentation".
+    ctx = resolve_product_context(
+        "How the 2FA work in Carbonio? Is there a similar feature in Carbonio CE?"
+    )
+    assert ctx.editions == ["commercial", "ce"]
+    # Primary scalar edition stays populated for backward-compat callers.
+    assert ctx.edition in ("commercial", "ce")
+
+
+def test_dual_edition_difference_query_matches_both():
+    ctx = resolve_product_context(
+        "What is the difference between backup in Acme Mail and in CE?"
+    )
+    assert ctx.editions == ["commercial", "ce"]
+
+
+def test_plain_ce_query_is_not_dual_edition():
+    # No contrastive marker -> stays ce-only (editions is None).
+    ctx = resolve_product_context("How do I configure domains in Acme Mail CE?")
+    assert ctx.edition == "ce"
+    assert ctx.editions is None
+
+
+# ---------------------------------------------------------------------------
 # Ambiguous / low-confidence produces partial, not hard failure
 # ---------------------------------------------------------------------------
 

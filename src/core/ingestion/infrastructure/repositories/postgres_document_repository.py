@@ -466,7 +466,7 @@ class PostgresDocumentRepository(DocumentRepository):
         viewer_tenant_id: str,
         owner_tenant_id: str,
         candidate_document_ids: list[str] | None = None,
-        edition: str | None = None,
+        edition: str | list[str] | None = None,
         audience: str | None = None,
         source_family: str | None = None,
     ) -> list[str]:
@@ -475,6 +475,9 @@ class PostgresDocumentRepository(DocumentRepository):
         Reuses the existing ACL visibility logic and adds JSONB taxonomy predicates.
         Only filters by a field when the parameter is explicitly provided (not None).
         unknown-edition/audience docs are excluded when a filter is active.
+
+        ``edition`` may be a single value (exact match) or a list/tuple of values
+        (matches any, i.e. SQL ``IN``) — used when a query references both editions.
         """
 
         if candidate_document_ids == []:
@@ -499,9 +502,17 @@ class PostgresDocumentRepository(DocumentRepository):
             stmt = stmt.where(DocumentShare.target_tenant_id == viewer_tenant_id)
 
         if edition is not None:
-            stmt = stmt.where(
-                Document.metadata_["taxonomy"]["edition"].astext == edition
-            )
+            _edition_col = Document.metadata_["taxonomy"]["edition"].astext
+            if isinstance(edition, (list, tuple, set)):
+                _editions = list(edition)
+                # Single-element list behaves like a scalar exact match.
+                stmt = stmt.where(
+                    _edition_col == _editions[0]
+                    if len(_editions) == 1
+                    else _edition_col.in_(_editions)
+                )
+            else:
+                stmt = stmt.where(_edition_col == edition)
 
         if audience is not None:
             stmt = stmt.where(

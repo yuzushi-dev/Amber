@@ -87,10 +87,14 @@ class DocumentRepository(Protocol):
         viewer_tenant_id: str,
         owner_tenant_id: str,
         candidate_document_ids: list[str] | None = None,
-        edition: str | None = None,
+        edition: str | list[str] | None = None,
         audience: str | None = None,
         source_family: str | None = None,
     ) -> list[str]:
-        """List visible document IDs filtered by taxonomy (edition/audience/source_family)."""
+        """List visible document IDs filtered by taxonomy (edition/audience/source_family).
+
+        ``edition`` accepts a single value (exact match) or a list of values
+        (match any) for dual-edition queries.
+        """
         ...
 
