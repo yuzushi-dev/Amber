@@ -1380,7 +1380,7 @@ class RetrievalService:
                     results.append(
                         {
                             "chunk_id": chunk.id,
-                            # metadata...
+                            "document_id": chunk.document_id,
                             "content": chunk.content,
                             "metadata": chunk.metadata_,
                             "score": score,

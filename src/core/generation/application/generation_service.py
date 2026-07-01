@@ -621,26 +621,27 @@ class GenerationService:
 
         # Step 3: Yield source metadata
         doc_titles = await self._get_document_titles(ctx.used_candidates)
-        cited_sources = [
-            {
-                "index": i + 1,
-                "chunk_id": getattr(c, "id", c.get("chunk_id", f"chunk_{i}")),
-                "document_id": getattr(c, "metadata", c).get("document_id", "unknown")
-                if hasattr(c, "metadata")
-                else c.get("document_id", "unknown"),
-                "title": doc_titles.get(
-                    getattr(c, "metadata", c).get("document_id", "")
-                    if hasattr(c, "metadata")
-                    else c.get("document_id", ""),
-                    getattr(c, "metadata", {}).get("title", "Untitled")
-                    if isinstance(c, dict)
-                    else getattr(c, "metadata", {}).get("title", "Untitled"),
-                ),
-                "content_preview": (getattr(c, "content", c.get("content", ""))[:150] + "..."),
-                "text": getattr(c, "content", c.get("content", "")),
-            }
-            for i, c in enumerate(ctx.used_candidates)
-        ]
+        cited_sources = []
+        for i, c in enumerate(ctx.used_candidates):
+            is_dict = isinstance(c, dict)
+            chunk_id = c.get("chunk_id", f"chunk_{i}") if is_dict else getattr(c, "id", f"chunk_{i}")
+            document_id = (c.get("document_id") if is_dict else getattr(c, "document_id", None)) or "unknown"
+            chunk_metadata = (c.get("metadata") if is_dict else getattr(c, "metadata", None)) or {}
+            # Ingestion stores the document filename as "document_title" in chunk
+            # metadata; fall back to it if the DB title lookup above missed
+            # (e.g. document_id unresolved).
+            fallback_title = chunk_metadata.get("document_title") or chunk_metadata.get("title") or "Untitled"
+            content = c.get("content", "") if is_dict else getattr(c, "content", "")
+            cited_sources.append(
+                {
+                    "index": i + 1,
+                    "chunk_id": chunk_id,
+                    "document_id": document_id,
+                    "title": doc_titles.get(document_id, fallback_title),
+                    "content_preview": content[:150] + "...",
+                    "text": content,
+                }
+            )
         yield {"event": "sources", "data": cited_sources}
 
         # Step 4: Preparation
