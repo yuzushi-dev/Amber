@@ -744,7 +744,10 @@ class RetrievalService:
         _explicit_audience = all_filters.pop("audience", None)
         _explicit_source_family = all_filters.pop("source_family", None)
 
-        _tax_ctx = resolve_product_context(structured_query.cleaned_query)
+        # Taxonomy inference must use the ORIGINAL user query, never the LLM-rewritten
+        # one: the rewriter can inject edition-determining keywords (e.g. "CE") that
+        # would misroute the taxonomy filter. Parse the raw query for a clean signal.
+        _tax_ctx = resolve_product_context(QueryParser.parse(query).cleaned_query)
         _tax_edition = _explicit_edition or (_tax_ctx.edition if _tax_ctx.edition != "unknown" else None)
         _tax_audience = _explicit_audience or (_tax_ctx.audience if _tax_ctx.audience != "unknown" else None)
         _tax_source_family = _explicit_source_family

@@ -705,16 +705,12 @@ async def _query_stream_impl(
             # Add timeout to prevent hangs
             import asyncio
 
-            # Fetch rules and memory BEFORE retrieval
-            global_rules_list = None
-            try:
-                from src.core.admin_ops.application.rules_service import get_rules_service
-                rules_service = get_rules_service()
-                active_rules_resp = await rules_service.get_active_rules(tenant_id=tenant_id)
-                if active_rules_resp:
-                    global_rules_list = active_rules_resp
-            except Exception as e:
-                logger.warning(f"Failed to fetch global rules for retrieval: {e}")
+            # NOTE: global_rules are intentionally NOT passed to retrieval.
+            # They are injected into the final-answer system prompt by
+            # generation_service (get_active_rules / build_system_prompt_addendum).
+            # Feeding them to the retrieval-time query rewriter caused edition
+            # keywords (e.g. "CE") to be injected into the query, misrouting the
+            # taxonomy filter and excluding the correct commercial docs.
 
             memory_context_str = None
             user_id = _get_user_id(http_request)
@@ -752,7 +748,6 @@ async def _query_stream_impl(
                         include_trace=request.options.include_trace if request.options else False,
                         options=request.options,
                         history=None,
-                        global_rules=global_rules_list,
                         memory_context=memory_context_str,
                     ),
                     timeout=120.0,
