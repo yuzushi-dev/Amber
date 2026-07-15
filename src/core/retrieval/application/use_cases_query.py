@@ -316,8 +316,13 @@ class QueryUseCase:
         from src.core.tools.filesystem import create_filesystem_tools
         from src.core.tools.retrieval import create_retrieval_tool
 
-        # Tools Setup
-        retrieval_tool_def = create_retrieval_tool(self.retrieval_service, tenant_id)
+        # Tools Setup. Carry the authenticated group ACL scope so the agent's
+        # searches are scoped like normal RAG (falls back to open scope only when
+        # the request has none, e.g. non-HTTP callers).
+        query_scopes = getattr(http_request_state, "query_scopes", None)
+        retrieval_tool_def = create_retrieval_tool(
+            self.retrieval_service, tenant_id, query_scopes=query_scopes
+        )
         tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
         tool_schemas = [retrieval_tool_def["schema"]]
 

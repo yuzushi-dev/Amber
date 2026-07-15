@@ -75,7 +75,7 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
     async def _dummy_tool(*_args, **_kwargs):
         return {"ok": True}
 
-    def _create_retrieval_tool(_retrieval_service, _tenant_id):
+    def _create_retrieval_tool(_retrieval_service, _tenant_id, **_kwargs):
         return {
             "name": "retrieve_context",
             "func": _dummy_tool,

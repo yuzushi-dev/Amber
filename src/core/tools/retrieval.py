@@ -10,14 +10,23 @@ from typing import Any
 from src.core.retrieval.application.retrieval_service import RetrievalService
 
 
-def create_retrieval_tool(service: RetrievalService, tenant_id: str) -> dict[str, Any]:
+def create_retrieval_tool(
+    service: RetrievalService, tenant_id: str, query_scopes: Any | None = None
+) -> dict[str, Any]:
     """
     Create the 'search_codebase' tool definition and callable.
+
+    ``query_scopes`` carries the caller's authenticated group ACL so the agent's
+    searches are scoped exactly like normal RAG; without it retrieval falls back
+    to open scopes and the agent could surface documents outside the user's
+    groups on a group-enforced tenant.
     """
 
     async def search_codebase(query: str) -> str:
         """Search the codebase using vector search."""
-        result = await service.retrieve(query=query, tenant_id=tenant_id, top_k=5)
+        result = await service.retrieve(
+            query=query, tenant_id=tenant_id, top_k=5, query_scopes=query_scopes
+        )
 
         if not result.chunks:
             return "No relevant code chunks found independent of the file system. Suggestion: Use 'list_directory' to look for files manually."

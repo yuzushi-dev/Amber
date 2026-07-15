@@ -542,7 +542,10 @@ async def _query_stream_impl(
                     yield f"event: routing\ndata: {json.dumps({'categories': ['Agent Tools'], 'confidence': 1.0})}\n\n"
 
                     # Prepare tools and run orchestrator
-                    retrieval_tool_def = create_retrieval_tool(retrieval_service, tenant_id)
+                    retrieval_tool_def = create_retrieval_tool(
+                        retrieval_service, tenant_id,
+                        query_scopes=getattr(http_request.state, "query_scopes", None),
+                    )
                     tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
                     tool_schemas = [retrieval_tool_def["schema"]]
 
@@ -764,6 +767,10 @@ async def _query_stream_impl(
                         include_trace=request.options.include_trace if request.options else False,
                         options=request.options,
                         history=None,
+                        # Carry the authenticated group ACL scope into the stream
+                        # path too; without it retrieval falls back to open scopes
+                        # and group enforcement is bypassed for chat queries.
+                        query_scopes=getattr(http_request.state, "query_scopes", None),
                     ),
                     timeout=120.0,
                 )

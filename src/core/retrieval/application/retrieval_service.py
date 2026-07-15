@@ -352,7 +352,12 @@ class RetrievalService:
                 )
                 if not scope_document_ids:
                     continue
-            elif scope_tenant_id != viewer_tenant_id:
+            elif scope_tenant_id != viewer_tenant_id or query_scopes.enforce_groups:
+                # Fail closed: without an incoming candidate set we must STILL resolve
+                # the group-visible allowlist for the viewer's own tenant when group
+                # enforcement is on — otherwise Milvus (tenant-filter only, no group
+                # ACL) returns every chunk in the tenant, leaking documents the user's
+                # groups were never granted. Shared tenants are always ACL-resolved.
                 scope_document_ids = await self._list_visible_document_ids(
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
@@ -515,7 +520,11 @@ class RetrievalService:
                 )
                 if not allowed_doc_ids:
                     continue
-            elif scope_tenant_id != viewer_tenant_id:
+            elif scope_tenant_id != viewer_tenant_id or query_scopes.enforce_groups:
+                # Fail closed: mirror the vector path — resolve the group-visible
+                # allowlist for the viewer's own tenant when group enforcement is on,
+                # even without an incoming candidate set, so graph retrieval cannot
+                # surface documents the user's groups were never granted.
                 allowed_doc_ids = await self._list_visible_document_ids(
                     viewer_tenant_id=viewer_tenant_id,
                     owner_tenant_id=scope_tenant_id,
@@ -853,6 +862,7 @@ class RetrievalService:
                     query=structured_query.cleaned_query,
                     tenant_id=resolved_tenant_id,
                     tenant_config=tenant_config,
+                    query_scopes=resolved_scopes,
                 )
                 result = RetrievalResult(
                     chunks=res["candidates"],
@@ -1129,6 +1139,13 @@ class RetrievalService:
         _cache_embedding_provider: str = getattr(_emb_svc_for_key.provider, "provider_name", "") or ""
         _cache_collection_names: list[str] = [t.collection_name for t in vector_targets]
         _cache_search_mode: str = options.search_mode.value if options.search_mode else ""
+        # Per-viewer ACL scope: when group enforcement narrows a target to the
+        # viewer's visible-document allowlist, that allowlist must be part of the
+        # cache key. Otherwise two viewers in the same tenant with different group
+        # grants share a cache entry and one receives the other's results.
+        _cache_acl_scope: list[str] = sorted(
+            {doc_id for t in vector_targets if t.document_ids is not None for doc_id in t.document_ids}
+        )
 
         all_chunks = []
         seen_chunk_ids = set()
@@ -1156,6 +1173,8 @@ class RetrievalService:
             # Check result cache for this specific sub-query
             step_start = time.perf_counter()
             cache_filters = {"document_ids": document_ids, **(filters or {})}
+            if _cache_acl_scope:
+                cache_filters["_acl_scope"] = _cache_acl_scope
             cached_result = await self.result_cache.get(
                 search_query,
                 tenant_id,

@@ -24,15 +24,26 @@ class QueryScopes:
     enforce_groups: bool = field(default=False)
 
 
-def resolve_query_scopes(tenant_id: str) -> QueryScopes:
+def resolve_query_scopes(
+    tenant_id: str,
+    group_ids: list[str] | None = None,
+    enforce_groups: bool = False,
+) -> QueryScopes:
     """Resolve the allowed query scopes for a tenant.
 
     Current policy:
     - default queries only default
     - non-default tenants query default + self
     - no child tenant can query other child tenants
+
+    ``group_ids`` and ``enforce_groups`` carry the caller's group membership and
+    the tenant's group-enforcement flag into the scopes object so retrieval can
+    apply the same group ACL the direct document endpoints enforce. They MUST be
+    threaded through by the caller (auth middleware); the defaults keep group
+    enforcement off for callers that have no group context.
     """
     normalized_tenant_id = str(tenant_id or DEFAULT_TENANT_ID)
+    _groups = list(group_ids or [])
 
     if normalized_tenant_id == DEFAULT_TENANT_ID:
         return QueryScopes(
@@ -40,6 +51,8 @@ def resolve_query_scopes(tenant_id: str) -> QueryScopes:
             vector_scopes=[DEFAULT_TENANT_ID],
             graph_scopes=[DEFAULT_TENANT_ID],
             shared_document_owner_tenants=[DEFAULT_TENANT_ID],
+            group_ids=_groups,
+            enforce_groups=enforce_groups,
         )
 
     return QueryScopes(
@@ -47,6 +60,8 @@ def resolve_query_scopes(tenant_id: str) -> QueryScopes:
         vector_scopes=_dedupe([DEFAULT_TENANT_ID, normalized_tenant_id]),
         graph_scopes=_dedupe([DEFAULT_TENANT_ID, normalized_tenant_id]),
         shared_document_owner_tenants=[DEFAULT_TENANT_ID],
+        group_ids=_groups,
+        enforce_groups=enforce_groups,
     )
 
 
