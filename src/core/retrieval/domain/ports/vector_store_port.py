@@ -45,8 +45,14 @@ class VectorStorePort(Protocol):
         filters: dict[str, Any] | None = None,
         rrf_k: int = 60,
         collection_name: str | None = None,
+        score_threshold: float | None = None,
     ) -> list[SearchResult]:
-        """Hybrid search with dense and sparse vectors."""
+        """
+        Hybrid search with dense and sparse vectors.
+
+        score_threshold (if given) is on the fusion/reranker scale, NOT the cosine
+        scale used by `search()` - do not reuse a cosine similarity_threshold here.
+        """
         ...
 
     async def upsert_chunks(self, chunks_data: list[dict[str, Any]]) -> None:

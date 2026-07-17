@@ -72,6 +72,13 @@ class VectorSearcher:
     ) -> list[Candidate]:
         """
         Execute hybrid (dense + sparse) search and return results as Candidates.
+
+        Note: score_threshold here is on the hybrid fusion scale (Milvus RRF/weighted
+        rerank output, typically ~0.01-0.03), NOT the cosine similarity scale (0-1)
+        used by dense search(). Callers must NOT pass a tenant's cosine
+        similarity_threshold through unchanged - it would filter out every hybrid
+        result. Defaults to None (no filtering, matching prior behavior) until a
+        properly-scaled hybrid threshold is derived.
         """
         try:
             results = await self.vector_store.hybrid_search(
@@ -82,6 +89,7 @@ class VectorSearcher:
                 limit=limit,
                 filters=filters,
                 collection_name=collection_name,
+                score_threshold=score_threshold,
             )
 
             return [
@@ -99,13 +107,14 @@ class VectorSearcher:
 
         except Exception as e:
             logger.error(f"Hybrid search failed: {e}")
-            # Fallback to dense search
+            # Fallback to dense search. Do NOT forward score_threshold: it is on the
+            # hybrid fusion scale (~0.01-0.03), while dense search filters on cosine
+            # (0-1) — applying it here would be a scale mismatch.
             return await self.search(
                 query_vector=query_vector,
                 tenant_id=tenant_id,
                 document_ids=document_ids,
                 limit=limit,
-                score_threshold=score_threshold,
                 filters=filters,
                 collection_name=collection_name,
             )
