@@ -136,6 +136,18 @@ services:
       retries: 10
       start_period: 300s
     logging: *default-logging
+    # Memory ceiling: this container has been the repeated host-OOM victim (its
+    # RSS grows over uptime to 3.5-5.5G, then the kernel OOM-kills it globally
+    # because nothing here was capped). The limit turns a runaway into a
+    # cgroup-local kill of THIS container instead of a host-wide OOM. Value is a
+    # conservative initial ceiling (normal RSS ~1.1G) — tune after profiling
+    # api-1 RSS growth; this does not fix the underlying growth, only contains it.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1536M
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -227,6 +239,16 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    # Per-replica memory ceiling. Prod runs 3 worker replicas (scaled), idle
+    # ~1.6-1.8G each (~5G together — the biggest idle chunk on a 15G host).
+    # Cap each so an ingestion spike in one worker can't starve the host and
+    # trigger a global OOM. Initial value — tune with real ingestion peaks.
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+        reservations:
+          memory: 1280M
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
