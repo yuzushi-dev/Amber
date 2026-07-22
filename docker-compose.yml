@@ -136,18 +136,22 @@ services:
       retries: 10
       start_period: 300s
     logging: *default-logging
-    # Memory ceiling: this container has been the repeated host-OOM victim (its
-    # RSS grows over uptime to 3.5-5.5G, then the kernel OOM-kills it globally
-    # because nothing here was capped). The limit turns a runaway into a
-    # cgroup-local kill of THIS container instead of a host-wide OOM. Value is a
-    # conservative initial ceiling (normal RSS ~1.1G) — tune after profiling
-    # api-1 RSS growth; this does not fix the underlying growth, only contains it.
+    # Memory ceiling. 48h weekday profiling (cgroup memory.current, 572 samples)
+    # showed api-1's working set is HIGH but bounded — it sits ~4.4G (peak 4423M)
+    # and does NOT grow monotonically within a container life (no fast leak); the
+    # host-OOM is driven by that high working set colliding with an undersized
+    # host during the nightly ingestion burst. So this limit is a runaway/leak
+    # BACKSTOP set ABOVE the observed working set (6G > 4.4G) — low enough to
+    # cgroup-kill a genuine runaway, high enough not to crashloop normal ops.
+    # NOTE: it does NOT prevent host-OOM on a 15G host — the sum of real working
+    # sets exceeds RAM; the cure is +host RAM or fewer worker
+    # replicas / lower CELERY_CONCURRENCY, not this cap.
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 6G
         reservations:
-          memory: 1536M
+          memory: 2G
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
