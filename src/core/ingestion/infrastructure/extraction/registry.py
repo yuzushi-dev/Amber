@@ -7,6 +7,7 @@ Factory for getting the appropriate extractor for a file.
 
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor
 from src.core.ingestion.infrastructure.extraction.config import extraction_settings
+from src.core.ingestion.infrastructure.extraction.local.html_extractor import HtmlExtractor
 from src.core.ingestion.infrastructure.extraction.local.hybrid_extractor import (
     HybridMarkerExtractor,
 )
@@ -17,7 +18,6 @@ from src.core.ingestion.infrastructure.extraction.local.plaintext_extractor impo
     PlainTextExtractor,
 )
 from src.core.ingestion.infrastructure.extraction.local.pymupdf_extractor import PyMuPDFExtractor
-from src.core.ingestion.infrastructure.extraction.local.html_extractor import HtmlExtractor
 from src.core.ingestion.infrastructure.extraction.local.unstructured_extractor import (
     UnstructuredExtractor,
 )

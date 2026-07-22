@@ -15,8 +15,9 @@ def launch() -> None:
     try:
         from src.cli.tui.app import AmberConsole  # noqa: WPS433 (deferred import)
     except ImportError as exc:  # pragma: no cover
-        raise typer.Exit(
-            "Textual is not installed. Run: uv sync --extra dev or pip install textual"
-        ) from exc
+        typer.echo(
+            "Textual is not installed. Run: uv sync --extra dev or pip install textual", err=True
+        )
+        raise typer.Exit(code=1) from exc
 
     AmberConsole().run()

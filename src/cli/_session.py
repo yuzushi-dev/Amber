@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -18,8 +18,15 @@ def run(coro: Awaitable[T]) -> T:
 
 
 @asynccontextmanager
-async def session_scope():
-    """Yield a transactional async session backed by the configured database URL."""
+async def session_scope() -> AsyncIterator[Any]:
+    """Yield a transactional async session backed by the configured database URL.
+
+    The yielded session is intentionally typed as ``Any``: CLI commands operate over
+    legacy ``Column``-style ORM models, and annotating this as ``AsyncSession`` would
+    surface pre-existing SQLAlchemy stub assignment errors across the CLI that are out
+    of scope for this fix (the rest of the codebase handles the same debt via the mypy
+    per-module override list).
+    """
     from src.api.config import settings
 
     url = settings.db.app_database_url or settings.db.database_url

@@ -15,6 +15,7 @@ response.
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.core.generation.application.prompts.query_analysis import QUERY_SUFFICIENCY_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
@@ -145,7 +146,7 @@ class SufficiencyEvaluator:
                 model=llm_cfg.model,
                 tier=ProviderTier.ECONOMY,
             )
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
             if llm_cfg.temperature is not None:
                 kwargs["temperature"] = llm_cfg.temperature
             if llm_cfg.seed is not None:

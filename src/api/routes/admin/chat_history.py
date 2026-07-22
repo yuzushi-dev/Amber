@@ -9,7 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_super_admin, verify_tenant_admin
@@ -122,13 +122,6 @@ async def list_chat_history(
         # Order by most recent first
         query = query.order_by(desc(ConversationSummary.created_at))
 
-        # Get total count
-        count_query = select(func.count(ConversationSummary.id))
-        if tenant_id:
-            count_query = count_query.where(ConversationSummary.tenant_id == tenant_id)
-
-        total = await session.scalar(count_query) or 0
-
         # Fetch with pagination
         query = query.offset(offset).limit(limit)
         result = await session.execute(query)
@@ -237,7 +230,6 @@ async def list_chat_history(
                 for idx, turn in enumerate(history):
                     turn_ts_str = turn.get("timestamp")
                     try:
-                        from datetime import timezone as _tz
                         turn_ts = datetime.fromisoformat(turn_ts_str) if turn_ts_str else conv.created_at
                     except Exception:
                         turn_ts = conv.created_at

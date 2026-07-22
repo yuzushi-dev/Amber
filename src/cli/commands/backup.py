@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import uuid4
 
 import typer
@@ -58,7 +59,7 @@ def list_backups(
     """Show recent backup jobs for the tenant."""
     from src.core.admin_ops.domain.backup_job import BackupJob, BackupStatus
 
-    async def _query():
+    async def _query() -> list[BackupJob]:
         async with session_scope() as session:
             stmt = select(BackupJob).where(BackupJob.tenant_id == tenant_id)
             if status:
@@ -132,7 +133,7 @@ def restore(
                 )
             )
             await session.commit()
-            return backup.result_path
+            return cast(str, backup.result_path)
 
     backup_path = run(_persist())
     restore_backup_task.delay(job_id, tenant_id, backup_path, mode)

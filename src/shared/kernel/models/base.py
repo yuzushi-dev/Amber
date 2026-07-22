@@ -5,7 +5,7 @@ Base Model
 SQLAlchemy declarative base and common mixins.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -20,7 +20,7 @@ class Base(DeclarativeBase):
 
 def _utcnow() -> datetime:
     # Column is TIMESTAMP WITHOUT TIME ZONE — return naive UTC
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class TimestampMixin:
