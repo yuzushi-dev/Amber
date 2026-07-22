@@ -171,23 +171,34 @@ if want postgres; then
     fi
 fi
 
-# 2) Neo4j — APOC cypher export; falls back to volume tar if APOC refuses.
+# 2) Neo4j — APOC cypher export to a FILE; falls back to volume tar if APOC refuses.
+# NOTE: we export to a file inside the container (import dir) and copy it out.
+# Do NOT use `stream:true ... RETURN cypherStatements` piped to a file — that goes
+# through cypher-shell's result-cell rendering (header line, surrounding quotes,
+# backslash-escaped inner quotes) and is NOT a replayable script. The file form
+# produced by apoc.export.cypher.all(<file>, ...) is a clean cypher-shell script.
 if want neo4j; then
     log ""
     log "--- [2/8] Neo4j"
     out="${BACKUP_DIR}/neo4j.cypher"
+    container_file="/var/lib/neo4j/import/neo4j-backup.cypher"   # import dir per server.directories.import
     if "${DRY_RUN}"; then
-        log "  WOULD RUN: docker exec amber2-neo4j-1 cypher-shell -u ${NEO4J_USER} 'CALL apoc.export.cypher.all(...)' > ${out}"
+        log "  WOULD RUN: docker exec amber2-neo4j-1 cypher-shell 'CALL apoc.export.cypher.all(\"neo4j-backup.cypher\", {...})'"
+        log "  WOULD RUN: docker cp amber2-neo4j-1:${container_file} ${out}"
         log "  WOULD FALLBACK: tar_volume amber2_graphrag-neo4j ${out%.cypher}.tar.gz"
     else
         if docker exec amber2-neo4j-1 cypher-shell -u "${NEO4J_USER}" -p "${NEO4J_PASSWORD}" \
-            "CALL apoc.export.cypher.all(null, {format:'cypher-shell', stream:true, useOptimizations:{type:'UNWIND_BATCH', unwindBatchSize:20}}) YIELD cypherStatements RETURN cypherStatements" \
-            > "${out}" 2>/dev/null && [ -s "${out}" ]; then
+            "CALL apoc.export.cypher.all('neo4j-backup.cypher', {format:'cypher-shell', useOptimizations:{type:'UNWIND_BATCH', unwindBatchSize:20}}) YIELD file RETURN file" \
+            >/dev/null 2>&1 \
+            && docker cp "amber2-neo4j-1:${container_file}" "${out}" >/dev/null 2>&1 \
+            && [ -s "${out}" ]; then
+            docker exec amber2-neo4j-1 rm -f "${container_file}" 2>/dev/null || true
             checksum "${out}"
-            log "  APOC export OK, size: $(du -h "${out}" | cut -f1)"
+            log "  APOC file export OK, size: $(du -h "${out}" | cut -f1)"
         else
-            log "  APOC export unavailable; falling back to volume tar"
+            log "  APOC file export unavailable; falling back to volume tar"
             rm -f "${out}"
+            docker exec amber2-neo4j-1 rm -f "${container_file}" 2>/dev/null || true
             tar_volume amber2_graphrag-neo4j "${BACKUP_DIR}/neo4j.tar.gz"
             checksum "${BACKUP_DIR}/neo4j.tar.gz"
         fi
