@@ -143,15 +143,18 @@ services:
     # host during the nightly ingestion burst. So this limit is a runaway/leak
     # BACKSTOP set ABOVE the observed working set (6G > 4.4G) — low enough to
     # cgroup-kill a genuine runaway, high enough not to crashloop normal ops.
-    # NOTE: it does NOT prevent host-OOM on a 15G host — the sum of real working
-    # sets exceeds RAM; the cure is +host RAM or fewer worker
-    # replicas / lower CELERY_CONCURRENCY, not this cap.
+    # Sized from 48h cgroup profiling: working set plateaus at ~4.4G (peak
+    # 4423MB) under weekday load; the one-off ~5.3G spike was a banned
+    # docker-exec of ML scripts, not normal load. 5.5G limit = plateau + ~1G
+    # headroom for concurrent SPLADE/rerank (both run inline in api). The 4.5G
+    # reservation keeps api's working set guaranteed so it isn't the one
+    # squeezed under host pressure (it was the recurring OOM victim).
     deploy:
       resources:
         limits:
-          memory: 6G
+          memory: 5500M
         reservations:
-          memory: 2G
+          memory: 4500M
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -243,16 +246,18 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    # Per-replica memory ceiling. Prod runs 3 worker replicas (scaled), idle
-    # ~1.6-1.8G each (~5G together — the biggest idle chunk on a 15G host).
-    # Cap each so an ingestion spike in one worker can't starve the host and
-    # trigger a global OOM. Initial value — tune with real ingestion peaks.
+    # Per-replica ceiling. 3 replicas observed ~1.67G each at CELERY_CONCURRENCY=2.
+    # 2G limit = observed + margin; 1.5G reservation. 3×2G caps the worker tier
+    # at 6G while worker_max_memory_per_child (celery_app.py) recycles a process
+    # before it approaches the cap, so an ingestion fan-out spike can't grow
+    # unbounded into a host-OOM. If throughput needs more, add host RAM or
+    # replicas — do not raise this without re-checking the host budget.
     deploy:
       resources:
         limits:
-          memory: 2560M
+          memory: 2G
         reservations:
-          memory: 1280M
+          memory: 1536M
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -371,6 +376,15 @@ services:
       start_period: 60s
     logging: *default-logging
     restart: unless-stopped
+    # Was uncapped: JVM heap is bounded to 1G above, but Neo4j's page cache and
+    # native buffers are off-heap and unbounded, so a runaway here could still
+    # host-OOM the box (~2G observed RSS). 2.5G backstop = observed + margin.
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+        reservations:
+          memory: 1536M
     networks:
       - graphrag-network
 
@@ -501,6 +515,12 @@ services:
         soft: 65536
         hard: 65536
     restart: unless-stopped
+    # Was uncapped: Milvus grows its segment/index cache with the vector set.
+    # 1.5G backstop bounds a load-driven spike from starving the host.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
     networks:
       - graphrag-network
 

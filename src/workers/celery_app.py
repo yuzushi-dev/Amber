@@ -85,6 +85,14 @@ celery_app.conf.update(
     # Worker settings
     worker_prefetch_multiplier=1,
     worker_concurrency=2,
+    # Recycle a worker process once it exceeds ~1.5 GiB RSS — comfortably under
+    # the 2G per-replica container cap (docker-compose.yml). Gradual growth from
+    # a heavy task (graph_extraction / community_summary during ingestion
+    # fan-out) is reclaimed by a clean child restart BEFORE it hits the cgroup
+    # limit, so we don't rely on OOM-kill + task requeue (which, with
+    # task_acks_late + task_reject_on_worker_lost, risks a crash-restart loop on
+    # a single oversized task).
+    worker_max_memory_per_child=1_500_000,  # KiB (~1.5 GiB)
     # Task execution settings
     task_acks_late=True,
     task_reject_on_worker_lost=True,
