@@ -45,3 +45,33 @@ def test_tenant_override_bypasses_default():
         tenant_config={"rag_system_prompt": "CUSTOM"},
     )
     assert system == "CUSTOM"
+
+
+# --- Behavioural refusal-detection tests (shared detector) --------------------
+from src.shared.refusal import text_looks_like_refusal
+
+
+def test_paraphrased_refusal_opener_detected():
+    # Model deviates from the pinned opener with an adverb — must still count.
+    assert text_looks_like_refusal(
+        "I don't have direct documentation on that topic, but here are some pointers."
+    )
+    assert text_looks_like_refusal("I do not have specific information about that.")
+
+
+def test_dignified_refusal_with_sources_detected():
+    # New prompt shape: refusal opener + cited "Closest documented topics" section.
+    ans = (
+        "I don't have documentation on how to integrate X.\n\n"
+        "Closest documented topics:\n- Foo [[Source: 1]]\n- Bar [[Source: 2]]"
+    )
+    assert text_looks_like_refusal(ans)
+    # The section marker alone is enough even if the opener is reworded.
+    assert text_looks_like_refusal("No direct match. Closest documented topics: ...")
+
+
+def test_real_answer_not_flagged_as_refusal():
+    assert not text_looks_like_refusal(
+        "To create a distribution list, open the Admin Panel and select Domains [[Source: 1]]."
+    )
+    assert not text_looks_like_refusal("")
