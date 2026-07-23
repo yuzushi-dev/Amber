@@ -104,3 +104,26 @@ async def test_hybrid_search_explicit_threshold_drops_low_scores():
     )
 
     assert [r.chunk_id for r in results] == ["c1"]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_zero_threshold_is_active_not_disabled():
+    """Regression: score_threshold=0.0 must FILTER (keep scores >= 0), not be
+    treated as falsy/'disabled'. A hit with a negative fused score is dropped."""
+    hits = [
+        _FakeHit(0.02, chunk_id="c1", document_id="d1", tenant_id="t1", content="a"),
+        _FakeHit(-0.01, chunk_id="c2", document_id="d1", tenant_id="t1", content="b"),
+    ]
+    store = _make_store(hits)
+
+    results = await store.hybrid_search(
+        dense_vector=[0.1, 0.2, 0.3],
+        sparse_vector={0: 0.5},
+        tenant_id="t1",
+        limit=10,
+        score_threshold=0.0,
+    )
+
+    # With the old `if score_threshold and ...` guard, 0.0 was falsy -> no filter
+    # -> both kept. The correct `is not None` guard drops the negative-score hit.
+    assert [r.chunk_id for r in results] == ["c1"]

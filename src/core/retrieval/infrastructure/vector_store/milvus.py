@@ -501,8 +501,10 @@ class MilvusVectorStore:
             search_results = []
             for hits in results:
                 for hit in hits:
-                    # Apply score threshold if specified
-                    if score_threshold and hit.score < score_threshold:
+                    # Apply score threshold if specified. `is not None` (not a
+                    # truthiness check): an explicit 0.0 is a valid threshold
+                    # (keep scores >= 0), not "disabled".
+                    if score_threshold is not None and hit.score < score_threshold:
                         continue
 
                     # Extract fields directly from hit.entity using get()
@@ -833,11 +835,12 @@ class MilvusVectorStore:
             search_results = []
             for hits in results:
                 for hit in hits:
-                    # Apply score threshold if specified (same style as dense search()
-                    # above). Fusion scale - see the score_threshold docstring note
-                    # above; do not confuse with the cosine-scale threshold used by
-                    # dense search().
-                    if score_threshold and hit.score < score_threshold:
+                    # Apply score threshold if specified. Fusion scale - see the
+                    # score_threshold docstring note above; do not confuse with the
+                    # cosine-scale threshold used by dense search(). `is not None`
+                    # (not truthiness): an explicit 0.0 is a valid fusion-scale
+                    # threshold, not "disabled".
+                    if score_threshold is not None and hit.score < score_threshold:
                         continue
 
                     # Extract fields directly from hit.entity using get()
