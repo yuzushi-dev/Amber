@@ -49,7 +49,29 @@ def test_dict_candidate_still_works():
     assert titles == {"doc_xyz": "Quota.html"}
 
 
+def test_map_sources_uses_db_titles_not_untitled():
+    """_map_sources must title cited sources from the DB doc_titles map.
+
+    Vector-search candidates carry no document_title in metadata, so relying on
+    metadata alone rendered every cited source as "Untitled" (the visible bug).
+    """
+    svc = _service_with(_FakeDocRepo({}))
+    cand = Candidate(chunk_id="c1", content="body", document_id="doc_abc",
+                     metadata={"content": "body"})  # no document_title here
+
+    # Without the DB map -> falls back to Untitled (old behaviour)
+    src_no_map = svc._map_sources("see [[Source: 1]]", [cand])
+    assert src_no_map[0].title == "Untitled"
+
+    # With the DB map -> real filename
+    src_with_map = svc._map_sources(
+        "see [[Source: 1]]", [cand], {"doc_abc": "Carbonio_2FA.html"}
+    )
+    assert src_with_map[0].title == "Carbonio_2FA.html"
+
+
 if __name__ == "__main__":
     test_titles_resolved_from_top_level_document_id()
     test_dict_candidate_still_works()
+    test_map_sources_uses_db_titles_not_untitled()
     print("ok")

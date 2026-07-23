@@ -46,7 +46,15 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
 
             from src.shared.context import get_current_tenant
 
-            tenant_id = get_current_tenant()
+            # Source the tenant from request.state (set by AuthenticationMiddleware),
+            # mirroring how permissions/group_ids/tenant_role are read below.
+            # get_current_tenant() reads a contextvar set inside the auth
+            # BaseHTTPMiddleware, which does NOT reliably propagate to endpoint
+            # dependencies; relying on it left app.current_tenant empty on some
+            # pooled connections, so FORCE-RLS tables (e.g. documents) returned 0
+            # rows intermittently — surfacing as source titles resolving to
+            # "Untitled". request.state survives the middleware boundary.
+            tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
             # Always set app.current_tenant, even to an empty string when no
             # tenant is bound to this request. RLS policies on tenant tables
             # read this GUC unconditionally (`current_setting('app.current_tenant')`

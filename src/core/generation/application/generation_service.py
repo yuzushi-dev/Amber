@@ -462,7 +462,10 @@ class GenerationService:
 
         # Step 4: Parse citations and map sources
         normalized_answer = self._normalize_citations(llm_result.text)
-        cited_sources = self._map_sources(normalized_answer, context_result.used_candidates)
+        doc_titles = await self._get_document_titles(context_result.used_candidates)
+        cited_sources = self._map_sources(
+            normalized_answer, context_result.used_candidates, doc_titles
+        )
 
         # Log response summary
         logger.info(
@@ -890,8 +893,17 @@ class GenerationService:
             thinking_enabled,
         )
 
-    def _map_sources(self, answer: str, candidates: list[Any]) -> list[Source]:
-        """Extract citations from text and map to candidates."""
+    def _map_sources(
+        self, answer: str, candidates: list[Any], doc_titles: dict[str, str] | None = None
+    ) -> list[Source]:
+        """Extract citations from text and map to candidates.
+
+        ``doc_titles`` is the document_id->filename map resolved from the DB
+        (via ``_get_document_titles``); it is the authoritative title source.
+        Vector-search candidates carry no ``document_title`` in ``metadata``, so
+        without this map every cited source fell back to "Untitled".
+        """
+        doc_titles = doc_titles or {}
         normalized_answer = self._normalize_citations(answer)
         pattern = r"\[\[Source:\s*(\d+)\]\]"  # Updated regex to match new prompt format (allowing space)
         matches = re.findall(pattern, normalized_answer)
@@ -916,7 +928,12 @@ class GenerationService:
                     # not inside .metadata (see _get_document_titles).
                     did = getattr(cand, "document_id", None) or "unknown"
                     meta = getattr(cand, "metadata", None) or {}
-                title = meta.get("document_title") or meta.get("title") or "Untitled"
+                title = (
+                    doc_titles.get(did)
+                    or meta.get("document_title")
+                    or meta.get("title")
+                    or "Untitled"
+                )
 
                 sources.append(
                     Source(
