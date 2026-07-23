@@ -133,3 +133,53 @@ if __name__ == "__main__":
     test_own_tenant_not_enforced_keeps_open_scope()
     test_graph_path_mirrors_vector()
     print("ok")
+
+
+def test_structured_fast_path_skipped_when_group_enforced(monkeypatch):
+    """SECURITY regression: the STRUCTURED Cypher fast-path has no group ACL,
+    so it must be skipped when the caller has group enforcement on (fall through
+    to the ACL-enforced RAG path). Otherwise a group-restricted user enumerates
+    documents/entities their groups were never granted."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from src.core.retrieval.application import use_cases_query as ucq
+    from src.core.retrieval.application.query import structured_query
+
+    # Record whether the structured executor is consulted.
+    try_exec = AsyncMock(return_value=SimpleNamespace(
+        success=True, query_type=SimpleNamespace(value="LIST_DOCUMENTS"),
+        count=999, data=[], execution_time_ms=1.0,
+    ))
+    monkeypatch.setattr(structured_query.structured_executor, "try_execute", try_exec)
+
+    uc = object.__new__(ucq.QueryUseCase)
+
+    class _Sentinel(Exception):
+        pass
+
+    # Anything past the structured block trips this, so we can assert we got there.
+    uc.metrics = SimpleNamespace(track_query=lambda **k: (_ for _ in ()).throw(_Sentinel()))
+    uc.retrieval_service = None
+    uc.generation_service = None
+
+    req = SimpleNamespace(query="list all documents", options=None, conversation_id=None)
+
+    # enforce_groups=True -> structured MUST be skipped, control reaches RAG (Sentinel).
+    enforced = resolve_query_scopes("default", group_ids=["g1"], enforce_groups=True)
+    state = SimpleNamespace(query_scopes=enforced, is_super_admin=False)
+    try:
+        asyncio.run(uc.execute(request=req, tenant_id="default",
+                               http_request_state=state, user_id="u1"))
+    except _Sentinel:
+        pass
+    assert try_exec.await_count == 0, "structured fast-path must NOT run under group enforcement"
+
+    # enforce_groups=False -> structured runs and short-circuits with its response.
+    open_scopes = resolve_query_scopes("default")
+    state2 = SimpleNamespace(query_scopes=open_scopes, is_super_admin=False)
+    resp = asyncio.run(uc.execute(request=req, tenant_id="default",
+                                  http_request_state=state2, user_id="u1"))
+    assert try_exec.await_count == 1
+    assert getattr(resp, "count", None) == 999
