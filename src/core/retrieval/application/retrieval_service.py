@@ -453,13 +453,18 @@ class RetrievalService:
                 len(target.document_ids) if target.document_ids is not None else "all",
             )
 
+            # NOTE: self.config.score_threshold is calibrated for dense cosine
+            # similarity (0-1). Hybrid search's fused score is on a different scale
+            # (Milvus RRF/weighted rerank output, ~0.01-0.03), so that cosine
+            # threshold must NOT be forwarded here as-is - it would silently drop
+            # every hybrid result. Leave score_threshold unset (None) until a
+            # separately-calibrated hybrid threshold exists.
             target_results = await self.vector_searcher.hybrid_search(
                 query_vector=query_vector,
                 sparse_vector=sparse_vector,
                 tenant_id=target.tenant_id,
                 document_ids=target.document_ids,
                 limit=limit,
-                score_threshold=self.config.score_threshold,
                 filters=filters,
                 collection_name=target.collection_name,
             )
