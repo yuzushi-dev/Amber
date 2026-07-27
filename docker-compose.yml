@@ -252,7 +252,18 @@ services:
     # before it approaches the cap, so an ingestion fan-out spike can't grow
     # unbounded into a host-OOM. If throughput needs more, add host RAM or
     # replicas — do not raise this without re-checking the host budget.
+    #
+    # replicas is declared explicitly: the sizing above assumes 3, and leaving it
+    # to an out-of-band `--scale worker=N` made the budget unverifiable from the
+    # file alone.
+    #
+    # These limits are per-container BACKSTOPS, not an allocation budget: the sum
+    # of all caps (api 5500M + worker 3×2G + neo4j 2560M + milvus 1536M + minio
+    # 1G = ~16.4G) deliberately exceeds the 15G host, because the services do not
+    # reach their ceilings simultaneously. Observed steady state is ~11.5G. What
+    # must stay under the host is the sum of real working sets, not of the caps.
     deploy:
+      replicas: 3
       resources:
         limits:
           memory: 2G
