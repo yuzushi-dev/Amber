@@ -23,7 +23,6 @@ from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
 from src.core.tenants.application.query_scopes import QueryScopes
 
-
 # ---------------------------------------------------------------------------
 # Test 5: vector search excludes non-READY chunks via the Milvus expr itself
 # ---------------------------------------------------------------------------

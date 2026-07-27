@@ -163,26 +163,26 @@ def _build_service(repo: InMemoryDocumentRepository) -> service_module.Ingestion
 
 
 def _existing_doc(**overrides) -> StubDocument:
-    base = dict(
-        id="doc_old0000000001",
-        tenant_id="t1",
-        filename="report.pdf",
-        content_hash="hash_of_old_content",
-        storage_path="t1/doc_old0000000001/report.pdf",
-        status=DocumentStatus.READY,
-        source_type="file",
-        source_url=None,
-        metadata_={"original_filename": "report.pdf", "content_type": "application/pdf"},
-        folder_id=None,
-        error_message=None,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        domain=None,
-        summary="",
-        document_type=None,
-        hashtags=[],
-        keywords=[],
-        chunks=[],
-    )
+    base = {
+        "id": "doc_old0000000001",
+        "tenant_id": "t1",
+        "filename": "report.pdf",
+        "content_hash": "hash_of_old_content",
+        "storage_path": "t1/doc_old0000000001/report.pdf",
+        "status": DocumentStatus.READY,
+        "source_type": "file",
+        "source_url": None,
+        "metadata_": {"original_filename": "report.pdf", "content_type": "application/pdf"},
+        "folder_id": None,
+        "error_message": None,
+        "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+        "domain": None,
+        "summary": "",
+        "document_type": None,
+        "hashtags": [],
+        "keywords": [],
+        "chunks": [],
+    }
     base.update(overrides)
     return StubDocument(**base)
 
