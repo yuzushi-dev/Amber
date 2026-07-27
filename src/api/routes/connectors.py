@@ -502,6 +502,8 @@ async def run_selective_ingestion(
                         filename=filename,
                         file_content=content,
                         content_type="text/html",
+                        source_url=item_id,
+                        source_type=connector_type,
                     )
 
                     # Trigger Processing

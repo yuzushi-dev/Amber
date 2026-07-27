@@ -90,19 +90,37 @@ class IngestionService:
         content_type: str = "application/octet-stream",
         metadata_: dict[str, Any] | None = None,
         folder_id: str | None = None,
+        source_url: str | None = None,
+        source_type: str = "file",
     ) -> Document:
         """
         Register a new document in the system.
 
-        Performs deduplication based on content hash.
-        If document exists, returns existing record.
-        If new, uploads to storage and creates DB record.
+        Deduplication is a two-level lookup:
+          1. Exact content match (content_hash, tenant-scoped) - always wins,
+             returns the existing document unchanged.
+          2. Secondary-key match: source_url if provided, else filename
+             (tenant-scoped). If a match is found whose content differs, its
+             ROW IS REUSED - the id is preserved and the row is updated in
+             place ("replace"), rather than creating a new document.
+             Preserving the id is mandatory, not an optimization:
+             `document_shares.document_id` and `group_document_access.document_id`
+             both have `ON DELETE CASCADE` FKs, so a delete+create here would
+             silently drop shares/group grants already issued for this document.
+
+        If neither lookup matches, a new document is created (unchanged
+        behavior), optionally stamped with source_url/source_type.
 
         Args:
             tenant_id: Tenant identifier
             filename: Original filename
             file_content: Raw file bytes
             content_type: MIME type
+            source_url: Optional canonical source identifier (e.g. a connector
+                item id/URL). Takes priority over filename as the secondary
+                dedup key when provided.
+            source_type: Source category (e.g. "file", or a connector type).
+                Only applied when a new document is created.
 
         Returns:
             Document: The registered document
@@ -110,14 +128,37 @@ class IngestionService:
         # 1. Calculate SHA-256 hash
         content_hash = hashlib.sha256(file_content).hexdigest()
 
-        # 2. Check for existing document
+        # 2a. Exact content match - always wins, regardless of filename/source_url.
         existing_doc = await self.document_repository.find_by_content_hash(tenant_id, content_hash)
 
         if existing_doc:
             logger.info(f"Document deduplicated: {filename} (ID: {existing_doc.id})")
             return existing_doc
 
-        # 3. Create New Document
+        # 2b. Secondary-key match: source_url takes priority over filename.
+        if source_url:
+            secondary_match = await self.document_repository.find_by_source_url(
+                tenant_id, source_url
+            )
+        else:
+            secondary_match = await self.document_repository.find_by_filename(tenant_id, filename)
+
+        # 2c. Replace branch. By construction this match always has a
+        # different content_hash: an identical hash would already have
+        # returned above via find_by_content_hash.
+        if secondary_match and secondary_match.content_hash != content_hash:
+            return await self._replace_document_content(
+                existing_doc=secondary_match,
+                tenant_id=tenant_id,
+                filename=filename,
+                file_content=file_content,
+                content_type=content_type,
+                content_hash=content_hash,
+                metadata_=metadata_,
+            )
+
+        # 2d. No match: create a new document (today's behavior, unchanged),
+        # plus stamping source_url/source_type when provided.
         # We include tenant_id in the hash to ensure uniqueness per tenant while remaining deterministic
         hash_input = f"{tenant_id}_{content_hash}"
         doc_hex = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
@@ -168,7 +209,8 @@ class IngestionService:
             content_hash=content_hash,
             storage_path=storage_path,
             status=DocumentStatus.INGESTED,
-            source_type="file",
+            source_type=source_type,
+            source_url=source_url,
             metadata_=doc_metadata,
             folder_id=folder_id,
         )
@@ -190,6 +232,77 @@ class IngestionService:
 
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
+
+    async def _replace_document_content(
+        self,
+        existing_doc: Document,
+        tenant_id: str,
+        filename: str,
+        file_content: bytes,
+        content_type: str,
+        content_hash: str,
+        metadata_: dict[str, Any] | None,
+    ) -> Document:
+        """
+        Replace an existing document's content in place, preserving its id.
+
+        See register_document's docstring for why preserving the id is
+        mandatory (document_shares / group_document_access CASCADE on delete
+        of the document row).
+
+        Postgres chunks belonging to the old content are NOT purged here:
+        the next full reprocess (`process_document`) replaces
+        `document.chunks` wholesale, and the `cascade="all, delete-orphan"`
+        relationship already deletes the stale rows - no new code needed.
+        The Milvus/Neo4j pre-ingest cleanup in `process_document` is
+        document_id-scoped and was already correct; it was simply inert
+        before this fix because a content change used to mint a new id.
+        """
+        storage_path = f"{tenant_id}/{existing_doc.id}/{filename}"
+        file_io = io.BytesIO(file_content)
+
+        try:
+            await asyncio.to_thread(
+                self.storage.upload_file,
+                object_name=storage_path,
+                data=file_io,
+                length=len(file_content),
+                content_type=content_type,
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload file to storage: {e}")
+            raise
+
+        previous_status = existing_doc.status
+
+        updated_metadata = dict(existing_doc.metadata_ or {})
+        updated_metadata.update({"original_filename": filename, "content_type": content_type})
+        if metadata_:
+            updated_metadata.update(metadata_)
+
+        existing_doc.content_hash = content_hash
+        existing_doc.storage_path = storage_path
+        existing_doc.status = DocumentStatus.INGESTED
+        existing_doc.error_message = None
+        existing_doc.metadata_ = updated_metadata
+
+        await self.document_repository.save(existing_doc)
+
+        await self.event_dispatcher.emit_state_change(
+            StateChangeEvent(
+                document_id=existing_doc.id,
+                old_status=previous_status,
+                new_status=DocumentStatus.INGESTED,
+                tenant_id=tenant_id,
+                details={"filename": filename, "replaced": True},
+            )
+        )
+
+        logger.info(
+            f"Replaced document content in place: {filename} (ID: {existing_doc.id}, "
+            f"previous status: {getattr(previous_status, 'value', previous_status)})"
+        )
+        return existing_doc
 
     async def process_document(self, document_id: str):
         """
