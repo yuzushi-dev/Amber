@@ -437,27 +437,25 @@ async def _query_stream_impl(
         # Check if this is a continuation of an AGENT conversation
         if request.conversation_id and not (request.options and request.options.agent_mode):
             try:
-                from src.api.deps import _get_async_session_maker
                 from src.core.generation.domain.memory_models import ConversationSummary
 
-                async with _get_async_session_maker()() as session:
-                    existing_conv = await session.get(ConversationSummary, request.conversation_id)
-                    if existing_conv and existing_conv.metadata_:
-                        # Ownership check: only allow sticky switch for caller's own conversation
-                        if existing_conv.tenant_id != tenant_id:
-                            existing_conv = None  # ignore foreign-tenant conversations
-                    if existing_conv and existing_conv.metadata_:
-                        mode = existing_conv.metadata_.get("mode")
-                        if mode == "agent":
-                            logger.info(
-                                f"Auto-switching conversation {request.conversation_id} to Agent Mode (Sticky)"
-                            )
-                            if not request.options:
-                                from src.api.schemas.query import QueryOptions
+                existing_conv = await session.get(ConversationSummary, request.conversation_id)
+                if existing_conv and existing_conv.metadata_:
+                    # Ownership check: only allow sticky switch for caller's own conversation
+                    if existing_conv.tenant_id != tenant_id:
+                        existing_conv = None  # ignore foreign-tenant conversations
+                if existing_conv and existing_conv.metadata_:
+                    mode = existing_conv.metadata_.get("mode")
+                    if mode == "agent":
+                        logger.info(
+                            f"Auto-switching conversation {request.conversation_id} to Agent Mode (Sticky)"
+                        )
+                        if not request.options:
+                            from src.api.schemas.query import QueryOptions
 
-                                request.options = QueryOptions(agent_mode=True)
-                            else:
-                                request.options.agent_mode = True
+                            request.options = QueryOptions(agent_mode=True)
+                        else:
+                            request.options.agent_mode = True
             except Exception as e:
                 logger.warning(f"Failed to check stickiness: {e}")
 
@@ -619,85 +617,83 @@ async def _query_stream_impl(
                         request.query[:50] + "..." if len(request.query) > 50 else request.query
                     )
 
-                    from src.api.deps import _get_async_session_maker
                     from src.core.generation.domain.memory_models import ConversationSummary
 
-                    async with _get_async_session_maker()() as session:
-                        # Try to find existing conversation
-                        existing_summary = None
-                        if request.conversation_id:
-                            existing_summary = await session.get(
-                                ConversationSummary, agent_conversation_id
-                            )
+                    # Try to find existing conversation
+                    existing_summary = None
+                    if request.conversation_id:
+                        existing_summary = await session.get(
+                            ConversationSummary, agent_conversation_id
+                        )
 
-                        if existing_summary:
-                            # Ownership check: reject updates to foreign-tenant/user conversations
-                            if existing_summary.tenant_id != tenant_id:
-                                yield f'event: error\ndata: {json.dumps("Conversation not found")}\n\n'
-                                return
-                            # UPDATE existing conversation
-                            # 1. Append to history in metadata
-                            history = existing_summary.metadata_.get("history", [])
-                            history.append(
-                                {
-                                    "query": request.query,
-                                    "answer": full_answer,
-                                    "sources": agent_sources,
-                                    "timestamp": _utc_now_iso(),
-                                }
-                            )
-                            existing_summary.metadata_["history"] = history
+                    if existing_summary:
+                        # Ownership check: reject updates to foreign-tenant/user conversations
+                        if existing_summary.tenant_id != tenant_id:
+                            yield f'event: error\ndata: {json.dumps("Conversation not found")}\n\n'
+                            return
+                        # UPDATE existing conversation
+                        # 1. Append to history in metadata
+                        history = existing_summary.metadata_.get("history", [])
+                        history.append(
+                            {
+                                "query": request.query,
+                                "answer": full_answer,
+                                "sources": agent_sources,
+                                "timestamp": _utc_now_iso(),
+                            }
+                        )
+                        existing_summary.metadata_["history"] = history
 
-                            # 2. Update top-level metadata to reflect LATEST turn
-                            existing_summary.metadata_["query"] = request.query
-                            existing_summary.metadata_["answer"] = full_answer
-                            existing_summary.metadata_["sources"] = agent_sources
-                            existing_summary.metadata_["timestamp"] = _utc_now_iso()
+                        # 2. Update top-level metadata to reflect LATEST turn
+                        existing_summary.metadata_["query"] = request.query
+                        existing_summary.metadata_["answer"] = full_answer
+                        existing_summary.metadata_["sources"] = agent_sources
+                        existing_summary.metadata_["timestamp"] = _utc_now_iso()
 
-                            # 3. Flag as modified for SQLAlchemy
-                            from sqlalchemy.orm.attributes import flag_modified
+                        # 3. Flag as modified for SQLAlchemy
+                        from sqlalchemy.orm.attributes import flag_modified
 
-                            flag_modified(existing_summary, "metadata_")
+                        flag_modified(existing_summary, "metadata_")
 
-                            session.add(existing_summary)
-                            await session.commit()
-                            logger.info(
-                                f"Updated AGENT conversation history: {existing_summary.id}"
-                            )
-                        else:
-                            # INSERT new conversation
-                            new_summary = ConversationSummary(
-                                id=agent_conversation_id,
-                                tenant_id=tenant_id,
-                                user_id=stream_user_id,
-                                title=title_text,
-                                summary=summary_text,
-                                metadata_={
-                                    "query": request.query,
-                                    "answer": full_answer,
-                                    "model": "agent-default",
-                                    "mode": "agent",
-                                    # tools_actually_called: names of tools invoked
-                                    # during this run (from orchestrator trace),
-                                    # not the full available tool_schemas list.
-                                    "tools_used": tools_actually_called,
-                                    "history": [
-                                        {
-                                            "query": request.query,
-                                            "answer": full_answer,
-                                            "sources": agent_sources,
-                                            "routing_info": {
-                                                "categories": ["Agent Tools"],
-                                                "confidence": 1.0,
-                                            },
-                                            "timestamp": _utc_now_iso(),
-                                        }
-                                    ],
-                                },
-                            )
-                            session.add(new_summary)
-                            await session.commit()
-                            logger.info(f"Saved AGENT conversation history: {new_summary.id}")
+                        session.add(existing_summary)
+                        await session.commit()
+                        logger.info(
+                            f"Updated AGENT conversation history: {existing_summary.id}"
+                        )
+                    else:
+                        # INSERT new conversation
+                        new_summary = ConversationSummary(
+                            id=agent_conversation_id,
+                            tenant_id=tenant_id,
+                            user_id=stream_user_id,
+                            title=title_text,
+                            summary=summary_text,
+                            metadata_={
+                                "query": request.query,
+                                "answer": full_answer,
+                                "model": "agent-default",
+                                "mode": "agent",
+                                # tools_actually_called: names of tools invoked
+                                # during this run (from orchestrator trace),
+                                # not the full available tool_schemas list.
+                                "tools_used": tools_actually_called,
+                                "history": [
+                                    {
+                                        "query": request.query,
+                                        "answer": full_answer,
+                                        "sources": agent_sources,
+                                        "routing_info": {
+                                            "categories": ["Agent Tools"],
+                                            "confidence": 1.0,
+                                        },
+                                        "timestamp": _utc_now_iso(),
+                                    }
+                                ],
+                            },
+                        )
+                        session.add(new_summary)
+                        await session.commit()
+                        logger.info(f"Saved AGENT conversation history: {new_summary.id}")
 
                     # NOTE: pseudo-streaming — AgentOrchestrator awaits the complete LLM
                     # response before returning; there is no real token-by-token streaming.
@@ -879,87 +875,85 @@ async def _query_stream_impl(
                     request.query[:50] + "..." if len(request.query) > 50 else request.query
                 )
 
-                from src.api.deps import _get_async_session_maker
                 from src.core.generation.domain.memory_models import ConversationSummary
 
-                async with _get_async_session_maker()() as session:
-                    # Try to find existing conversation (for threading)
-                    existing_summary = None
-                    if request.conversation_id:
-                        existing_summary = await session.get(
-                            ConversationSummary, final_conversation_id
-                        )
+                # Try to find existing conversation (for threading)
+                existing_summary = None
+                if request.conversation_id:
+                    existing_summary = await session.get(
+                        ConversationSummary, final_conversation_id
+                    )
 
-                    # Prepare stats for persistence
-                    persistence_quality = None
-                    if retrieval_result and retrieval_result.chunks:
-                        persistence_quality = _build_quality_data(retrieval_result.chunks)
+                # Prepare stats for persistence
+                persistence_quality = None
+                if retrieval_result and retrieval_result.chunks:
+                    persistence_quality = _build_quality_data(retrieval_result.chunks)
 
-                    persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
+                persistence_routing = {"categories": ["Imported Docs"], "confidence": 1.0}
 
-                    if existing_summary:
-                        # Ownership check: reject updates to foreign-tenant/user conversations
-                        if existing_summary.tenant_id != tenant_id or existing_summary.user_id != stream_user_id:
-                            existing_summary = None  # treat as new
-                    if existing_summary:
-                        # UPDATE existing conversation
-                        # 1. Append to history
-                        history = existing_summary.metadata_.get("history", [])
-                        history.append(
-                            {
-                                "query": request.query,
-                                "answer": full_answer,
-                                "sources": collected_sources,
-                                "quality_score": persistence_quality,
-                                "routing_info": persistence_routing,
-                                "timestamp": _utc_now_iso(),
-                            }
-                        )
-                        existing_summary.metadata_["history"] = history
+                if existing_summary:
+                    # Ownership check: reject updates to foreign-tenant/user conversations
+                    if existing_summary.tenant_id != tenant_id or existing_summary.user_id != stream_user_id:
+                        existing_summary = None  # treat as new
+                if existing_summary:
+                    # UPDATE existing conversation
+                    # 1. Append to history
+                    history = existing_summary.metadata_.get("history", [])
+                    history.append(
+                        {
+                            "query": request.query,
+                            "answer": full_answer,
+                            "sources": collected_sources,
+                            "quality_score": persistence_quality,
+                            "routing_info": persistence_routing,
+                            "timestamp": _utc_now_iso(),
+                        }
+                    )
+                    existing_summary.metadata_["history"] = history
 
-                        # 2. Update top-level metadata
-                        existing_summary.metadata_["query"] = request.query
-                        existing_summary.metadata_["answer"] = full_answer
-                        existing_summary.metadata_["timestamp"] = _utc_now_iso()
+                    # 2. Update top-level metadata
+                    existing_summary.metadata_["query"] = request.query
+                    existing_summary.metadata_["answer"] = full_answer
+                    existing_summary.metadata_["timestamp"] = _utc_now_iso()
 
-                        # 3. Flag as modified for SQLAlchemy
-                        from sqlalchemy.orm.attributes import flag_modified
+                    # 3. Flag as modified for SQLAlchemy
+                    from sqlalchemy.orm.attributes import flag_modified
 
-                        flag_modified(existing_summary, "metadata_")
+                    flag_modified(existing_summary, "metadata_")
 
-                        session.add(existing_summary)
-                        await session.commit()
-                        logger.info(f"Updated RAG conversation history: {existing_summary.id}")
-                    else:
-                        # INSERT new conversation
-                        # Use the final_conversation_id we generated at the start
-                        new_summary = ConversationSummary(
-                            id=final_conversation_id,
-                            tenant_id=tenant_id,
-                            user_id=user_id,
-                            title=title_text,
-                            summary=summary_text,
-                            metadata_={
-                                "query": request.query,
-                                "answer": full_answer,
-                                "sources": collected_sources,
-                                "model": "rag-default",
-                                "mode": "rag",
-                                "history": [
-                                    {
-                                        "query": request.query,
-                                        "answer": full_answer,
-                                        "sources": collected_sources,
-                                        "quality_score": persistence_quality,
-                                        "routing_info": persistence_routing,
-                                        "timestamp": _utc_now_iso(),
-                                    }
-                                ],
-                            },
-                        )
-                        session.add(new_summary)
-                        await session.commit()
-                        logger.info(f"Saved RAG conversation history: {new_summary.id}")
+                    session.add(existing_summary)
+                    await session.commit()
+                    logger.info(f"Updated RAG conversation history: {existing_summary.id}")
+                else:
+                    # INSERT new conversation
+                    # Use the final_conversation_id we generated at the start
+                    new_summary = ConversationSummary(
+                        id=final_conversation_id,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        title=title_text,
+                        summary=summary_text,
+                        metadata_={
+                            "query": request.query,
+                            "answer": full_answer,
+                            "sources": collected_sources,
+                            "model": "rag-default",
+                            "mode": "rag",
+                            "history": [
+                                {
+                                    "query": request.query,
+                                    "answer": full_answer,
+                                    "sources": collected_sources,
+                                    "quality_score": persistence_quality,
+                                    "routing_info": persistence_routing,
+                                    "timestamp": _utc_now_iso(),
+                                }
+                            ],
+                        },
+                    )
+                    session.add(new_summary)
+                    await session.commit()
+                    logger.info(f"Saved RAG conversation history: {new_summary.id}")
 
             except Exception as e:
                 logger.error(f"Failed to save RAG conversation history: {e}")

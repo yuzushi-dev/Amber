@@ -132,7 +132,11 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
     response = await _query_stream_impl(
         http_request=_build_post_request(),
         request=request,
-        session=MagicMock(),
+        # Must be a real (async-capable) session stub: the agent-mode save
+        # path now persists through the injected session directly (RLS fix),
+        # rather than shadowing it with a bare `_get_async_session_maker()()`
+        # session, so a plain MagicMock's non-awaitable `.commit()` would fail.
+        session=StubSession(),
     )
 
     payload_parts: list[str] = []
