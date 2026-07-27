@@ -39,6 +39,7 @@ class DriftSearchService:
         tenant_id: str,
         options: Any | None = None,
         tenant_config: dict | None = None,
+        query_scopes: Any | None = None,
     ) -> dict[str, Any]:
         """
         Execute DRIFT Search:
@@ -56,7 +57,7 @@ class DriftSearchService:
         # 1. Primer Phase
         logger.info(f"DRIFT Primer for query: {query}")
         primer_results = await self.retrieval_service.retrieve(
-            query=query, tenant_id=tenant_id, top_k=5
+            query=query, tenant_id=tenant_id, top_k=5, query_scopes=query_scopes
         )
         all_candidates.extend(primer_results.chunks)
 
@@ -126,7 +127,9 @@ class DriftSearchService:
 
             expansion_tasks = [
                 asyncio.wait_for(
-                    self.retrieval_service.retrieve(query=q, tenant_id=tenant_id, top_k=3),
+                    self.retrieval_service.retrieve(
+                        query=q, tenant_id=tenant_id, top_k=3, query_scopes=query_scopes
+                    ),
                     timeout=remaining
                 )
                 for q in questions

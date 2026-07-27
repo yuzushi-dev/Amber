@@ -84,38 +84,46 @@ class QueryUseCase:
         trace_steps: list[TraceStep] = []
 
         # 1. STRUCTURED QUERY CHECK
-        try:
-            from src.core.retrieval.application.query.structured_query import structured_executor
-
-            structured_result = await structured_executor.try_execute(
-                query=request.query,
-                tenant_id=tenant_id,
-            )
-
-            if structured_result and structured_result.success:
-                logger.info(
-                    f"Structured query executed: {structured_result.query_type.value} "
-                    f"in {structured_result.execution_time_ms:.1f}ms"
+        # SECURITY: the structured fast-path runs tenant-scoped Cypher with NO
+        # group ACL (Neo4j has no Postgres-RLS backstop). If group enforcement is
+        # active for the caller, skip it and fall through to the ACL-enforced RAG
+        # path — otherwise a group-restricted user could enumerate documents /
+        # entities / relationships their groups were never granted.
+        if not getattr(query_scopes, "enforce_groups", False):
+            try:
+                from src.core.retrieval.application.query.structured_query import (
+                    structured_executor,
                 )
 
-                count = structured_result.count
-                query_type = structured_result.query_type.value
-                message = self._format_structured_message(query_type, count)
-
-                return StructuredQueryResponse(
-                    query_type=query_type,
-                    data=structured_result.data,
-                    count=count,
-                    timing=TimingInfo(
-                        total_ms=round(structured_result.execution_time_ms, 2),
-                        retrieval_ms=round(structured_result.execution_time_ms, 2),
-                        generation_ms=0,
-                    ),
-                    message=message,
+                structured_result = await structured_executor.try_execute(
+                    query=request.query,
+                    tenant_id=tenant_id,
                 )
 
-        except Exception as e:
-            logger.debug(f"Structured query check failed, using RAG: {e}")
+                if structured_result and structured_result.success:
+                    logger.info(
+                        f"Structured query executed: {structured_result.query_type.value} "
+                        f"in {structured_result.execution_time_ms:.1f}ms"
+                    )
+
+                    count = structured_result.count
+                    query_type = structured_result.query_type.value
+                    message = self._format_structured_message(query_type, count)
+
+                    return StructuredQueryResponse(
+                        query_type=query_type,
+                        data=structured_result.data,
+                        count=count,
+                        timing=TimingInfo(
+                            total_ms=round(structured_result.execution_time_ms, 2),
+                            retrieval_ms=round(structured_result.execution_time_ms, 2),
+                            generation_ms=0,
+                        ),
+                        message=message,
+                    )
+
+            except Exception as e:
+                logger.debug(f"Structured query check failed, using RAG: {e}")
 
         # 2. AGENTIC MODE
         if request.options and request.options.agent_mode:
@@ -316,8 +324,13 @@ class QueryUseCase:
         from src.core.tools.filesystem import create_filesystem_tools
         from src.core.tools.retrieval import create_retrieval_tool
 
-        # Tools Setup
-        retrieval_tool_def = create_retrieval_tool(self.retrieval_service, tenant_id)
+        # Tools Setup. Carry the authenticated group ACL scope so the agent's
+        # searches are scoped like normal RAG (falls back to open scope only when
+        # the request has none, e.g. non-HTTP callers).
+        query_scopes = getattr(http_request_state, "query_scopes", None)
+        retrieval_tool_def = create_retrieval_tool(
+            self.retrieval_service, tenant_id, query_scopes=query_scopes
+        )
         tool_map = {retrieval_tool_def["name"]: retrieval_tool_def["func"]}
         tool_schemas = [retrieval_tool_def["schema"]]
 

@@ -293,7 +293,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 all_tenant_ids = list(_result.scalars().all())
             query_scopes = resolve_super_admin_query_scopes(all_tenant_ids)
         else:
-            query_scopes = resolve_query_scopes(str(tenant_id))
+            # Tenant admins and root/platform-admin keys bypass group enforcement
+            # (mirrors the RLS documents policy: tenant_role='admin' — and root
+            # impersonating a tenant — see all tenant docs). Only non-admin
+            # members are constrained to their group grants.
+            _is_platform_admin = bool({"super_admin", "root"} & set(permissions))
+            _enforce_for_caller = (
+                groups_enforced and tenant_role != "admin" and not _is_platform_admin
+            )
+            query_scopes = resolve_query_scopes(
+                str(tenant_id),
+                group_ids=group_ids,
+                enforce_groups=_enforce_for_caller,
+            )
 
         request.state.tenant_id = tenant_id
         request.state.query_scopes = query_scopes
