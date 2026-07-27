@@ -468,14 +468,33 @@ async def _query_stream_impl(
             # List/count queries must short-circuit here so stream and non-stream
             # paths behave identically.  The result is emitted as a single
             # "structured_result" event followed by "done".
+            #
+            # SECURITY: same constraint as the non-stream path in
+            # use_cases_query.QueryUseCase.execute — the structured fast-path runs
+            # tenant-scoped Cypher with NO group ACL (Neo4j has no Postgres-RLS
+            # backstop). When group enforcement is active for the caller, skip it
+            # and fall through to the ACL-enforced RAG path, or a group-restricted
+            # user enumerates documents/entities their groups never granted by
+            # simply typing "list all documents" into the chat.
+            _stream_scopes = getattr(http_request.state, "query_scopes", None)
+            _structured_allowed = not getattr(_stream_scopes, "enforce_groups", False)
+            if not _structured_allowed:
+                logger.debug(
+                    "SSE: structured fast-path skipped (group enforcement active) tenant=%s",
+                    tenant_id,
+                )
             try:
                 from src.core.retrieval.application.query.structured_query import (
                     structured_executor,
                 )
 
-                _structured_result = await structured_executor.try_execute(
-                    query=request.query,
-                    tenant_id=tenant_id,
+                _structured_result = (
+                    await structured_executor.try_execute(
+                        query=request.query,
+                        tenant_id=tenant_id,
+                    )
+                    if _structured_allowed
+                    else None
                 )
                 if _structured_result and _structured_result.success:
                     logger.info(

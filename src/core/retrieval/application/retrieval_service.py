@@ -836,6 +836,21 @@ class RetrievalService:
         )
         _router_latency_ms = (time.perf_counter() - _router_start) * 1000
 
+        # SECURITY: STRUCTURED runs tenant-scoped Cypher with NO group ACL (Neo4j
+        # has no Postgres-RLS backstop), and options.search_mode is a public request
+        # field the router honours verbatim — so a caller can ask for it explicitly.
+        # Under group enforcement the mode is refused here and the query falls
+        # through to the ACL-enforced vector path below. Guarding at this single
+        # point covers every caller of retrieve(): stream, non-stream, agent tool
+        # and drift.
+        _structured_allowed = not getattr(resolved_scopes, "enforce_groups", False)
+        if not _structured_allowed and search_mode == SearchMode.STRUCTURED:
+            logger.info(
+                "STRUCTURED mode requested but group enforcement is active for tenant=%s; "
+                "falling back to ACL-enforced vector search",
+                resolved_tenant_id,
+            )
+
         vector_targets: list[VectorSearchTarget] = []
         graph_targets: list[GraphSearchTarget] = []
 
@@ -870,7 +885,7 @@ class RetrievalService:
                     tenant_id=resolved_tenant_id,
                     latency_ms=0,
                 )
-            elif search_mode == SearchMode.STRUCTURED:
+            elif search_mode == SearchMode.STRUCTURED and _structured_allowed:
                 from src.core.retrieval.application.query.structured_query import (
                     structured_executor,
                 )

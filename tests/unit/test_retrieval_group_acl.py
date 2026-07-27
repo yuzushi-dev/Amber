@@ -183,3 +183,132 @@ def test_structured_fast_path_skipped_when_group_enforced(monkeypatch):
                                   http_request_state=state2, user_id="u1"))
     assert try_exec.await_count == 1
     assert getattr(resp, "count", None) == 999
+
+
+def test_structured_mode_refused_when_group_enforced(monkeypatch):
+    """SECURITY regression: SearchMode.STRUCTURED runs tenant-scoped Cypher with
+    no group ACL, and options.search_mode is a public request field the router
+    honours verbatim — so the guard in use_cases_query alone is bypassable with
+    {"options": {"search_mode": "structured"}}. retrieve() must refuse the mode
+    under group enforcement and fall through to the ACL-enforced vector path."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from src.core.retrieval.application.query import structured_query as sq
+    from src.shared.kernel.models.query import QueryOptions, SearchMode
+
+    # BaseException: the search block catches Exception and falls back, which
+    # would swallow a plain sentinel.
+    class _ReachedVectorPath(BaseException):
+        pass
+
+    try_exec = AsyncMock(return_value=SimpleNamespace(
+        success=True, query_type=SimpleNamespace(value="LIST_DOCUMENTS"),
+        count=999, data=[], execution_time_ms=1.0,
+    ))
+    monkeypatch.setattr(sq.structured_executor, "try_execute", try_exec)
+
+    svc = object.__new__(RetrievalService)
+    svc.config = SimpleNamespace(top_k=5)
+    svc.document_repository = object()  # no taxonomy method -> skip that branch
+    svc.router = SimpleNamespace(route=AsyncMock(return_value=SearchMode.STRUCTURED))
+
+    async def _tenant_config(_tid):
+        return {}
+
+    async def _targets(**_kw):
+        return []
+
+    reached = {"vector": False}
+
+    async def _vector_search(**_kw):
+        reached["vector"] = True
+        raise _ReachedVectorPath()
+
+    svc._get_effective_tenant_config = _tenant_config       # type: ignore[attr-defined]
+    svc._resolve_vector_targets = _targets                  # type: ignore[attr-defined]
+    svc._execute_vector_search = _vector_search             # type: ignore[attr-defined]
+
+    opts = QueryOptions(search_mode=SearchMode.STRUCTURED)
+
+    def _retrieve(scopes):
+        """Run retrieve() far enough to observe the routing decision. Anything
+        past the search block (caching, circuit breaker, ...) is out of scope for
+        this unit and is allowed to blow up."""
+        try:
+            asyncio.run(svc.retrieve(query="list all documents", tenant_id="default",
+                                     options=opts, query_scopes=scopes))
+        except BaseException:  # noqa: BLE001 - see docstring
+            pass
+
+    # enforce_groups=True -> STRUCTURED refused, control reaches the vector path.
+    _retrieve(_scopes(True))
+    assert try_exec.await_count == 0, "STRUCTURED must NOT run under group enforcement"
+    assert reached["vector"], "refused STRUCTURED must fall through to vector search"
+
+    # enforce_groups=False -> unchanged behaviour, the executor is consulted.
+    _retrieve(_scopes(False))
+    assert try_exec.await_count == 1, "STRUCTURED must still run without enforcement"
+
+
+def test_stream_structured_precheck_skipped_when_group_enforced(monkeypatch):
+    """SECURITY regression: the SSE pre-check is a second entry point to the same
+    ACL-less Cypher, reachable by typing "list all documents" in the chat. It must
+    honour enforce_groups exactly like the non-stream path."""
+    from types import SimpleNamespace
+
+    from src.api.routes import query as query_routes
+    from src.core.retrieval.application.query import structured_query as sq
+
+    class _ExecutorCalled(BaseException):
+        pass
+
+    calls = {"n": 0}
+
+    async def _try_execute(**_kw):
+        calls["n"] += 1
+        raise _ExecutorCalled()  # escapes the block's `except Exception`
+
+    monkeypatch.setattr(sq.structured_executor, "try_execute", _try_execute)
+
+    # The stream builds its services before the structured pre-check; with no real
+    # DB session that raises 503 and we'd never reach the code under test.
+    from src.amber_platform import composition_root
+
+    monkeypatch.setattr(composition_root, "build_retrieval_service",
+                        lambda _session: SimpleNamespace(), raising=False)
+    monkeypatch.setattr(composition_root, "build_generation_service",
+                        lambda _session: SimpleNamespace(), raising=False)
+
+    def _drive(scopes):
+        """_query_stream_impl is a coroutine returning a StreamingResponse, so we
+        await it and then pump its body_iterator until the executor is hit or the
+        generator sails past the structured block into the RAG path (which this
+        unit does not wire up)."""
+        http_request = SimpleNamespace(
+            method="POST",
+            state=SimpleNamespace(tenant_id="default", query_scopes=scopes,
+                                  is_super_admin=False),
+            headers={"X-User-ID": "u1"},
+        )
+        req = SimpleNamespace(query="list all documents", options=None,
+                              conversation_id=None)
+
+        async def _pump():
+            resp = await query_routes._query_stream_impl(http_request, request=req)
+            async for _chunk in resp.body_iterator:
+                pass
+
+        try:
+            asyncio.run(_pump())
+        except _ExecutorCalled:
+            return "executor_called"
+        except BaseException:  # noqa: BLE001 - see docstring
+            return "past_structured"
+        return "past_structured"
+
+    assert _drive(_scopes(True)) == "past_structured"
+    assert calls["n"] == 0, "SSE structured pre-check must NOT run under group enforcement"
+
+    assert _drive(_scopes(False)) == "executor_called"
+    assert calls["n"] == 1
