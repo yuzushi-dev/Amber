@@ -18,13 +18,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session
-from src.shared.refusal import text_looks_like_refusal
 from src.api.schemas.query import (
     QueryRequest,
     QueryResponse,
     StructuredQueryResponse,
     TimingInfo,
 )
+from src.shared.refusal import text_looks_like_refusal
 
 logger = logging.getLogger(__name__)
 

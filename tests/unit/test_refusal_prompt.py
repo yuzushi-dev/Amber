@@ -8,6 +8,7 @@ Prompt-only change: these tests pin the template contract, not LLM behavior.
 
 from src.core.generation.application.prompts.templates import PROMPTS, SYSTEM_PROMPT_v1
 from src.core.tenants.application.effective_config import resolve_rag_prompts
+from src.shared.refusal import text_looks_like_refusal
 
 REFUSAL = "I don't have documentation on that topic."
 POINTER_MARKER = "Closest documented topics:"
@@ -48,7 +49,6 @@ def test_tenant_override_bypasses_default():
 
 
 # --- Behavioural refusal-detection tests (shared detector) --------------------
-from src.shared.refusal import text_looks_like_refusal
 
 
 def test_paraphrased_refusal_opener_detected():
@@ -75,3 +75,51 @@ def test_real_answer_not_flagged_as_refusal():
         "To create a distribution list, open the Admin Panel and select Domains [[Source: 1]]."
     )
     assert not text_looks_like_refusal("")
+
+
+def test_valid_answer_with_mid_text_hedge_is_not_refusal():
+    # Regression test: a real, sourced answer that happens to contain a hedge
+    # sentence AFTER its first citation must not be classified as a refusal.
+    # Fails if detection goes back to scanning the whole text unanchored.
+    assert not text_looks_like_refusal(
+        "Configure the MTA as described [[Source: 2]]. I do not have details "
+        "on the exact timeout value, but the default is 60s [[Source: 3]]."
+    )
+
+
+def test_refusal_at_opening_is_detected():
+    assert text_looks_like_refusal("I don't have documentation on that topic.")
+    # Adverb-tolerant opener, still no citation before it.
+    assert text_looks_like_refusal(
+        "I don't have direct documentation on the exact configuration syntax."
+    )
+
+
+def test_italian_refusal_is_detected():
+    assert text_looks_like_refusal("Non ho documentazione su questo argomento.")
+
+
+def test_marker_anywhere_is_detected():
+    # Opening carries no refusal pattern; the trailing marker alone is enough.
+    assert text_looks_like_refusal(
+        "Here is what's related to your query.\n\n"
+        "Closest documented topics:\n- Foo [[Source: 1]]"
+    )
+
+
+def test_short_preamble_before_refusal_is_detected():
+    assert text_looks_like_refusal(
+        "Thanks for asking. I don't have documentation on that topic."
+    )
+
+
+def test_hedge_before_citation_in_same_sentence_is_a_known_false_positive():
+    # Known limitation, pinned on purpose (see src/shared/refusal.py
+    # docstring): a valid answer whose opening sentence mixes a hedge with
+    # its own substantive, cited content — before any citation appears — is
+    # indistinguishable from a real refusal opener with cheap text matching.
+    # This is a real, useful answer, but it IS flagged as a refusal today.
+    assert text_looks_like_refusal(
+        "I don't have specific details on the exact configuration, but the "
+        "default timeout is 60 seconds, set it in mail.cf [[Source: 4]]."
+    )
