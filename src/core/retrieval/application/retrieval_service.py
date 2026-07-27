@@ -70,6 +70,9 @@ class VectorSearchTarget:
     tenant_id: str
     collection_name: str
     document_ids: list[str] | None = None
+    # Blocklist of non-READY document IDs (with indexed chunks) to exclude.
+    # Resolved independently of ACLs - see _list_non_ready_document_ids_with_chunks.
+    exclude_document_ids: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,9 @@ class GraphSearchTarget:
 
     tenant_id: str
     allowed_doc_ids: list[str] | None = None
+    # Blocklist of non-READY document IDs (with indexed chunks) to exclude.
+    # Resolved independently of ACLs - see _list_non_ready_document_ids_with_chunks.
+    excluded_doc_ids: list[str] | None = None
 
 
 @dataclass
@@ -313,6 +319,38 @@ class RetrievalService:
         )
         return []
 
+    async def _list_non_ready_document_ids_with_chunks(
+        self, tenant_id: str
+    ) -> list[str] | None:
+        """Resolve the retrieval-time blocklist of non-READY documents with chunks.
+
+        This is a data-quality filter, not an authorization decision: it must be
+        resolved for every target regardless of ACL/group settings (unlike
+        `_list_visible_document_ids`, which stays purely ACL semantics - see
+        graph_traversal_guard.py and the Part A spec notes). Degrades gracefully
+        (no exclusion) if the repository does not implement the method, mirroring
+        the fallback pattern used by `_list_visible_document_ids`.
+        """
+        getter = getattr(self.document_repository, "list_non_ready_document_ids_with_chunks", None)
+        if not callable(getter):
+            return None
+
+        try:
+            result = getter(tenant_id=tenant_id)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as e:
+            logger.warning(
+                "Failed to resolve non-READY document blocklist for tenant=%s: %s",
+                tenant_id,
+                e,
+            )
+            return None
+
+        if isinstance(result, list):
+            return result
+        return None
+
     async def _resolve_vector_targets(
         self,
         viewer_tenant_id: str,
@@ -364,11 +402,15 @@ class RetrievalService:
                     continue
 
             collection_name = await self._resolve_active_collection(scope_tenant_id)
+            exclude_document_ids = await self._list_non_ready_document_ids_with_chunks(
+                scope_tenant_id
+            )
             targets.append(
                 VectorSearchTarget(
                     tenant_id=scope_tenant_id,
                     collection_name=collection_name,
                     document_ids=scope_document_ids,
+                    exclude_document_ids=exclude_document_ids,
                 )
             )
             requested_document_ids_count = len(candidate_document_ids) if candidate_document_ids is not None else None
@@ -418,6 +460,7 @@ class RetrievalService:
                 score_threshold=self.config.score_threshold,
                 filters=filters,
                 collection_name=target.collection_name,
+                exclude_document_ids=target.exclude_document_ids,
             )
             merged_results.extend(target_results)
             target_trace.append(
@@ -467,6 +510,7 @@ class RetrievalService:
                 limit=limit,
                 filters=filters,
                 collection_name=target.collection_name,
+                exclude_document_ids=target.exclude_document_ids,
             )
             merged_results.extend(target_results)
             target_trace.append(
@@ -531,10 +575,14 @@ class RetrievalService:
                 if not allowed_doc_ids:
                     continue
 
+            excluded_doc_ids = await self._list_non_ready_document_ids_with_chunks(
+                scope_tenant_id
+            )
             targets.append(
                 GraphSearchTarget(
                     tenant_id=scope_tenant_id,
                     allowed_doc_ids=allowed_doc_ids,
+                    excluded_doc_ids=excluded_doc_ids,
                 )
             )
             requested_document_ids_count = len(candidate_document_ids) if candidate_document_ids is not None else None

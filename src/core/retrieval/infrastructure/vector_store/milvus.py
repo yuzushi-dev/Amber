@@ -398,6 +398,7 @@ class MilvusVectorStore:
         score_threshold: float | None = None,
         filters: dict[str, Any] | None = None,
         collection_name: str | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
         """
         Search for similar chunks.
@@ -409,6 +410,10 @@ class MilvusVectorStore:
             limit: Maximum results to return
             score_threshold: Minimum similarity score
             filters: Optional dictionary of metadata filters (e.g. {"quality_score >": 0.5})
+            exclude_document_ids: Optional blocklist of document IDs to exclude. Applied
+                inside the Milvus `expr` (not a post-filter): a post-filter would consume
+                `limit` before excluding anything and could return fewer than `limit`
+                results even when enough eligible chunks exist.
 
         Returns:
             List of SearchResult ordered by similarity
@@ -444,6 +449,9 @@ class MilvusVectorStore:
                 f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
             )
             filter_list.append(f"({doc_filter})")
+        if exclude_document_ids:
+            quoted_exclude_ids = ", ".join(f'"{doc_id}"' for doc_id in exclude_document_ids)
+            filter_list.append(f"!({self.FIELD_DOCUMENT_ID} in [{quoted_exclude_ids}])")
 
         # Add dynamic filters
         if filters:
@@ -703,6 +711,7 @@ class MilvusVectorStore:
         rrf_k: int = 60,
         collection_name: str | None = None,
         score_threshold: float | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
         """
         Perform Hybrid Search (Dense + Sparse) with Reciprocal Rank Fusion (RRF).
@@ -717,6 +726,9 @@ class MilvusVectorStore:
                 separate, correctly-scaled threshold must be derived/tuned for hybrid
                 before this is wired up by callers. Left as `None` (no filtering,
                 matching prior behavior) unless a caller explicitly opts in.
+            exclude_document_ids: Optional blocklist of document IDs to exclude, applied
+                inside the Milvus `expr` for both the dense and sparse sub-requests (not
+                a post-filter - see `search()` for why that distinction matters).
         """
         await self.connect()
         milvus = _get_milvus()
@@ -754,7 +766,12 @@ class MilvusVectorStore:
                 "Hybrid search components not found (pymilvus too old?), falling back to Dense search"
             )
             return await self.search(
-                dense_vector, tenant_id, document_ids=document_ids, limit=limit, filters=filters
+                dense_vector,
+                tenant_id,
+                document_ids=document_ids,
+                limit=limit,
+                filters=filters,
+                exclude_document_ids=exclude_document_ids,
             )
 
         # Build filter
@@ -764,6 +781,9 @@ class MilvusVectorStore:
                 f'{self.FIELD_DOCUMENT_ID} == "{doc_id}"' for doc_id in document_ids
             )
             filter_list.append(f"({doc_filter})")
+        if exclude_document_ids:
+            quoted_exclude_ids = ", ".join(f'"{doc_id}"' for doc_id in exclude_document_ids)
+            filter_list.append(f"!({self.FIELD_DOCUMENT_ID} in [{quoted_exclude_ids}])")
 
         if filters:
             for key, val in filters.items():
@@ -791,7 +811,13 @@ class MilvusVectorStore:
         )
 
         if not sparse_vector or not has_sparse_field:
-            return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
+            return await self.search(
+                dense_vector,
+                tenant_id,
+                limit=limit,
+                filters=filters,
+                exclude_document_ids=exclude_document_ids,
+            )
 
         sparse_req = milvus["AnnSearchRequest"](
             data=[sparse_vector],
@@ -864,7 +890,13 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Hybrid search failed: {e}")
             # Fallback
-            return await self.search(dense_vector, tenant_id, limit=limit, filters=filters)
+            return await self.search(
+                dense_vector,
+                tenant_id,
+                limit=limit,
+                filters=filters,
+                exclude_document_ids=exclude_document_ids,
+            )
 
     async def drop_collection(self) -> bool:
         """
