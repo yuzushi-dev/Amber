@@ -136,7 +136,7 @@ async def list_folders(
     name_to_canonical = {f.name: f.id for f in folders}
     # Build folder_id -> name map from raw rows (need all folders, not just canonical).
     all_folders_raw = await session.execute(select(Folder.id, Folder.name))
-    folder_id_to_name = {fid: name for fid, name in all_folders_raw.all()}
+    folder_id_to_name = dict(all_folders_raw.all())
 
     canonical_counts: dict[str, int] = {f.id: 0 for f in folders}
     for fid, c in counts_raw.items():

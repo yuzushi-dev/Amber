@@ -153,6 +153,8 @@ export default function DocumentLibrary() {
 
     // Reset page when filters change
     useEffect(() => {
+        // Intentional state sync: reset pagination to page 1 whenever filters change.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setPage(1)
     }, [debouncedQuery, statusFilter, sourceFilter, sortBy, sortDir, folderFilter])
 
@@ -199,6 +201,9 @@ export default function DocumentLibrary() {
 
     useEffect(() => {
         const validDocumentIds = new Set(documents.map((d) => d.id))
+        // Intentional state sync: prune selection against the current document set;
+        // the functional update is a no-op when nothing changed, so it cannot loop.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedDocumentIds((current) => {
             const next = new Set([...current].filter((id) => validDocumentIds.has(id)))
             return next.size === current.size ? current : next

@@ -7,13 +7,11 @@ from typing import Any
 from uuid import uuid4
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import (
     Button,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     ProgressBar,
@@ -163,14 +161,13 @@ class BackupScreen(Vertical):
             await self._refresh()
 
     async def _dispatch_create(self, scope: str) -> None:
+        from src.cli._session import session_scope
         from src.core.admin_ops.domain.backup_job import (
             BackupJob,
             BackupScope,
             BackupStatus,
         )
         from src.workers.backup_tasks import create_backup as create_backup_task
-
-        from src.cli._session import session_scope
 
         job_id = str(uuid4())
         async with session_scope() as session:

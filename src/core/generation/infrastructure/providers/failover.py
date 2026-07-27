@@ -147,7 +147,6 @@ class FailoverLLMProvider(BaseLLMProvider):
     ) -> Any:
         """Chat completion with failover across providers."""
         last_error = None
-        is_primary = True
 
         for provider in self.providers:
             circuit = self.circuits[provider.provider_name]
@@ -156,7 +155,6 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(
                     f"Skipping provider {provider.provider_name} (Circuit {circuit.state.value})"
                 )
-                is_primary = False
                 continue
 
             try:
@@ -174,20 +172,17 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(f"Rate limited by {provider.provider_name}: {e}")
                 circuit.record_failure()
                 last_error = e
-                is_primary = False
                 continue
 
             except ProviderUnavailableError as e:
                 logger.warning(f"Provider {provider.provider_name} unavailable: {e}")
                 circuit.record_failure()
                 last_error = e
-                is_primary = False
                 continue
 
             except ProviderError as e:
                 logger.warning(f"Provider {provider.provider_name} error: {e}")
                 last_error = e
-                is_primary = False
                 if "Authentication" in type(e).__name__ or "Invalid" in type(e).__name__:
                     continue
                 circuit.record_failure()
@@ -197,7 +192,6 @@ class FailoverLLMProvider(BaseLLMProvider):
                 logger.warning(f"Provider {provider.provider_name} unexpected error: {e}")
                 circuit.record_failure()
                 last_error = e
-                is_primary = False
                 continue
 
         if not last_error:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, TabbedContent, TabPane
+from textual.widgets import Button, Footer, Header, TabbedContent, TabPane
 
 from src.cli.tui.screens import BackupScreen, EvalScreen, LlmScreen, TuningScreen
 
@@ -57,7 +57,7 @@ class AmberConsole(App):
         if not button_id:
             return
         try:
-            btn = self.query_one(f"#{button_id}")
+            btn = self.query_one(f"#{button_id}", Button)
             btn.press()
         except Exception:
             pass

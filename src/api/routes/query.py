@@ -154,9 +154,10 @@ async def query(
         # Persist conversation summary in Postgres (mirrors streaming path)
         if user_id and response.conversation_id:
             try:
+                from sqlalchemy.orm.attributes import flag_modified
+
                 from src.api.deps import _get_async_session_maker
                 from src.core.generation.domain.memory_models import ConversationSummary
-                from sqlalchemy.orm.attributes import flag_modified
 
                 # Serialize sources to plain dicts (matching stream path's collected_sources shape)
                 response_sources = [
@@ -468,7 +469,9 @@ async def _query_stream_impl(
             # paths behave identically.  The result is emitted as a single
             # "structured_result" event followed by "done".
             try:
-                from src.core.retrieval.application.query.structured_query import structured_executor
+                from src.core.retrieval.application.query.structured_query import (
+                    structured_executor,
+                )
 
                 _structured_result = await structured_executor.try_execute(
                     query=request.query,

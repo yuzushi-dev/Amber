@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.core.retrieval.application.query.sufficiency import SufficiencyVerdict
 from src.core.retrieval.application.retrieval_service import (
     RetrievalResult,
     RetrievalService,
     VectorSearchTarget,
 )
-from src.core.retrieval.application.query.sufficiency import SufficiencyVerdict
 from src.shared.kernel.models.query import QueryOptions
 
 

@@ -47,7 +47,7 @@ class SqlAlchemyUnitOfWork:
         session_factory: Callable[[], AsyncSession],
         tenant_id: str,
         is_super_admin: bool = False,
-        group_ids: list[str] = [],
+        group_ids: list[str] | None = None,
         tenant_role: str = "user",
         groups_enforced: bool = False,
     ) -> None:
@@ -65,7 +65,7 @@ class SqlAlchemyUnitOfWork:
         self._session_factory = session_factory
         self._tenant_id = tenant_id
         self._is_super_admin = is_super_admin
-        self._group_ids = list(group_ids)
+        self._group_ids = list(group_ids or [])
         self._tenant_role = tenant_role
         self._groups_enforced = groups_enforced
         self.session: AsyncSession | None = None

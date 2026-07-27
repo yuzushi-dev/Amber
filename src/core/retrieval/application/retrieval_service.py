@@ -5,7 +5,6 @@ Retrieval Service
 Unified retrieval pipeline combining vector search, caching, and reranking.
 """
 
-import asyncio
 import inspect
 import logging
 import time
@@ -862,7 +861,9 @@ class RetrievalService:
                     latency_ms=0,
                 )
             elif search_mode == SearchMode.STRUCTURED:
-                from src.core.retrieval.application.query.structured_query import structured_executor
+                from src.core.retrieval.application.query.structured_query import (
+                    structured_executor,
+                )
 
                 structured_result = await structured_executor.try_execute(
                     query=structured_query.cleaned_query,

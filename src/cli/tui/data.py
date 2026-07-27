@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import desc, select
 
@@ -85,7 +85,7 @@ async def read_eval_state(run_id: str) -> dict[str, Any] | None:
     import json
 
     try:
-        import redis  # type: ignore
+        import redis
 
         from src.api.config import settings
     except Exception:
@@ -99,7 +99,8 @@ async def read_eval_state(run_id: str) -> dict[str, Any] | None:
                 return None
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8")
-            return json.loads(raw)
+            data: dict[str, Any] = json.loads(cast(str, raw))
+            return data
         finally:
             client.close()
     except Exception:

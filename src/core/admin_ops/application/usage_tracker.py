@@ -5,7 +5,6 @@ Usage Tracker Service
 Handles recording of model usage events to the database.
 """
 
-import logging
 from typing import Any
 
 import structlog

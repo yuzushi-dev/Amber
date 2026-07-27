@@ -6,8 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.core.retrieval.application.retrieval_service import RetrievalService
-from src.shared.kernel.models.query import QueryOptions, SearchMode
-
 
 # ---------------------------------------------------------------------------
 # Taxonomy routing unit tests
@@ -17,9 +15,7 @@ from src.shared.kernel.models.query import QueryOptions, SearchMode
 @pytest.mark.asyncio
 async def test_taxonomy_routing_called_for_admin_query():
     """resolve_product_context is triggered and list_visible_document_ids_by_taxonomy is called."""
-    from unittest.mock import AsyncMock, MagicMock, patch
 
-    from src.core.retrieval.application.retrieval_service import RetrievalService
 
     vector_store = MagicMock()
     graph_store = MagicMock()
@@ -77,9 +73,7 @@ async def test_taxonomy_routing_called_for_admin_query():
 @pytest.mark.asyncio
 async def test_taxonomy_explicit_filter_overrides_inference():
     """Explicit edition in filters dict overrides query-inferred context."""
-    from unittest.mock import AsyncMock, MagicMock, patch
 
-    from src.core.retrieval.application.retrieval_service import RetrievalService
 
     vector_store = MagicMock()
     graph_store = MagicMock()

@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import typer
@@ -45,11 +45,10 @@ def ragas_run(
 ) -> None:
     """Dispatch a legacy ragas benchmark run via Celery."""
     try:
-        from src.workers.tasks import run_ragas_benchmark  # type: ignore
+        from src.workers.tasks import run_ragas_benchmark
     except ImportError as exc:
-        raise typer.Exit(
-            "ragas worker task not available; install optional extras first"
-        ) from exc
+        typer.echo("ragas worker task not available; install optional extras first", err=True)
+        raise typer.Exit(code=1) from exc
 
     result = run_ragas_benchmark.delay(dataset, tenant_id=tenant_id)
     console.print(f"[green]Queued[/green] task_id={result.id} dataset={dataset}")
@@ -108,7 +107,7 @@ def judge_run(
                 model=judge_model,
                 temperature=0.0,
             )
-            return result.text
+            return cast(str, result.text)
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -210,7 +209,7 @@ def locomo_run(
                 model=judge_model,
                 temperature=0.0,
             )
-            return result.text
+            return cast(str, result.text)
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),

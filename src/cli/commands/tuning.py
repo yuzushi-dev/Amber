@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -25,7 +26,7 @@ PROMPT_FIELDS = {
 }
 
 
-def _config_to_dict(tenant) -> dict:
+def _config_to_dict(tenant: Any) -> dict:
     raw = tenant.config or {}
     return dict(raw)
 
