@@ -68,7 +68,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^11.0.0",
-    "@vitejs/plugin-react": "^5.1.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "7.0.1",
@@ -80,8 +80,8 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4",
-    "vitest": "^2.1.8"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "three-render-objects": "1.22.0",
