@@ -281,6 +281,11 @@ class IngestionService:
             updated_metadata.update(metadata_)
 
         existing_doc.content_hash = content_hash
+        # filename must follow the new content: it is what get_titles_by_ids()
+        # reads to label sources in answers, so leaving the old name here would
+        # cite updated content under its previous title. Relevant when the match
+        # came from source_url and the source renamed the page.
+        existing_doc.filename = filename
         existing_doc.storage_path = storage_path
         existing_doc.status = DocumentStatus.INGESTED
         existing_doc.error_message = None

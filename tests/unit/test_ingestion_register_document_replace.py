@@ -266,6 +266,9 @@ async def test_register_document_source_url_takes_priority_over_filename(monkeyp
     )
 
     assert replaced.id == "doc_url0000000001"
+    # filename must follow the new content: get_titles_by_ids() reads this column
+    # to label sources, so a stale name would cite updated content wrongly.
+    assert replaced.filename == "new_title.html"
     rows_for_source = [
         d
         for d in repo1.rows.values()
