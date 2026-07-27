@@ -114,10 +114,10 @@ LLM_MODELS = {
         },
     },
     "ollama_cloud": {
-        "gemma3:27b": {
+        "gemma4:31b-cloud": {
             "tier": ProviderTier.ECONOMY,
             "context_window": 131072,
-            "description": "Gemma 3 27B via Ollama Cloud (direct API)",
+            "description": "Gemma 4 31B via Ollama Cloud (direct API)",
         },
         "gpt-oss:120b": {
             "tier": ProviderTier.ECONOMY,
@@ -255,7 +255,7 @@ DEFAULT_LLM_MODEL = {
     "openai": "gpt-4.1-mini",
     "anthropic": "claude-3-5-haiku-20241022",
     "ollama": "llama3",
-    "ollama_cloud": "gemma3:27b",
+    "ollama_cloud": "gemma4:31b-cloud",
     "nvidia_nim": "google/gemma-3-27b-it",
     "openrouter": "google/gemma-3-27b-it:free",
 }

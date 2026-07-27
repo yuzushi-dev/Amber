@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.admin_ops.domain.usage import UsageLog
 
 
-def make_usage_log(tenant_id, provider="ollama", model="gemma3:27b",
+def make_usage_log(tenant_id, provider="ollama", model="gemma4:31b-cloud",
                    operation="generation", input_tokens=100, output_tokens=50,
                    cost=0.001, created_at=None):
     return UsageLog(
