@@ -346,6 +346,71 @@ def _looks_like_refusal(answer: str, sources: list[Any] | None = None) -> bool:
 
 
 # =============================================================================
+# Multi-turn conversation history
+# =============================================================================
+
+
+def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[dict]:
+    """Map persisted history turns ({query, answer, ...}) to the {role, content}
+    message format the query rewriter and LLM providers expect. Keeps only the
+    last ``max_turns`` turns (each turn → a user + an assistant message).
+
+    Default 2 turns (= 4 messages): QueryRewriter.rewrite() truncates to the last
+    5 *messages*, so a wider window would be sliced mid-turn and could start on an
+    assistant message. 2 whole turns survive that slice intact, user-first.
+    A deeper window would require the rewriter to truncate by turns (follow-up)."""
+    messages: list[dict] = []
+    for turn in (turns or [])[-max_turns:]:
+        q = turn.get("query")
+        a = turn.get("answer")
+        if q:
+            messages.append({"role": "user", "content": q})
+        # Drop refusal answers ("no documentation found …"): re-feeding them as
+        # assistant context re-poisons the rewriter/generator — the same reason
+        # _looks_like_refusal blanks the stored summary. Keep the user turn.
+        if a and not _looks_like_refusal(a, turn.get("sources")):
+            messages.append({"role": "assistant", "content": a})
+    return messages
+
+
+async def _load_conversation_history(
+    conversation_id: str | None, tenant_id: str, user_id: str, max_turns: int = 2
+) -> list[dict]:
+    """Load prior turns of a conversation as {role, content} messages so the
+    retrieval query-rewriter (and generation) can resolve follow-up questions
+    against earlier context. Returns [] for a new/unknown conversation or on any
+    error (fail open — retrieval simply falls back to treating the query as
+    standalone, i.e. today's behaviour)."""
+    if not conversation_id:
+        return []
+    try:
+        from sqlalchemy import text
+
+        from src.api.deps import _get_async_session_maker
+        from src.core.generation.domain.memory_models import ConversationSummary
+
+        async with _get_async_session_maker()() as session:
+            # conversation_summaries is FORCE RLS: set the tenant context on this
+            # (non-request) session so the caller's own row is visible, matching
+            # the request session's GUCs. Without this the read returns nothing.
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :t, false)"), {"t": tenant_id}
+            )
+            await session.execute(
+                text("SELECT set_config('app.is_super_admin', 'false', false)")
+            )
+            summary = await session.get(ConversationSummary, conversation_id)
+            # Ownership check mirrors the save path: never leak another
+            # tenant's/user's conversation into this request's context.
+            if not summary or summary.tenant_id != tenant_id or summary.user_id != user_id:
+                return []
+            return _history_turns_to_messages((summary.metadata_ or {}).get("history", []), max_turns)
+    except Exception as e:
+        logger.warning(f"Failed to load conversation history for rewrite: {e}")
+        return []
+
+
+# =============================================================================
 # Streaming Endpoint
 # =============================================================================
 
@@ -763,6 +828,14 @@ async def _query_stream_impl(
             # search query, misrouting taxonomy and drifting vector search away
             # from the correct chunk.
 
+            # Load prior conversation turns so the retrieval query-rewriter can
+            # resolve follow-ups ("spiega meglio…", "mi riferivo a…") against the
+            # earlier context instead of retrieving them standalone (multi-turn
+            # context loss). Fails open to [] (today's behaviour) on any error.
+            conversation_history = await _load_conversation_history(
+                request.conversation_id, tenant_id, stream_user_id
+            )
+
             # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
                 retrieval_result = await asyncio.wait_for(
@@ -773,7 +846,7 @@ async def _query_stream_impl(
                         top_k=max_chunks,
                         include_trace=request.options.include_trace if request.options else False,
                         options=request.options,
-                        history=None,
+                        history=conversation_history or None,
                         # Carry the authenticated group ACL scope into the stream
                         # path too; without it retrieval falls back to open scopes
                         # and group enforcement is bypassed for chat queries.
@@ -824,7 +897,7 @@ async def _query_stream_impl(
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
                 candidates=retrieval_result.chunks,
-                conversation_history=None,
+                conversation_history=conversation_history or None,
                 options={
                     "user_id": user_id,
                     "tenant_id": tenant_id,
