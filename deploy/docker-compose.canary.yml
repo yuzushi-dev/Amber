@@ -94,6 +94,18 @@ services:
       retries: 5
       start_period: 120s
     restart: "no"
+    # Cap the canary so it can't balloon and starve the live api during a
+    # cutover window (both run concurrently on the same 15G host). Same ceiling
+    # as live api, but a LOW reservation: the canary is transient/smoke-tested,
+    # so it must not reserve guaranteed memory away from the live stack. NOTE:
+    # two full 5.5G stacks + workers do not both fit in 15G — scale live workers
+    # down (or keep the canary window short and low-load) during cutover.
+    deploy:
+      resources:
+        limits:
+          memory: 5500M
+        reservations:
+          memory: 1G
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -153,6 +165,12 @@ services:
       redis:
         condition: service_healthy
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
