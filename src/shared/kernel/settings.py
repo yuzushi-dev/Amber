@@ -104,6 +104,7 @@ class SettingsProtocol(Protocol):
     enable_acl_aware_vector_retrieval: bool
     enable_acl_aware_graph_retrieval: bool
     enable_tenant_provisioning: bool
+    enable_multiturn_history_reinjection: bool
 
     # Embedding Configuration
     default_embedding_provider: str | None

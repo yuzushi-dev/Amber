@@ -455,6 +455,15 @@ class Settings(BaseSettings):
         alias="ENABLE_ACL_AWARE_GRAPH_RETRIEVAL",
         description="Enable graph/global retrieval filtering against explicit document share ACLs.",
     )
+    enable_multiturn_history_reinjection: bool = Field(
+        default=False,
+        alias="ENABLE_MULTITURN_HISTORY_REINJECTION",
+        description=(
+            "Re-inject prior conversation turns into the retrieval query-rewriter and "
+            "generator so follow-up questions resolve against earlier context. Disabled "
+            "by default: off, this is a full no-op (no DB read of conversation history)."
+        ),
+    )
 
     # Privacy: chat-history redaction for conversations without user feedback
     chat_redact_without_feedback: bool = Field(
