@@ -24,6 +24,7 @@ from src.api.schemas.query import (
     StructuredQueryResponse,
     TimingInfo,
 )
+from src.shared.refusal import text_looks_like_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -330,27 +331,18 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-_REFUSAL_PHRASES = (
-    "i don't have documentation",
-    "i do not have documentation",
-    "i don't have information",
-    "i do not have information",
-    "no documentation on",
-    "couldn't find any relevant",
-    "could not find any relevant",
-    "i'm unable to find",
-    "i am unable to find",
-)
-
-
 def _looks_like_refusal(answer: str, sources: list[Any] | None = None) -> bool:
     """Detect a "no information found" answer so it isn't persisted as reusable
     memory context — a refusal fed back as PAST CONVERSATIONS biases the
-    retrieval-time query rewriter into repeating/worsening the same miss."""
+    retrieval-time query rewriter into repeating/worsening the same miss.
+
+    Refusals now carry sources (the dignified-refusal "Closest documented
+    topics" section), so a no-sources check alone is insufficient; delegate the
+    text test to the shared detector, which is adverb-tolerant and matches the
+    refusal section marker."""
     if not sources:
         return True
-    lowered = (answer or "").lower()
-    return any(phrase in lowered for phrase in _REFUSAL_PHRASES)
+    return text_looks_like_refusal(answer)
 
 
 # =============================================================================

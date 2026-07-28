@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.admin_ops.domain.feedback import Feedback
 from src.core.generation.domain.memory_models import ConversationSummary
 from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.shared.refusal import text_looks_like_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,12 @@ class VerifiedQAService:
                     if not qa_query and feedback.metadata_json:
                         qa_query = feedback.metadata_json.get("query")
 
-                    if qa_query and qa_answer:
+                    # SECURITY/quality: never inject a refusal as a positive
+                    # few-shot example, even if an admin "verified" it. The
+                    # dignified-refusal prompt makes refusals look like real
+                    # answers, so they can slip through human review; feeding one
+                    # back tells the model to imitate a non-answer.
+                    if qa_query and qa_answer and not text_looks_like_refusal(qa_answer):
                         candidates.append(
                             {"query": qa_query, "answer": qa_answer, "similarity": similarity}
                         )
