@@ -145,6 +145,58 @@ async def test_disproportionate_output_returns_original_query(caplog):
 
 
 @pytest.mark.asyncio
+async def test_disproportionate_output_floor_400_boundary(caplog):
+    """Pins the literal floor value (400) from both sides. The query is short
+    enough (2 chars) that the proportional term (3*2+200 = 206) is well
+    under the floor, so max_len == 400 exactly regardless of the
+    proportional term. A mutation that raises the floor (e.g.
+    max(999, ...)) would wrongly accept the 401-char case below; a mutation
+    that lowers or drops it wouldn't be caught here (see the proportional
+    boundary test for that), but this test pins the "400" value itself."""
+    short_query = "ok"
+    assert 3 * len(short_query) + 200 < 400  # the floor, not the proportional term, governs
+
+    accepted = _rewriter_with_response("x" * 399)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await accepted.rewrite(short_query, history=HISTORY)
+    assert result == "x" * 399
+
+    rejected = _rewriter_with_response("x" * 401)
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rejected.rewrite(short_query, history=HISTORY)
+    assert result == short_query
+    assert any("disproportionate" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_disproportionate_output_proportional_term_boundary_long_query(caplog):
+    """Pins the proportional term (3 * len(query) + 200) from both sides,
+    using a query long enough (1000 chars) that the floor (400) is
+    irrelevant: max_len = 3*1000+200 = 3200. A mutation that drops the
+    proportional term (e.g. max_len = 400 fixed) would wrongly reject the
+    3200-char case below; this test fails under that mutation."""
+    long_query = "q" * 1000
+    max_len = 3 * len(long_query) + 200
+    assert max_len == 3200
+    assert max_len > 400  # the proportional term, not the floor, governs here
+
+    accepted = _rewriter_with_response("x" * max_len)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await accepted.rewrite(long_query, history=HISTORY)
+    assert result == "x" * max_len
+
+    rejected = _rewriter_with_response("x" * (max_len + 1))
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rejected.rewrite(long_query, history=HISTORY)
+    assert result == long_query
+    assert any("disproportionate" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_short_followup_gets_plausible_standalone_rewrite_kept():
     """A short follow-up ("spiega meglio?", 14 chars) legitimately rewrites
     to something much longer once it's made standalone with context folded

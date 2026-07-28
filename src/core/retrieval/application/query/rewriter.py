@@ -160,12 +160,18 @@ class QueryRewriter:
                 logger.warning("Query rewrite returned empty output, using original")
                 return query
 
-            # Floor high enough that a short follow-up ("spiega meglio?", 9
+            # Floor high enough that a short follow-up ("spiega meglio?", 14
             # chars) doesn't get its own legitimate standalone rewrite (which
             # restates context and can easily run ~200+ chars) rejected by
             # this guard — that would defeat the very case multi-turn
             # rewriting exists for. See test_disproportionate_output_* for
             # the still-rejected, genuinely-oversized case.
+            #
+            # Relative to the previous formula (max(_, 4 * len(query))), this
+            # is more permissive for queries under 200 chars but *more
+            # restrictive* above that: the two cross over exactly at
+            # query=200 (4*200 == 3*200+200 == 800), and grow slower than 4x
+            # beyond it.
             max_len = max(400, 3 * len(query) + 200)
             if len(rewritten) > max_len:
                 logger.warning(
