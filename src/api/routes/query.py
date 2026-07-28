@@ -372,23 +372,48 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
     """Map persisted history turns ({query, answer, ...}) to the {role, content}
     message format the query rewriter and LLM providers expect. Keeps only the
     last ``max_turns`` turns (each turn → a user + an assistant message), each
-    capped at MAX_HISTORY_ANSWER_CHARS, and stops adding messages once the
-    combined injected content would exceed MAX_HISTORY_TOTAL_CHARS.
+    answer capped at MAX_HISTORY_ANSWER_CHARS.
+
+    Each turn is an atomic unit: it is included whole (both its messages,
+    after per-answer capping) or not at all — never split across the user/
+    assistant boundary. Turns are walked newest-first so that when the
+    combined MAX_HISTORY_TOTAL_CHARS budget runs out, it's the *oldest*
+    turns that get dropped and the most recent (most relevant to a
+    follow-up) that survive; the result is then restored to chronological
+    (user-first) order.
+
+    A malformed turn — not a dict, or an `answer` present but not a string
+    (corrupted/legacy data) — is skipped entirely rather than raising: one
+    bad turn must not cost the caller every other, well-formed turn in the
+    conversation (see _load_conversation_history's try/except, which used to
+    be the only backstop and discarded the *whole* history on any error).
+    A turn with no `answer` at all (not yet answered) is not malformed: its
+    user message is still kept.
 
     Default 2 turns (= 4 messages): QueryRewriter.rewrite() truncates to the last
     5 *messages*, so a wider window would be sliced mid-turn and could start on an
     assistant message. 2 whole turns survive that slice intact, user-first.
     A deeper window would require the rewriter to truncate by turns (follow-up)."""
-    messages: list[dict] = []
+    candidate_turns = (turns or [])[-max_turns:]
+
+    kept_groups: list[list[dict]] = []
     total_chars = 0
-    for turn in (turns or [])[-max_turns:]:
+    for turn in reversed(candidate_turns):
+        if not isinstance(turn, dict):
+            continue
         q = turn.get("query")
         a = turn.get("answer")
+        if a is not None and not isinstance(a, str):
+            # Malformed turn (e.g. answer of the wrong type): drop this turn
+            # only, don't let it poison the turns around it.
+            continue
+
+        group: list[dict] = []
+        group_chars = 0
         if q:
             q_capped = _cap_text(str(q), MAX_HISTORY_ANSWER_CHARS)
-            if total_chars + len(q_capped) <= MAX_HISTORY_TOTAL_CHARS:
-                messages.append({"role": "user", "content": q_capped})
-                total_chars += len(q_capped)
+            group.append({"role": "user", "content": q_capped})
+            group_chars += len(q_capped)
         # Drop refusal answers ("no documentation found …"): re-feeding them as
         # assistant context re-poisons the rewriter/generator — the same reason
         # _looks_like_refusal blanks the stored summary. Keep the user turn.
@@ -400,9 +425,23 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
         # answer text, which is what this history re-injection cares about.
         if a and not text_looks_like_refusal(a):
             a_capped = _cap_text(a, MAX_HISTORY_ANSWER_CHARS)
-            if total_chars + len(a_capped) <= MAX_HISTORY_TOTAL_CHARS:
-                messages.append({"role": "assistant", "content": a_capped})
-                total_chars += len(a_capped)
+            group.append({"role": "assistant", "content": a_capped})
+            group_chars += len(a_capped)
+
+        if not group:
+            continue
+        if total_chars + group_chars > MAX_HISTORY_TOTAL_CHARS:
+            # Atomic + newest-first: once a turn no longer fits, older turns
+            # won't either (nothing left to gain by skipping ahead), and
+            # partially injecting it would misalign the user/assistant
+            # sequence. Stop rather than skip.
+            break
+        kept_groups.append(group)
+        total_chars += group_chars
+
+    messages: list[dict] = []
+    for group in reversed(kept_groups):
+        messages.extend(group)
     return messages
 
 
@@ -869,11 +908,9 @@ async def _query_stream_impl(
             # conversation_history stays None and _load_conversation_history is
             # never called.
             conversation_history: list[dict] | None = None
-            # getattr with a default: some test doubles configure a minimal
-            # settings stand-in that predates this flag, and settings objects
-            # in general shouldn't hard-fail the whole stream over one
-            # missing, opt-in, default-off flag.
-            if getattr(get_settings(), "enable_multiturn_history_reinjection", False):
+            from src.api.config import settings as _history_settings
+
+            if _history_settings.enable_multiturn_history_reinjection:
                 conversation_history = await _load_conversation_history(
                     session, request.conversation_id, tenant_id, stream_user_id
                 )

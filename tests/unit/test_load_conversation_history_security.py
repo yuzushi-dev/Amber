@@ -97,18 +97,27 @@ async def test_metadata_without_history_key_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_malformed_turn_fails_open_to_empty_history():
+async def test_malformed_turn_is_skipped_valid_turn_survives():
     """A turn whose `answer` isn't a string (corrupted/legacy data) must not
-    propagate an exception out to the caller; today it fails open by
-    discarding the whole conversation's history for this call."""
+    cost every other turn in the conversation: it is dropped on its own,
+    while a well-formed turn next to it still comes through untouched."""
     summary = SimpleNamespace(
         tenant_id=TENANT,
         user_id=USER,
-        metadata_={"history": [{"query": "valid query", "answer": 12345}]},
+        metadata_={
+            "history": [
+                {"query": "q1", "answer": 12345},
+                {"query": "q2", "answer": "good"},
+            ]
+        },
     )
     session = _FakeSession(get_result=summary)
     result = await _load_conversation_history(session, "conv-1", TENANT, USER)
-    assert result == []
+    assert result == [
+        {"role": "user", "content": "q2"},
+        {"role": "assistant", "content": "good"},
+    ]
+    assert not any(m["content"] == "q1" for m in result)
 
 
 @pytest.mark.asyncio
@@ -147,21 +156,29 @@ def test_answer_over_cap_is_truncated():
     assert assistant_msg["content"] != long_answer
 
 
-def test_total_injected_history_is_capped():
+def test_total_injected_history_is_capped_keeps_most_recent_turn():
     # Two turns, each with a max-size answer and a long-ish query: unbounded
-    # this would inject ~2 * (150 + 2000) = 4300 chars, over the total cap.
-    big_answer = "y" * MAX_HISTORY_ANSWER_CHARS
+    # this would inject ~2 * (150 + 2000) = 4300 chars, over the total cap —
+    # only one turn's worth fits.
     long_query = "q" * 150
+    big_answer_old = "y" * MAX_HISTORY_ANSWER_CHARS
+    big_answer_new = "z" * MAX_HISTORY_ANSWER_CHARS
     turns = [
-        {"query": long_query, "answer": big_answer},
-        {"query": long_query, "answer": big_answer},
+        {"query": long_query, "answer": big_answer_old},
+        {"query": long_query, "answer": big_answer_new},
     ]
     msgs = _history_turns_to_messages(turns, max_turns=2)
     total_chars = sum(len(m["content"]) for m in msgs)
     assert total_chars <= MAX_HISTORY_TOTAL_CHARS
-    # The cap must actually bind (something got dropped), not just happen to
-    # fit — otherwise this test would pass even if the cap were a no-op.
-    assert len(msgs) < 4
+    # The cap must bind on a whole-turn basis: the older turn is dropped
+    # *entirely* (not just its answer, which would leave a dangling user
+    # message and misalign the user/assistant sequence for the rewriter) and
+    # the most recent turn — the one relevant to a follow-up — survives
+    # intact, user-first.
+    assert msgs == [
+        {"role": "user", "content": long_query},
+        {"role": "assistant", "content": big_answer_new},
+    ]
 
 
 # =============================================================================
@@ -182,10 +199,16 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
         api_settings, "enable_multiturn_history_reinjection", False, raising=False
     )
 
-    async def _spy_load_conversation_history(*_args, **_kwargs):
-        raise AssertionError(
-            "_load_conversation_history must not be called when the flag is off"
-        )
+    load_history_calls: list = []
+
+    async def _spy_load_conversation_history(*args, **kwargs):
+        # Record instead of raising: an exception here would be swallowed by
+        # `_query_stream_impl`'s own `except Exception` fallback, and the
+        # stream would just fall through to "no chunks" — which happens to
+        # also make `retrieve_kwargs` stay `{}`, so `.get("history") is None`
+        # would pass for the wrong reason (retrieve() never even ran).
+        load_history_calls.append((args, kwargs))
+        return []
 
     monkeypatch.setattr(
         "src.api.routes.query._load_conversation_history", _spy_load_conversation_history
@@ -251,4 +274,8 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
     async for _chunk in response.body_iterator:
         pass
 
+    assert load_history_calls == [], "_load_conversation_history must not be called when the flag is off"
+    # retrieve() must actually have run (proves the assertion below isn't
+    # vacuously true because the stream errored out before reaching it).
+    assert "history" in retrieve_kwargs
     assert retrieve_kwargs.get("history") is None
