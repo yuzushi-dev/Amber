@@ -270,7 +270,7 @@ Collection: "amber_{collection_name}"  # per-tenant, prefix "amber_"
 Fields:
   - chunk_id: VARCHAR (primary key)
   - document_id: VARCHAR
-  - embedding: FLOAT_VECTOR(dims)  # configurable; default 1536 (text-embedding-3-small) or 768 (nomic-embed-text)
+  - embedding: FLOAT_VECTOR(dims)  # configurable; default 768 (nomic-embed-text), 1536 with text-embedding-3-small
   - sparse_embedding: SPARSE_FLOAT_VECTOR  # SPLADE vectors for hybrid search
   - content: TEXT
   - metadata: JSON

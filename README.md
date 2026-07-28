@@ -227,9 +227,11 @@ ANTHROPIC_API_KEY=sk-ant-...
 DEFAULT_LLM_PROVIDER=openai   # openai | anthropic | ollama
 DEFAULT_LLM_MODEL=gpt-4o-mini
 
-DEFAULT_EMBEDDING_PROVIDER=openai   # openai | ollama | local
-DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
+# Embeddings default to ollama / nomic-embed-text / 768 in config/settings.yaml.
+# Set these to override; changing the dimension count requires a new collection.
+DEFAULT_EMBEDDING_PROVIDER=ollama   # openai | ollama | local
+DEFAULT_EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_DIMENSIONS=768
 ```
 
 #### Ollama (local LLMs, no cloud key required)
@@ -328,7 +330,7 @@ Every mode below is reachable per query, either by naming it explicitly or by le
 
 #### Vector & Hybrid Search (Basic Mode)
 - **Hybrid Retrieval**: Combines dense (semantic) and sparse (SPLADE) vectors, so keyword matches and paraphrases both land
-- **Dense**: Text-embedding-3-small embeddings (1536 dimensions)
+- **Dense**: `nomic-embed-text` embeddings (768 dimensions) by default; any provider model works, the collection is built from the configured dimension count
 - **Sparse (New)**: Learned keyword expansion using SPLADE (cocondenser-ensembledistil)
 - **Native Fusion**: Uses Reciprocal Rank Fusion (RRFRanker) in Milvus
 - Result caching with Redis for performance
