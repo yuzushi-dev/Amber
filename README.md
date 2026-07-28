@@ -111,7 +111,7 @@ Five retrieval modes:
    - `redis` - Cache & broker (port 6379)
    - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
 
-   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
+   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. For a zero-downtime deploy, `deploy/docker-compose.canary.yml` brings up an `api-canary` container on port 8001, which you can smoke-test without nginx in the path; `deploy/cutover.sh --to canary` then repoints nginx at it, `--dry-run` shows the change first, and `--to live` rolls back.
 
 4. **Run Database Migrations** (Critical!)
    ```bash
@@ -187,7 +187,10 @@ LOG_LEVEL=INFO
 
 # Security
 SECRET_KEY=your-secret-key-here
-TENANT_ID=default
+
+# Set to false once every API key has explicit tenant links, so that an
+# unlinked key is rejected instead of falling back to the default tenant
+ALLOW_LINKLESS_KEY_DEFAULT_TENANT=true
 ```
 
 #### Database Connections
@@ -513,7 +516,7 @@ Multi-tenancy is enforced at the database layer, not only in application code, a
 
 #### Authentication & Authorization
 - **API Key Management**: SHA-256 hashed keys stored in PostgreSQL; tiered scopes (`user`, `tenant_admin`, `super_admin`)
-- **Tenant Isolation**: Complete data separation; fail-closed 401 when tenant context is absent (no default fallback)
+- **Tenant Isolation**: The tenant comes from the API key's links, optionally narrowed by an `X-Tenant-ID` header; asking for a tenant the key is not linked to returns 403. A key with no tenant links at all still falls back to the `default` tenant and logs a warning on every request, a legacy bootstrap path you close with `ALLOW_LINKLESS_KEY_DEFAULT_TENANT=false`
 - **DB-Layer RLS**: `FORCE ROW LEVEL SECURITY` on 8 tenant tables via a dedicated `graphrag_app` Postgres role (`NOBYPASSRLS`); workers use a super-admin session flag to bypass legitimately
 - **Rate Limiting**: Per-tenant request and upload limits, fail-closed (HTTP 503) when Redis is unavailable
 - **Upload Size Limits**: Configurable max file sizes
