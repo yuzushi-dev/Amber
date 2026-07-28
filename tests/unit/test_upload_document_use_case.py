@@ -15,6 +15,12 @@ class FakeRepo:
     async def find_by_content_hash(self, *_args, **_kwargs):
         return None
 
+    async def find_by_source_url(self, *_args, **_kwargs):
+        return None
+
+    async def find_by_filename(self, *_args, **_kwargs):
+        return None
+
     async def save(self, document):
         self.saved.append(document)
         return document

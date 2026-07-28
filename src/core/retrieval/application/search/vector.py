@@ -26,6 +26,7 @@ class VectorSearcher:
         score_threshold: float | None = None,
         filters: dict[str, Any] | None = None,
         collection_name: str | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Execute semantic search and return results as Candidates.
@@ -39,6 +40,7 @@ class VectorSearcher:
                 score_threshold=score_threshold,
                 filters=filters,
                 collection_name=collection_name,
+                exclude_document_ids=exclude_document_ids,
             )
 
             return [
@@ -69,6 +71,7 @@ class VectorSearcher:
         score_threshold: float | None = None,
         filters: dict[str, Any] | None = None,
         collection_name: str | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Execute hybrid (dense + sparse) search and return results as Candidates.
@@ -90,6 +93,7 @@ class VectorSearcher:
                 filters=filters,
                 collection_name=collection_name,
                 score_threshold=score_threshold,
+                exclude_document_ids=exclude_document_ids,
             )
 
             return [
@@ -117,4 +121,5 @@ class VectorSearcher:
                 limit=limit,
                 filters=filters,
                 collection_name=collection_name,
+                exclude_document_ids=exclude_document_ids,
             )

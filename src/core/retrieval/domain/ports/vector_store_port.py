@@ -31,8 +31,14 @@ class VectorStorePort(Protocol):
         score_threshold: float | None = None,
         filters: dict[str, Any] | None = None,
         collection_name: str | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
-        """Search for similar vectors."""
+        """Search for similar vectors.
+
+        exclude_document_ids (if given) is a blocklist applied inside the
+        store's native query expression, not a post-filter (a post-filter
+        would consume `limit` before excluding anything).
+        """
         ...
 
     async def hybrid_search(
@@ -46,12 +52,14 @@ class VectorStorePort(Protocol):
         rrf_k: int = 60,
         collection_name: str | None = None,
         score_threshold: float | None = None,
+        exclude_document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
         """
         Hybrid search with dense and sparse vectors.
 
         score_threshold (if given) is on the fusion/reranker scale, NOT the cosine
         scale used by `search()` - do not reuse a cosine similarity_threshold here.
+        exclude_document_ids: see `search()`.
         """
         ...
 

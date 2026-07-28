@@ -24,6 +24,23 @@ class GraphTraversalGuard:
         return f"{node_alias}.document_id IN ${param_name}"
 
     @staticmethod
+    def get_exclusion_fragment(node_alias: str, param_name: str = "excluded_doc_ids") -> str:
+        """
+        Returns a Cypher WHERE clause fragment that excludes nodes belonging to
+        a blocklist of document IDs (e.g. non-READY documents whose chunks are
+        still indexed). This is the inverse of `get_acl_fragment`: a blocklist,
+        not an allowlist, so it must not be conflated with ACL enforcement.
+
+        Args:
+            node_alias: The variable name of the node in the Cypher query (e.g., 'c', 'neighbor').
+            param_name: The name of the parameter containing the excluded document IDs.
+
+        Returns:
+            A string containing the WHERE clause fragment.
+        """
+        return f"NOT {node_alias}.document_id IN ${param_name}"
+
+    @staticmethod
     def filter_path_query(
         base_query: str, check_nodes: list[str], param_name: str = "allowed_doc_ids"
     ) -> str:

@@ -12,6 +12,12 @@ class FakeDocumentRepository:
     async def find_by_content_hash(self, tenant_id: str, content_hash: str):
         return None
 
+    async def find_by_source_url(self, tenant_id: str, source_url: str):
+        return None
+
+    async def find_by_filename(self, tenant_id: str, filename: str):
+        return None
+
     async def save(self, document):
         self.saved.append(document)
 

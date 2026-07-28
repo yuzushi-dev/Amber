@@ -54,6 +54,28 @@ class DocumentRepository(Protocol):
         """Find a document by content hash and tenant (for deduplication)."""
         ...
 
+    async def find_by_source_url(self, tenant_id: str, source_url: str) -> Document | None:
+        """Find a document by source URL and tenant (for connector-based dedup)."""
+        ...
+
+    async def find_by_filename(self, tenant_id: str, filename: str) -> Document | None:
+        """Find the most recent document by filename and tenant (for dedup).
+
+        Pre-existing filename duplicates are not cleaned up as part of this
+        lookup, so implementations must tolerate more than one matching row
+        and deterministically return the newest (created_at DESC).
+        """
+        ...
+
+    async def list_non_ready_document_ids_with_chunks(self, tenant_id: str) -> list[str]:
+        """List distinct IDs of non-READY documents for a tenant that already have chunks.
+
+        Used as a retrieval-time blocklist: Milvus has no document status field,
+        so non-READY documents whose stale/duplicate chunks are still indexed
+        must be excluded by ID.
+        """
+        ...
+
     async def update_status(
         self, document_id: str, status: str, old_status: str | None = None
     ) -> bool:

@@ -13,6 +13,7 @@ from src.core.ingestion.domain.document_share import (
 )
 from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
+from src.core.state.machine import DocumentStatus
 
 
 class PostgresDocumentRepository(DocumentRepository):
@@ -403,6 +404,50 @@ class PostgresDocumentRepository(DocumentRepository):
             )
         )
         return result.scalars().first()
+
+    async def find_by_source_url(self, tenant_id: str, source_url: str) -> Document | None:
+        """Find a document by source URL and tenant (for connector-based dedup)."""
+        result = await self._session.execute(
+            select(Document).where(
+                Document.tenant_id == tenant_id, Document.source_url == source_url
+            )
+        )
+        return result.scalars().first()
+
+    async def find_by_filename(self, tenant_id: str, filename: str) -> Document | None:
+        """Find the most recent document by filename and tenant (for dedup).
+
+        ORDER BY created_at DESC LIMIT 1: pre-existing filename duplicates are
+        not cleaned up here, so this lookup must tolerate multiple matching
+        rows and deterministically pick the newest.
+        """
+        result = await self._session.execute(
+            select(Document)
+            .where(Document.tenant_id == tenant_id, Document.filename == filename)
+            .order_by(Document.created_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def list_non_ready_document_ids_with_chunks(self, tenant_id: str) -> list[str]:
+        """List distinct IDs of non-READY documents for a tenant that already have chunks.
+
+        Retrieval-time blocklist: Milvus has no document status field, so
+        non-READY documents whose stale/duplicate chunks are still indexed
+        must be excluded by ID (blocklist, not an allowlist of READY ids -
+        that set is large and growing, this one is small and stable).
+        """
+        stmt = (
+            select(Document.id)
+            .distinct()
+            .join(Chunk, Chunk.document_id == Document.id)
+            .where(
+                Document.tenant_id == tenant_id,
+                Document.status != DocumentStatus.READY,
+            )
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
     async def update_status(
         self, document_id: str, status: str, old_status: str | None = None

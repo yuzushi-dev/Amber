@@ -53,6 +53,7 @@ async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
         DocumentStatus.CHUNKING,
         DocumentStatus.EMBEDDING,
         DocumentStatus.GRAPH_SYNC,
+        DocumentStatus.INGESTED,
     ]
     # States where chunks already exist but downstream (embedding / graph sync)
     # was interrupted. These are requeued for a full, idempotent reprocess
@@ -91,6 +92,12 @@ async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
                 if min_age_minutes > 0:
                     cutoff = datetime.now(UTC) - timedelta(minutes=min_age_minutes)
                     stale_query = stale_query.where(Document.updated_at < cutoff)
+                # Batch limit: without this, the first sweep after deploy (or after
+                # any long outage) could dispatch every stale document at once -
+                # e.g. up to 67 INGESTED documents rediscovered by this recovery
+                # sweep in one run. Cap it so reprocessing bursts stay bounded;
+                # documents left over are picked up by the next sweep.
+                stale_query = stale_query.limit(50)
                 stale_query = stale_query.with_for_update(skip_locked=True)
                 result = await session.execute(stale_query)
                 stale_documents = result.scalars().all()
@@ -135,6 +142,21 @@ async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
                             logger.info(
                                 f"Requeued document {document.id} ({document.filename}) for reprocess "
                                 f"(was in {getattr(original_status, 'value', original_status)} state)"
+                            )
+                            _publish_recovery_status(document.id, document.status.value)
+                            continue
+                        elif original_status == DocumentStatus.INGESTED:
+                            # Document never picked up by a worker (or was requeued by
+                            # a prior sweep and stalled again): it is already in the
+                            # exact state process_document's optimistic guard expects
+                            # (old_status=INGESTED), so just requeue it - do NOT reset
+                            # document.status, unlike REQUEUE_STATES above where a reset
+                            # is needed to get back to INGESTED in the first place.
+                            requeue.append((document.id, document.tenant_id))
+                            recovered += 1
+                            logger.info(
+                                f"Requeued document {document.id} ({document.filename}) for "
+                                "reprocess (was stuck in INGESTED)"
                             )
                             _publish_recovery_status(document.id, document.status.value)
                             continue

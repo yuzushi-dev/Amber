@@ -21,6 +21,7 @@ class GraphSearcher:
         tenant_id: str,
         limit: int = 10,
         allowed_doc_ids: list[str] | None = None,
+        excluded_doc_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Find chunks that mention the given entities.
@@ -36,10 +37,19 @@ class GraphSearcher:
             acl_clause = f"AND {GraphTraversalGuard.get_acl_fragment('c', 'allowed_doc_ids')}"
             params["allowed_doc_ids"] = allowed_doc_ids
 
+        exclusion_clause = ""
+        if excluded_doc_ids:
+            # Blocklist non-READY documents with stale/duplicate indexed chunks.
+            exclusion_clause = (
+                f"AND {GraphTraversalGuard.get_exclusion_fragment('c', 'excluded_doc_ids')}"
+            )
+            params["excluded_doc_ids"] = excluded_doc_ids
+
         query = f"""
         MATCH (e:Entity)-[:MENTIONS]-(c:Chunk)
         WHERE e.id IN $entity_ids AND e.tenant_id = $tenant_id
         {acl_clause}
+        {exclusion_clause}
         RETURN DISTINCT c.id as chunk_id, c.content as content, c.document_id as document_id
         LIMIT $limit
         """
@@ -69,6 +79,7 @@ class GraphSearcher:
         tenant_id: str,
         limit: int = 10,
         allowed_doc_ids: list[str] | None = None,
+        excluded_doc_ids: list[str] | None = None,
     ) -> list[Candidate]:
         """
         Find chunks that are neighbors of the given chunks in the graph
@@ -87,11 +98,20 @@ class GraphSearcher:
             )
             params["allowed_doc_ids"] = allowed_doc_ids
 
+        exclusion_clause = ""
+        if excluded_doc_ids:
+            # Blocklist non-READY documents with stale/duplicate indexed chunks.
+            exclusion_clause = (
+                f"AND {GraphTraversalGuard.get_exclusion_fragment('neighbor', 'excluded_doc_ids')}"
+            )
+            params["excluded_doc_ids"] = excluded_doc_ids
+
         query = f"""
         MATCH (start:Chunk)-[:MENTIONS]-(e:Entity)-[:MENTIONS]-(neighbor:Chunk)
         WHERE start.id IN $chunk_ids AND start.tenant_id = $tenant_id
           AND NOT neighbor.id IN $chunk_ids
           {acl_clause}
+          {exclusion_clause}
         RETURN DISTINCT neighbor.id as chunk_id, neighbor.content as content, neighbor.document_id as document_id
         LIMIT $limit
         """
