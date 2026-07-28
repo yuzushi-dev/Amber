@@ -257,8 +257,28 @@ class IngestionService:
         The Milvus/Neo4j pre-ingest cleanup in `process_document` is
         document_id-scoped and was already correct; it was simply inert
         before this fix because a content change used to mint a new id.
+
+        The object key carries the content hash so a replace never overwrites
+        the version it supersedes - see the comment on storage_path below.
         """
-        storage_path = f"{tenant_id}/{existing_doc.id}/{filename}"
+        # The key must differ from the previous version's. The id is preserved
+        # by design, so `{tenant}/{id}/{filename}` would be the exact key the
+        # old content lives under whenever the filename is unchanged, and
+        # StorageClient.upload_file does a plain put_object into a bucket
+        # created without versioning: the original bytes would be gone, and the
+        # pre-ingest cleanup in process_document then drops the old vectors and
+        # graph nodes too, so a failed reprocess would leave nothing to recover
+        # from. Worse, provisioning_service copies storage_path by reference
+        # across tenants ("shared reference, no S3 copy"), so an in-place
+        # overwrite would also mutate the content of another tenant's document
+        # row pointing at the same object.
+        #
+        # Before the two-level dedup this property was free: a content change
+        # minted a new doc_id, hence a new key. Keying by content_hash keeps it.
+        #
+        # ponytail: superseded objects are never collected. Add a retention
+        # sweep over `{tenant}/{doc_id}/` if storage growth becomes the problem.
+        storage_path = f"{tenant_id}/{existing_doc.id}/{content_hash[:12]}/{filename}"
         file_io = io.BytesIO(file_content)
 
         try:

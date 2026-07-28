@@ -148,12 +148,14 @@ def _patch_heavy_deps(monkeypatch) -> None:
     monkeypatch.setattr(service_module.asyncio, "to_thread", _direct_to_thread)
 
 
-def _build_service(repo: InMemoryDocumentRepository) -> service_module.IngestionService:
+def _build_service(
+    repo: InMemoryDocumentRepository, storage: FakeStorage | None = None
+) -> service_module.IngestionService:
     return service_module.IngestionService(
         document_repository=repo,
         tenant_repository=None,
         unit_of_work=None,
-        storage_client=FakeStorage(),
+        storage_client=storage if storage is not None else FakeStorage(),
         neo4j_client=object(),
         vector_store=None,
         settings=None,
@@ -449,3 +451,51 @@ async def test_reprocess_replace_purges_stale_postgres_chunks(monkeypatch):
     assert new_chunk_ids.isdisjoint({c.id for c in old_chunks}), (
         "old chunk rows must be replaced, not kept alongside the new ones"
     )
+
+
+@pytest.mark.asyncio
+async def test_replace_writes_a_new_object_key_instead_of_overwriting(monkeypatch):
+    """A replace must never put_object over the key the old content lives under.
+
+    The id is preserved by design, so `{tenant}/{id}/{filename}` is the *same*
+    key whenever the filename is unchanged. StorageClient.upload_file is a plain
+    put_object into a bucket created without versioning, so overwriting it
+    destroys the original bytes irrecoverably — and process_document's pre-ingest
+    cleanup then drops the old vectors and graph nodes, leaving nothing to
+    recover from if the reprocess fails. provisioning_service also copies
+    storage_path across tenants by reference, so the overwrite would mutate
+    another tenant's document content too.
+
+    Before the two-level dedup this was free: a content change minted a new
+    doc_id, hence a new key.
+    """
+    _patch_heavy_deps(monkeypatch)
+
+    repo = InMemoryDocumentRepository()
+    existing = _existing_doc()
+    repo.seed(existing)
+    old_key = existing.storage_path
+
+    storage = FakeStorage()
+    service = _build_service(repo, storage=storage)
+
+    new_content = b"UPDATED REPORT CONTENT " * 10
+    new_doc = await service.register_document(
+        tenant_id="t1",
+        filename="report.pdf",  # unchanged: the colliding case
+        file_content=new_content,
+        content_type="application/pdf",
+    )
+
+    written_keys = [call[0] for call in storage.upload_calls]
+
+    assert old_key not in written_keys, (
+        f"replace wrote over the previous version's object ({old_key}); "
+        "the original bytes are unrecoverable and a provisioned copy in another "
+        "tenant would silently change content"
+    )
+    assert written_keys == [new_doc.storage_path]
+    assert new_doc.storage_path != old_key
+    # The key is derived from the new content, so any future re-replace also
+    # lands somewhere new.
+    assert hashlib.sha256(new_content).hexdigest()[:12] in new_doc.storage_path
