@@ -1,0 +1,307 @@
+"""
+Unit tests for QueryRewriter (asyncio.wait_for timeout guard + output sanity guard).
+"""
+
+import asyncio
+import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.core.retrieval.application.query.rewriter import QueryRewriter
+
+
+def _rewriter_with_response(text: str) -> QueryRewriter:
+    """Build a QueryRewriter whose LLM call returns `text`."""
+    mock_provider = MagicMock()
+
+    async def _generate(*args, **kwargs):
+        return SimpleNamespace(text=text)
+
+    mock_provider.generate = _generate
+    mock_factory = MagicMock()
+    mock_factory.get_llm_provider.return_value = mock_provider
+    return QueryRewriter(provider=mock_provider, provider_factory=mock_factory)
+
+
+def _rewriter_with_delay(text: str, delay: float) -> QueryRewriter:
+    """Build a QueryRewriter whose LLM call sleeps `delay` seconds before returning `text`."""
+    mock_provider = MagicMock()
+
+    async def _generate(*args, **kwargs):
+        await asyncio.sleep(delay)
+        return SimpleNamespace(text=text)
+
+    mock_provider.generate = _generate
+    mock_factory = MagicMock()
+    mock_factory.get_llm_provider.return_value = mock_provider
+    return QueryRewriter(provider=mock_provider, provider_factory=mock_factory)
+
+
+def _rewriter_with_delay_tracking(text: str, delay: float):
+    """Like _rewriter_with_delay, but also exposes a dict tracking whether the
+    fake generate() call ever ran to completion. asyncio.wait_for cancels the
+    awaited coroutine on timeout, so a real cutoff must leave completed=False;
+    a post-hoc "await fully, then check elapsed" implementation would let it
+    finish and leave completed=True."""
+    mock_provider = MagicMock()
+    state = {"completed": False}
+
+    async def _generate(*args, **kwargs):
+        await asyncio.sleep(delay)
+        state["completed"] = True
+        return SimpleNamespace(text=text)
+
+    mock_provider.generate = _generate
+    mock_factory = MagicMock()
+    mock_factory.get_llm_provider.return_value = mock_provider
+    return QueryRewriter(provider=mock_provider, provider_factory=mock_factory), state
+
+
+def _patches():
+    mock_cfg = MagicMock()
+    mock_cfg.provider = "openai"
+    mock_cfg.model = "gpt-test"
+    mock_cfg.temperature = 0.0
+    mock_cfg.seed = 42
+    return (
+        patch("src.shared.kernel.runtime.get_settings"),
+        patch(
+            "src.core.generation.application.llm_steps.resolve_llm_step_config",
+            return_value=mock_cfg,
+        ),
+    )
+
+
+HISTORY = [{"role": "user", "content": "previous turn"}]
+
+
+@pytest.mark.asyncio
+async def test_no_history_or_context_short_circuits_without_llm_call():
+    """With nothing to rewrite from, the rewriter must not touch the LLM at all."""
+    mock_provider = MagicMock()
+    mock_provider.generate = MagicMock(side_effect=AssertionError("should not be called"))
+    mock_factory = MagicMock()
+    mock_factory.get_llm_provider.return_value = mock_provider
+    rewriter = QueryRewriter(provider=mock_provider, provider_factory=mock_factory)
+
+    result = await rewriter.rewrite("plain query")
+
+    assert result == "plain query"
+
+
+@pytest.mark.asyncio
+async def test_timeout_returns_original_query():
+    """asyncio.wait_for must actually cancel a slow LLM call, not just await it
+    fully and discard the result afterward. Both assertions are needed to
+    discriminate a real cutoff from a post-hoc elapsed-time check: the old
+    post-hoc code returns the same "original query" value, just ~1s later,
+    with generate() having run to completion."""
+    timeout_sec = 0.05
+    rewriter, state = _rewriter_with_delay_tracking("standalone rewritten query", delay=1.0)
+    p1, p2 = _patches()
+    start = time.perf_counter()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY, timeout_sec=timeout_sec)
+    elapsed = time.perf_counter() - start
+
+    assert result == "original query"
+    # Real cutoff: returns well before the 1.0s delay, not after waiting it out.
+    assert elapsed < timeout_sec * 5, f"took {elapsed:.2f}s, expected a cutoff near {timeout_sec}s"
+    # The awaited generate() coroutine must have been cancelled, not left to
+    # run to completion in the background.
+    assert state["completed"] is False
+
+
+@pytest.mark.asyncio
+async def test_empty_output_returns_original_query(caplog):
+    """A blank/whitespace-only rewrite must not replace the original query -
+    and must be caught by the empty-output guard specifically (not by the
+    generic exception fallback, which would also return the original query
+    even if _patches() silently failed to patch anything)."""
+    rewriter = _rewriter_with_response("   ")
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "original query"
+    assert any("empty output" in r.message for r in caplog.records)
+    assert not any("Query rewrite failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_disproportionate_output_returns_original_query(caplog):
+    """An absurdly long rewrite relative to the input query is rejected as a
+    guard failure specifically (not via the generic exception fallback)."""
+    rewriter = _rewriter_with_response("x" * 1000)
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("hi", history=HISTORY)
+
+    assert result == "hi"
+    assert any("disproportionate" in r.message for r in caplog.records)
+    assert not any("Query rewrite failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_disproportionate_output_floor_400_boundary(caplog):
+    """Pins the literal floor value (400) from both sides. The query is short
+    enough (2 chars) that the proportional term (3*2+200 = 206) is well
+    under the floor, so max_len == 400 exactly regardless of the
+    proportional term. A mutation that raises the floor (e.g.
+    max(999, ...)) would wrongly accept the 401-char case below; a mutation
+    that lowers or drops it wouldn't be caught here (see the proportional
+    boundary test for that), but this test pins the "400" value itself."""
+    short_query = "ok"
+    assert 3 * len(short_query) + 200 < 400  # the floor, not the proportional term, governs
+
+    accepted = _rewriter_with_response("x" * 399)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await accepted.rewrite(short_query, history=HISTORY)
+    assert result == "x" * 399
+
+    rejected = _rewriter_with_response("x" * 401)
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rejected.rewrite(short_query, history=HISTORY)
+    assert result == short_query
+    assert any("disproportionate" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_disproportionate_output_proportional_term_boundary_long_query(caplog):
+    """Pins the proportional term (3 * len(query) + 200) from both sides,
+    using a query long enough (1000 chars) that the floor (400) is
+    irrelevant: max_len = 3*1000+200 = 3200. A mutation that drops the
+    proportional term (e.g. max_len = 400 fixed) would wrongly reject the
+    3200-char case below; this test fails under that mutation."""
+    long_query = "q" * 1000
+    max_len = 3 * len(long_query) + 200
+    assert max_len == 3200
+    assert max_len > 400  # the proportional term, not the floor, governs here
+
+    accepted = _rewriter_with_response("x" * max_len)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await accepted.rewrite(long_query, history=HISTORY)
+    assert result == "x" * max_len
+
+    rejected = _rewriter_with_response("x" * (max_len + 1))
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rejected.rewrite(long_query, history=HISTORY)
+    assert result == long_query
+    assert any("disproportionate" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_short_followup_gets_plausible_standalone_rewrite_kept():
+    """A short follow-up ("spiega meglio?", 14 chars) legitimately rewrites
+    to something much longer once it's made standalone with context folded
+    in (~250 chars here) — the disproportionate-output guard must not reject
+    this, or it defeats the very case multi-turn rewriting exists for."""
+    short_query = "spiega meglio?"  # 14 chars
+    plausible_rewrite = (
+        "Puoi spiegare meglio le limitazioni del piano UMR (User Mail Replica) "
+        "per quanto riguarda la sincronizzazione degli allegati di grandi "
+        "dimensioni tra i server primario e secondario?"
+    )  # ~250 chars, a believable standalone expansion of the short follow-up
+    assert len(plausible_rewrite) > 4 * len(short_query)  # would fail the old floor
+
+    rewriter = _rewriter_with_response(plausible_rewrite)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite(short_query, history=HISTORY)
+
+    assert result == plausible_rewrite
+
+
+@pytest.mark.asyncio
+async def test_valid_output_is_returned_rewritten():
+    """A well-behaved rewrite within timeout and size bounds is returned as-is."""
+    rewriter = _rewriter_with_response("standalone rewritten query")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "standalone rewritten query"
+
+
+@pytest.mark.asyncio
+async def test_think_block_is_stripped_from_output():
+    """A reasoning-capable model's leading <think>...</think> block must not
+    leak into the search query - only the text after it is the actual
+    rewrite."""
+    rewriter = _rewriter_with_response("<think>ragionamento</think> query riscritta")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_thinking_variant_mixed_case_is_stripped():
+    """The <thinking> spelling, in mixed case, must be stripped just like
+    <think>."""
+    rewriter = _rewriter_with_response("<Thinking>some reasoning</Thinking> query riscritta")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_multiline_think_block_is_stripped():
+    """The reasoning block can span multiple lines; the strip must match
+    across newlines, not just within a single line."""
+    output = "<think>\nstep one\nstep two\nstep three\n</think>\nquery riscritta"
+    rewriter = _rewriter_with_response(output)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_output_that_is_only_a_think_block_returns_original_query(caplog):
+    """If the whole output is just the reasoning block, stripping it leaves
+    nothing - that must hit the existing empty-output guard and return the
+    original query, not an empty string."""
+    rewriter = _rewriter_with_response("<think>ragionamento senza query</think>")
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "original query"
+    assert any("empty output" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_unclosed_think_tag_returns_original_query(caplog):
+    """An opening <think> tag with no matching close means the entire output
+    is unterminated reasoning - it must not be guessed at or partially used,
+    just rejected in favor of the original query."""
+    rewriter = _rewriter_with_response("<think>ragionamento che non finisce mai mentre genera la query")
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "original query"
+    assert any("unclosed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_normal_output_without_think_tags_is_unaltered():
+    """Non-regression: an output with no <think>/<thinking> tags at all must
+    pass through the stripping logic completely untouched."""
+    rewriter = _rewriter_with_response("standalone rewritten query, no tags here")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "standalone rewritten query, no tags here"

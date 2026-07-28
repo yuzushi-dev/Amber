@@ -5,8 +5,9 @@ Query Rewriter
 Uses LLM to rewrite queries into standalone versions using conversation history.
 """
 
+import asyncio
 import logging
-import time
+import re
 
 from src.core.generation.application.prompts.query_analysis import QUERY_REWRITE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
@@ -18,6 +19,15 @@ from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
 
 logger = logging.getLogger(__name__)
+
+# Reasoning-capable models can emit <think>/<thinking> blocks around (or
+# instead of) the actual rewrite. Non-greedy + DOTALL so a block is removed
+# wherever it appears, including multi-line reasoning traces.
+_THINK_BLOCK_RE = re.compile(
+    r"<think>.*?</think>|<thinking>.*?</thinking>",
+    re.IGNORECASE | re.DOTALL,
+)
+_THINK_OPEN_TAG_RE = re.compile(r"<think>|<thinking>", re.IGNORECASE)
 
 
 class QueryRewriter:
@@ -60,7 +70,7 @@ class QueryRewriter:
         history: list[dict] | str | None = None,
         global_rules: list[str] | None = None,
         memory_context: str | None = None,
-        timeout_sec: float = 2.0,
+        timeout_sec: float = 4.5,
         tenant_config: dict | None = None,
     ) -> str:
         """
@@ -69,7 +79,8 @@ class QueryRewriter:
         Args:
             query: Current user query
             history: List of conversation turns or a formatted string
-            timeout_sec: Latency guard, return original if exceeds
+            timeout_sec: Hard deadline wrapped around the LLM call (asyncio.wait_for);
+                on expiry the original query is returned
 
         Returns:
             Rewritten query or original if failure/timeout
@@ -100,7 +111,6 @@ class QueryRewriter:
             memory=memory_str
         )
 
-        start_time = time.perf_counter()
         try:
             from src.core.generation.application.llm_steps import resolve_llm_step_config
             from src.shared.kernel.runtime import get_settings
@@ -137,15 +147,56 @@ class QueryRewriter:
             if llm_cfg.seed is not None:
                 kwargs["seed"] = llm_cfg.seed
 
-            # We don't have a direct timeout in the provider yet, but we can check after
-            rewritten_res = await provider.generate(prompt, work_class="chat", **kwargs)
-
-            elapsed = time.perf_counter() - start_time
-            if elapsed > timeout_sec:
-                logger.warning(f"Query rewrite took too long ({elapsed:.2f}s), using original")
+            try:
+                rewritten_res = await asyncio.wait_for(
+                    provider.generate(prompt, work_class="chat", **kwargs),
+                    timeout=timeout_sec,
+                )
+            except TimeoutError:
+                logger.warning(f"Query rewrite exceeded timeout ({timeout_sec:.2f}s), using original")
                 return query
 
-            return (rewritten_res.text or "").strip()
+            raw = (rewritten_res.text or "").strip()
+
+            # Drop <think>/<thinking> reasoning blocks before the empty-output
+            # and max_len guards below, so both apply to the actual rewritten
+            # query rather than a mix of reasoning trace and query.
+            rewritten = _THINK_BLOCK_RE.sub("", raw)
+            if _THINK_OPEN_TAG_RE.search(rewritten):
+                # An opening tag with no matching close means the whole
+                # output is (unterminated) reasoning, not a usable rewrite —
+                # don't guess where it would have ended.
+                logger.warning(
+                    "Query rewrite output contains an unclosed <think>/<thinking> tag, using original"
+                )
+                return query
+            rewritten = rewritten.strip()
+
+            if not rewritten:
+                logger.warning("Query rewrite returned empty output, using original")
+                return query
+
+            # Floor high enough that a short follow-up ("spiega meglio?", 14
+            # chars) doesn't get its own legitimate standalone rewrite (which
+            # restates context and can easily run ~200+ chars) rejected by
+            # this guard — that would defeat the very case multi-turn
+            # rewriting exists for. See test_disproportionate_output_* for
+            # the still-rejected, genuinely-oversized case.
+            #
+            # Relative to the previous formula (max(_, 4 * len(query))), this
+            # is more permissive for queries under 200 chars but *more
+            # restrictive* above that: the two cross over exactly at
+            # query=200 (4*200 == 3*200+200 == 800), and grow slower than 4x
+            # beyond it.
+            max_len = max(400, 3 * len(query) + 200)
+            if len(rewritten) > max_len:
+                logger.warning(
+                    f"Query rewrite output disproportionate to input "
+                    f"({len(rewritten)} chars > {max_len} limit), using original"
+                )
+                return query
+
+            return rewritten
 
         except Exception as e:
             logger.error(f"Query rewrite failed: {e}")

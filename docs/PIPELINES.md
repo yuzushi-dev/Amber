@@ -16,13 +16,13 @@ Sources: `README.md`
 
 Transforms raw documents into queryable knowledge: storage, extraction, semantic chunking, embedding generation, graph extraction, vector/graph storage, community detection, and ready state.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ### Query Processing Pipeline
 
 Turns user questions into responses via query rewriting, parsing/filtering, routing, enhancement (HyDE/decomposition), multi-modal search, fusion/reranking, and answer generation.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ### Retrieval (RAG) Pipeline
 
@@ -42,25 +42,25 @@ Sources: `src/core/generation/application/agent/`, `src/core/tools/`
 
 Multi-parser fallback strategy for PDFs (fast parser first, robust parser fallback) that outputs structured markdown for downstream chunking.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ### Embedding Pipeline
 
 Token-aware batching, retry/backoff, and caching for scalable embedding generation.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ### Graph Extraction & Storage Pipeline
 
 Extracts entities/relationships from chunks and syncs to graph/vector stores for downstream retrieval and community detection.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ### Community Detection & Summarization Pipeline
 
 Runs Leiden clustering over the graph and summarizes communities, producing cluster-level metadata and embeddings.
 
-Sources: `README.md`
+Sources: `docs/INTERNALS.md`
 
 ## Test Coverage (Unit and Smoke)
 
@@ -80,3 +80,4 @@ Smoke tests here include integration, E2E, or manual scripts that exercise a pip
 
 - **GraphRAG determinism verification**: `docs/archive/determinism_report.md`
 - **Testing coverage** (non-core): `docs/TESTING.md`
+- **Pipeline internals**: `docs/INTERNALS.md`

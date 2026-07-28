@@ -337,6 +337,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         seed: int | None = None,
+        history: list[dict[str, str]] | None = None,
         **kwargs: Any,
     ):
         """Stream text generation."""
@@ -347,6 +348,10 @@ class OllamaLLMProvider(BaseLLMProvider):
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+
+        if history:
+            messages.extend(history)
+
         messages.append({"role": "user", "content": prompt})
 
         # Ollama-native options via extra_body (skipped for cloud endpoints)
@@ -361,9 +366,6 @@ class OllamaLLMProvider(BaseLLMProvider):
                     extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
                 except Exception:
                     extra_body["options"]["num_ctx"] = 32768
-
-        # Internal-only metadata, never sent to provider.
-        kwargs.pop("history", None)
 
         try:
             try:

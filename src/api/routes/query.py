@@ -346,6 +346,163 @@ def _looks_like_refusal(answer: str, sources: list[Any] | None = None) -> bool:
 
 
 # =============================================================================
+# Multi-turn conversation history
+# =============================================================================
+
+# Deterministic length guards applied before conversation history is handed to
+# the retrieval query-rewriter / generator. Observed prod answers reach up to
+# 3687 chars (p95 2622) — unbounded, that blows out the rewrite prompt with
+# content that's mostly a restatement of already-cited sources.
+MAX_HISTORY_ANSWER_CHARS = 2000  # per-answer cap (p95 observed 2622, max 3687)
+# Separate, smaller cap for the *query* half of a turn — user queries are
+# short in practice, and giving them the same 2000-char budget as answers
+# would let two capped answers alone (2 * (2000 + 1 ellipsis char) = 4002)
+# eat almost the entire total budget below, leaving ~198 chars for both
+# queries *combined*. At p95 (answer 2622 chars, over MAX_HISTORY_ANSWER_CHARS,
+# so both answers land on the cap-plus-ellipsis case) any pair of queries
+# over ~99 chars would then push the older turn out — collapsing the
+# "2 turns" window to 1 in the typical case, not just a pathological one.
+MAX_HISTORY_QUERY_CHARS = 300
+# Cap on the combined injected turns (up to 2 turns of user query + assistant
+# answer each). Sized so two turns at the p95 answer size (capped to
+# MAX_HISTORY_ANSWER_CHARS each) plus two realistic-length queries
+# (~150 chars each, well under MAX_HISTORY_QUERY_CHARS) both survive:
+# 2 * 2000 + 2 * 150 = 4300, comfortably under this cap. This is what ends
+# up in the rewriter prompt alongside the live query.
+MAX_HISTORY_TOTAL_CHARS = 4600
+
+
+def _cap_text(text: str, limit: int) -> str:
+    """Deterministically truncate `text` to at most `limit` characters."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
+
+
+def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[dict]:
+    """Map persisted history turns ({query, answer, ...}) to the {role, content}
+    message format the query rewriter and LLM providers expect. Keeps only the
+    last ``max_turns`` turns (each turn → a user + an assistant message), each
+    answer capped at MAX_HISTORY_ANSWER_CHARS and each query capped at the
+    separate, smaller MAX_HISTORY_QUERY_CHARS.
+
+    Each turn is an atomic unit: it is included whole (both its messages,
+    after per-message capping) or not at all — never split across the user/
+    assistant boundary. Turns are walked newest-first so that when the
+    combined MAX_HISTORY_TOTAL_CHARS budget runs out, it's the *oldest*
+    turns that get dropped and the most recent (most relevant to a
+    follow-up) that survive; the result is then restored to chronological
+    (user-first) order.
+
+    A malformed turn — not a dict, or an `answer` present but not a string
+    (corrupted/legacy data) — is skipped entirely rather than raising: one
+    bad turn must not cost the caller every other, well-formed turn in the
+    conversation (see _load_conversation_history's try/except, which used to
+    be the only backstop and discarded the *whole* history on any error).
+    A turn with no `answer` at all (not yet answered) is not malformed: its
+    user message is still kept.
+
+    Default 2 turns (= 4 messages): QueryRewriter.rewrite() truncates to the last
+    5 *messages*, so a wider window would be sliced mid-turn and could start on an
+    assistant message. 2 whole turns survive that slice intact, user-first.
+    A deeper window would require the rewriter to truncate by turns (follow-up).
+
+    max_turns <= 0 returns [] rather than slicing with ``[-0:]``, which is
+    ``[0:]`` — i.e. *every* turn, the opposite of "keep none"."""
+    if max_turns <= 0:
+        return []
+    candidate_turns = (turns or [])[-max_turns:]
+
+    kept_groups: list[list[dict]] = []
+    total_chars = 0
+    for turn in reversed(candidate_turns):
+        if not isinstance(turn, dict):
+            continue
+        q = turn.get("query")
+        a = turn.get("answer")
+        if a is not None and not isinstance(a, str):
+            # Malformed turn (e.g. answer of the wrong type): drop this turn
+            # only, don't let it poison the turns around it.
+            continue
+
+        group: list[dict] = []
+        group_chars = 0
+        if q:
+            q_capped = _cap_text(str(q), MAX_HISTORY_QUERY_CHARS)
+            group.append({"role": "user", "content": q_capped})
+            group_chars += len(q_capped)
+        # Drop refusal answers ("no documentation found …"): re-feeding them as
+        # assistant context re-poisons the rewriter/generator — the same reason
+        # _looks_like_refusal blanks the stored summary. Keep the user turn.
+        #
+        # Text-only check (not _looks_like_refusal): orchestrator.py hardcodes
+        # sources=[] for agent-mode turns, so _looks_like_refusal's
+        # `if not sources: return True` would discard 100% of agent-mode
+        # assistant turns here. text_looks_like_refusal looks only at the
+        # answer text, which is what this history re-injection cares about.
+        if a and not text_looks_like_refusal(a):
+            a_capped = _cap_text(a, MAX_HISTORY_ANSWER_CHARS)
+            group.append({"role": "assistant", "content": a_capped})
+            group_chars += len(a_capped)
+
+        if not group:
+            continue
+        if total_chars + group_chars > MAX_HISTORY_TOTAL_CHARS:
+            # Stop rather than skip ahead: we want a *contiguous* window of
+            # the most recent turns, not an optimal bin-packing of the
+            # budget. An older turn can be small enough to fit in whatever
+            # budget remains, but it's still dropped here, because a more
+            # recent turn already didn't fit — skipping past that gap would
+            # inject a non-contiguous set of turns (e.g. turn N and turn
+            # N-2 but not N-1), which is a worse trade-off for a follow-up
+            # question than a shorter but unbroken recent window.
+            break
+        kept_groups.append(group)
+        total_chars += group_chars
+
+    messages: list[dict] = []
+    for group in reversed(kept_groups):
+        messages.extend(group)
+    return messages
+
+
+async def _load_conversation_history(
+    session: AsyncSession,
+    conversation_id: str | None,
+    tenant_id: str,
+    user_id: str,
+    max_turns: int = 2,
+) -> list[dict]:
+    """Load prior turns of a conversation as {role, content} messages so the
+    retrieval query-rewriter (and generation) can resolve follow-up questions
+    against earlier context. Returns [] for a new/unknown conversation or on any
+    error (fail open — retrieval simply falls back to treating the query as
+    standalone, i.e. today's behaviour).
+
+    Uses the request-scoped `session` injected into `_query_stream_impl` (via
+    Depends(get_db_session)) instead of opening a second, bare session: that
+    session already carries the RLS GUCs (app.current_tenant, ...) needed to
+    read conversation_summaries under FORCE RLS. As a bonus, the sticky-mode
+    check earlier in the stream already did `session.get(ConversationSummary,
+    conversation_id)` on this same session/PK, so this call is an identity-map
+    hit rather than a second round-trip to Postgres."""
+    if not conversation_id:
+        return []
+    try:
+        from src.core.generation.domain.memory_models import ConversationSummary
+
+        summary = await session.get(ConversationSummary, conversation_id)
+        # Ownership check mirrors the save path: never leak another
+        # tenant's/user's conversation into this request's context.
+        if not summary or summary.tenant_id != tenant_id or summary.user_id != user_id:
+            return []
+        return _history_turns_to_messages((summary.metadata_ or {}).get("history", []), max_turns)
+    except Exception as e:
+        logger.warning(f"Failed to load conversation history for rewrite: {e}")
+        return []
+
+
+# =============================================================================
 # Streaming Endpoint
 # =============================================================================
 
@@ -763,6 +920,22 @@ async def _query_stream_impl(
             # search query, misrouting taxonomy and drifting vector search away
             # from the correct chunk.
 
+            # Load prior conversation turns so the retrieval query-rewriter can
+            # resolve follow-ups ("spiega meglio…", "mi riferivo a…") against the
+            # earlier context instead of retrieving them standalone (multi-turn
+            # context loss). Fails open to [] (today's behaviour) on any error.
+            # Gated behind enable_multiturn_history_reinjection (default off):
+            # with the flag off this is a full no-op, including the DB read —
+            # conversation_history stays None and _load_conversation_history is
+            # never called.
+            conversation_history: list[dict] | None = None
+            from src.api.config import settings as _history_settings
+
+            if _history_settings.enable_multiturn_history_reinjection:
+                conversation_history = await _load_conversation_history(
+                    session, request.conversation_id, tenant_id, stream_user_id
+                )
+
             # Add specific error handling for retrieval to catch retry/rate limit errors early
             try:
                 retrieval_result = await asyncio.wait_for(
@@ -773,7 +946,7 @@ async def _query_stream_impl(
                         top_k=max_chunks,
                         include_trace=request.options.include_trace if request.options else False,
                         options=request.options,
-                        history=None,
+                        history=conversation_history or None,
                         # Carry the authenticated group ACL scope into the stream
                         # path too; without it retrieval falls back to open scopes
                         # and group enforcement is bypassed for chat queries.
@@ -824,7 +997,12 @@ async def _query_stream_impl(
             async for event_dict in generation_service.generate_stream(
                 query=request.query,
                 candidates=retrieval_result.chunks,
-                conversation_history=None,
+                # Keep passing conversation_history to the generator too, not
+                # just to retrieval: only the openai provider currently honors
+                # it (messages.extend(history)); ollama pops it unused and
+                # anthropic doesn't accept the parameter at all. Harmless no-op
+                # for those two, real context for openai.
+                conversation_history=conversation_history or None,
                 options={
                     "user_id": user_id,
                     "tenant_id": tenant_id,
