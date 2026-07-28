@@ -233,6 +233,58 @@ class IngestionService:
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
 
+    async def _invalidate_result_cache(
+        self, tenant_id: str, reason: str, *, loud: bool = False
+    ) -> None:
+        """Drop the tenant's cached answers.
+
+        Two callers, and the replace one is the load-bearing half.
+
+        On the READY path this is housekeeping: the new chunks are in place, so
+        the cache is merely out of date.
+
+        On the replace path it is a correctness fix. A replace repoints the
+        Document row at new content and a new filename while the OLD chunk rows
+        stay in Postgres until the next reprocess rewrites them, and the
+        result-cache hit path does not consult document status at all -
+        `_fetch_chunks_by_ids` -> `get_chunks(ids)` is a bare id lookup, so the
+        non-READY blocklist that guards live vector/graph search does not apply.
+        Chunk ids are deterministic and the document id is preserved by design,
+        so pre-replace entries resolve successfully instead of falling into the
+        "stale entry, re-search" branch: the old text gets served under the new
+        filename. Before the two-level dedup this could not happen, because a
+        content change minted a new document id and the cached ids stopped
+        resolving.
+
+        Doing it here rather than only after a successful reprocess is what makes
+        it hold: the READY invalidation lives inside process_document's try, so a
+        failed reprocess (status FAILED) never reached it and the stale entries
+        survived to their TTL.
+
+        Best-effort by design - a cache that cannot be reached must not fail an
+        ingestion, and the underlying stores stay authoritative. No retry loop
+        either: that turns a Redis-availability problem into an
+        ingestion-availability one.
+
+        `loud` splits the two callers' failure severity. A miss on the READY path
+        is comparatively harmless, because the replace already tried to clear the
+        same keys. A miss on the replace path has one concrete known-bad outcome -
+        old content served under the new filename, indefinitely, bounded only by
+        the TTL - so it must not be indistinguishable from routine warning noise.
+        """
+        try:
+            from src.core.cache.result_cache import ResultCache, ResultCacheConfig
+            from src.shared.kernel.runtime import get_settings
+
+            cache = ResultCache(ResultCacheConfig(redis_url=get_settings().db.redis_url))
+            await cache.invalidate_tenant(tenant_id)
+        except Exception as exc:
+            message = f"Failed to invalidate result cache ({reason}) for tenant {tenant_id}: {exc}"
+            if loud:
+                logger.error(message)
+            else:
+                logger.warning(message)
+
     async def _replace_document_content(
         self,
         existing_doc: Document,
@@ -312,6 +364,14 @@ class IngestionService:
         existing_doc.metadata_ = updated_metadata
 
         await self.document_repository.save(existing_doc)
+
+        # The row now points at the new content, so any cached answer built from
+        # the old chunks is wrong from this moment - not from whenever the
+        # reprocess happens to finish, and regardless of whether it finishes at
+        # all. See _invalidate_result_cache.
+        await self._invalidate_result_cache(
+            tenant_id, f"{existing_doc.id} content replaced", loud=True
+        )
 
         await self.event_dispatcher.emit_state_change(
             StateChangeEvent(
@@ -1029,15 +1089,7 @@ class IngestionService:
             )
 
             # Invalidate result cache so stale answers are not served after new doc is ready
-            try:
-                from src.core.cache.result_cache import ResultCache, ResultCacheConfig
-                from src.shared.kernel.runtime import get_settings
-
-                _rc_settings = get_settings()
-                _rc = ResultCache(ResultCacheConfig(redis_url=_rc_settings.db.redis_url))
-                await _rc.invalidate_tenant(document.tenant_id)
-            except Exception as _rc_exc:
-                logger.warning(f"Failed to invalidate result cache on READY for {document_id}: {_rc_exc}")
+            await self._invalidate_result_cache(document.tenant_id, f"{document_id} READY")
 
             logger.info(f"Processed document {document_id}")
 

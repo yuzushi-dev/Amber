@@ -80,6 +80,59 @@ already been observed or read off the merged code.
 
 ---
 
+## 0b. Cutover gates from the release review
+
+An adversarial review of #20–#37 plus these commits approved the deploy
+**conditional on all six of these**. They are the gate, not advice.
+
+1. **Rebuild the images explicitly**: `docker compose build --no-cache api worker celery_beat`.
+   Do not rely on a bind-mount-only `up -d` recreate. `api`, `worker` and
+   `celery_beat` all mount `./src:ro` (`docker-compose.yml:114,229,303`, a line
+   older than prod's own HEAD), so a recreate alone jumps a container's *code*
+   forward 68 commits while its *installed dependencies* stay at whatever the
+   image was built with. That is version skew inside one container, not between
+   two.
+2. **Fix `.env` `DEFAULT_LLM_MODEL` before any restart.** Env vars are read at
+   startup; a restart with `gemma3:27b` still answers 410.
+3. **Fresh backup + `verify_backup.sh` + a new restore drill** immediately before
+   cutover. Not a drill from days earlier — 62+ commits of behaviour sit between.
+4. **Recreate all 3 worker replicas and `celery_beat` in the same window**, never
+   staggered: a stale-code replica still defaults to `min_age_minutes=0` and can
+   sweep the fixed replicas' in-flight work on its own boot.
+5. **`ENABLE_MULTITURN_HISTORY_REINJECTION` stays `False`.** Not flipped as part
+   of this cutover — the `X-User-ID` trust boundary is what neutralises it.
+6. **Throttle or pause ingestion fan-out during the window**, so no single
+   document's GRAPH_SYNC runs past 30 minutes while a replica restarts. This is
+   the one place `STALE_MIN_AGE_MINUTES` is probabilistic rather than absolute,
+   and the one thing this deploy cannot fully close.
+
+### Watch for the first hour
+
+- `Requeued document ... for reprocess (was in EMBEDDING/GRAPH_SYNC state)` right
+  after any replica restart. If it fires **and** two different task ids log
+  `Pre-ingest cleanup` for the same `document_id`, that is the residual race
+  actually happening, not a hypothetical.
+- `Failed to invalidate result cache (... content replaced)` — logged at `error`
+  precisely so it is not lost in warning noise. Means a replace left stale answers
+  live until TTL.
+- `worker` memory: expect child recycles around 800 MiB, **not** hard OOM-kills of
+  the container. A hard kill means the ~400 MiB master headroom estimate is wrong.
+- Confirm the api actually serves `gemma4:31b-cloud` after restart, not a cached
+  410 from the retired model.
+
+Not held back: the #20 and #22 fail-open ACL gaps have zero blast radius while
+there are 0 `document_shares` and 0 `group_document_access` rows. They stop being
+inert the day someone issues a group grant — re-read those two before that day.
+
+### One note on the cache invalidation
+
+`_invalidate_result_cache` clears the **whole tenant**, because cache keys are
+`result:{tenant_id}:{query_hash}` and there is no per-document key to clear. Fine
+at one tenant and replace-as-a-rare-event. It becomes a trap in a high-query
+multi-tenant deployment, or if a bulk connector sync ever calls the replace path
+in a loop — each iteration would re-nuke the tenant's cache and effectively
+disable caching for the duration of the sync.
+
 ## 1. Quiesce ingestion
 
 The window where a deploy or migration destroys data is the window where a
