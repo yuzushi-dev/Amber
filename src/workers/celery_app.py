@@ -211,6 +211,11 @@ def on_worker_ready(**kwargs):
 
     This signal fires after all worker initialization is complete,
     making it safe to access databases and other resources.
+
+    Deliberately no min_age_minutes override: the signal fires once per replica,
+    so with `replicas: 3` a restarting replica must not touch what the others are
+    processing.  run_recovery_sync defaults to recovery.STALE_MIN_AGE_MINUTES —
+    keep it that way.
     """
     logger.info("Worker ready - checking for stale documents...")
     try:
@@ -230,19 +235,17 @@ def on_worker_ready(**kwargs):
         logger.error(f"Stale document recovery failed: {e}")
         # Don't fail worker startup - recovery is best-effort
 
-    # Clean up stale community processing locks left by previous worker instances
-    try:
-        import redis as redis_lib
-
-        from src.api.config import settings
-
-        r = redis_lib.Redis.from_url(settings.db.redis_url)
-        stale_locks = r.keys("locks:process_communities:*")
-        for lock_key in stale_locks:
-            r.delete(lock_key)
-            logger.info(f"Cleared stale lock: {lock_key.decode()}")
-        if not stale_locks:
-            logger.info("No stale community locks found")
-        r.close()
-    except Exception as e:
-        logger.warning(f"Failed to clean up stale community locks: {e}")
+    # Community processing locks are deliberately NOT cleared here.
+    #
+    # They are set with `SET NX EX 7200` (tasks.py: process_communities), so a
+    # lock left behind by a crashed worker expires on its own within the 2h
+    # safety TTL. Deleting them at boot was safe with a single worker and is not
+    # with `replicas: 3` (docker-compose.yml): this signal fires per replica, and
+    # a restarting replica would release the locks the other two are holding
+    # right now, letting two workers run community detection and summarisation
+    # for the same tenant concurrently and clobber each other's writes.
+    #
+    # ponytail: the cost is that after a crash a tenant's community refresh can
+    # be blocked for up to the remaining TTL. If that latency ever matters,
+    # narrow the lock value (it already stores the owning task id) and clear only
+    # locks whose task is no longer active — do not go back to a blanket flush.

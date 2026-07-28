@@ -15,8 +15,29 @@ from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
 
+# Minimum age a document must have before a sweep may touch it.
+#
+# This is a safety floor, not a tuning knob, and it applies at worker boot too.
+# The boot sweep used to run with no threshold on the reasoning that nothing is
+# in-flight at startup — true with a single worker, false since
+# docker-compose.yml declares `replicas: 3`. One replica restarting (a deploy, or
+# an OOM-kill against its 2G cap) would otherwise sweep documents the other two
+# are actively processing: EXTRACTING/CLASSIFYING get marked FAILED, and
+# EMBEDDING/GRAPH_SYNC get reset to INGESTED and requeued while the original task
+# is still running under task_acks_late. The requeued run then executes the
+# destructive pre-ingest cleanup (Milvus delete_by_document, Neo4j DETACH DELETE)
+# concurrently with the original run's writes, leaving a partial vector set.
+#
+# 30 minutes covers the longest observed stage (graph-sync).
+#
+# ponytail: there is no per-document heartbeat, so updated_at only advances at
+# stage transitions and a single stage running longer than this floor can still
+# be swept. If that starts happening, write a heartbeat from the pipeline instead
+# of raising the floor.
+STALE_MIN_AGE_MINUTES = 30
 
-async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
+
+async def recover_stale_documents(min_age_minutes: int = STALE_MIN_AGE_MINUTES) -> dict[str, Any]:
     """
     Find and recover documents stuck in processing states.
 
@@ -32,11 +53,10 @@ async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
 
     Args:
         min_age_minutes: Only recover documents whose updated_at is older than
-            this many minutes.  Use 0 (default) to recover everything immediately
-            (safe at worker boot when nothing is in-flight).  The periodic sweep
-            should pass a positive value (e.g. 30) so legitimately in-progress
-            documents (graph-sync can take ~30 min) are not reset and requeued
-            concurrently.
+            this many minutes.  Defaults to STALE_MIN_AGE_MINUTES, which every
+            caller should keep: it is what stops a sweep from resetting and
+            requeueing a document another worker replica is processing right now.
+            Pass 0 only from a context that has proven no worker is running.
 
     Returns:
         dict: {"recovered": int, "failed": int, "total": int}
@@ -85,10 +105,13 @@ async def recover_stale_documents(min_age_minutes: int = 0) -> dict[str, Any]:
                     select(Document)
                     .where(Document.status.in_(STALE_STATES))
                 )
-                # Age threshold: skip documents updated recently so the periodic
-                # sweep does not reset documents that are legitimately in-flight
-                # (e.g. graph-sync can take ~30 min).  At worker boot
-                # min_age_minutes=0, so everything is recovered immediately.
+                # Age threshold: skip documents updated recently so no sweep -
+                # periodic or boot-time - resets a document that is legitimately
+                # in-flight on this or another replica.  See
+                # STALE_MIN_AGE_MINUTES.  SKIP LOCKED below only serialises
+                # concurrent sweeps; it does not protect a document from a sweep
+                # while a worker is mid-pipeline on it, because the pipeline
+                # commits between stages and holds no row lock across them.
                 if min_age_minutes > 0:
                     cutoff = datetime.now(UTC) - timedelta(minutes=min_age_minutes)
                     stale_query = stale_query.where(Document.updated_at < cutoff)
@@ -237,14 +260,15 @@ def _publish_recovery_status(document_id: str, status: str) -> None:
         logger.debug(f"Failed to publish recovery status: {e}")
 
 
-def run_recovery_sync(min_age_minutes: int = 0) -> dict[str, Any]:
+def run_recovery_sync(min_age_minutes: int = STALE_MIN_AGE_MINUTES) -> dict[str, Any]:
     """
     Synchronous wrapper for recovery function.
     Used by Celery signals which run in sync context.
 
     Args:
-        min_age_minutes: Forwarded to recover_stale_documents.  Default 0
-            recovers everything (safe at worker boot).
+        min_age_minutes: Forwarded to recover_stale_documents.  The default is
+            the safety floor; the worker_ready signal relies on it, so do not
+            reintroduce a 0 default here.
     """
     import asyncio
 
@@ -299,11 +323,9 @@ def periodic_recovery_sweep() -> dict[str, Any]:
     Idempotent and tenant-agnostic (queries all documents across all tenants).
     """
     logger.info("Periodic recovery sweep triggered by Celery Beat")
-    # 30-minute age threshold: skip documents updated within the last 30 min so
-    # legitimately in-flight processing (e.g. graph-sync can take ~30 min) is not
-    # reset and requeued concurrently.  The boot-time path uses min_age_minutes=0
-    # (recover everything immediately, since nothing is in-flight at startup).
-    result = run_recovery_sync(min_age_minutes=30)
+    # Age threshold comes from STALE_MIN_AGE_MINUTES, shared with the boot-time
+    # path so the two cannot drift apart.
+    result = run_recovery_sync()
     if result.get("total", 0) > 0:
         logger.info(
             "Periodic recovery sweep: %(recovered)s recovered, %(failed)s failed, "
