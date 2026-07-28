@@ -227,3 +227,81 @@ async def test_valid_output_is_returned_rewritten():
         result = await rewriter.rewrite("original query", history=HISTORY)
 
     assert result == "standalone rewritten query"
+
+
+@pytest.mark.asyncio
+async def test_think_block_is_stripped_from_output():
+    """A reasoning-capable model's leading <think>...</think> block must not
+    leak into the search query - only the text after it is the actual
+    rewrite."""
+    rewriter = _rewriter_with_response("<think>ragionamento</think> query riscritta")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_thinking_variant_mixed_case_is_stripped():
+    """The <thinking> spelling, in mixed case, must be stripped just like
+    <think>."""
+    rewriter = _rewriter_with_response("<Thinking>some reasoning</Thinking> query riscritta")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_multiline_think_block_is_stripped():
+    """The reasoning block can span multiple lines; the strip must match
+    across newlines, not just within a single line."""
+    output = "<think>\nstep one\nstep two\nstep three\n</think>\nquery riscritta"
+    rewriter = _rewriter_with_response(output)
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "query riscritta"
+
+
+@pytest.mark.asyncio
+async def test_output_that_is_only_a_think_block_returns_original_query(caplog):
+    """If the whole output is just the reasoning block, stripping it leaves
+    nothing - that must hit the existing empty-output guard and return the
+    original query, not an empty string."""
+    rewriter = _rewriter_with_response("<think>ragionamento senza query</think>")
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "original query"
+    assert any("empty output" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_unclosed_think_tag_returns_original_query(caplog):
+    """An opening <think> tag with no matching close means the entire output
+    is unterminated reasoning - it must not be guessed at or partially used,
+    just rejected in favor of the original query."""
+    rewriter = _rewriter_with_response("<think>ragionamento che non finisce mai mentre genera la query")
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("WARNING"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "original query"
+    assert any("unclosed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_normal_output_without_think_tags_is_unaltered():
+    """Non-regression: an output with no <think>/<thinking> tags at all must
+    pass through the stripping logic completely untouched."""
+    rewriter = _rewriter_with_response("standalone rewritten query, no tags here")
+    p1, p2 = _patches()
+    with p1, p2:
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "standalone rewritten query, no tags here"

@@ -7,6 +7,7 @@ Uses LLM to rewrite queries into standalone versions using conversation history.
 
 import asyncio
 import logging
+import re
 
 from src.core.generation.application.prompts.query_analysis import QUERY_REWRITE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
@@ -18,6 +19,15 @@ from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
 
 logger = logging.getLogger(__name__)
+
+# Reasoning-capable models can emit <think>/<thinking> blocks around (or
+# instead of) the actual rewrite. Non-greedy + DOTALL so a block is removed
+# wherever it appears, including multi-line reasoning traces.
+_THINK_BLOCK_RE = re.compile(
+    r"<think>.*?</think>|<thinking>.*?</thinking>",
+    re.IGNORECASE | re.DOTALL,
+)
+_THINK_OPEN_TAG_RE = re.compile(r"<think>|<thinking>", re.IGNORECASE)
 
 
 class QueryRewriter:
@@ -146,16 +156,22 @@ class QueryRewriter:
                 logger.warning(f"Query rewrite exceeded timeout ({timeout_sec:.2f}s), using original")
                 return query
 
-            rewritten = (rewritten_res.text or "").strip()
+            raw = (rewritten_res.text or "").strip()
 
-            # Known gap, deliberately not handled here: reasoning-capable
-            # models can emit a leading <think>...</think> block before the
-            # actual rewrite. If that block is short enough, the combined
-            # text can slip under max_len below and the raw reasoning trace
-            # ends up as part of the search query. Stripping it would need a
-            # provider-aware/tag-aware parse (formats vary), which is a
-            # bigger change than this timeout/output-guard fix; tracked as a
-            # follow-up rather than guessed at here.
+            # Drop <think>/<thinking> reasoning blocks before the empty-output
+            # and max_len guards below, so both apply to the actual rewritten
+            # query rather than a mix of reasoning trace and query.
+            rewritten = _THINK_BLOCK_RE.sub("", raw)
+            if _THINK_OPEN_TAG_RE.search(rewritten):
+                # An opening tag with no matching close means the whole
+                # output is (unterminated) reasoning, not a usable rewrite —
+                # don't guess where it would have ended.
+                logger.warning(
+                    "Query rewrite output contains an unclosed <think>/<thinking> tag, using original"
+                )
+                return query
+            rewritten = rewritten.strip()
+
             if not rewritten:
                 logger.warning("Query rewrite returned empty output, using original")
                 return query
