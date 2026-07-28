@@ -354,11 +354,22 @@ def _looks_like_refusal(answer: str, sources: list[Any] | None = None) -> bool:
 # 3687 chars (p95 2622) — unbounded, that blows out the rewrite prompt with
 # content that's mostly a restatement of already-cited sources.
 MAX_HISTORY_ANSWER_CHARS = 2000  # per-answer cap (p95 observed 2622, max 3687)
+# Separate, smaller cap for the *query* half of a turn — user queries are
+# short in practice, and giving them the same 2000-char budget as answers
+# would let two capped answers alone (2 * (2000 + 1 ellipsis char) = 4002)
+# eat almost the entire total budget below, leaving ~198 chars for both
+# queries *combined*. At p95 (answer 2622 chars, over MAX_HISTORY_ANSWER_CHARS,
+# so both answers land on the cap-plus-ellipsis case) any pair of queries
+# over ~99 chars would then push the older turn out — collapsing the
+# "2 turns" window to 1 in the typical case, not just a pathological one.
+MAX_HISTORY_QUERY_CHARS = 300
 # Cap on the combined injected turns (up to 2 turns of user query + assistant
-# answer each). Sized as ~2x the per-answer cap plus headroom for the two user
-# queries, which are short in practice. This is what ends up in the rewriter
-# prompt alongside the live query.
-MAX_HISTORY_TOTAL_CHARS = 4200
+# answer each). Sized so two turns at the p95 answer size (capped to
+# MAX_HISTORY_ANSWER_CHARS each) plus two realistic-length queries
+# (~150 chars each, well under MAX_HISTORY_QUERY_CHARS) both survive:
+# 2 * 2000 + 2 * 150 = 4300, comfortably under this cap. This is what ends
+# up in the rewriter prompt alongside the live query.
+MAX_HISTORY_TOTAL_CHARS = 4600
 
 
 def _cap_text(text: str, limit: int) -> str:
@@ -372,10 +383,11 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
     """Map persisted history turns ({query, answer, ...}) to the {role, content}
     message format the query rewriter and LLM providers expect. Keeps only the
     last ``max_turns`` turns (each turn → a user + an assistant message), each
-    answer capped at MAX_HISTORY_ANSWER_CHARS.
+    answer capped at MAX_HISTORY_ANSWER_CHARS and each query capped at the
+    separate, smaller MAX_HISTORY_QUERY_CHARS.
 
     Each turn is an atomic unit: it is included whole (both its messages,
-    after per-answer capping) or not at all — never split across the user/
+    after per-message capping) or not at all — never split across the user/
     assistant boundary. Turns are walked newest-first so that when the
     combined MAX_HISTORY_TOTAL_CHARS budget runs out, it's the *oldest*
     turns that get dropped and the most recent (most relevant to a
@@ -393,7 +405,12 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
     Default 2 turns (= 4 messages): QueryRewriter.rewrite() truncates to the last
     5 *messages*, so a wider window would be sliced mid-turn and could start on an
     assistant message. 2 whole turns survive that slice intact, user-first.
-    A deeper window would require the rewriter to truncate by turns (follow-up)."""
+    A deeper window would require the rewriter to truncate by turns (follow-up).
+
+    max_turns <= 0 returns [] rather than slicing with ``[-0:]``, which is
+    ``[0:]`` — i.e. *every* turn, the opposite of "keep none"."""
+    if max_turns <= 0:
+        return []
     candidate_turns = (turns or [])[-max_turns:]
 
     kept_groups: list[list[dict]] = []
@@ -411,7 +428,7 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
         group: list[dict] = []
         group_chars = 0
         if q:
-            q_capped = _cap_text(str(q), MAX_HISTORY_ANSWER_CHARS)
+            q_capped = _cap_text(str(q), MAX_HISTORY_QUERY_CHARS)
             group.append({"role": "user", "content": q_capped})
             group_chars += len(q_capped)
         # Drop refusal answers ("no documentation found …"): re-feeding them as

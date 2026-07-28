@@ -19,6 +19,7 @@ import pytest
 
 from src.api.routes.query import (
     MAX_HISTORY_ANSWER_CHARS,
+    MAX_HISTORY_QUERY_CHARS,
     MAX_HISTORY_TOTAL_CHARS,
     _history_turns_to_messages,
     _load_conversation_history,
@@ -157,15 +158,16 @@ def test_answer_over_cap_is_truncated():
 
 
 def test_total_injected_history_is_capped_keeps_most_recent_turn():
-    # Two turns, each with a max-size answer and a long-ish query: unbounded
-    # this would inject ~2 * (150 + 2000) = 4300 chars, over the total cap —
-    # only one turn's worth fits.
-    long_query = "q" * 150
+    # Two turns, each with an over-cap query (truncated to
+    # MAX_HISTORY_QUERY_CHARS + ellipsis) and a max-size answer: each turn
+    # alone is 301 + 2000 = 2301 chars, so both together (4602) are just over
+    # MAX_HISTORY_TOTAL_CHARS (4600) — only one turn's worth fits.
+    over_cap_query = "q" * (MAX_HISTORY_QUERY_CHARS + 50)
     big_answer_old = "y" * MAX_HISTORY_ANSWER_CHARS
     big_answer_new = "z" * MAX_HISTORY_ANSWER_CHARS
     turns = [
-        {"query": long_query, "answer": big_answer_old},
-        {"query": long_query, "answer": big_answer_new},
+        {"query": over_cap_query, "answer": big_answer_old},
+        {"query": over_cap_query, "answer": big_answer_new},
     ]
     msgs = _history_turns_to_messages(turns, max_turns=2)
     total_chars = sum(len(m["content"]) for m in msgs)
@@ -175,10 +177,48 @@ def test_total_injected_history_is_capped_keeps_most_recent_turn():
     # message and misalign the user/assistant sequence for the rewriter) and
     # the most recent turn — the one relevant to a follow-up — survives
     # intact, user-first.
+    expected_query = "q" * MAX_HISTORY_QUERY_CHARS + "…"
     assert msgs == [
-        {"role": "user", "content": long_query},
+        {"role": "user", "content": expected_query},
         {"role": "assistant", "content": big_answer_new},
     ]
+
+
+def test_p95_case_keeps_both_turns():
+    """Pins the typical (not pathological) case the total cap must handle:
+    two answers at the p95 observed size (2622 chars, over
+    MAX_HISTORY_ANSWER_CHARS so both get capped-plus-ellipsis) and two
+    realistic ~150-char queries. Both turns must survive — this used to
+    collapse to 1 turn before the query got its own, smaller cap, because a
+    single shared 2000-char budget let two capped answers alone
+    (2 * 2001 = 4002) leave only ~198 chars for both queries combined."""
+    p95_answer = "a" * 2622
+    realistic_query = "q" * 150
+    turns = [
+        {"query": realistic_query, "answer": p95_answer},
+        {"query": realistic_query, "answer": p95_answer},
+    ]
+    msgs = _history_turns_to_messages(turns, max_turns=2)
+    assert len(msgs) == 4
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user", "assistant"]
+    assert msgs[0]["content"] == realistic_query
+    assert msgs[2]["content"] == realistic_query
+
+
+def test_query_over_cap_is_truncated_separately_from_answer():
+    long_query = "q" * (MAX_HISTORY_QUERY_CHARS + 100)
+    turns = [{"query": long_query, "answer": "short answer"}]
+    msgs = _history_turns_to_messages(turns)
+    user_msg = next(m for m in msgs if m["role"] == "user")
+    assert len(user_msg["content"]) <= MAX_HISTORY_QUERY_CHARS + 1  # +1 for the ellipsis mark
+    assert user_msg["content"] != long_query
+
+
+def test_max_turns_zero_returns_no_turns():
+    """`(turns or [])[-0:]` is `[0:]` — every turn, not none. max_turns=0 must
+    mean "keep zero turns", not be silently equivalent to no limit at all."""
+    turns = [{"query": "q1", "answer": "a1"}, {"query": "q2", "answer": "a2"}]
+    assert _history_turns_to_messages(turns, max_turns=0) == []
 
 
 # =============================================================================
@@ -279,3 +319,99 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
     # vacuously true because the stream errored out before reaching it).
     assert "history" in retrieve_kwargs
     assert retrieve_kwargs.get("history") is None
+
+
+@pytest.mark.asyncio
+async def test_flag_on_injects_history_into_retrieval(monkeypatch):
+    """The gate's other half: with the flag ON, a real, well-formed 2-turn
+    conversation must reach retrieve() as a populated, correctly-mapped
+    `history` list — not just "not None". Patches the exact object the code
+    reads (`src.api.config.settings`, not `get_settings()`/
+    `configure_settings()`): the gate at query.py does
+    `from src.api.config import settings as _history_settings`, so patching
+    a different settings instance would be a silent no-op here."""
+    from src.api.config import settings as api_settings
+
+    monkeypatch.setattr(
+        api_settings, "enable_multiturn_history_reinjection", True, raising=False
+    )
+
+    summary = SimpleNamespace(
+        tenant_id=TENANT,
+        user_id=USER,
+        metadata_={
+            "history": [
+                {"query": "cosa e UMR", "answer": "User Mail Replica"},
+                {"query": "e le limitazioni?", "answer": "Le limitazioni sono descritte qui"},
+            ]
+        },
+    )
+
+    class _SessionWithSummary:
+        async def get(self, *_a, **_kw):
+            return summary
+
+        def add(self, _obj):
+            pass
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(
+        "src.core.retrieval.application.query.structured_query.structured_executor.try_execute",
+        AsyncMock(return_value=None),
+    )
+
+    retrieve_kwargs: dict = {}
+
+    async def fake_retrieve(**kwargs):
+        retrieve_kwargs.update(kwargs)
+        return SimpleNamespace(chunks=[{"score": 0.9}], cache_hit=False)
+
+    async def fake_generate_stream(**_kw):
+        yield {"event": "token", "data": "Hello"}
+        yield {"event": "sources", "data": []}
+        yield {"event": "done", "data": {"model": "test-model", "provider": "test-provider"}}
+
+    generation_service = SimpleNamespace(
+        generate_stream=fake_generate_stream,
+        _normalize_citations=lambda text: text,
+    )
+    retrieval_service = SimpleNamespace(retrieve=fake_retrieve)
+
+    monkeypatch.setattr(
+        "src.amber_platform.composition_root.build_retrieval_service",
+        lambda _session: retrieval_service,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.amber_platform.composition_root.build_generation_service",
+        lambda _session: generation_service,
+        raising=False,
+    )
+
+    request = QueryRequest(
+        query="continue our chat",
+        options=QueryOptions(model="test-model"),
+        conversation_id="conv-existing",
+    )
+    http_request = SimpleNamespace(
+        method="POST",
+        state=SimpleNamespace(tenant_id=TENANT, query_scopes=None, is_super_admin=False),
+        headers={"X-User-ID": USER},
+    )
+
+    response = await _query_stream_impl(
+        http_request=http_request, request=request, session=_SessionWithSummary()
+    )
+
+    async for _chunk in response.body_iterator:
+        pass
+
+    assert "history" in retrieve_kwargs
+    assert retrieve_kwargs["history"] == [
+        {"role": "user", "content": "cosa e UMR"},
+        {"role": "assistant", "content": "User Mail Replica"},
+        {"role": "user", "content": "e le limitazioni?"},
+        {"role": "assistant", "content": "Le limitazioni sono descritte qui"},
+    ]
