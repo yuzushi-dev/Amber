@@ -5,8 +5,8 @@ Query Rewriter
 Uses LLM to rewrite queries into standalone versions using conversation history.
 """
 
+import asyncio
 import logging
-import time
 
 from src.core.generation.application.prompts.query_analysis import QUERY_REWRITE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
@@ -60,7 +60,7 @@ class QueryRewriter:
         history: list[dict] | str | None = None,
         global_rules: list[str] | None = None,
         memory_context: str | None = None,
-        timeout_sec: float = 2.0,
+        timeout_sec: float = 4.5,
         tenant_config: dict | None = None,
     ) -> str:
         """
@@ -69,7 +69,8 @@ class QueryRewriter:
         Args:
             query: Current user query
             history: List of conversation turns or a formatted string
-            timeout_sec: Latency guard, return original if exceeds
+            timeout_sec: Hard deadline wrapped around the LLM call (asyncio.wait_for);
+                on expiry the original query is returned
 
         Returns:
             Rewritten query or original if failure/timeout
@@ -100,7 +101,6 @@ class QueryRewriter:
             memory=memory_str
         )
 
-        start_time = time.perf_counter()
         try:
             from src.core.generation.application.llm_steps import resolve_llm_step_config
             from src.shared.kernel.runtime import get_settings
@@ -137,15 +137,30 @@ class QueryRewriter:
             if llm_cfg.seed is not None:
                 kwargs["seed"] = llm_cfg.seed
 
-            # We don't have a direct timeout in the provider yet, but we can check after
-            rewritten_res = await provider.generate(prompt, work_class="chat", **kwargs)
-
-            elapsed = time.perf_counter() - start_time
-            if elapsed > timeout_sec:
-                logger.warning(f"Query rewrite took too long ({elapsed:.2f}s), using original")
+            try:
+                rewritten_res = await asyncio.wait_for(
+                    provider.generate(prompt, work_class="chat", **kwargs),
+                    timeout=timeout_sec,
+                )
+            except TimeoutError:
+                logger.warning(f"Query rewrite exceeded timeout ({timeout_sec:.2f}s), using original")
                 return query
 
-            return (rewritten_res.text or "").strip()
+            rewritten = (rewritten_res.text or "").strip()
+
+            if not rewritten:
+                logger.warning("Query rewrite returned empty output, using original")
+                return query
+
+            max_len = max(200, 4 * len(query))
+            if len(rewritten) > max_len:
+                logger.warning(
+                    f"Query rewrite output disproportionate to input "
+                    f"({len(rewritten)} chars > {max_len} limit), using original"
+                )
+                return query
+
+            return rewritten
 
         except Exception as e:
             logger.error(f"Query rewrite failed: {e}")
