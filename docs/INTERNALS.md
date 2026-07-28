@@ -11,7 +11,7 @@ The ingestion pipeline transforms raw documents into queryable knowledge represe
 ```
 Document Upload
     ↓
-[1] Storage (Garage)
+[1] Storage (MinIO)
     ↓
 [2] Format Detection & Extraction
     ↓
@@ -34,7 +34,7 @@ Document Ready
 
 **Implementation**: [src/core/ingestion/infrastructure/storage/storage_client.py](../src/core/ingestion/infrastructure/storage/storage_client.py)
 
-- Raw documents stored in **Garage** (S3-compatible object storage)
+- Raw documents stored in **MinIO** (S3-compatible object storage)
 - Content-addressed storage using SHA-256 hashing
 - Automatic deduplication at upload time
 - Tenant-isolated buckets: `{tenant_id}/{document_id}/filename`

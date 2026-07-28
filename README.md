@@ -99,19 +99,20 @@ Five retrieval modes:
    # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
    ```
 
-   This starts 10 services:
-   - `nginx` - Edge proxy on ports 8000 and 3000, owns all external traffic
+   This starts 11 services:
+   - `nginx` - Edge proxy, owns all external traffic (host `:8000` for the API, host `:80` for the frontend)
    - `api` - FastAPI backend (internal; exposed through nginx)
    - `frontend` - React frontend (internal; served through nginx)
    - `worker` - Celery workers
+   - `celery_beat` - Scheduler for periodic tasks
    - `postgres` - Metadata database (host port 5433 → container 5432)
    - `neo4j` - Graph database (ports 7474, 7687)
-   - `milvus` - Vector database (port 19530)
+   - `milvus` - Vector database (ports 19530, 9091)
    - `etcd` - Milvus metadata store (internal)
    - `redis` - Cache & broker (port 6379)
-   - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
+   - `minio` - S3-compatible object storage; console on port 9001, S3 API on 9000 inside the network only
 
-   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. For a zero-downtime deploy, `deploy/docker-compose.canary.yml` brings up an `api-canary` container on port 8001, which you can smoke-test without nginx in the path; `deploy/cutover.sh --to canary` then repoints nginx at it, `--dry-run` shows the change first, and `--to live` rolls back.
+   > **Note:** nginx owns host ports `:8000` and `:80`. The API and frontend containers do not bind host ports directly. For a zero-downtime deploy, `deploy/docker-compose.canary.yml` brings up an `api-canary` container on port 8001, which you can smoke-test without nginx in the path; `deploy/cutover.sh --to canary` then repoints nginx at it, `--dry-run` shows the change first, and `--to live` rolls back.
 
 4. **Run Database Migrations** (Critical!)
    ```bash
@@ -120,12 +121,12 @@ Five retrieval modes:
    ```
 
 5. **Access the Application**
-   - **Frontend**: [http://localhost:3000](http://localhost:3000) (served by nginx; the frontend container runs `npm run dev` automatically)
+   - **Frontend**: [http://localhost](http://localhost) (served by nginx on port 80; the frontend container runs `npm run dev` automatically)
    - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
    - **Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
      - Username: `neo4j`
      - Password: (from `.env` `NEO4J_PASSWORD`)
-   - **Garage Admin API**: [http://localhost:3903](http://localhost:3903)
+   - **MinIO Console**: [http://localhost:9001](http://localhost:9001)
      - Credentials: (from `.env` `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`)
 
 6. **Verify Health**
@@ -210,9 +211,12 @@ NEO4J_PASSWORD=changeme
 MILVUS_HOST=milvus
 MILVUS_PORT=19530
 
-# Garage (S3-compatible object storage)
-OBJECT_STORAGE_ACCESS_KEY=your-garage-access-key
-OBJECT_STORAGE_SECRET_KEY=your-garage-secret-key
+# MinIO (S3-compatible object storage)
+OBJECT_STORAGE_HOST=minio
+OBJECT_STORAGE_PORT=9000
+OBJECT_STORAGE_ACCESS_KEY=minioadmin
+OBJECT_STORAGE_SECRET_KEY=minioadmin
+OBJECT_STORAGE_BUCKET_NAME=documents
 
 # Redis
 REDIS_URL=redis://redis:6379/0
@@ -490,11 +494,11 @@ The admin UI covers the operational surface: documents, connectors, jobs, backup
 - **Stop All Jobs**: Emergency termination of all running tasks
 
 #### Backup & Restore (`/admin/backup`)
-- **Full System Backup**: Complete archive of PostgreSQL (metadata), Neo4j (graph), Milvus (vectors), and Garage (files)
+- **Full System Backup**: Complete archive of PostgreSQL (metadata), Neo4j (graph), Milvus (vectors), and MinIO (files)
 - **User Data Backup**: Lightweight portability scope (Vectors, Graph, Chunks) sans system configs
 - **Point-in-Time Recovery**: Restore capability with "Merge" or "Replace" strategies
 - **Scheduled Backups**: Automated daily/weekly snapshots with retention policies
-- **Scripted Backup**: `scripts/backup.sh` covers the whole Garage stack and supports `--dry-run`
+- **Scripted Backup**: `scripts/backup.sh` covers postgres, neo4j, redis, milvus, etcd, minio, uploads and config, selectable with `--include=`, and supports `--dry-run`
 
 #### Maintenance & Operations
 - **Community Detection**: Trigger full or incremental updates
@@ -553,7 +557,7 @@ Multi-tenancy is enforced at the database layer, not only in application code, a
 
 ## System Architecture
 
-Amber runs as a set of services behind an nginx edge proxy: a React frontend, a FastAPI API, Celery workers for everything slow, and six data stores that each hold one kind of state (Postgres, Neo4j, Milvus, Redis, Garage, etcd).
+Amber runs as a set of services behind an nginx edge proxy: a React frontend, a FastAPI API, Celery workers for everything slow, and six data stores that each hold one kind of state (Postgres, Neo4j, Milvus, Redis, MinIO, etcd).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -611,7 +615,7 @@ Amber runs as a set of services behind an nginx edge proxy: a React frontend, a 
 │  └──────────────┘  └──────────────┘  └──────────────┘         │
 │                                                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │    Redis     │  │    Garage    │  │  etcd (Milvus│         │
+│  │    Redis     │  │    MinIO     │  │  etcd (Milvus│         │
 │  │   (Cache &   │  │   (Object    │  │   metadata)  │         │
 │  │    Broker)   │  │   Storage)   │  │              │         │
 │  │              │  │              │  │              │         │
@@ -649,7 +653,7 @@ Amber runs as a set of services behind an nginx edge proxy: a React frontend, a 
 |                | Graph            | Neo4j 5 Community         | Property graph with Cypher queries        |
 |                | Vector           | Milvus 2.5+               | Hybrid search (Dense + Sparse)            |
 |                | Cache            | Redis 7                   | In-memory cache & message broker          |
-|                | Object Storage   | Garage (S3-compatible)    | S3-compatible file storage                |
+|                | Object Storage   | MinIO                     | S3-compatible file storage                |
 |                | Coordination     | etcd                      | Milvus metadata store (internal)          |
 | **Processing** | Task Queue       | Celery 5.3+               | Distributed async task processing         |
 |                | Broker           | Redis                     | Task queue backend                        |
@@ -802,7 +806,7 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 
 1. **Start Infrastructure**
    ```bash
-   docker compose up -d postgres neo4j milvus redis garage etcd
+   docker compose up -d postgres neo4j milvus redis minio etcd
    ```
 
 2. **Backend**
