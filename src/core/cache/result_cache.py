@@ -93,6 +93,7 @@ class ResultCache:
         embedding_model: str | None = None,
         embedding_provider: str | None = None,
         collection_names: list[str] | None = None,
+        rerank_score_floor: float | None = None,
     ) -> str:
         """Create a hash key for a search request.
 
@@ -102,6 +103,10 @@ class ResultCache:
         - top_k: cached list may be smaller than a new request's top_k, so we key by it
         - embedding_model / embedding_provider: different models produce different vectors
         - collection_names: different collections hold different data
+        - rerank_score_floor: entries are stored AFTER the floor drops chunks, so a
+          cached entry only holds the chunks that survived the floor in force at
+          write time. Keying by it makes a floor change self-invalidating instead
+          of requiring a manual cache invalidation to take effect.
         tenant_id is both in the hash payload (defense) and in the key prefix (for SCAN).
         """
         data = {
@@ -113,6 +118,7 @@ class ResultCache:
             "embedding_model": embedding_model or "",
             "embedding_provider": embedding_provider or "",
             "collection_names": sorted(collection_names or []),
+            "rerank_score_floor": rerank_score_floor,
         }
         serialized = json.dumps(data, sort_keys=True)
         return hashlib.sha256(serialized.encode()).hexdigest()[:32]
@@ -135,6 +141,7 @@ class ResultCache:
         embedding_model: str | None = None,
         embedding_provider: str | None = None,
         collection_names: list[str] | None = None,
+        rerank_score_floor: float | None = None,
     ) -> CachedResult | None:
         """
         Get cached retrieval result.
@@ -148,6 +155,7 @@ class ResultCache:
             embedding_model: Resolved embedding model name
             embedding_provider: Resolved embedding provider name
             collection_names: Active vector collection names searched
+            rerank_score_floor: Relevance floor in force (part of the key)
 
         Returns:
             CachedResult or None if not found/stale
@@ -164,6 +172,7 @@ class ResultCache:
                 embedding_model=embedding_model,
                 embedding_provider=embedding_provider,
                 collection_names=collection_names,
+                rerank_score_floor=rerank_score_floor,
             )
             key = self._make_key(tenant_id, request_hash)
 
@@ -210,6 +219,7 @@ class ResultCache:
         embedding_model: str | None = None,
         embedding_provider: str | None = None,
         collection_names: list[str] | None = None,
+        rerank_score_floor: float | None = None,
     ) -> bool:
         """
         Cache a retrieval result.
@@ -226,6 +236,7 @@ class ResultCache:
             embedding_model: Resolved embedding model name
             embedding_provider: Resolved embedding provider name
             collection_names: Active vector collection names searched
+            rerank_score_floor: Relevance floor in force (part of the key)
 
         Returns:
             True if cached successfully
@@ -244,6 +255,7 @@ class ResultCache:
                 embedding_model=embedding_model,
                 embedding_provider=embedding_provider,
                 collection_names=collection_names,
+                rerank_score_floor=rerank_score_floor,
             )
             key = self._make_key(tenant_id, request_hash)
             ttl = ttl or self.config.ttl_seconds

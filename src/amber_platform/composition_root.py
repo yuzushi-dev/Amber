@@ -519,6 +519,7 @@ def build_retrieval_service(session=None):
         milvus_host=settings.db.milvus_host,
         milvus_port=settings.db.milvus_port,
         enable_hybrid=True,
+        rerank_score_floor=getattr(settings, "rerank_score_floor", None),
     )
 
     # Repositories

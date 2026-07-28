@@ -98,6 +98,13 @@ class RetrievalConfig:
     # Reranking
     enable_reranking: bool = True
     rerank_model: str = "ms-marco-MiniLM-L-12-v2"
+    # Relevance floor applied AFTER reranking, on the reranker's own scale - the
+    # only scale available downstream of both the dense and the hybrid path
+    # (see the scale note in _search_vector_targets_hybrid). Measured on the prod
+    # corpus with ms-marco-MiniLM-L-12-v2: on-topic chunks score >= 0.82, chunks
+    # for a query with no coverage score ~0.0, so anything in 0.1-0.5 separates
+    # them with a wide margin. None = disabled (no chunk dropped).
+    rerank_score_floor: float | None = None
 
     # Hybrid Search - DISABLED: Milvus 2.5.x has intermittent type mismatch errors with hybrid AnnSearchRequest
     enable_hybrid: bool = False
@@ -1252,6 +1259,7 @@ class RetrievalService:
                 embedding_model=_cache_embedding_model,
                 embedding_provider=_cache_embedding_provider,
                 collection_names=_cache_collection_names,
+                rerank_score_floor=self.config.rerank_score_floor,
             )
 
             logger.debug("Result cache lookup for '%s' hit=%s", search_query, bool(cached_result))
@@ -1266,7 +1274,25 @@ class RetrievalService:
                     # Real cache hit — either chunks resolved, or the cache
                     # legitimately recorded "no matches" for this query (empty
                     # chunk_ids to begin with, not a resolution failure).
+                    #
+                    # Staleness is decided on the *resolution* result, before the
+                    # floor filter below: "every cached chunk sits under the
+                    # floor" is the gate doing its job on a healthy entry, not a
+                    # stale entry, and must not send us back to a live search
+                    # that would filter the same chunks out again.
                     logger.info("Using cached result for '%s'", search_query)
+
+                    # Cached scores are post-rerank scores (see sub_chunks_to_cache
+                    # below). The floor is part of the cache key, so an entry read back
+                    # here was already written under this same floor; this filter is the
+                    # belt-and-braces half of that pair, and it is what keeps the gate
+                    # honest if a future writer ever caches without keying by the floor.
+                    if self.config.rerank_score_floor is not None:
+                        sub_chunks = [
+                            c
+                            for c in sub_chunks
+                            if float(c.get("score", 0.0)) >= self.config.rerank_score_floor
+                        ]
                     for c in sub_chunks:
                         if c["chunk_id"] not in seen_chunk_ids:
                             all_chunks.append(c)
@@ -1387,15 +1413,36 @@ class RetrievalService:
                                 )
                             )
 
+                    rerank_trace = {
+                        "step": "rerank",
+                        "duration_ms": (time.perf_counter() - step_start) * 1000,
+                        "model": self.config.rerank_model,
+                    }
+
+                    # Relevance floor: drop chunks the reranker scored below the
+                    # configured threshold. Applied only here because the floor is
+                    # calibrated on the reranker scale; the raw vector scores this
+                    # method may fall back to (rerank failure branch below) are on
+                    # a different scale and must not be compared against it.
+                    floor = self.config.rerank_score_floor
+                    if floor is not None:
+                        kept = [r for r in reranked_results if r.score >= floor]
+                        dropped = len(reranked_results) - len(kept)
+                        if dropped:
+                            logger.info(
+                                "Rerank floor %.3f dropped %d/%d chunks for '%s'",
+                                floor,
+                                dropped,
+                                len(reranked_results),
+                                search_query[:80],
+                            )
+                        rerank_trace["floor"] = floor
+                        rerank_trace["dropped_below_floor"] = dropped
+                        reranked_results = kept
+
                     search_results = reranked_results
 
-                    trace.append(
-                        {
-                            "step": "rerank",
-                            "duration_ms": (time.perf_counter() - step_start) * 1000,
-                            "model": self.config.rerank_model,
-                        }
-                    )
+                    trace.append(rerank_trace)
 
                 except Exception as e:
                     logger.warning(f"Reranking failed, using vector scores: {e}")
@@ -1462,6 +1509,7 @@ class RetrievalService:
                 embedding_model=_cache_embedding_model,
                 embedding_provider=_cache_embedding_provider,
                 collection_names=_cache_collection_names,
+                rerank_score_floor=self.config.rerank_score_floor,
             )
 
         # Final sort and limit

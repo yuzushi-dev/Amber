@@ -382,6 +382,17 @@ class Settings(BaseSettings):
         description="Embedding dimensions (auto-detected if not set)",
     )
 
+    # Retrieval relevance gate
+    rerank_score_floor: float | None = Field(
+        default=None,
+        alias="RERANK_SCORE_FLOOR",
+        description=(
+            "Drop chunks scored below this by the reranker, before generation. "
+            "On the reranker scale, NOT cosine: on-topic >= 0.82, no-coverage ~0.0. "
+            "Unset = disabled."
+        ),
+    )
+
     # Community Summarization
     community_summarization_concurrency: int = Field(
         default=1,
