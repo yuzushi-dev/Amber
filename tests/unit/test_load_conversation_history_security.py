@@ -184,6 +184,37 @@ def test_total_injected_history_is_capped_keeps_most_recent_turn():
     ]
 
 
+def test_budget_break_keeps_contiguous_recent_turns_not_the_optimal_packing():
+    """Pins *contiguity* as the design choice, not budget-optimal packing.
+
+    Three turns, oldest to newest: A (tiny — would trivially fit in whatever
+    budget is left), B (large), C (large, same size as B). Processing is
+    newest-first (C, then B, then A). C alone fits (2302 chars, about half
+    the 4600 budget). Adding B pushes the running total past the budget
+    (2302 + 2302 = 4604 > 4600), so the walk stops at B via `break` — and A
+    is never even examined, even though on its own it would fit comfortably
+    into the ~2298 chars still free after C.
+
+    A `break` -> `continue` mutation would instead skip past B and pick up
+    A, injecting a non-contiguous {C, A} window (turn N and N-2, skipping
+    N-1) and producing 4 messages instead of 2. This test exists to fail
+    under that mutation: it asserts only C's turn survives, not "the most
+    that would fit."""
+    turn_a_tiny = {"query": "ok", "answer": "fine, understood."}
+    turn_b_large = {"query": "q" * 350, "answer": "a" * 2500}
+    turn_c_large = {"query": "q" * 350, "answer": "a" * 2500}
+    turns = [turn_a_tiny, turn_b_large, turn_c_large]
+
+    msgs = _history_turns_to_messages(turns, max_turns=3)
+
+    expected_query = "q" * MAX_HISTORY_QUERY_CHARS + "…"
+    expected_answer = "a" * MAX_HISTORY_ANSWER_CHARS + "…"
+    assert msgs == [
+        {"role": "user", "content": expected_query},
+        {"role": "assistant", "content": expected_answer},
+    ]
+
+
 def test_p95_case_keeps_both_turns():
     """Pins the typical (not pathological) case the total cap must handle:
     two answers at the p95 observed size (2622 chars, over

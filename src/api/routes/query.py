@@ -448,10 +448,14 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
         if not group:
             continue
         if total_chars + group_chars > MAX_HISTORY_TOTAL_CHARS:
-            # Atomic + newest-first: once a turn no longer fits, older turns
-            # won't either (nothing left to gain by skipping ahead), and
-            # partially injecting it would misalign the user/assistant
-            # sequence. Stop rather than skip.
+            # Stop rather than skip ahead: we want a *contiguous* window of
+            # the most recent turns, not an optimal bin-packing of the
+            # budget. An older turn can be small enough to fit in whatever
+            # budget remains, but it's still dropped here, because a more
+            # recent turn already didn't fit — skipping past that gap would
+            # inject a non-contiguous set of turns (e.g. turn N and turn
+            # N-2 but not N-1), which is a worse trade-off for a follow-up
+            # question than a shorter but unbroken recent window.
             break
         kept_groups.append(group)
         total_chars += group_chars
