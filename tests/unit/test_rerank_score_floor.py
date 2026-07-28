@@ -160,3 +160,34 @@ async def test_floor_applies_to_cache_hits():
 
     kept = [c["chunk_id"] for c in result.chunks]
     assert kept == ["chunk-a"], f"cache hit bypassed the floor: {kept}"
+
+
+# ---------------------------------------------------------------------------
+# The floor is part of the result-cache key
+# ---------------------------------------------------------------------------
+
+
+def test_floor_is_part_of_the_cache_key():
+    """Entries are written AFTER the floor drops chunks, so two different floors
+    must not share a cache entry - otherwise changing the floor has no visible
+    effect until the TTL expires."""
+    from src.core.cache.result_cache import ResultCache
+
+    cache = ResultCache.__new__(ResultCache)  # no Redis needed to hash a request
+
+    def key(floor):
+        return cache._hash_request(
+            "how do I enable alerting?",
+            "default",
+            {},
+            search_mode="basic",
+            top_k=8,
+            embedding_model="nomic-embed-text",
+            embedding_provider="ollama",
+            collection_names=["amber_default"],
+            rerank_score_floor=floor,
+        )
+
+    assert key(0.5) != key(None), "floor missing from the cache key"
+    assert key(0.5) != key(0.2), "different floors collide in the cache key"
+    assert key(0.5) == key(0.5), "same floor must hit the same entry"

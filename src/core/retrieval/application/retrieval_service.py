@@ -1259,6 +1259,7 @@ class RetrievalService:
                 embedding_model=_cache_embedding_model,
                 embedding_provider=_cache_embedding_provider,
                 collection_names=_cache_collection_names,
+                rerank_score_floor=self.config.rerank_score_floor,
             )
 
             logger.debug("Result cache lookup for '%s' hit=%s", search_query, bool(cached_result))
@@ -1271,8 +1272,10 @@ class RetrievalService:
                     cached_result.scores[:top_k],
                 )
                 # Cached scores are post-rerank scores (see sub_chunks_to_cache
-                # below), so the floor applies here too - otherwise every cache hit
-                # would bypass the gate.
+                # below). The floor is part of the cache key, so an entry read back
+                # here was already written under this same floor; this filter is the
+                # belt-and-braces half of that pair, and it is what keeps the gate
+                # honest if a future writer ever caches without keying by the floor.
                 if self.config.rerank_score_floor is not None:
                     sub_chunks = [
                         c
@@ -1476,6 +1479,7 @@ class RetrievalService:
                 embedding_model=_cache_embedding_model,
                 embedding_provider=_cache_embedding_provider,
                 collection_names=_cache_collection_names,
+                rerank_score_floor=self.config.rerank_score_floor,
             )
 
         # Final sort and limit
