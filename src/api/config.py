@@ -382,6 +382,17 @@ class Settings(BaseSettings):
         description="Embedding dimensions (auto-detected if not set)",
     )
 
+    # Retrieval relevance gate
+    rerank_score_floor: float | None = Field(
+        default=None,
+        alias="RERANK_SCORE_FLOOR",
+        description=(
+            "Drop chunks scored below this by the reranker, before generation. "
+            "On the reranker scale, NOT cosine: on-topic >= 0.82, no-coverage ~0.0. "
+            "Unset = disabled."
+        ),
+    )
+
     # Community Summarization
     community_summarization_concurrency: int = Field(
         default=1,
@@ -454,6 +465,15 @@ class Settings(BaseSettings):
         default=True,
         alias="ENABLE_ACL_AWARE_GRAPH_RETRIEVAL",
         description="Enable graph/global retrieval filtering against explicit document share ACLs.",
+    )
+    enable_multiturn_history_reinjection: bool = Field(
+        default=False,
+        alias="ENABLE_MULTITURN_HISTORY_REINJECTION",
+        description=(
+            "Re-inject prior conversation turns into the retrieval query-rewriter and "
+            "generator so follow-up questions resolve against earlier context. Disabled "
+            "by default: off, this is a full no-op (no DB read of conversation history)."
+        ),
     )
 
     # Privacy: chat-history redaction for conversations without user feedback
