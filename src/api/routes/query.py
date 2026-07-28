@@ -152,8 +152,14 @@ async def query(
             user_id=user_id,
         )
 
-        # Persist conversation summary in Postgres (mirrors streaming path)
-        if user_id and response.conversation_id:
+        # Persist conversation summary in Postgres (mirrors streaming path).
+        # getattr, not attribute access: this route also returns
+        # StructuredQueryResponse (list/count/aggregate queries), which has no
+        # conversation_id. A plain `response.conversation_id` raises there, and the
+        # broad `except Exception` below turns that into the generic "unable to
+        # process your query" fallback - i.e. every structured query on this
+        # endpoint fails, with the real reason only visible in the logs.
+        if user_id and getattr(response, "conversation_id", None):
             try:
                 from sqlalchemy.orm.attributes import flag_modified
 
