@@ -224,8 +224,11 @@ CELERY_RESULT_BACKEND=redis://redis:6379/2
 ```ini
 OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
-DEFAULT_LLM_PROVIDER=openai   # openai | anthropic | ollama
-DEFAULT_LLM_MODEL=gpt-4o-mini
+# The reference deployment runs Ollama Cloud on gemma4:31b-cloud.
+# With neither variable set, config/settings.yaml applies: openai / gpt-4.1-mini.
+DEFAULT_LLM_PROVIDER=ollama_cloud   # openai | anthropic | ollama | ollama_cloud
+DEFAULT_LLM_MODEL=gemma4:31b-cloud
+OLLAMA_CLOUD_API_KEYS=key_account1,key_account2
 
 # Embeddings default to ollama / nomic-embed-text / 768 in config/settings.yaml.
 # Set these to override; changing the dimension count requires a new collection.
@@ -420,6 +423,7 @@ Generation is provider-agnostic, streams over SSE when you call the stream endpo
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4.1-mini, GPT-4.1-nano, GPT-4-turbo, o1
 - **Anthropic**: Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
 - **Ollama**: Local LLM support (Llama 3, Mistral, DeepSeek, Phi-3, Qwen, etc.)
+- **Ollama Cloud**: `https://ollama.com/v1` directly, with sequential failover across several API keys; this is what the reference deployment runs, on `gemma4:31b-cloud`
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
@@ -854,7 +858,7 @@ make coverage      # With coverage report
 
 ### Query Latency (p95)
 
-Indicative figures from a single development deployment on a ~10k-chunk corpus with `gpt-4o-mini`, not a benchmark. Your numbers will move with corpus size, model, and hardware.
+Indicative figures carried over from an earlier development deployment, not a benchmark: the corpus size, model, and hardware they came from were never recorded. Treat them as an order of magnitude and measure your own.
 
 | Search Mode | Cold   | Warm   |
 | ----------- | ------ | ------ |
