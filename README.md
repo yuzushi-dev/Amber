@@ -4,85 +4,327 @@
 
 > **Preserving Context, Revealing Insight**
 
-Amber is a production-ready Hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines vector similarity search with knowledge graph reasoning. It delivers deeply contextual, sourced, and high-quality answers over large document collections, with a focus on observability, robustness, and scalability.
+Amber answers questions over a document collection by combining vector search with a knowledge graph built from those same documents. It ingests your files, extracts entities and relationships into Neo4j, embeds the chunks into Milvus, and picks a retrieval strategy per query. Every answer comes back with citations to the chunks it was built from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/graphrag/graphrag/releases/tag/v1.3.0)
+[![Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/yuzushi-dev/Amber/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-blue.svg)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com)
 
----
-
 ## Table of Contents
 
-- [What's New](#whats-new)
 - [Overview](#overview)
-- [Key Features](#key-features)
-- [System Architecture](#system-architecture)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [How It Works](#how-it-works)
 - [API Reference](#api-reference)
 - [Application Structure](#application-structure)
 - [Development](#development)
 - [Testing](#testing)
 - [Performance & Scaling](#performance--scaling)
 - [Troubleshooting](#troubleshooting)
+- [Implementation Details](#implementation-details)
 - [Contributing](#contributing)
 - [License](#license)
 
-
----
-
-## What's New
-
-### v1.3.0 — Query Routing, Feedback & Admin UX (April 2026)
-- **Query Complexity Routing**: Deterministic zero-LLM scorer maps each query plus its RAG context to a tier (`simple`, `standard`, `complex`, `reasoning`), then selects the appropriate Ollama model. 9 scoring dimensions, opt-in per tenant, `complexity_tier` SSE event for observability. Ollama thinking mode supported at the reasoning tier.
-- **Feedback System Overhaul**: Tenant-scoped feedback view for admins; super admins see all tenants. Users can re-submit and flip polarity on existing answers. Icon display corrected per polarity.
-- **User Conversation History**: Conversation history panel added to the client chat view, scoped to the authenticated user and tenant.
-- **Inline Document Viewer**: "View Document" button opens an inline viewer from the document list without page navigation.
-- **Super-Admin Multi-Tenant Visibility**: Document listing, folder listing, and query scopes now span all tenants for super-admin requests with a unified logical view.
-- **Cross-Tenant Token Usage Metrics**: Super-admin panel shows token counts, cost estimates, and query counts aggregated per tenant.
-- **Admin Chat Detail**: Privacy redaction removed; token metrics and interactive source viewer added so admins can read cited source text from within the chat detail dialog.
-- **Production Frontend Build**: `Dockerfile.prod` and a Compose override for a production Nginx-served frontend.
-- **Backup Script Rewrite**: `scripts/backup.sh` rewritten for the Garage stack with full `--dry-run` support.
-
-See the [Changelog](docs/CHANGELOG.md) for previous releases.
-
----
-
 ## Overview
 
-Amber processes documents through a sophisticated pipeline that extracts entities, relationships, and communities. Unlike traditional RAG systems that rely solely on semantic similarity, Amber understands the **structure** of your data through a hybrid approach combining:
+A plain RAG system retrieves chunks by vector similarity alone. That works until the answer depends on how things in the corpus relate to each other, and then it quietly returns the wrong five chunks. Amber builds that structure explicitly instead of hoping the embeddings encode it.
 
-- **Vector Search** for semantic similarity (Milvus)
-- **Graph Traversal** for entity relationships (Neo4j)
-- **Community Detection** for hierarchical clustering (Leiden Algorithm)
-- **Dynamic Retrieval** with multiple search modes
+At ingestion, each document is chunked, embedded into Milvus, passed to an LLM that extracts entities and relationships into Neo4j, and the resulting entity graph is clustered into communities with the hierarchical Leiden algorithm. At query time, any of those layers can be searched, and usually more than one is.
 
-### Why Amber?
+Five retrieval modes:
 
-**Traditional RAG systems** retrieve chunks based purely on vector similarity, often missing crucial context and relationships between concepts.
+- **Basic**: vector-only search, for simple queries
+- **Local**: entity-focused graph traversal, for precise lookups
+- **Global**: map-reduce over community summaries, for broad questions
+- **Drift**: iterative reasoning with generated follow-up questions, for complex queries
+- **Structured**: direct Cypher execution, for list and count queries
 
-**Amber's Hybrid GraphRAG** builds a knowledge graph from your documents, understands entity relationships, detects communities of related concepts, and retrieves information using multiple strategies:
+## Getting Started
 
-- **Basic Mode**: Fast vector-only search for simple queries
-- **Local Mode**: Entity-focused graph traversal for precise lookups
-- **Global Mode**: Map-reduce over community summaries for broad questions
-- **Drift Search**: Iterative reasoning with follow-up questions for complex queries
-- **Structured Mode**: Direct Cypher execution for list/count queries
+### Prerequisites
 
----
+- **Docker & Docker Compose v2.20+** - Recommended for easiest setup
+- **LLM Provider** - At least one required:
+  - [OpenAI](https://platform.openai.com/) - GPT models (cloud)
+  - [Anthropic](https://console.anthropic.com/) - Claude models (cloud)
+  - [Ollama](https://ollama.com/) - Local models, no API key needed
+- **System Resources** - Minimum:
+  - 8 GB RAM (16 GB recommended)
+  - 20 GB disk space
+  - 2 CPU cores (4+ recommended)
+
+### Quick Start (Docker - Recommended)
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/yuzushi-dev/Amber.git
+   cd Amber
+   ```
+
+2. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env` and set your API keys:
+   ```ini
+   # LLM Provider (required - choose at least one)
+   OPENAI_API_KEY=sk-proj-...
+   ANTHROPIC_API_KEY=sk-ant-...
+
+   # Security (important!)
+   SECRET_KEY=your-secret-key-here  # Generate with: openssl rand -hex 32
+   NEO4J_PASSWORD=strong_neo4j_password
+
+   # Optional: Customize ports
+   API_PORT=8000
+   ```
+
+3. **Launch Services**
+   ```bash
+   # Standard launch (CPU mode)
+   ./start.sh
+   
+   # With NVIDIA GPU support (for local embeddings/models)
+   ./start.sh --gpu
+   
+   # Or manually:
+   # docker compose up -d
+   # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
+   ```
+
+   This starts 10 services:
+   - `nginx` - Edge proxy on ports 8000 and 3000, owns all external traffic
+   - `api` - FastAPI backend (internal; exposed through nginx)
+   - `frontend` - React frontend (internal; served through nginx)
+   - `worker` - Celery workers
+   - `postgres` - Metadata database (host port 5433 → container 5432)
+   - `neo4j` - Graph database (ports 7474, 7687)
+   - `milvus` - Vector database (port 19530)
+   - `etcd` - Milvus metadata store (internal)
+   - `redis` - Cache & broker (port 6379)
+   - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
+
+   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
+
+4. **Run Database Migrations** (Critical!)
+   ```bash
+   make migrate
+   # or: docker compose exec api alembic upgrade head
+   ```
+
+5. **Access the Application**
+   - **Frontend**: [http://localhost:3000](http://localhost:3000) (served by nginx; the frontend container runs `npm run dev` automatically)
+   - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+   - **Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
+     - Username: `neo4j`
+     - Password: (from `.env` `NEO4J_PASSWORD`)
+   - **Garage Admin API**: [http://localhost:3903](http://localhost:3903)
+     - Credentials: (from `.env` `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`)
+
+6. **Verify Health**
+   ```bash
+   curl http://localhost:8000/health
+   # Should return: {"status": "healthy"}
+   ```
+
+7. **Generate an API Key**
+   ```bash
+   make generate-key
+   # or: docker compose exec api python -c "from src.shared.security import generate_api_key; print(generate_api_key())"
+   ```
+
+   Save the generated key - you'll need it for API requests.
+
+### First Steps
+
+1. **Upload Your First Document** (via API)
+   ```bash
+   curl -X POST "http://localhost:8000/v1/documents" \
+     -H "X-API-Key: your-api-key-here" \
+     -F "file=@path/to/document.pdf"
+   ```
+
+2. **Check Processing Status**
+   ```bash
+   curl "http://localhost:8000/v1/documents/{document_id}/status" \
+     -H "X-API-Key: your-api-key-here"
+   ```
+
+3. **Query the Knowledge Base**
+   ```bash
+   curl -X POST "http://localhost:8000/v1/query" \
+     -H "X-API-Key: your-api-key-here" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "What are the main topics in my documents?",
+       "options": {
+         "search_mode": "basic",
+         "include_sources": true
+       }
+     }'
+   ```
+
+## Configuration
+
+### Environment Variables
+
+Key configuration options in `.env`:
+
+#### Core Settings
+```ini
+# Application
+API_HOST=0.0.0.0
+API_PORT=8000
+DEBUG=false
+LOG_LEVEL=INFO
+
+# Security
+SECRET_KEY=your-secret-key-here
+TENANT_ID=default
+```
+
+#### Database Connections
+```ini
+# PostgreSQL
+DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
+POSTGRES_USER=graphrag
+POSTGRES_PASSWORD=graphrag
+POSTGRES_DB=graphrag
+
+# Neo4j
+NEO4J_URI=bolt://neo4j:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=changeme
+
+# Milvus
+MILVUS_HOST=milvus
+MILVUS_PORT=19530
+
+# Garage (S3-compatible object storage)
+OBJECT_STORAGE_ACCESS_KEY=your-garage-access-key
+OBJECT_STORAGE_SECRET_KEY=your-garage-secret-key
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+```
+
+#### LLM Providers
+```ini
+OPENAI_API_KEY=sk-proj-...
+ANTHROPIC_API_KEY=sk-ant-...
+DEFAULT_LLM_PROVIDER=openai   # openai | anthropic | ollama
+DEFAULT_LLM_MODEL=gpt-4o-mini
+
+DEFAULT_EMBEDDING_PROVIDER=openai   # openai | ollama | local
+DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+```
+
+#### Ollama (local LLMs, no cloud key required)
+```ini
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=llama3.2
+
+# Context window — increase for large RAG prompts
+OLLAMA_NUM_CTX=32768
+
+# Concurrent-request capacity guard (prevents GPU OOM under load)
+OLLAMA_CAPACITY_ENABLED=true
+OLLAMA_CAPACITY_TOTAL=6
+OLLAMA_CAPACITY_RESERVED_CHAT=2
+OLLAMA_CAPACITY_RESERVED_INGESTION=2
+```
+
+#### Rate Limiting
+```ini
+RATE_LIMIT_REQUESTS_PER_MINUTE=60
+RATE_LIMIT_REQUESTS_PER_HOUR=1000
+RATE_LIMIT_QUERIES_PER_MINUTE=20
+RATE_LIMIT_UPLOADS_PER_HOUR=50
+```
+
+#### Security & Isolation (v1.1.0+)
+```ini
+# Application DB role — enforces Row-Level Security (non-superuser)
+# Docker network name required (not localhost); omit to fall back to superuser connection
+APP_DATABASE_URL=postgresql+asyncpg://graphrag_app:<password>@postgres:5432/graphrag
+
+# Secret key rotation — set OLD value during rotation window, then remove after
+SECRET_KEY_OLD=previous-secret-key-here
+
+# LLM capacity guard behaviour (default: fail-closed; set true to allow requests through when Redis is absent)
+LLM_CAPACITY_FAIL_OPEN=false
+```
+
+## Usage
+
+### Document Upload
+
+```python
+import requests
+
+url = "http://localhost:8000/v1/documents"
+headers = {"X-API-Key": "your-api-key"}
+files = {"file": open("report.pdf", "rb")}
+
+response = requests.post(url, headers=headers, files=files)
+print(response.json())
+```
+
+### Querying
+
+#### Basic Query
+```python
+payload = {
+    "query": "What are the key findings?",
+    "options": {
+        "search_mode": "basic",
+        "include_sources": true
+    }
+}
+
+response = requests.post(
+    "http://localhost:8000/v1/query",
+    headers={"X-API-Key": "your-api-key"},
+    json=payload
+)
+```
+
+#### Advanced Search Modes
+```python
+# Local search - entity-focused
+payload = {"query": "...", "options": {"search_mode": "local"}}
+
+# Global search - community summaries
+payload = {"query": "...", "options": {"search_mode": "global"}}
+
+# Drift search - iterative reasoning
+payload = {"query": "...", "options": {"search_mode": "drift"}}
+```
+
+#### Streaming
+```bash
+curl -N "http://localhost:8000/v1/query/stream?query=Explain..." \
+  -H "X-API-Key: your-api-key"
+```
 
 ## Key Features
 
-<img width="1533" height="447" alt="architecture" src="https://github.com/user-attachments/assets/e4c4967b-b927-46f8-a9cf-93b3413ac7ae" />
+### Retrieval
 
-### Intelligent Multi-Mode Retrieval
+Every mode below is reachable per query, either by naming it explicitly or by letting the router pick one.
 
 #### Vector & Hybrid Search (Basic Mode)
-- **Hybrid Retrieval**: Combines Dense (Semantic) and Sparse (SPLADE) vectors for superior precision
+- **Hybrid Retrieval**: Combines dense (semantic) and sparse (SPLADE) vectors, so keyword matches and paraphrases both land
 - **Dense**: Text-embedding-3-small embeddings (1536 dimensions)
 - **Sparse (New)**: Learned keyword expansion using SPLADE (cocondenser-ensembledistil)
 - **Native Fusion**: Uses Reciprocal Rank Fusion (RRFRanker) in Milvus
@@ -90,11 +332,11 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 #### Graph-Enhanced Retrieval
 - **Local Search**: Entity-focused traversal for precise information
-- **Global Search**: Hierarchical community summaries for comprehensive answers
+- **Global Search**: Hierarchical community summaries for broad questions
 - **Drift Search**: Agentic, iterative exploration with dynamic follow-up questions
 - **Graph Traversal**: Multi-hop relationship exploration
 
-#### Advanced Query Processing
+#### Query Processing
 - **Query Rewriting**: Improves ambiguous or poorly-formed queries
 - **Query Decomposition**: Breaks complex questions into sub-queries
 - **HyDE (Hypothetical Document Embeddings)**: Generates hypothetical answers to improve retrieval
@@ -103,12 +345,14 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 #### Document Taxonomy & Audience Routing
 - **Automatic Classification**: Documents stamped with a taxonomy label (`AdminGuide`, `CEGuide`, `UserGuide`, `ZendeskKB`) at ingestion time based on folder name and keyword heuristics
-- **Product Context Resolution**: Deterministic `ProductContextResolver` maps CE/admin/user terminology in the query to edition and audience — no LLM call needed
+- **Product Context Resolution**: Deterministic `ProductContextResolver` maps CE/admin/user terminology in the query to edition and audience, with no LLM call
 - **Taxonomy-Aware Retrieval**: Pre-filters the candidate pool by taxonomy before vector/graph search, with a 4-stage broadening fallback (strict → edition-only → audience-only → unfiltered) to guarantee recall
 - **Observability**: Taxonomy routing decisions are recorded in the execution trace and surfaced through the observability admin endpoint
 - **Backfill Script**: `scripts/backfill_document_taxonomy.py` re-classifies existing documents without re-ingestion
 
-### Advanced Knowledge Graph
+### Knowledge Graph
+
+Entities and relations are extracted per chunk, deduplicated, then clustered into communities that can be summarized and searched on their own.
 
 #### Entity & Relationship Extraction
 - **LLM-powered extraction** from document chunks
@@ -135,7 +379,9 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Short-Lived Cache**: Visible shared document ID set is cached in Redis with explicit invalidation on share mutations for low-latency ACL checks
 - **Runtime Kill Switches**: Operators can independently disable share management, vector ACL, or graph ACL without a code deployment
 
-### Robust Document Processing Pipeline
+### Document Processing
+
+Everything between an uploaded file and a queryable chunk runs in Celery, with the document's state tracked in Postgres so a crashed worker does not lose the job.
 
 #### Multi-Format Support
 - **PDF**: PyMuPDF4LLM, Marker-PDF, and Unstructured fallback
@@ -163,6 +409,8 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 ### Generation & Quality
 
+Generation is provider-agnostic, streams over SSE when you call the stream endpoint, and attaches per-chunk citations plus a quality score to every answer.
+
 #### Multi-Provider LLM Support
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4.1-mini, GPT-4.1-nano, GPT-4-turbo, o1
 - **Anthropic**: Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
@@ -170,6 +418,12 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Tiered Providers**: Economy (extraction), Standard (RAG), Premium (evaluation)
 - **Streaming**: Server-Sent Events for real-time token streaming
 - **Cost Tracking**: Token usage and cost estimation per query
+
+#### Complexity Routing
+
+- **Deterministic Scorer**: Rates each query plus its retrieved context across 9 dimensions with no LLM call, then assigns a complexity tier (`simple`, `standard`, `complex`, `reasoning`) that selects the Ollama model. This axis is unrelated to the provider tiers above, despite both using the word `standard`
+- **Per-Tenant Opt-In**: Off unless enabled for the tenant
+- **Observable**: The chosen tier is emitted as a `complexity_tier` SSE event; Ollama thinking mode is available at the reasoning tier
 
 #### Embedding Providers
 - **Ollama**: External service (via API). Best for existing Ollama users, GPU offloading, and model flexibility (e.g., `nomic-embed-text`, `mxbai-embed-large`).
@@ -199,7 +453,9 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **Q&A Library**: Verified responses for training/fine-tuning
 - **Golden Dataset Export**: Export approved Q&A pairs for evaluation
 
-### Production-Grade Admin & Operations
+### Admin and Operations
+
+The admin UI covers the operational surface: documents, connectors, jobs, backups, evaluation, and live tuning of retrieval parameters.
 
 #### Document Management (`/admin/data`)
 - **Upload Wizard**: Batch upload with drag-and-drop
@@ -229,13 +485,14 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 - **User Data Backup**: Lightweight portability scope (Vectors, Graph, Chunks) sans system configs
 - **Point-in-Time Recovery**: Restore capability with "Merge" or "Replace" strategies
 - **Scheduled Backups**: Automated daily/weekly snapshots with retention policies
+- **Scripted Backup**: `scripts/backup.sh` covers the whole Garage stack and supports `--dry-run`
 
 #### Maintenance & Operations
 - **Community Detection**: Trigger full or incremental updates
 - **Graph Enrichment**: Entity resolution and relationship strengthening
 - **Index Optimization**: Rebuild vector indices
 - **Cache Management**: Clear semantic and result caches
-- **System Health**: Comprehensive health checks across all services
+- **System Health**: Health checks across all services
 
 #### Evaluation & Benchmarking
 - **Ragas Integration**: Faithfulness, relevance, precision, recall
@@ -252,16 +509,19 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 ### Security & Reliability
 
+Multi-tenancy is enforced at the database layer, not only in application code, and the guards fail closed when Redis is missing.
+
 #### Authentication & Authorization
 - **API Key Management**: SHA-256 hashed keys stored in PostgreSQL; tiered scopes (`user`, `tenant_admin`, `super_admin`)
 - **Tenant Isolation**: Complete data separation; fail-closed 401 when tenant context is absent (no default fallback)
 - **DB-Layer RLS**: `FORCE ROW LEVEL SECURITY` on 8 tenant tables via a dedicated `graphrag_app` Postgres role (`NOBYPASSRLS`); workers use a super-admin session flag to bypass legitimately
-- **Rate Limiting**: Per-tenant request and upload limits — fail-closed (HTTP 503) when Redis is unavailable
+- **Rate Limiting**: Per-tenant request and upload limits, fail-closed (HTTP 503) when Redis is unavailable
 - **Upload Size Limits**: Configurable max file sizes
+- **Agent Filesystem Access**: The Maintainer Agent's `read_file`, `list_directory`, and `grep_search` tools are off unless a request explicitly sets `agent_role`; the default Knowledge Agent has graph and vector tools only
 
 #### Secret Management & Credential Security
 - **Dual-Secret Keyring**: Zero-downtime `SECRET_KEY` rotation via `SECRET_KEY_OLD` fallback; tokens signed under the old key remain valid during the rotation window
-- **Connector Credential Encryption**: OAuth tokens, passwords, and subdomain strings are encrypted at rest with Fernet (AES-128-CBC, key derived from `SECRET_KEY`) — never stored in plain JSONB
+- **Connector Credential Encryption**: OAuth tokens, passwords, and subdomain strings are encrypted at rest with Fernet (AES-128-CBC, key derived from `SECRET_KEY`). They are never stored in plain JSONB
 - **SSE Ticket One-Time Use**: Auth tickets consumed atomically via Redis `GETDEL`; replay within the TTL window is no longer possible
 - **Exception Sanitization**: HTTP 500 responses no longer include DB hostnames, connection strings, or raw exception text
 
@@ -275,18 +535,16 @@ Amber processes documents through a sophisticated pipeline that extracts entitie
 
 #### Observability
 - **Request Tracing**: Request IDs for end-to-end tracking
-- **Timing Metrics**: Detailed latency breakdowns (retrieval, generation, etc.)
+- **Timing Metrics**: Per-request timing for every pipeline stage
 - **Cache Hit Rates**: Monitor cache effectiveness
 - **Query Metrics**: Track input/output tokens, costs, latency breakdowns (retrieval vs generation), and success/error rates per query
 - **Taxonomy Routing Metrics**: Per-query taxonomy resolution stage and document pre-filter stats
 - **Event Stream**: Real-time processing events via WebSockets
 - **Audit Trail**: Config changes and curation actions record the actual caller identity in the audit log
 
----
-
 ## System Architecture
 
-Amber follows a microservices architecture designed for scalability, resilience, and separation of concerns.
+Amber runs as a set of services behind an nginx edge proxy: a React frontend, a FastAPI API, Celery workers for everything slow, and six data stores that each hold one kind of state (Postgres, Neo4j, Milvus, Redis, Garage, etcd).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -383,6 +641,7 @@ Amber follows a microservices architecture designed for scalability, resilience,
 |                | Vector           | Milvus 2.5+               | Hybrid search (Dense + Sparse)            |
 |                | Cache            | Redis 7                   | In-memory cache & message broker          |
 |                | Object Storage   | Garage (S3-compatible)    | S3-compatible file storage                |
+|                | Coordination     | etcd                      | Milvus metadata store (internal)          |
 | **Processing** | Task Queue       | Celery 5.3+               | Distributed async task processing         |
 |                | Broker           | Redis                     | Task queue backend                        |
 |                | Migrations       | Alembic                   | Database schema versioning                |
@@ -393,15 +652,11 @@ Amber follows a microservices architecture designed for scalability, resilience,
 |                | Evaluation       | Ragas                     | RAG metrics evaluation                    |
 | **Infra**      | Orchestration    | Docker Compose            | Service orchestration                     |
 
----
-
-## Technical 
-
-<img width="1536" height="447" alt="api" src="https://github.com/user-attachments/assets/047813df-68d9-4532-ba48-f8b3e6ab44b4" />
+## How It Works
 
 ### 1. Ingestion & Semantic Processing
 
-Amber's ingestion pipeline moves beyond simple text splitting by employing **structure-aware semantic chunking**.
+Ingestion uses structure-aware semantic chunking rather than fixed-size splitting.
 
 *   **Hierarchy-First Splitting**: The `SemanticChunker` (`src/core/ingestion/application/chunking/semantic.py`) respects document anatomy. It protects code blocks first, then splits by:
     1.  **Markdown Headers** (`#`, `##`, ...) to preserve topological context.
@@ -417,11 +672,11 @@ Amber's ingestion pipeline moves beyond simple text splitting by employing **str
 *   **Token-Aware Overlap**: Rather than character-based overlap, tokens from the *end* of the previous chunk are prepended to the next to ensure semantic continuity.
 *   **Chunk Quality Filtering**: Implements a helper "Quality Coloring" system (`ChunkQualityScorer`) that grades every chunk (0-1) based on text density, fragmentation, and OCR artifacts.
     *   **Noise Reduction**: Low-quality chunks (< 0.3) that also yield zero graph entities are automatically discarded during extraction, preventing "garbage-in" from polluting the vector store.
-*   **Resilient Embedding**: The `EmbeddingService` uses exponential backoff retries for rate limits and utilizes **token-aware batching** (max 8000 tokens/batch) to optimize API throughput.
+*   **Resilient Embedding**: The `EmbeddingService` uses exponential backoff retries for rate limits and uses **token-aware batching** (max 8000 tokens/batch) to optimize API throughput.
 
 ### 2. Knowledge Graph Construction
 
-We don't just dump text into Neo4j; we construct a meaningful graph using **Iterative Extraction** and **Community Detection**.
+Graph construction runs in two stages: iterative entity extraction, then community detection over the extracted entities.
 
 *   **Entity Definition**: Entities are defined via flexible Pydantic models, supporting over 30+ domain-specific types alongside standard named entities.
     *   **Core Types**: `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, `CONCEPT`, `DOCUMENT`, `TECHNOLOGY`, `PRODUCT`, `DATE`, `MONEY`, `ARTICLE`.
@@ -435,24 +690,23 @@ We don't just dump text into Neo4j; we construct a meaningful graph using **Iter
     *   **Output Format**: The system uses a strict **Tuple-Delimited Format** (e.g., `("entity"<|>NAME<|>TYPE...)`) to prevent parsing errors common with standard JSON, ensuring high-fidelity extraction even from messy text.
 *   **Gleaning (Iterative Extraction)**: Implemented in `GraphExtractor`, this technique prevents "extraction amnesia."
     1.  **Pass 1**: Zero-shot extraction of entities and relationships (Temperature 0.1).
-    2.  **Pass 2 (Gleaning)**: The LLM is fed the text *and* the entities found in Pass 1, and asked "What did you miss?". This significantly boosts recall for dense documents.
+    2.  **Pass 2 (Gleaning)**: The LLM is fed the text *and* the entities found in Pass 1, and asked "What did you miss?". This raises recall on dense documents.
 *   **Leiden Community Detection**: We use the hierarchical **Leiden algorithm** to cluster entities into communities.
     *   **Summarization**: Each community is summarized by an LLM to create a "Community Node," enabling **Global Search** (answering "What is the main theme?" by reading summaries rather than thousands of raw chunks).
 *   **Quality Assurance (Hybrid Scoring)**: To prevent hallucinations and low-quality extractions, a strict scoring system is applied:
     *   **Intrinsic Confidence**: Entities with an LLM-generated `importance_score < 0.5` are automatically discarded.
     *   **Extrinsic Validation**: A `QualityScorer` module evaluates generated answers and critical extractions on 4 dimensions: **Context Relevance**, **Completeness**, **Factual Grounding**, and **Coherence**, using a mix of LLM evaluation and heuristic checks.
 
-
 ### 3. Advanced Retrieval Logic
 
-Retrieval is handled by a sophisticated orchestration layer that combines deterministic and agentic strategies.
+Retrieval is handled by an orchestration layer that mixes deterministic and agentic strategies.
 
 *   **Fusion (Hybrid Search)**: We employ **Reciprocal Rank Fusion (RRF)** to combine results from Milvus (Vector) and Neo4j (Keyword/Graph).
     *   **Milvus Hybrid**: Within Milvus itself, we combine **Dense Vectors** (Semantic) and **Sparse Vectors** (SPLADE/Keyword) to find the most relevant chunks.
     *   **Graph Fusion**: These results are then fused with graph traversals.
     *   Formula: `score = Σ(1 / (k + rank + 1))`
     *   This ensures that a document appearing in *both* top-lists is ranked significantly higher than one appearing in only one.
-*   **Drift Search (Agentic)**: Defined in `DriftSearchService` (`src/core/retrieval/application/search/drift_search.py`), this is our most powerful retrieval mode:
+*   **Drift Search (Agentic)**: Defined in `DriftSearchService` (`src/core/retrieval/application/search/drift_search.py`), this is the heaviest retrieval mode:
     1.  **Primer**: Performs an initial standard retrieval (Top-5) to get a baseline context.
     2.  **Expansion Loop**: The LLM analyzes the Primer results and generates **Follow-Up Questions**. These sub-queries are executed to "drift" to related graph neighborhoods.
     3.  **Synthesis**: All accumulated context (Primer + Expansion) is deduplicated and fed to the LLM for a final, citation-backed answer.
@@ -476,284 +730,6 @@ For complex queries requiring multi-step reasoning, Amber employs a full **Agent
     *   **Maintainer Agent**: Adds filesystem tools. Requires explicit opt-in.
 *   **Resilient Content Fallback**: If Milvus returns empty content, the system automatically fetches from PostgreSQL, with full observability (OTel event + log metric).
 *   **Implementation**: `src/core/generation/application/agent/`, `src/core/tools/`.
-
----
-
-## Getting Started
-
-<img width="1536" height="447" alt="pipeline" src="https://github.com/user-attachments/assets/f2792587-d68f-421f-83cb-a01ec260f91f" />
-
-### Prerequisites
-
-- **Docker & Docker Compose v2.20+** - Recommended for easiest setup
-- **LLM Provider** - At least one required:
-  - [OpenAI](https://platform.openai.com/) - GPT models (cloud)
-  - [Anthropic](https://console.anthropic.com/) - Claude models (cloud)
-  - [Ollama](https://ollama.com/) - Local models, no API key needed
-- **System Resources** - Minimum:
-  - 8 GB RAM (16 GB recommended)
-  - 20 GB disk space
-  - 2 CPU cores (4+ recommended)
-
-### Quick Start (Docker - Recommended)
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/yourusername/Amber_.git
-   cd Amber_
-   ```
-
-2. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and set your API keys:
-   ```ini
-   # LLM Provider (required - choose at least one)
-   OPENAI_API_KEY=sk-proj-...
-   ANTHROPIC_API_KEY=sk-ant-...
-
-   # Security (important!)
-   SECRET_KEY=your-secret-key-here  # Generate with: openssl rand -hex 32
-   NEO4J_PASSWORD=strong_neo4j_password
-
-   # Optional: Customize ports
-   API_PORT=8000
-   ```
-
-3. **Launch Services**
-   ```bash
-   # Standard launch (CPU mode)
-   ./start.sh
-   
-   # With NVIDIA GPU support (for local embeddings/models)
-   ./start.sh --gpu
-   
-   # Or manually:
-   # docker compose up -d
-   # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU
-   ```
-
-   This starts 10 services:
-   - `nginx` - Edge proxy (ports 8000 and 3000 — owns all external traffic)
-   - `api` - FastAPI backend (internal; exposed through nginx)
-   - `frontend` - React frontend (internal; served through nginx)
-   - `worker` - Celery workers
-   - `postgres` - Metadata database (host port 5433 → container 5432)
-   - `neo4j` - Graph database (ports 7474, 7687)
-   - `milvus` - Vector database (port 19530)
-   - `etcd` - Milvus metadata store (internal)
-   - `redis` - Cache & broker (port 6379)
-   - `garage` - Object storage, S3 API (port 3900), Admin API (port 3903)
-
-   > **Note:** nginx owns host ports `:8000` and `:3000`. The API and frontend containers do not bind host ports directly. Use `deploy/cutover.sh --to canary` to route traffic to a canary instance for zero-downtime deployments.
-
-4. **Run Database Migrations** (Critical!)
-   ```bash
-   make migrate
-   # or: docker compose exec api alembic upgrade head
-   ```
-
-5. **Access the Application**
-   - **Frontend**: [http://localhost:3000](http://localhost:3000) (served by nginx; the frontend container runs `npm run dev` automatically)
-   - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
-     - Username: `neo4j`
-     - Password: (from `.env` `NEO4J_PASSWORD`)
-   - **Garage Admin API**: [http://localhost:3903](http://localhost:3903)
-     - Credentials: (from `.env` `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`)
-
-6. **Verify Health**
-   ```bash
-   curl http://localhost:8000/health
-   # Should return: {"status": "healthy"}
-   ```
-
-7. **Generate an API Key**
-   ```bash
-   make generate-key
-   # or: docker compose exec api python -c "from src.shared.security import generate_api_key; print(generate_api_key())"
-   ```
-
-   Save the generated key - you'll need it for API requests.
-
-### First Steps
-
-1. **Upload Your First Document** (via API)
-   ```bash
-   curl -X POST "http://localhost:8000/v1/documents" \
-     -H "X-API-Key: your-api-key-here" \
-     -F "file=@path/to/document.pdf"
-   ```
-
-2. **Check Processing Status**
-   ```bash
-   curl "http://localhost:8000/v1/documents/{document_id}/status" \
-     -H "X-API-Key: your-api-key-here"
-   ```
-
-3. **Query the Knowledge Base**
-   ```bash
-   curl -X POST "http://localhost:8000/v1/query" \
-     -H "X-API-Key: your-api-key-here" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "query": "What are the main topics in my documents?",
-       "options": {
-         "search_mode": "basic",
-         "include_sources": true
-       }
-     }'
-   ```
-
----
-
-## Configuration
-
-### Environment Variables
-
-Key configuration options in `.env`:
-
-#### Core Settings
-```ini
-# Application
-API_HOST=0.0.0.0
-API_PORT=8000
-DEBUG=false
-LOG_LEVEL=INFO
-
-# Security
-SECRET_KEY=your-secret-key-here
-TENANT_ID=default
-```
-
-#### Database Connections
-```ini
-# PostgreSQL
-DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
-POSTGRES_USER=graphrag
-POSTGRES_PASSWORD=graphrag
-POSTGRES_DB=graphrag
-
-# Neo4j
-NEO4J_URI=bolt://neo4j:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=changeme
-
-# Milvus
-MILVUS_HOST=milvus
-MILVUS_PORT=19530
-
-# Redis
-REDIS_URL=redis://redis:6379/0
-CELERY_BROKER_URL=redis://redis:6379/1
-CELERY_RESULT_BACKEND=redis://redis:6379/2
-```
-
-#### LLM Providers
-```ini
-OPENAI_API_KEY=sk-proj-...
-ANTHROPIC_API_KEY=sk-ant-...
-DEFAULT_LLM_PROVIDER=openai   # openai | anthropic | ollama
-DEFAULT_LLM_MODEL=gpt-4o-mini
-
-DEFAULT_EMBEDDING_PROVIDER=openai   # openai | ollama | local
-DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
-```
-
-#### Ollama (local LLMs, no cloud key required)
-```ini
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=llama3.2
-
-# Context window — increase for large RAG prompts
-OLLAMA_NUM_CTX=32768
-
-# Concurrent-request capacity guard (prevents GPU OOM under load)
-OLLAMA_CAPACITY_ENABLED=true
-OLLAMA_CAPACITY_TOTAL=6
-OLLAMA_CAPACITY_RESERVED_CHAT=2
-OLLAMA_CAPACITY_RESERVED_INGESTION=2
-```
-
-#### Rate Limiting
-```ini
-RATE_LIMIT_REQUESTS_PER_MINUTE=60
-RATE_LIMIT_REQUESTS_PER_HOUR=1000
-RATE_LIMIT_QUERIES_PER_MINUTE=20
-RATE_LIMIT_UPLOADS_PER_HOUR=50
-```
-
-#### Security & Isolation (v1.1.0+)
-```ini
-# Application DB role — enforces Row-Level Security (non-superuser)
-# Docker network name required (not localhost); omit to fall back to superuser connection
-APP_DATABASE_URL=postgresql+asyncpg://graphrag_app:<password>@postgres:5432/graphrag
-
-# Secret key rotation — set OLD value during rotation window, then remove after
-SECRET_KEY_OLD=previous-secret-key-here
-
-# LLM capacity guard behaviour (default: fail-closed; set true to allow requests through when Redis is absent)
-LLM_CAPACITY_FAIL_OPEN=false
-```
-
----
-
-## Usage
-
-### Document Upload
-
-```python
-import requests
-
-url = "http://localhost:8000/v1/documents"
-headers = {"X-API-Key": "your-api-key"}
-files = {"file": open("report.pdf", "rb")}
-
-response = requests.post(url, headers=headers, files=files)
-print(response.json())
-```
-
-### Querying
-
-#### Basic Query
-```python
-payload = {
-    "query": "What are the key findings?",
-    "options": {
-        "search_mode": "basic",
-        "include_sources": true
-    }
-}
-
-response = requests.post(
-    "http://localhost:8000/v1/query",
-    headers={"X-API-Key": "your-api-key"},
-    json=payload
-)
-```
-
-#### Advanced Search Modes
-```python
-# Local search - entity-focused
-payload = {"query": "...", "options": {"search_mode": "local"}}
-
-# Global search - community summaries
-payload = {"query": "...", "options": {"search_mode": "global"}}
-
-# Drift search - iterative reasoning
-payload = {"query": "...", "options": {"search_mode": "drift"}}
-```
-
-#### Streaming
-```bash
-curl -N "http://localhost:8000/v1/query/stream?query=Explain..." \
-  -H "X-API-Key: your-api-key"
-```
-
----
 
 ## API Reference
 
@@ -789,8 +765,6 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 | `GET`  | `/v1/connectors/{type}/items`   | Browse content from connector      |
 | `POST` | `/v1/connectors/{type}/ingest`  | Ingest selected items by ID        |
 
----
-
 ## Application Structure
 
 ### 1. Consumer Interface (`/amber/chat`)
@@ -812,8 +786,6 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 - **Queues**: Real-time queue inspection
 - **Tuning**: Dynamic parameter adjustment
 - **Ragas**: Evaluation and benchmarking
-
----
 
 ## Development
 
@@ -846,6 +818,10 @@ Full OpenAPI specification at `/docs`. Key endpoints:
    npm run dev  # Runs on http://localhost:5173
    ```
 
+### Production Build
+
+The frontend ships a `Dockerfile.prod` and a Compose override that serve the built assets through Nginx instead of the Vite dev server.
+
 ### Code Style
 ```bash
 make format  # Format code
@@ -859,11 +835,9 @@ make migrate-new  # Create migration
 make migrate      # Run migrations
 ```
 
----
-
 ## Testing
 
-See [docs/TESTING.md](docs/TESTING.md) for a comprehensive guide on running unit, integration, and E2E tests.
+See [docs/TESTING.md](docs/TESTING.md) for the full guide to unit, integration, and E2E tests.
 ```bash
 make test          # Run all tests
 make test-unit     # Unit tests only
@@ -871,11 +845,11 @@ make test-int      # Integration tests
 make coverage      # With coverage report
 ```
 
----
-
 ## Performance & Scaling
 
 ### Query Latency (p95)
+
+Indicative figures from a single development deployment on a ~10k-chunk corpus with `gpt-4o-mini`, not a benchmark. Your numbers will move with corpus size, model, and hardware.
 
 | Search Mode | Cold   | Warm   |
 | ----------- | ------ | ------ |
@@ -890,8 +864,6 @@ make coverage      # With coverage report
 - **Vertical**: Increase worker resources
 - **Caching**: Tune Redis cache TTLs
 - **Database**: Configure Neo4j/Milvus for your dataset size
-
----
 
 ## Troubleshooting
 
@@ -919,1064 +891,13 @@ docker compose logs -f worker
 - Clear caches
 - Adjust Redis maxmemory
 
----
+## Implementation Details
 
-## Technical Deep-Dive
-
-This section provides detailed technical documentation of Amber's core pipelines and algorithms.
-
-### Document Ingestion Pipeline
-
-The ingestion pipeline transforms raw documents into queryable knowledge representations through multiple stages:
-
-```
-Document Upload
-    ↓
-[1] Storage (Garage)
-    ↓
-[2] Format Detection & Extraction
-    ↓
-[3] Semantic Chunking
-    ↓
-[4] Embedding Generation
-    ↓
-[5] Graph Extraction (Entities & Relationships)
-    ↓
-[6] Vector Storage (Milvus)
-    ↓
-[7] Graph Storage (Neo4j)
-    ↓
-[8] Community Detection (Leiden)
-    ↓
-Document Ready
-```
-
-#### 1. Storage Layer
-
-**Implementation**: [src/core/ingestion/infrastructure/storage/storage_client.py](src/core/ingestion/infrastructure/storage/storage_client.py)
-
-- Raw documents stored in **Garage** (S3-compatible object storage)
-- Content-addressed storage using SHA-256 hashing
-- Automatic deduplication at upload time
-- Tenant-isolated buckets: `{tenant_id}/{document_id}/filename`
-
-#### 2. Format Detection & Extraction
-
-**Implementation**: [src/core/ingestion/infrastructure/extraction/](src/core/ingestion/infrastructure/extraction/)
-
-Multi-parser fallback strategy:
-
-```python
-# Priority order:
-1. PyMuPDF4LLM (PDF) - Fast, preserves structure
-2. Marker-PDF (PDF) - Slower, better for complex layouts
-3. Unstructured (PDF, DOCX, HTML) - Universal fallback
-4. Native parsers (Markdown, TXT)
-```
-
-**PDF Extraction Pipeline**:
-```python
-async def extract_pdf(file_content: bytes) -> str:
-    # Try fast parser first
-    try:
-        return pymupdf4llm.to_markdown(file_content)
-    except Exception:
-        # Fallback to robust parser
-        return marker_pdf.convert(file_content)
-```
-
-**Output**: Markdown-formatted text with preserved structure (headers, lists, tables)
-
-#### 3. Semantic Chunking
-
-**Implementation**: [src/core/ingestion/application/chunking/semantic.py](src/core/ingestion/application/chunking/semantic.py)
-
-**Hierarchical Splitting Strategy**:
-
-Amber uses a **4-level hierarchical splitter** that respects document semantics:
-
-```
-Level 1: Headers (# ## ###)
-    ↓
-Level 2: Code Blocks (```)
-    ↓
-Level 3: Paragraphs (\n\n)
-    ↓
-Level 4: Sentences (.!?)
-```
-
-**Algorithm**:
-
-1. **Code Block Protection**: Extract and replace code blocks with placeholders
-2. **Header Splitting**: Divide by markdown headers to preserve logical sections
-3. **Size-Aware Chunking**: For each section:
-   - If fits in `chunk_size` → keep as-is
-   - Else split by paragraphs
-   - If paragraph too large → split by sentences
-4. **Overlap Application**: Prepend last N tokens from previous chunk
-5. **Token Counting**: Use tiktoken (`cl100k_base`) for accurate counts
-
-**Configuration**:
-```python
-ChunkingStrategy(
-    chunk_size=600,      # Target tokens per chunk (General default)
-    chunk_overlap=50,    # Overlap tokens for context
-)
-```
-
-**Example**:
-```
-Input (1000 tokens):
-  # Introduction
-  Paragraph 1 (300 tokens)
-  Paragraph 2 (400 tokens)
-  ## Methods
-  Paragraph 3 (300 tokens)
-
-Output:
-  Chunk 0: "# Introduction\nParagraph 1\n" (300 tokens)
-  Chunk 1: "[50 token overlap]Paragraph 2\n" (450 tokens)
-  Chunk 2: "[50 token overlap]## Methods\nParagraph 3" (350 tokens)
-```
-
-**Metadata Enrichment**:
-- `document_title`: For context
-- `start_char`, `end_char`: Source location
-- `index`: Chunk position in document
-- `token_count`: Actual token count
-
-#### 4. Embedding Generation
-
-**Implementation**: [src/core/graph/application/communities/embeddings.py](src/core/graph/application/communities/embeddings.py)
-
-**Production-Grade Embedding Pipeline**:
-
-**Token-Aware Batching**:
-```python
-# Automatic batching by token count
-MAX_TOKENS_PER_BATCH = 8000  # OpenAI limit
-MAX_ITEMS_PER_BATCH = 2048   # API limit
-
-batches = batch_texts_for_embedding(
-    texts=chunks,
-    model="text-embedding-3-small",
-    max_tokens=8000,
-    max_items=2048
-)
-```
-
-**Retry Logic with Exponential Backoff**:
-```python
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=1, max=60),
-    retry=retry_if_exception_type((RateLimitError, ProviderUnavailableError))
-)
-async def _embed_batch_with_retry(texts, model):
-    return await provider.embed(texts, model)
-```
-
-**Features**:
-- **Parallel batching**: Process multiple batches concurrently
-- **Cost tracking**: Track tokens and estimated costs per batch
-- **Failover**: Automatic fallback to alternative providers
-- **Statistics**: Detailed metrics (latency, tokens, failures)
-
-**Semantic Caching**:
-
-**Implementation**: [src/core/cache/semantic_cache.py](src/core/cache/semantic_cache.py)
-
-```python
-# Cache embeddings to avoid re-computation
-key = SHA256(query.lower().strip())
-cached_embedding = await cache.get(key)
-
-if cached_embedding:
-    return cached_embedding  # ~60% cache hit rate
-else:
-    embedding = await embed(query)
-    await cache.set(key, embedding, ttl=86400)  # 24 hours
-    return embedding
-```
-
-**Cache Performance**:
-- Hit rate: ~60% in production workloads
-- TTL: 24 hours (configurable)
-- Storage: Redis with JSON serialization
-- Speedup: 50ms vs 200ms (4x faster)
-
-#### 5. Graph Extraction
-
-**Implementation**: [src/core/ingestion/infrastructure/extraction/graph_extractor.py](src/core/ingestion/infrastructure/extraction/graph_extractor.py)
-
-**Two-Pass Extraction with Gleaning**:
-
-**Pass 1: Initial Extraction**
-```python
-# LLM prompt for structured extraction
-system_prompt = """
-Extract entities and relationships from the text.
-Output JSON:
-{
-  "entities": [{"name": "...", "type": "...", "description": "..."}],
-  "relationships": [{"source": "...", "target": "...", "type": "..."}]
-}
-"""
-
-result = await llm.generate(text, system_prompt, temperature=0.0)
-entities, relationships = parse_json(result)
-```
-
-**Pass 2: Gleaning (Iterative Refinement)**
-
-Maximizes recall by asking the LLM to find missed entities:
-
-```python
-for iteration in range(max_gleaning_steps):  # default: 1
-    existing_entities = [e.name for e in entities]
-
-    prompt = f"""
-    Text: {text}
-    Existing Entities: {existing_entities}
-
-    Find any entities you missed in the first pass.
-    """
-
-    new_entities = await llm.generate(prompt, temperature=0.2)
-
-    if not new_entities:
-        break  # No more entities found
-
-    entities.extend(new_entities)
-```
-
-**Gleaning Impact**:
-- Recall improvement: +15-25% more entities
-- Cost: 2x LLM calls per chunk
-- Trade-off: Configurable via `use_gleaning` flag
-
-**Entity Schema**:
-```python
-{
-    "id": "ent_abc123",
-    "name": "GraphRAG",
-    "type": "Technology",
-    "description": "Hybrid retrieval system combining graphs and vectors",
-    "tenant_id": "default",
-    "source_chunks": ["chunk_1", "chunk_2"]
-}
-```
-
-**Relationship Schema**:
-```python
-{
-    "source": "ent_abc123",  # Entity ID
-    "target": "ent_def456",
-    "type": "ENABLES",
-    "weight": 1.0,
-    "description": "GraphRAG enables contextual retrieval"
-}
-```
-
-#### 6. Vector Storage (Milvus)
-
-**Implementation**: [src/core/retrieval/infrastructure/vector_store/milvus.py](src/core/retrieval/infrastructure/vector_store/milvus.py)
-
-**Collection Schema**:
-```python
-# Chunk embeddings collection
-Collection: "amber_{collection_name}"  # per-tenant, prefix "amber_"
-Fields:
-  - chunk_id: VARCHAR (primary key)
-  - document_id: VARCHAR
-  - embedding: FLOAT_VECTOR(dims)  # configurable; default 1536 (text-embedding-3-small) or 768 (nomic-embed-text)
-  - sparse_embedding: SPARSE_FLOAT_VECTOR  # SPLADE vectors for hybrid search
-  - content: TEXT
-  - metadata: JSON
-
-Dense index: HNSW
-  - M: 16, efConstruction: 256
-  - metric_type: COSINE
-Sparse index: SPARSE_INVERTED_INDEX
-  - metric_type: IP
-```
-
-**Search Parameters**:
-```python
-search_params = {
-    "metric_type": "COSINE",
-    "params": {"ef": 128}  # HNSW search-time parameter
-}
-
-results = collection.search(
-    data=[query_embedding],
-    anns_field="embedding",
-    param=search_params,
-    limit=top_k,
-    output_fields=["chunk_id", "content", "metadata"]
-)
-```
-
-**Performance**:
-- Query latency: <50ms for 100K vectors
-- Indexing: ~5K vectors/second
-- Memory: ~4GB per 1M vectors (1536 dims)
-
-#### 7. Graph Storage (Neo4j)
-
-**Implementation**: [src/core/graph/infrastructure/neo4j_client.py](src/core/graph/infrastructure/neo4j_client.py)
-
-**Graph Schema**:
-
-```cypher
-// Nodes
-(:Document {id, title, tenant_id, status})
-(:Chunk {id, document_id, content, index})
-(:Entity {id, name, type, description, tenant_id})
-(:Community {id, level, title, tenant_id})
-
-// Relationships
-(:Chunk)-[:PART_OF]->(:Document)
-(:Chunk)-[:MENTIONS]->(:Entity)
-(:Entity)-[:RELATED_TO {type, weight}]->(:Entity)
-(:Entity)-[:BELONGS_TO]->(:Community)
-(:Community)-[:PARENT_OF]->(:Community)
-```
-
-**Indexes**:
-```cypher
-CREATE INDEX entity_tenant_idx FOR (e:Entity) ON (e.tenant_id);
-CREATE INDEX entity_name_idx FOR (e:Entity) ON (e.name);
-CREATE INDEX community_tenant_idx FOR (c:Community) ON (c.tenant_id, c.level);
-```
-
-**Write Pattern**:
-```python
-# Batched writes for performance
-async def write_entities(entities: List[Entity]):
-    query = """
-    UNWIND $entities AS entity
-    MERGE (e:Entity {id: entity.id})
-    SET e.name = entity.name,
-        e.type = entity.type,
-        e.tenant_id = $tenant_id
-    """
-    await neo4j.execute_write(query, {"entities": entities})
-```
-
-#### 8. Community Detection (Leiden Algorithm)
-
-**Implementation**: [src/core/graph/application/communities/leiden.py](src/core/graph/application/communities/leiden.py)
-
-**Hierarchical Leiden Clustering**:
-
-Amber uses the **Leiden algorithm** (Traag et al., 2019) for hierarchical community detection. Leiden improves upon Louvain by guaranteeing well-connected communities.
-
-**Algorithm Steps**:
-
-**Level 0: Entity Clustering**
-
-1. **Fetch Entity Graph**:
-```cypher
-MATCH (s:Entity)-[r]->(t:Entity)
-WHERE s.tenant_id = $tenant_id
-RETURN s.id, t.id, type(r), r.weight
-```
-
-2. **Build igraph**:
-```python
-# Convert Neo4j graph to igraph
-nodes = list(entity_ids)
-edges = [(src, tgt, weight) for src, tgt, weight in relationships]
-
-g = igraph.Graph(len(nodes))
-g.add_edges(edges)
-g.es['weight'] = weights
-```
-
-3. **Run Leiden**:
-```python
-partition = leidenalg.find_partition(
-    g,
-    leidenalg.RBConfigurationVertexPartition,
-    weights=weights,
-    resolution_parameter=1.0  # Higher = smaller communities
-)
-```
-
-4. **Create Communities**:
-```python
-for comm_idx, members in enumerate(partition):
-    community = Community(
-        id=generate_community_id(level=0),
-        level=0,
-        members=[entity_ids[i] for i in members]
-    )
-```
-
-**Level 1+: Hierarchical Aggregation**
-
-5. **Aggregate Graph**:
-```python
-# Create super-graph where nodes are Level 0 communities
-induced_graph = partition.cluster_graph()
-```
-
-6. **Recursive Leiden**:
-```python
-for level in range(1, max_levels):
-    # Run Leiden on induced graph
-    partition = leidenalg.find_partition(induced_graph, ...)
-
-    # Create higher-level communities
-    for super_comm in partition:
-        community = Community(
-            level=level,
-            child_communities=[comm_ids from level-1]
-        )
-
-    # Check convergence
-    if no_new_structure:
-        break
-```
-
-**Persistence**:
-```cypher
-// Store communities and relationships
-MERGE (c:Community {id: $id})
-SET c.level = $level, c.title = $title
-
-// Link entities (Level 0)
-FOREACH (entity_id IN $members |
-    MERGE (e:Entity {id: entity_id})
-    MERGE (e)-[:BELONGS_TO]->(c)
-)
-
-// Link child communities (Level 1+)
-FOREACH (child_id IN $children |
-    MERGE (child:Community {id: child_id})
-    MERGE (c)-[:PARENT_OF]->(child)
-)
-```
-
-**Community Summarization**:
-
-After detection, each community is summarized using an LLM:
-
-```python
-# Gather community content
-entities = get_community_entities(community_id)
-chunks = get_related_chunks(entities)
-
-prompt = f"""
-Summarize the following content as a coherent theme:
-
-Entities: {entity_names}
-Context: {chunk_contents}
-
-Provide:
-1. A title (5-10 words)
-2. A summary (2-3 sentences)
-3. Key themes (3-5 keywords)
-"""
-
-summary = await llm.generate(prompt)
-community.summary = summary.text
-community.embedding = await embed(summary.text)
-```
-
-**Why Leiden?**
-- **Quality**: Guarantees well-connected communities (vs Louvain)
-- **Speed**: O(n log n) on sparse graphs
-- **Hierarchical**: Natural multi-level structure
-- **Proven**: Standard in network science
-
----
-
-### Query Processing Pipeline
-
-The query pipeline transforms user questions into contextual answers through multiple stages:
-
-```
-User Query
-    ↓
-[1] Query Rewriting
-    ↓
-[2] Query Parsing & Filtering
-    ↓
-[3] Query Routing (Mode Selection)
-    ↓
-[4] Query Enhancement (HyDE/Decomposition)
-    ↓
-[5] Multi-Modal Search
-    ↓
-[6] Result Fusion & Reranking
-    ↓
-[7] Answer Generation
-    ↓
-Response
-```
-
-#### 1. Query Rewriting
-
-**Implementation**: [src/core/retrieval/application/query/rewriter.py](src/core/retrieval/application/query/rewriter.py)
-
-**Purpose**: Convert context-dependent queries into standalone versions.
-
-**Example**:
-```python
-# Conversation history
-History:
-  User: "What is GraphRAG?"
-  AI: "GraphRAG is a hybrid retrieval system..."
-  User: "How does it work?"  # ← Ambiguous!
-
-# Rewriting
-Original: "How does it work?"
-Rewritten: "How does GraphRAG work?"
-```
-
-**Implementation**:
-```python
-prompt = f"""
-Conversation History:
-{format_history(last_5_turns)}
-
-Current Query: {query}
-
-Rewrite the query to be standalone and clear.
-Output only the rewritten query.
-"""
-
-rewritten = await llm.generate(prompt, temperature=0.0)
-```
-
-**Features**:
-- Uses conversation history (last 5 turns)
-- Timeout guard (2 seconds, fallback to original)
-- Uses economy-tier LLM for cost efficiency
-
-#### 2. Query Parsing & Filtering
-
-**Implementation**: [src/core/retrieval/application/query/parser.py](src/core/retrieval/application/query/parser.py)
-
-**Extract Structured Filters**:
-
-```python
-# Parse filters from natural language
-query = "Show me documents about AI from 2024 tagged research"
-
-parsed = QueryParser.parse(query)
-# Output:
-{
-    "cleaned_query": "documents about AI",
-    "filters": {
-        "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
-        "tags": ["research"]
-    },
-    "document_ids": []
-}
-```
-
-**Supported Filters**:
-- Date ranges: "from Jan 2024", "between 2023-2024"
-- Tags: "tagged X", "#X"
-- Document IDs: "in doc_123", "document doc_abc"
-
-#### 3. Query Routing
-
-**Implementation**: [src/core/retrieval/application/query/router.py](src/core/retrieval/application/query/router.py)
-
-**Automatic Search Mode Selection**:
-
-```python
-async def route(query: str) -> SearchMode:
-    """
-    Classify query and select optimal search mode.
-    """
-    prompt = f"""
-    Classify this query:
-
-    Query: {query}
-
-    Categories:
-    - LIST: Enumeration queries ("list all", "what are")
-    - ENTITY: Specific entity lookup ("who is", "when did")
-    - THEME: Broad conceptual questions ("how does", "explain")
-    - COMPARISON: Comparing concepts ("difference between")
-    - SIMPLE: Direct factual question
-
-    Return: BASIC | LOCAL | GLOBAL | DRIFT | STRUCTURED
-    """
-
-    mode = await llm.generate(prompt)
-    return SearchMode(mode.strip())
-```
-
-**Mode Selection Logic**:
-- **STRUCTURED**: Direct Cypher for "list all X", "count Y"
-- **LOCAL**: Entity-centric for "who", "when", "where"
-- **GLOBAL**: Community summaries for "what themes", "overview"
-- **DRIFT**: Iterative for "how does X relate to Y", multi-hop
-- **BASIC**: Fallback vector search
-
-#### 4. Query Enhancement
-
-**HyDE (Hypothetical Document Embeddings)**
-
-**Implementation**: [src/core/retrieval/application/query/hyde.py](src/core/retrieval/application/query/hyde.py)
-
-**Technique**: Generate hypothetical answers, embed them instead of the query.
-
-**Why?** Bridges semantic gap between short queries and long documents.
-
-```python
-query = "What is the capital of France?"
-
-# Generate hypothesis
-hypothesis = await llm.generate(f"""
-Generate a passage that would answer: {query}
-
-Write 2-3 sentences as if from a Wikipedia article.
-""")
-# Output: "Paris is the capital and largest city of France.
-#          Located on the Seine River, Paris is known for..."
-
-# Embed hypothesis instead of query
-embedding = await embed(hypothesis)
-results = vector_search(embedding)
-```
-
-**Consistency Check**:
-```python
-# Generate multiple hypotheses
-hypotheses = [await generate_hypothesis(query) for _ in range(3)]
-embeddings = [await embed(h) for h in hypotheses]
-
-# Check semantic consistency
-avg_similarity = cosine_similarity_matrix(embeddings).mean()
-if avg_similarity < 0.7:
-    logger.warning("Inconsistent hypotheses, fallback to direct query")
-    use_direct_query()
-```
-
-**Query Decomposition**
-
-**Implementation**: [src/core/retrieval/application/query/decomposer.py](src/core/retrieval/application/query/decomposer.py)
-
-**Technique**: Break complex multi-part questions into sub-queries.
-
-```python
-query = "How does GraphRAG compare to traditional RAG and what are its advantages?"
-
-sub_queries = await decompose(query)
-# Output:
-[
-    "What is GraphRAG?",
-    "What is traditional RAG?",
-    "How does GraphRAG differ from traditional RAG?",
-    "What are the advantages of GraphRAG?"
-]
-
-# Execute in parallel
-results = await asyncio.gather(*[
-    retrieve(sq) for sq in sub_queries
-])
-
-# Aggregate results
-combined_context = fuse_results(results)
-```
-
-#### 5. Multi-Modal Search
-
-Amber supports 5 search modes, each optimized for different query types.
-
-**Basic Mode: Vector-Only Search**
-
-```python
-# Standard semantic similarity search
-embedding = await embed(query)
-results = milvus.search(
-    data=[embedding],
-    limit=10,
-    metric="IP"  # Inner product (cosine for normalized)
-)
-```
-
-**Local Mode: Entity-Focused Graph Traversal**
-
-**Implementation**: [src/core/retrieval/application/search/graph_search.py](src/core/retrieval/application/search/graph_search.py)
-
-```python
-# 1. Find entities matching query
-entity_embedding = await embed(query)
-entities = entity_search(entity_embedding, limit=3)
-
-# 2. Traverse graph from entities
-for entity in entities:
-    # Get 2-hop neighborhood
-    cypher = """
-    MATCH (e:Entity {id: $entity_id})
-    MATCH (e)-[r1]-(neighbor)
-    MATCH (neighbor)-[r2]-(extended)
-    RETURN e, r1, neighbor, r2, extended
-    """
-
-    neighborhood = await neo4j.execute_read(cypher)
-
-    # 3. Get chunks mentioning these entities
-    chunks = get_chunks_mentioning(neighborhood.entities)
-
-    candidates.extend(chunks)
-```
-
-**Global Mode: Community Summary Map-Reduce**
-
-**Implementation**: [src/core/retrieval/application/search/global_search.py](src/core/retrieval/application/search/global_search.py)
-
-```python
-# 1. Search community summaries
-summary_embedding = await embed(query)
-communities = search_community_summaries(summary_embedding, limit=5)
-
-# 2. For each community, get member entities and chunks
-community_contexts = []
-for community in communities:
-    entities = get_community_entities(community.id)
-    chunks = get_related_chunks(entities)
-    community_contexts.append({
-        "summary": community.summary,
-        "chunks": chunks
-    })
-
-# 3. Map-Reduce generation
-intermediate_answers = await asyncio.gather(*[
-    llm.generate(f"Based on: {ctx['summary']}\n{ctx['chunks']}\n\nAnswer: {query}")
-    for ctx in community_contexts
-])
-
-# 4. Final reduce step
-final_answer = await llm.generate(f"""
-Synthesize these partial answers into a comprehensive response:
-
-{intermediate_answers}
-
-Question: {query}
-""")
-```
-
-**Drift Mode: Iterative Agentic Search**
-
-**Implementation**: [src/core/retrieval/application/search/drift_search.py](src/core/retrieval/application/search/drift_search.py)
-
-DRIFT = **D**ynamic **R**easoning and **I**nference with **F**lexible **T**raversal
-
-**Three-Phase Process**:
-
-```python
-async def drift_search(query, max_iterations=3):
-    all_context = []
-
-    # Phase 1: Primer - Initial retrieval
-    initial_results = await retrieve(query, top_k=5)
-    all_context.extend(initial_results)
-
-    # Phase 2: Expansion - Iterative follow-ups
-    for iteration in range(max_iterations):
-        # Generate follow-up questions
-        prompt = f"""
-        Query: {query}
-        Current Context: {all_context}
-
-        What 3 questions would help provide a more complete answer?
-        If context is sufficient, respond 'DONE'.
-        """
-
-        follow_ups = await llm.generate(prompt)
-
-        if "DONE" in follow_ups:
-            break
-
-        # Execute follow-up searches in parallel
-        follow_up_results = await asyncio.gather(*[
-            retrieve(fq, top_k=3) for fq in parse_questions(follow_ups)
-        ])
-
-        # Add only new, non-duplicate chunks
-        for chunks in follow_up_results:
-            for chunk in chunks:
-                if chunk.id not in seen_ids:
-                    all_context.append(chunk)
-                    seen_ids.add(chunk.id)
-
-    # Phase 3: Synthesis - Final generation
-    answer = await llm.generate(f"""
-    Question: {query}
-    Context: {all_context}
-
-    Provide a comprehensive, grounded answer with citations.
-    """)
-
-    return answer
-```
-
-**Example Flow**:
-```
-Query: "How does attention mechanism relate to transformers?"
-
-Iteration 0 (Primer):
-  Retrieved: ["Attention basics", "Transformer overview"]
-
-Iteration 1:
-  Follow-ups: ["What is self-attention?", "What is multi-head attention?"]
-  Retrieved: ["Self-attention formula", "Multi-head details"]
-
-Iteration 2:
-  Follow-ups: ["How are they used in transformers?"]
-  Retrieved: ["Transformer architecture", "Attention in encoder-decoder"]
-  Context deemed sufficient → DONE
-
-Synthesis:
-  Generates comprehensive answer from 6 chunks
-```
-
-**Structured Mode: Direct Cypher Execution**
-
-For simple enumeration/count queries, bypass RAG entirely:
-
-```python
-query = "List all documents about AI"
-
-cypher = """
-MATCH (d:Document)-[:HAS_TAG]->(t:Tag {name: "AI"})
-RETURN d.title, d.created_at
-ORDER BY d.created_at DESC
-LIMIT 50
-"""
-
-results = await neo4j.execute_read(cypher)
-return format_list(results)
-```
-
-#### 6. Result Fusion & Reranking
-
-**Reciprocal Rank Fusion (RRF)**
-
-**Implementation**: [src/core/retrieval/application/search/fusion.py](src/core/retrieval/application/search/fusion.py)
-
-When combining results from multiple sources (vector + graph + entity), use RRF:
-
-```python
-def reciprocal_rank_fusion(
-    results_lists: List[List[Candidate]],
-    k: int = 60  # RRF constant
-) -> List[Candidate]:
-    """
-    Fuse multiple ranked lists using RRF.
-
-    RRF Score = Σ(1 / (k + rank_i + 1))
-    """
-    scores = defaultdict(float)
-
-    for results in results_lists:
-        for rank, candidate in enumerate(results):
-            scores[candidate.id] += 1.0 / (k + rank + 1)
-
-    # Sort by RRF score
-    fused = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [get_candidate(id) for id, score in fused]
-```
-
-**Example**:
-```
-Vector Search:     [A, B, C, D]
-Graph Search:      [C, A, E, F]
-Entity Search:     [E, A, B, G]
-
-RRF Scores:
-  A: 1/61 + 1/62 + 1/62 = 0.049
-  B: 1/62 + 1/63 = 0.032
-  C: 1/63 + 1/61 = 0.032
-  E: 1/64 + 1/61 = 0.032
-  ...
-
-Fused: [A, B, C, E, D, F, G]
-```
-
-**Semantic Reranking**
-
-**Implementation**: [src/core/generation/infrastructure/providers/local.py](src/core/generation/infrastructure/providers/local.py) (FlashRank)
-
-After fusion, rerank top-k candidates using a cross-encoder:
-
-```python
-# Get top 50 from vector/graph fusion
-candidates = fuse_results([vector_results, graph_results], top_k=50)
-
-# Rerank using cross-encoder
-reranker = FlashRankReranker()
-reranked = await reranker.rerank(
-    query=query,
-    documents=[c.content for c in candidates],
-    top_k=10
-)
-```
-
-**Cross-Encoder vs Bi-Encoder**:
-- **Bi-Encoder** (Vector Search): Encode query and docs separately, compare embeddings (fast, ~50ms)
-- **Cross-Encoder** (Reranking): Encode query+doc together, predict relevance (accurate, ~200ms)
-
-**Reranking improves precision by +15-20% but adds latency.**
-
-#### 7. Answer Generation
-
-**Implementation**: [src/core/generation/application/generation_service.py](src/core/generation/application/generation_service.py)
-
-**Prompt Engineering**:
-
-```python
-system_prompt = """
-You are an expert analyst. Answer the question using ONLY the provided context.
-
-Rules:
-1. Base your answer solely on the context
-2. Cite sources using [1], [2] notation
-3. If context insufficient, say "I don't have enough information"
-4. Be concise but complete
-"""
-
-user_prompt = f"""
-Question: {query}
-
-Context:
-{format_sources(chunks)}
-
-Provide a detailed answer with citations.
-"""
-
-answer = await llm.generate(user_prompt, system=system_prompt)
-```
-
-**Citation Extraction**:
-```python
-# Parse [1], [2] citations from answer
-citations = extract_citations(answer.text)
-
-# Map to source chunks
-sources = [
-    {
-        "chunk_id": chunks[i].id,
-        "document": chunks[i].document,
-        "text": chunks[i].content,
-        "score": chunks[i].score
-    }
-    for i in citations
-]
-```
-
-**Streaming Response**:
-```python
-async def stream_answer(query, chunks):
-    prompt = format_prompt(query, chunks)
-
-    async for token in llm.stream(prompt):
-        yield {
-            "type": "token",
-            "content": token
-        }
-
-    yield {
-        "type": "sources",
-        "content": format_sources(chunks)
-    }
-```
-
----
-
-### Performance Optimizations
-
-#### Caching Strategy
-
-**Three-Layer Cache**:
-
-1. **Embedding Cache** (Redis, 24h TTL)
-   - Key: SHA256(query.lower())
-   - Saves ~200ms per cached query
-   - Hit rate: ~60%
-
-2. **Result Cache** (Redis, 30min TTL)
-   - Key: SHA256(query + filters + options)
-   - Saves ~1000ms per cached query
-   - Hit rate: ~40%
-
-3. **Community Summary Cache** (Redis, 1h TTL)
-   - Pre-computed community summaries
-   - Saves 5-10s on global search
-
-#### Batch Processing
-
-**Embedding Batching**:
-```python
-# Instead of: for chunk in chunks: embed(chunk)
-# Use batching:
-embeddings = await embed_batch(chunks, batch_size=100)
-# 10x faster for large documents
-```
-
-**Graph Write Batching**:
-```python
-# Batch entity writes
-async def write_entities(entities):
-    for batch in chunk_list(entities, size=100):
-        await neo4j.execute_write(batch_query, batch)
-```
-
-#### Parallel Execution
-
-```python
-# Execute searches in parallel
-vector_task = vector_search(embedding)
-entity_task = entity_search(embedding)
-graph_task = graph_traverse(entities)
-
-results = await asyncio.gather(
-    vector_task,
-    entity_task,
-    graph_task,
-    return_exceptions=True  # Don't fail if one fails
-)
-```
-
-#### Circuit Breaker
-
-**Implementation**: [src/core/system/circuit_breaker.py](src/core/system/circuit_breaker.py)
-
-Prevents cascade failures:
-
-```python
-circuit_breaker = CircuitBreaker(
-    failure_threshold=5,   # Open after 5 failures
-    timeout=60,            # Stay open for 60s
-    half_open_max=3        # Try 3 requests when half-open
-)
-
-if circuit_breaker.is_open():
-    # Fallback to simpler search mode
-    return basic_vector_search(query)
-else:
-    try:
-        result = await complex_graph_search(query)
-        circuit_breaker.record_success()
-    except Exception:
-        circuit_breaker.record_failure()
-        raise
-```
-
----
+The ingestion pipeline, the query pipeline, and the caching and failure handling around both are documented in [docs/INTERNALS.md](docs/INTERNALS.md), down to the Cypher schemas and the chunking algorithm.
 
 ## Contributing
 
-We welcome contributions!
+Contributions are welcome.
 
 1. Fork & clone the repository
 2. Create a feature branch
@@ -1986,10 +907,7 @@ We welcome contributions!
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
 
----
-
 ## License
 
-Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details. Release history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
----
