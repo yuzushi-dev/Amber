@@ -1258,16 +1258,39 @@ class RetrievalService:
 
             if cached_result:
                 # Use cached chunk IDs to avoid re-embedding and re-searching
-                logger.info("Using cached result for '%s'", search_query)
                 sub_chunks = await self._fetch_chunks_by_ids(
                     cached_result.chunk_ids[:top_k],
                     cached_result.scores[:top_k],
                 )
-                for c in sub_chunks:
-                    if c["chunk_id"] not in seen_chunk_ids:
-                        all_chunks.append(c)
-                        seen_chunk_ids.add(c["chunk_id"])
-                continue
+                if sub_chunks or not cached_result.chunk_ids:
+                    # Real cache hit — either chunks resolved, or the cache
+                    # legitimately recorded "no matches" for this query (empty
+                    # chunk_ids to begin with, not a resolution failure).
+                    logger.info("Using cached result for '%s'", search_query)
+                    for c in sub_chunks:
+                        if c["chunk_id"] not in seen_chunk_ids:
+                            all_chunks.append(c)
+                            seen_chunk_ids.add(c["chunk_id"])
+                    continue
+
+                # Stale cache entry: the cache pointed at chunk_ids, but NONE
+                # of them resolved to a real chunk (e.g. a re-ingest replaced
+                # them with new ids — see _fetch_chunks_by_ids' `if cid in
+                # chunk_map` filter). A cache hit that resolves to zero chunks
+                # is a miss, not "zero relevant chunks" — treating it as a hit
+                # here made this sub-query (and, if it was the only one,
+                # the whole request) come back with 0 chunks even though
+                # matching documents exist. Fall through to a real search
+                # instead of `continue`-ing past it; the search below
+                # repopulates this cache entry with fresh ids, so no explicit
+                # invalidation or new TTL handling is needed.
+                logger.warning(
+                    "Cache hit for '%s' resolved 0/%d cached chunk ids to a "
+                    "real chunk (stale entry, likely after a re-ingest) — "
+                    "falling back to a live search for this sub-query",
+                    search_query,
+                    len(cached_result.chunk_ids),
+                )
 
             # Get embedding
             logger.debug("Generating embedding for query variant '%s'", search_query[:120])
