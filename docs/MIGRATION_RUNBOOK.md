@@ -264,6 +264,54 @@ a full ingestion cycle. It is the real rollback.
   non-READY blocklist of #31, so they go quiet rather than erroring. Re-ingest
   them explicitly.
 
+## Runtime state the backup does not carry
+
+`backup.sh` covers postgres, neo4j, redis, milvus, etcd, minio, uploads and
+config. It does **not** cover three pieces of runtime state that live outside both
+the images and the data volumes, and a fresh host is broken in a specific way
+without each. All three were found by running the restore drill, not by reading
+the code.
+
+| What | Where | Size | Symptom when missing |
+|---|---|---|---|
+| Python deps | `<project>_pip-packages` volume, on `PYTHONPATH` as `/app/.packages` | 6.1G | every query 500s with `torch and transformers are required for SparseEmbeddingService` |
+| Sparse-embedding model | host bind mount `./.cache/huggingface` | 837M | `PermissionError at /home/appuser/.cache/huggingface/hub` downloading `naver/splade-cocondenser-ensembledistil` |
+| Reranker model | FlashRank cache inside the container | 22M | downloaded at first query (`ms-marco-MiniLM-L-12-v2.zip`) |
+
+Nothing in `api.Dockerfile` or `entrypoint.sh` populates the first two: they are
+hand-provisioned state that exists only as a docker volume and a host directory.
+The HuggingFace mount is *relative to the compose file*, so running the same
+compose from a different checkout silently gets an empty, root-owned directory.
+
+Before cutting traffic over to the new host, either copy both across:
+
+```bash
+# deps volume
+docker run --rm -v amber2_pip-packages:/from:ro -v <new>_pip-packages:/to \
+  alpine sh -c 'cp -a /from/. /to/'
+# model cache
+rsync -a <old>:/root/amber2/.cache/huggingface/ /root/amber2/.cache/huggingface/
+```
+
+…or accept a long, network-dependent first start and verify a real query returns
+sources before sending traffic. An offline host cannot recover on its own.
+
+## Calibrating RERANK_SCORE_FLOOR
+
+The description on the setting says "on-topic >= 0.82, no-coverage ~0.0". That
+does not match what the reranker actually returns on the production corpus.
+Measured on the drill against restored production data, with FlashRank
+`ms-marco-MiniLM-L-12-v2`:
+
+```
+Rerank floor 0.990 dropped 5/10 chunks for 'How does alerting work in Carbonio?'
+```
+
+Half the chunks for a well-covered question score **above 0.99**. A floor of 0.82
+would therefore drop nothing and the gate would be a silent no-op. Calibrate
+against `Rerank floor %.3f dropped %d/%d` in the logs on your own corpus before
+trusting any value, and treat the number in the setting's description as stale.
+
 ## What this runbook does not cover
 
 - **Point-in-time recovery.** `backup.sh` is a periodic snapshot; there is no WAL

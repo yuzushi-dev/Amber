@@ -206,7 +206,14 @@ if [ "$NEO4J_MODE" = "cypher" ]; then
             sleep 2
         done
     fi
-    run bash -c "docker compose -p '$PROJECT' --env-file '$ENV_SNAPSHOT' -f '$REPO_ROOT/docker-compose.yml' exec -T neo4j cypher-shell -u '$NEO4J_USER' -p '$NEO4J_PASSWORD' < '$BACKUP_DIR/neo4j.cypher'"
+    # Masked in dry-run: run() would otherwise echo the production Neo4j
+    # password to stdout, and this script's output ends up in terminals and
+    # deploy logs.
+    if $DRY_RUN; then
+        echo "  WOULD RUN: docker compose -p '$PROJECT' ... exec -T neo4j cypher-shell -u '$NEO4J_USER' -p '***' < '$BACKUP_DIR/neo4j.cypher'"
+    else
+        bash -c "docker compose -p '$PROJECT' --env-file '$ENV_SNAPSHOT' -f '$REPO_ROOT/docker-compose.yml' exec -T neo4j cypher-shell -u '$NEO4J_USER' -p '$NEO4J_PASSWORD' < '$BACKUP_DIR/neo4j.cypher'"
+    fi
 fi
 
 # ── 6) Optionally bring up the app ────────────────────────────────────────────
