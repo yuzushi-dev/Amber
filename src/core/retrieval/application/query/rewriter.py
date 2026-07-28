@@ -148,11 +148,25 @@ class QueryRewriter:
 
             rewritten = (rewritten_res.text or "").strip()
 
+            # Known gap, deliberately not handled here: reasoning-capable
+            # models can emit a leading <think>...</think> block before the
+            # actual rewrite. If that block is short enough, the combined
+            # text can slip under max_len below and the raw reasoning trace
+            # ends up as part of the search query. Stripping it would need a
+            # provider-aware/tag-aware parse (formats vary), which is a
+            # bigger change than this timeout/output-guard fix; tracked as a
+            # follow-up rather than guessed at here.
             if not rewritten:
                 logger.warning("Query rewrite returned empty output, using original")
                 return query
 
-            max_len = max(200, 4 * len(query))
+            # Floor high enough that a short follow-up ("spiega meglio?", 9
+            # chars) doesn't get its own legitimate standalone rewrite (which
+            # restates context and can easily run ~200+ chars) rejected by
+            # this guard — that would defeat the very case multi-turn
+            # rewriting exists for. See test_disproportionate_output_* for
+            # the still-rejected, genuinely-oversized case.
+            max_len = max(400, 3 * len(query) + 200)
             if len(rewritten) > max_len:
                 logger.warning(
                     f"Query rewrite output disproportionate to input "
