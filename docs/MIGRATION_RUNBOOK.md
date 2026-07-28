@@ -33,33 +33,37 @@ already been observed or read off the merged code.
   while the log still says `APOC export OK`. `verify_backup.sh` fails the backup
   if this regresses, so the gate is: **`verify_backup.sh` exits 0.**
 
-- [ ] **The boot recovery sweep is safe with more than one worker replica.**
-  `src/workers/celery_app.py:219` calls `run_recovery_sync()` with no argument,
-  i.e. `min_age_minutes=0` (`src/workers/recovery.py:19`). The justification in
-  `recovery.py:305` ("nothing is in-flight at startup") holds for one replica;
-  `docker-compose.yml:266` now declares `replicas: 3`. With three replicas, one
-  restarting replica sweeps documents the other two are actively processing:
-  `EXTRACTING`/`CLASSIFYING` → `FAILED` (`recovery.py:163`), and
-  `EMBEDDING`/`GRAPH_SYNC` reset to `INGESTED` and requeued (`recovery.py:132`)
-  while the original task is still running under `task_acks_late=True`. The
-  requeued run executes the destructive pre-ingest cleanup
-  (`ingestion_service.py:690` Milvus `delete_by_document`, `:704` Neo4j
+- [ ] **The recovery sweep never touches live work.** Closed by
+  `recovery.STALE_MIN_AGE_MINUTES`: both the periodic and the boot-time sweep now
+  skip documents updated within the last 30 minutes, and the blanket flush of
+  `locks:process_communities:*` at worker boot is gone (the locks carry a 2h TTL
+  and expire on their own). Verify it still holds — `tests/unit/test_recovery_boot_safety.py`
+  fails if either regresses.
+  Why it matters: the boot sweep used to run with no threshold, justified by
+  "nothing is in-flight at startup", which stopped being true when
+  `docker-compose.yml` declared `replicas: 3`. One restarting replica would mark
+  the other two replicas' `EXTRACTING`/`CLASSIFYING` documents `FAILED` and reset
+  `EMBEDDING`/`GRAPH_SYNC` ones to `INGESTED` and requeue them while the original
+  task was still running under `task_acks_late=True` — the requeued run then
+  executes the destructive pre-ingest cleanup (Milvus `delete_by_document`, Neo4j
   `DETACH DELETE`) concurrently with the original run's writes.
-  Same signal handler also deletes **every** `locks:process_communities:*` key
-  (`celery_app.py:240`), releasing locks held by the live replicas.
-  Fix either way before deploying: give the boot sweep the same 30-minute
-  threshold as the periodic one, gate it to a single replica, or set
-  `replicas: 1`.
+  There is still no per-document heartbeat, so `updated_at` only advances at
+  stage transitions: a single stage running longer than 30 minutes can be swept.
+  Watch the graph-sync duration on the new hardware.
 
-- [ ] **A re-upload cannot destroy the only copy of the source file.**
-  `_replace_document_content` (`ingestion_service.py:261`) reuses the document id,
-  so `storage_path` is unchanged for an unchanged filename, and
-  `storage_client.py:105` does a plain `put_object` into a bucket created without
-  versioning (`storage_client.py:82`). Re-uploading modified content under the
-  same filename overwrites the original bytes irrecoverably, and the next
-  reprocess deletes the previous version's vectors and graph nodes. Before #31
-  a content change minted a new id, hence a new key, and the original survived.
-  Enable bucket versioning, or keep the previous object before overwriting.
+- [ ] **A re-upload cannot destroy the only copy of the source file.** Closed in
+  `_replace_document_content`: the object key now carries the content hash, so a
+  replace writes a new object instead of overwriting the one it supersedes.
+  `tests/unit/test_ingestion_register_document_replace.py` fails if the colliding
+  key comes back.
+  Why it matters: the id is preserved by design, so the old key was reused
+  verbatim whenever the filename was unchanged, and `StorageClient.upload_file`
+  is a plain `put_object` into a bucket created without versioning. The original
+  bytes were unrecoverable, the pre-ingest cleanup then dropped the old vectors
+  and graph nodes, and `provisioning_service` copies `storage_path` across tenants
+  by reference — so the overwrite also mutated another tenant's document content.
+  Superseded objects are not garbage-collected. Budget for the growth, or add a
+  retention sweep over `{tenant}/{doc_id}/`.
 
 - [ ] **`DEFAULT_LLM_MODEL` on the target host is not `gemma3:27b`.** Retired
   upstream, answers 410 on every key. Use `gemma4:31b-cloud`.
