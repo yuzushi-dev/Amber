@@ -78,6 +78,27 @@ class TestCommunitySummarizer:
             result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
         assert result == {}
 
+    @pytest.mark.asyncio
+    async def test_summarize_community_failure_keeps_ready_summary_available(
+        self, mock_neo4j, mock_factory
+    ):
+        summarizer = CommunitySummarizer(mock_neo4j, mock_factory)
+        mock_neo4j.execute_read.side_effect = [
+            [{"name": "Entity A", "type": "Person", "description": "Desc A"}],
+            [],
+            [],
+            [],
+        ]
+        mock_factory.get_llm_provider.return_value.generate.side_effect = RuntimeError("provider down")
+
+        with patch("src.shared.kernel.runtime.get_settings"):
+            result = await summarizer.summarize_community("comm_0_existing", "tenant_1")
+
+        assert result == {}
+        query = mock_neo4j.execute_write.await_args.args[0]
+        assert "CASE WHEN c.summary IS NOT NULL" in query
+        assert "c.status = 'ready'" in query
+
 
 class TestCommunityLifecycle:
     @pytest.mark.asyncio

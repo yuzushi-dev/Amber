@@ -253,6 +253,7 @@ def process_communities(
     tenant_id: str,
     skip_detection: bool = False,
     force_full_embedding_resync: bool = False,
+    embedding_resync_run_id: str | None = None,
 ) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
@@ -266,6 +267,8 @@ def process_communities(
         force_full_embedding_resync: Re-embed every ready community even when
                         its current content marker is already stored. Intended
                         for explicit repair and migration operations.
+        embedding_resync_run_id: Stable ID for a forced resync. Retries retain
+                        this value so acknowledged batches are not re-embedded.
     """
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
@@ -308,6 +311,9 @@ def process_communities(
         )
         return {"status": "cancelled", "tenant_id": tenant_id}
 
+    resync_run_id = embedding_resync_run_id or (
+        self.request.id if force_full_embedding_resync else None
+    )
     deep_reset_singletons()  # Ensure fresh async clients after fork
     try:
         result = run_async(
@@ -315,13 +321,20 @@ def process_communities(
                 tenant_id,
                 skip_detection=skip_detection,
                 force_full_embedding_resync=force_full_embedding_resync,
+                force_full_resync_id=resync_run_id,
                 task_id=self.request.id,
             )
         )
         return result
     except Exception as e:
         logger.error(f"Community processing failed: {e}")
-        raise self.retry(exc=e) from e
+        retry_kwargs = {
+            "skip_detection": skip_detection,
+            "force_full_embedding_resync": force_full_embedding_resync,
+        }
+        if resync_run_id:
+            retry_kwargs["embedding_resync_run_id"] = resync_run_id
+        raise self.retry(exc=e, kwargs=retry_kwargs) from e
     finally:
         if redis_client is not None:
             try:
@@ -341,6 +354,7 @@ async def _process_communities_async(
     tenant_id: str,
     skip_detection: bool = False,
     force_full_embedding_resync: bool = False,
+    force_full_resync_id: str | None = None,
     task_id: str = "",
 ) -> dict:
     """Async implementation of community processing."""
@@ -488,7 +502,8 @@ async def _process_communities_async(
         query = """
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
         RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title,
-               c.summary as summary, c.embedding_content_hash as embedding_content_hash
+               c.summary as summary, c.embedding_content_hash as embedding_content_hash,
+               c.embedding_resync_run_id as embedding_resync_run_id
         """
         ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
         embedding_provider_name = str(
@@ -503,6 +518,7 @@ async def _process_communities_async(
             model=embedding_model,
             dimensions=embedding_dimensions,
             force_full_resync=force_full_embedding_resync,
+            force_full_resync_id=force_full_resync_id,
             should_cancel=lambda: bool(task_id and _is_revoked(task_id)),
         )
         logger.info(
@@ -535,6 +551,7 @@ async def _process_communities_async(
             "communities_embedded": sync_stats.embedded,
             "community_embedding_batches": sync_stats.batches,
             "force_full_embedding_resync": force_full_embedding_resync,
+            "embedding_resync_run_id": force_full_resync_id,
         }
     finally:
         # Close Neo4j connection to prevent event loop conflicts

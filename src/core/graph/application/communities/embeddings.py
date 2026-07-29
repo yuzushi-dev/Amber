@@ -89,15 +89,24 @@ class CommunityEmbeddingService:
         model: str,
         dimensions: int,
         force_full_resync: bool = False,
+        force_full_resync_id: str | None = None,
     ) -> CommunityEmbeddingSelection:
         """Select only missing or stale community vectors from ready nodes."""
+        if force_full_resync and not force_full_resync_id:
+            raise ValueError("A force full resync requires a stable resync ID")
+
         stale: list[dict[str, Any]] = []
         skipped_current = 0
         for community in communities:
             marker = self.embedding_marker(
                 community, provider=provider, model=model, dimensions=dimensions
             )
-            if not force_full_resync and community.get("embedding_content_hash") == marker:
+            marker_is_current = community.get("embedding_content_hash") == marker
+            full_resync_acknowledged = (
+                not force_full_resync
+                or community.get("embedding_resync_run_id") == force_full_resync_id
+            )
+            if marker_is_current and full_resync_acknowledged:
                 skipped_current += 1
                 continue
             stale.append({**community, "_embedding_content_hash": marker})
@@ -112,6 +121,7 @@ class CommunityEmbeddingService:
         model: str,
         dimensions: int,
         force_full_resync: bool = False,
+        force_full_resync_id: str | None = None,
         batch_size: int = 200,
         concurrency: int = 5,
         should_cancel: Callable[[], bool] | None = None,
@@ -127,6 +137,7 @@ class CommunityEmbeddingService:
             model=model,
             dimensions=dimensions,
             force_full_resync=force_full_resync,
+            force_full_resync_id=force_full_resync_id,
         )
         candidates = selection.communities
         if not candidates:
@@ -187,6 +198,7 @@ class CommunityEmbeddingService:
                 provider=provider,
                 model=model,
                 dimensions=dimensions,
+                force_full_resync_id=force_full_resync_id,
             )
             embedded += len(batch)
             batches += 1
@@ -213,6 +225,7 @@ class CommunityEmbeddingService:
         provider: str,
         model: str,
         dimensions: int,
+        force_full_resync_id: str | None,
     ) -> None:
         """Acknowledge vector writes in Neo4j after a successful batch upsert."""
         query = """
@@ -223,6 +236,7 @@ class CommunityEmbeddingService:
             c.embedding_provider = $provider,
             c.embedding_model = $model,
             c.embedding_dimensions = $dimensions,
+            c.embedding_resync_run_id = coalesce($force_full_resync_id, c.embedding_resync_run_id),
             c.embedding_updated_at = datetime()
         """
         marked = [
@@ -241,5 +255,6 @@ class CommunityEmbeddingService:
                 "provider": provider,
                 "model": model,
                 "dimensions": dimensions,
+                "force_full_resync_id": force_full_resync_id,
             },
         )

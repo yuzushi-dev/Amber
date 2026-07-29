@@ -183,6 +183,7 @@ async def test_force_full_resync_embeds_current_communities(
         model="text-embedding-3-small",
         dimensions=3,
         force_full_resync=True,
+        force_full_resync_id="resync-1",
     )
 
     assert stats.candidates == 1
@@ -190,3 +191,51 @@ async def test_force_full_resync_embeds_current_communities(
     assert stats.skipped_current == 0
     vector_store.upsert_chunks.assert_awaited_once()
     graph_client.execute_write.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_force_full_resync_retry_skips_batches_acknowledged_by_its_run(
+    embedding_service, vector_store, graph_client
+):
+    service = make_service(embedding_service, vector_store)
+    communities = [community("comm-1"), community("comm-2")]
+    for item in communities:
+        item["embedding_content_hash"] = service.embedding_marker(
+            item, provider="openai", model="text-embedding-3-small", dimensions=3
+        )
+    vector_store.upsert_chunks.side_effect = [None, RuntimeError("Milvus unavailable")]
+
+    with pytest.raises(RuntimeError, match="Milvus unavailable"):
+        await service.sync_stale_communities(
+            communities,
+            graph_client=graph_client,
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=3,
+            force_full_resync=True,
+            force_full_resync_id="resync-1",
+            batch_size=1,
+        )
+
+    first = graph_client.execute_write.await_args.args[1]["communities"][0]
+    communities[0]["embedding_resync_run_id"] = "resync-1"
+    assert first["id"] == "comm-1"
+    vector_store.upsert_chunks.side_effect = None
+    vector_store.upsert_chunks.reset_mock()
+    graph_client.execute_write.reset_mock()
+
+    stats = await service.sync_stale_communities(
+        communities,
+        graph_client=graph_client,
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=3,
+        force_full_resync=True,
+        force_full_resync_id="resync-1",
+        batch_size=1,
+    )
+
+    assert stats.embedded == 1
+    assert stats.skipped_current == 1
+    payload = vector_store.upsert_chunks.await_args.args[0]
+    assert [item["chunk_id"] for item in payload] == ["comm-2"]
