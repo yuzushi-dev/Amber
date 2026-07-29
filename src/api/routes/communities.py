@@ -81,6 +81,11 @@ async def trigger_community_refresh(
         "run summarization + embedding on existing communities. "
         "Use this to resume summarization without wiping already-summarized communities.",
     ),
+    force_full_embedding_resync: bool = Query(
+        False,
+        description="Re-embed every ready community, including communities whose current "
+        "embedding marker already matches. Use only for explicit repair or migration.",
+    ),
     tenant_id: str = Depends(get_tenant_id),
 ):
     """
@@ -119,5 +124,14 @@ async def trigger_community_refresh(
 
     from src.workers.tasks import process_communities
 
-    task = process_communities.delay(tenant_id, skip_detection=skip_detection)
-    return {"task_id": task.id, "status": "queued", "skip_detection": skip_detection}
+    task = process_communities.delay(
+        tenant_id,
+        skip_detection=skip_detection,
+        force_full_embedding_resync=force_full_embedding_resync,
+    )
+    return {
+        "task_id": task.id,
+        "status": "queued",
+        "skip_detection": skip_detection,
+        "force_full_embedding_resync": force_full_embedding_resync,
+    }

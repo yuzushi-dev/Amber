@@ -248,7 +248,12 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     max_retries=2,
     queue="low_priority",
 )
-def process_communities(self, tenant_id: str, skip_detection: bool = False) -> dict:
+def process_communities(
+    self,
+    tenant_id: str,
+    skip_detection: bool = False,
+    force_full_embedding_resync: bool = False,
+) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
 
@@ -258,6 +263,9 @@ def process_communities(self, tenant_id: str, skip_detection: bool = False) -> d
                         run summarization + embedding on existing communities.
                         Useful for retrying after embedding failures without
                         wiping already-summarized communities.
+        force_full_embedding_resync: Re-embed every ready community even when
+                        its current content marker is already stored. Intended
+                        for explicit repair and migration operations.
     """
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
@@ -304,7 +312,10 @@ def process_communities(self, tenant_id: str, skip_detection: bool = False) -> d
     try:
         result = run_async(
             _process_communities_async(
-                tenant_id, skip_detection=skip_detection, task_id=self.request.id
+                tenant_id,
+                skip_detection=skip_detection,
+                force_full_embedding_resync=force_full_embedding_resync,
+                task_id=self.request.id,
             )
         )
         return result
@@ -327,7 +338,10 @@ def process_communities(self, tenant_id: str, skip_detection: bool = False) -> d
 
 
 async def _process_communities_async(
-    tenant_id: str, skip_detection: bool = False, task_id: str = ""
+    tenant_id: str,
+    skip_detection: bool = False,
+    force_full_embedding_resync: bool = False,
+    task_id: str = "",
 ) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -440,14 +454,18 @@ async def _process_communities_async(
         embedding_model = (
             t_embedding_model
             or DEFAULT_EMBEDDING_MODEL.get(t_embedding_provider or "ollama")
+            or getattr(embedding_provider, "default_model", None)
+            or embedding_provider.get_default_model()
         )
         embedding_svc = EmbeddingService(
             provider=embedding_provider,
             model=embedding_model,
+            dimensions=settings.embedding_dimensions or 1536,
         )
         vector_store_factory = build_vector_store_factory()
+        embedding_dimensions = settings.embedding_dimensions or 1536
         comm_vector_store = vector_store_factory(
-            settings.embedding_dimensions or 1536,
+            embedding_dimensions,
             collection_name="community_embeddings",
         )
 
@@ -465,80 +483,58 @@ async def _process_communities_async(
             sparse_embedding_service=sparse_svc,
         )
 
-        # Fetch all communities that need embedding.
-        # TODO(perf): This re-embeds ALL status='ready' communities on every run, even
-        # those whose summary has not changed since the last embedding pass.  At ~3 000+
-        # communities this becomes expensive (one embedding API call per community plus
-        # a Milvus upsert).  A targeted fix would be to add an `is_embedded` / `embedded_at`
-        # flag to :Community nodes and query only WHERE is_embedded IS NULL OR is_embedded = false,
-        # setting the flag after a successful upsert.  Left as a future optimisation; the
-        # correctness cost of re-syncing all communities is an overshoot in API calls, not
-        # incorrect data.
+        # Fetch ready nodes with their last acknowledged embedding marker. The marker is
+        # compared locally because Neo4j does not provide a portable SHA-256 function.
         query = """
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
-        RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title, c.summary as summary
+        RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title,
+               c.summary as summary, c.embedding_content_hash as embedding_content_hash
         """
         ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+        embedding_provider_name = str(
+            getattr(embedding_provider, "provider_name", None)
+            or t_embedding_provider
+            or "unknown"
+        )
+        sync_stats = await comm_embedding_svc.sync_stale_communities(
+            ready_comms,
+            graph_client=platform.neo4j_client,
+            provider=embedding_provider_name,
+            model=embedding_model,
+            dimensions=embedding_dimensions,
+            force_full_resync=force_full_embedding_resync,
+            should_cancel=lambda: bool(task_id and _is_revoked(task_id)),
+        )
         logger.info(
-            f"Embedding pass for tenant {tenant_id}: {len(ready_comms)} ready communities to embed "
-            f"(full re-sync — see TODO above for targeted optimisation)"
+            "Community embedding pass for tenant %s: ready=%s candidates=%s "
+            "skipped_current=%s embedded=%s batches=%s force_full_resync=%s",
+            tenant_id,
+            sync_stats.ready,
+            sync_stats.candidates,
+            sync_stats.skipped_current,
+            sync_stats.embedded,
+            sync_stats.batches,
+            force_full_embedding_resync,
         )
 
-        import asyncio as _asyncio
-        _sem = _asyncio.Semaphore(5)
-
-        async def _embed_only(comm) -> dict:
-            text = f"{comm['title']}: {comm['summary']}"
-            async with _sem:
-                dense = await comm_embedding_svc.embedding_service.embed_single(text)
-            sparse = None
-            if comm_embedding_svc.sparse_embedding_service:
-                try:
-                    sparse = comm_embedding_svc.sparse_embedding_service.embed_sparse(text)
-                except Exception:
-                    pass
-            payload = {
-                "chunk_id": comm["id"],
-                "document_id": comm["id"],
-                "tenant_id": comm["tenant_id"],
-                "content": comm["summary"],
-                "embedding": dense,
-                "title": comm["title"],
-                "level": comm["level"],
+        if sync_stats.cancelled:
+            return {
+                "status": "cancelled",
+                "tenant_id": tenant_id,
+                "communities_detected": detect_res.get("community_count", 0),
+                "communities_embedded": sync_stats.embedded,
+                "communities_skipped_current": sync_stats.skipped_current,
             }
-            if sparse:
-                payload["sparse_vector"] = sparse
-            return payload
-
-        # Embed + upsert in batches of 200 — incremental progress, avoids tiny segments
-        _batch_size = 200
-        total_batches = -(-len(ready_comms) // _batch_size)
-        embedded_count = 0
-        for batch_idx in range(0, len(ready_comms), _batch_size):
-            # Cooperative cancellation: stop between batches if revoked.
-            if task_id and _is_revoked(task_id):
-                logger.info(
-                    f"[Task {task_id}] Revoked during embedding loop at batch "
-                    f"{batch_idx // _batch_size + 1}/{total_batches}; "
-                    f"stopping cleanly for tenant {tenant_id} "
-                    f"({embedded_count}/{len(ready_comms)} communities embedded so far)"
-                )
-                return {
-                    "status": "cancelled",
-                    "tenant_id": tenant_id,
-                    "communities_detected": detect_res.get("community_count", 0),
-                    "communities_embedded": embedded_count,
-                }
-            batch = ready_comms[batch_idx:batch_idx + _batch_size]
-            payloads = await _asyncio.gather(*[_embed_only(c) for c in batch])
-            await comm_embedding_svc.vector_store.upsert_chunks(list(payloads))
-            embedded_count += len(payloads)
-            logger.info(f"Community embeddings batch {batch_idx // _batch_size + 1}/{total_batches} done ({len(payloads)} vettori)")
 
         return {
             "status": "success",
             "communities_detected": detect_res.get("community_count", 0),
-            "communities_embedded": embedded_count,
+            "communities_ready": sync_stats.ready,
+            "communities_embedding_candidates": sync_stats.candidates,
+            "communities_skipped_current": sync_stats.skipped_current,
+            "communities_embedded": sync_stats.embedded,
+            "community_embedding_batches": sync_stats.batches,
+            "force_full_embedding_resync": force_full_embedding_resync,
         }
     finally:
         # Close Neo4j connection to prevent event loop conflicts
