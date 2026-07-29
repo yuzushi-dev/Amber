@@ -110,9 +110,18 @@ class CommunitySummarizer:
 
         except Exception as e:
             logger.error(f"Failed to summarize community {community_id}: {e}")
-            # Set a failure status on the node
+            # Keep a previously published summary queryable when a later refresh fails.
+            # A new summary is only promoted by _persist_summary after successful generation.
             await self.graph.execute_write(
-                "MATCH (c:Community {id: $id, tenant_id: $tenant_id}) SET c.status = 'failed', c.error = $error",
+                """
+                MATCH (c:Community {id: $id, tenant_id: $tenant_id})
+                FOREACH (_ IN CASE WHEN c.summary IS NOT NULL THEN [1] ELSE [] END |
+                    SET c.status = 'ready', c.is_stale = true, c.error = $error
+                )
+                FOREACH (_ IN CASE WHEN c.summary IS NULL THEN [1] ELSE [] END |
+                    SET c.status = 'failed', c.error = $error
+                )
+                """,
                 {"id": community_id, "tenant_id": tenant_id, "error": str(e)},
             )
             return {}
