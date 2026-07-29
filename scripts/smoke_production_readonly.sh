@@ -9,7 +9,7 @@
 #
 # Options:
 #   --base-url URL        API base URL (default: http://127.0.0.1:8000)
-#   --frontend-url URL    Frontend URL (default: http://127.0.0.1:3000)
+#   --frontend-url URL    Frontend URL (default: http://127.0.0.1)
 #   --api-key KEY         API key for authenticated checks
 #                         (falls back to DEV_API_KEY in .env if not given)
 #   --check-auth-gates    Run 401/403 auth gate checks (requires --api-key)
@@ -29,7 +29,7 @@ set -euo pipefail
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 BASE_URL="http://127.0.0.1:8000"
-FRONTEND_URL="http://127.0.0.1:3000"
+FRONTEND_URL="http://127.0.0.1"
 API_KEY=""
 CHECK_AUTH_GATES=false
 
