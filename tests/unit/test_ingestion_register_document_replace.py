@@ -148,12 +148,14 @@ def _patch_heavy_deps(monkeypatch) -> None:
     monkeypatch.setattr(service_module.asyncio, "to_thread", _direct_to_thread)
 
 
-def _build_service(repo: InMemoryDocumentRepository) -> service_module.IngestionService:
+def _build_service(
+    repo: InMemoryDocumentRepository, storage: FakeStorage | None = None
+) -> service_module.IngestionService:
     return service_module.IngestionService(
         document_repository=repo,
         tenant_repository=None,
         unit_of_work=None,
-        storage_client=FakeStorage(),
+        storage_client=storage if storage is not None else FakeStorage(),
         neo4j_client=object(),
         vector_store=None,
         settings=None,
@@ -449,3 +451,155 @@ async def test_reprocess_replace_purges_stale_postgres_chunks(monkeypatch):
     assert new_chunk_ids.isdisjoint({c.id for c in old_chunks}), (
         "old chunk rows must be replaced, not kept alongside the new ones"
     )
+
+
+@pytest.mark.asyncio
+async def test_replace_writes_a_new_object_key_instead_of_overwriting(monkeypatch):
+    """A replace must never put_object over the key the old content lives under.
+
+    The id is preserved by design, so `{tenant}/{id}/{filename}` is the *same*
+    key whenever the filename is unchanged. StorageClient.upload_file is a plain
+    put_object into a bucket created without versioning, so overwriting it
+    destroys the original bytes irrecoverably — and process_document's pre-ingest
+    cleanup then drops the old vectors and graph nodes, leaving nothing to
+    recover from if the reprocess fails. provisioning_service also copies
+    storage_path across tenants by reference, so the overwrite would mutate
+    another tenant's document content too.
+
+    Before the two-level dedup this was free: a content change minted a new
+    doc_id, hence a new key.
+    """
+    _patch_heavy_deps(monkeypatch)
+
+    repo = InMemoryDocumentRepository()
+    existing = _existing_doc()
+    repo.seed(existing)
+    old_key = existing.storage_path
+
+    storage = FakeStorage()
+    service = _build_service(repo, storage=storage)
+
+    new_content = b"UPDATED REPORT CONTENT " * 10
+    new_doc = await service.register_document(
+        tenant_id="t1",
+        filename="report.pdf",  # unchanged: the colliding case
+        file_content=new_content,
+        content_type="application/pdf",
+    )
+
+    written_keys = [call[0] for call in storage.upload_calls]
+
+    assert old_key not in written_keys, (
+        f"replace wrote over the previous version's object ({old_key}); "
+        "the original bytes are unrecoverable and a provisioned copy in another "
+        "tenant would silently change content"
+    )
+    assert written_keys == [new_doc.storage_path]
+    assert new_doc.storage_path != old_key
+    # The key is derived from the new content, so any future re-replace also
+    # lands somewhere new.
+    assert hashlib.sha256(new_content).hexdigest()[:12] in new_doc.storage_path
+
+
+@pytest.mark.asyncio
+async def test_replace_invalidates_the_result_cache_immediately(monkeypatch):
+    """A replace must drop the tenant's cached answers at replace time.
+
+    The cache-hit path does not consult document status: _fetch_chunks_by_ids
+    resolves chunk ids straight out of Postgres, so the non-READY blocklist that
+    guards live vector/graph search does not apply to it. Chunk ids are
+    deterministic and the document id is preserved, so entries cached before the
+    replace still resolve - serving the OLD chunk text under the document's NEW
+    filename.
+
+    Invalidating only after a successful reprocess is not enough: that call sits
+    inside process_document's try, so a failed reprocess leaves the stale entries
+    alive until their TTL. This test fails if the invalidation moves back to the
+    READY path only.
+    """
+    _patch_heavy_deps(monkeypatch)
+
+    invalidated: list[str] = []
+
+    class FakeResultCache:
+        def __init__(self, _config) -> None:
+            pass
+
+        async def invalidate_tenant(self, tenant_id: str) -> None:
+            invalidated.append(tenant_id)
+
+    import src.core.cache.result_cache as rc_module
+    import src.shared.kernel.runtime as runtime_module
+
+    monkeypatch.setattr(rc_module, "ResultCache", FakeResultCache)
+    monkeypatch.setattr(rc_module, "ResultCacheConfig", lambda **kw: object())
+    # Patch the accessor, NOT configure_settings(): calling that in a test leaks
+    # global state and has already masked a real RuntimeError in this suite once.
+    monkeypatch.setattr(
+        runtime_module,
+        "get_settings",
+        lambda: SimpleNamespace(db=SimpleNamespace(redis_url="redis://stub:6379/0")),
+    )
+
+    repo = InMemoryDocumentRepository()
+    repo.seed(_existing_doc())
+    service = _build_service(repo)
+
+    await service.register_document(
+        tenant_id="t1",
+        filename="report.pdf",
+        file_content=b"UPDATED REPORT CONTENT for the cache test",
+        content_type="application/pdf",
+    )
+
+    assert invalidated == ["t1"], (
+        "replace must invalidate the tenant result cache before the reprocess, "
+        "otherwise a cache hit serves pre-replace chunk text under the new filename"
+    )
+
+
+@pytest.mark.asyncio
+async def test_exact_content_match_does_not_invalidate_the_cache(monkeypatch):
+    """Discriminates 'invalidate on replace' from 'invalidate on every upload'.
+
+    An exact content_hash match returns the existing document untouched, so the
+    cached answers are still correct and dropping them would throw away a warm
+    cache on every duplicate re-upload.
+    """
+    _patch_heavy_deps(monkeypatch)
+
+    invalidated: list[str] = []
+
+    class FakeResultCache:
+        def __init__(self, _config) -> None:
+            pass
+
+        async def invalidate_tenant(self, tenant_id: str) -> None:
+            invalidated.append(tenant_id)
+
+    import src.core.cache.result_cache as rc_module
+    import src.shared.kernel.runtime as runtime_module
+
+    monkeypatch.setattr(rc_module, "ResultCache", FakeResultCache)
+    monkeypatch.setattr(rc_module, "ResultCacheConfig", lambda **kw: object())
+    # Patch the accessor, NOT configure_settings(): calling that in a test leaks
+    # global state and has already masked a real RuntimeError in this suite once.
+    monkeypatch.setattr(
+        runtime_module,
+        "get_settings",
+        lambda: SimpleNamespace(db=SimpleNamespace(redis_url="redis://stub:6379/0")),
+    )
+
+    same_content = b"IDENTICAL CONTENT"
+    repo = InMemoryDocumentRepository()
+    repo.seed(_existing_doc(content_hash=hashlib.sha256(same_content).hexdigest()))
+    service = _build_service(repo)
+
+    await service.register_document(
+        tenant_id="t1",
+        filename="report.pdf",
+        file_content=same_content,
+        content_type="application/pdf",
+    )
+
+    assert invalidated == [], "an exact-hash dedup must not drop the tenant's warm cache"

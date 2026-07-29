@@ -258,10 +258,22 @@ services:
     # file alone.
     #
     # These limits are per-container BACKSTOPS, not an allocation budget: the sum
-    # of all caps (api 5500M + worker 3×2G + neo4j 2560M + milvus 1536M + minio
-    # 1G = ~16.4G) deliberately exceeds the 15G host, because the services do not
-    # reach their ceilings simultaneously. Observed steady state is ~11.5G. What
-    # must stay under the host is the sum of real working sets, not of the caps.
+    # of the caps that are actually applied (api 5500M + worker 3×2G + minio 1G =
+    # ~12.4G) sits under the 15G host, and the two datastores are deliberately
+    # left uncapped (see the neo4j and milvus blocks for why). Observed steady
+    # state is ~11.5G. What must stay under the host is the sum of real working
+    # sets, not of the caps.
+    #
+    # This 2G is the tightest cap in the file and the one to watch first. The
+    # cgroup memory.peak for these replicas over four weeks is 4.21 / 4.48 / 5.40
+    # GiB — but that was measured WITHOUT worker_max_memory_per_child, which this
+    # release introduces, so the peaks are not a prediction of post-deploy
+    # behaviour. The residual risk is that recycling happens BETWEEN tasks: Leiden
+    # runs in-process here (igraph + leidenalg in graph/application/communities),
+    # and _fetch_l0_graph pulls the whole entity graph into the child, so one task
+    # can cross 800 MiB before the recycler can act. If a worker takes a container
+    # OOM-kill during community recompute, raise this to 3G — do not "fix" it by
+    # lowering concurrency, which only makes each task hold its peak for longer.
     deploy:
       replicas: 3
       resources:
@@ -270,6 +282,11 @@ services:
         reservations:
           memory: 1536M
     restart: unless-stopped
+    # Celery runs with task_acks_late=True, so a task killed mid-flight is
+    # redelivered and re-runs its destructive pre-ingest cleanup. Compose's
+    # default 10s stop timeout is shorter than any ingestion task, which turns
+    # every planned `stop` into that scenario. 300s lets the warm shutdown drain.
+    stop_grace_period: 300s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -387,15 +404,28 @@ services:
       start_period: 60s
     logging: *default-logging
     restart: unless-stopped
-    # Was uncapped: JVM heap is bounded to 1G above, but Neo4j's page cache and
-    # native buffers are off-heap and unbounded, so a runaway here could still
-    # host-OOM the box (~2G observed RSS). 2.5G backstop = observed + margin.
-    deploy:
-      resources:
-        limits:
-          memory: 2560M
-        reservations:
-          memory: 1536M
+    # DELIBERATELY UNCAPPED. An earlier revision set limits.memory=2560M on the
+    # reasoning that heap is bounded to 1G above and only the off-heap page cache
+    # and native buffers were unbounded (~2G observed RSS). The instantaneous RSS
+    # was the wrong measure: cgroup memory.peak over four weeks of uptime is
+    # 2.997.268.480 (2.79 GiB), i.e. the 2560M cap had already been exceeded
+    # before it was ever applied. Raising it does not fix the shape of the risk:
+    #   - 97% of that memory is anon (memory.stat: anon 2.34G, inactive_file 18M),
+    #     so the kernel cannot reclaim under cgroup pressure - it can only OOM.
+    #   - host swap was fully consumed, leaving no absorber (a 4G swapfile has
+    #     since been added, but it parks cold pages; it does not raise the ceiling).
+    #   - ~570 MiB of that peak is not Neo4j: scripts/backup.sh runs cypher-shell
+    #     via `docker exec`, which lands a SECOND JVM in this cgroup, twice a
+    #     night, with no -Xmx so it self-sizes to a quarter of visible RAM.
+    # What a cap buys here is a container-local kill boundary below the observed
+    # peak, on a datastore. Every OOM this host has taken (11 in kern.log, all
+    # global_oom) picked the api container, which is stateless and restarts clean.
+    # A Neo4j kill between the DETACH DELETE and the rebuild in the ingestion
+    # pipeline leaves the graph amputated while Postgres still reports READY: the
+    # store recovers from the WAL, the content does not.
+    # Before capping this service: bound cypher-shell (JAVA_OPTS=-Xmx256m in
+    # backup.sh), bound the off-heap explicitly (-XX:MaxDirectMemorySize), then
+    # size the cap from a deducible budget rather than from a measurement.
     networks:
       - graphrag-network
 
@@ -526,12 +556,15 @@ services:
         soft: 65536
         hard: 65536
     restart: unless-stopped
-    # Was uncapped: Milvus grows its segment/index cache with the vector set.
-    # 1.5G backstop bounds a load-driven spike from starving the host.
-    deploy:
-      resources:
-        limits:
-          memory: 1536M
+    # DELIBERATELY UNCAPPED. An earlier revision set limits.memory=1536M as a
+    # backstop against the segment/index cache growing with the vector set. The
+    # measured cgroup memory.peak is 2.636.034.048 (2.455 GiB) - 1.64x the cap,
+    # already reached before the cap existed. An OOM-kill of Milvus during a
+    # flush is the one failure this deployment cannot repair: it leaves segments
+    # inconsistent with the etcd metadata, and etcd is snapshotted separately
+    # from the Milvus volume, so the backup pair stops being coherent.
+    # See the Neo4j block above for the full reasoning on why capping a datastore
+    # below its observed peak trades a stateless victim for a stateful one.
     networks:
       - graphrag-network
 
