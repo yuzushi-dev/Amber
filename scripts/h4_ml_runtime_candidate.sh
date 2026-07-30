@@ -13,11 +13,13 @@ readonly PEAK_BUDGET_BYTES=4294967296
 readonly REQUIRED_PREFLIGHT_FREE_BYTES=25769803776
 readonly PYTHON_IMAGE="python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93"
 readonly TORCH_CPU_FIND_LINK="https://download-r2.pytorch.org/whl/cpu/torch/"
+readonly H4_RUN_LOCK_PATH="/tmp/amber-h4-ml-runtime-candidate.lock"
 
 PRECHECK_FREE_BYTES=""
 POSTFLIGHT_FREE_BYTES=""
 POSTFLIGHT_GROWTH_BYTES=""
 VALIDATION_PROOF=""
+H4_RUN_LOCK_FD=""
 
 root_dir="$(cd "$(dirname "$BASH_SOURCE")/.." && pwd)"
 requirements_input="$root_dir/requirements-ml-h4-cpu.in"
@@ -32,6 +34,30 @@ usage() {
     printf '%s\n' "Usage: h4_ml_runtime_candidate.sh install --volume $CANDIDATE_VOLUME" >&2
     printf '%s\n' "       h4_ml_runtime_candidate.sh preload --volume $CANDIDATE_VOLUME --authorize-preload" >&2
     exit 2
+}
+
+ensure_local_docker() {
+    local context_name
+
+    [[ -z "${DOCKER_HOST:-}" ]] || die "DOCKER_HOST must be unset for the local H4 candidate"
+    [[ "${DOCKER_CONTEXT:-default}" == "default" ]] \
+        || die "DOCKER_CONTEXT must be default for the local H4 candidate"
+    [[ -S /var/run/docker.sock ]] || die "local Docker socket is unavailable"
+    context_name="$(env -u DOCKER_HOST -u DOCKER_CONTEXT docker context show)"
+    [[ "$context_name" == "default" ]] || die "active Docker context must be default"
+}
+
+docker_local() {
+    ensure_local_docker
+    env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock "$@"
+}
+
+acquire_run_lock() {
+    command -v flock >/dev/null 2>&1 || die "flock is required for the H4 candidate lock"
+    umask 077
+    exec {H4_RUN_LOCK_FD}>"$H4_RUN_LOCK_PATH"
+    flock -n "$H4_RUN_LOCK_FD" \
+        || die "another install or preload already holds the H4 candidate lock"
 }
 
 free_bytes() {
@@ -65,12 +91,14 @@ check_postflight_space() {
 
 run_post_preload_validation() {
     local lock_sha256
+    local staged_models="$1"
 
     lock_sha256="$(sha256sum "$requirements_lock" | awk '{print $1}')"
-    VALIDATION_PROOF="$(docker run --rm --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    VALIDATION_PROOF="$(docker_local run --rm --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/app/.packages,readonly" \
         --mount "type=bind,src=$root_dir,dst=/workspace,readonly" \
         -e H4_LOCK_SHA256="$lock_sha256" \
+        -e H4_MODELS_STAGED_FILE="$staged_models" \
         -e PYTHONPATH=/app/.packages:/workspace \
         -e PYTHONDONTWRITEBYTECODE=1 \
         -e PIP_NO_INDEX=1 \
@@ -85,7 +113,7 @@ run_post_preload_validation() {
         "$PYTHON_IMAGE" \
         sh -ec '
             test -f /app/.packages/.h4-artifact.json
-            test -f /app/.packages/.h4-models.json
+            test -f "/app/.packages/$H4_MODELS_STAGED_FILE"
             test ! -e /app/.packages/.h4-preload-validation.json
             python - <<"PY"
 import hashlib
@@ -160,25 +188,52 @@ dense_local_cache_paths = [
 splade_model = "naver/splade-cocondenser-ensembledistil"
 splade_revision = "49cf4c7b0db5b870a401ddf5e2669993ef3699c7"
 flashrank_model = "ms-marco-MiniLM-L-12-v2"
+models_manifest = json.loads(
+    (packages_root / os.environ["H4_MODELS_STAGED_FILE"]).read_text()
+)
+flashrank_manifest = models_manifest["flashrank"]
+assert flashrank_manifest["model"] == flashrank_model
+expected_flashrank_cache_sha256 = flashrank_manifest["cache_sha256"]
+assert re.fullmatch(r"[0-9a-f]{64}", expected_flashrank_cache_sha256, re.IGNORECASE)
+
+
+def cache_tree_sha256(cache_root: Path) -> str:
+    assert cache_root.is_dir()
+    digest = hashlib.sha256()
+    for path in sorted(cache_root.rglob("*"), key=lambda item: item.relative_to(cache_root).as_posix()):
+        assert not path.is_symlink()
+        if path.is_dir():
+            continue
+        assert path.is_file()
+        digest.update(path.relative_to(cache_root).as_posix().encode() + b"\0")
+        with path.open("rb") as cache_file:
+            for chunk in iter(lambda: cache_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 tokenizer = AutoTokenizer.from_pretrained(
     splade_model,
     revision=splade_revision,
     trust_remote_code=False,
     local_files_only=True,
-    cache_dir=str(packages_root / "hf-cache"),
+    cache_dir=str(packages_root / "hf-cache" / "hub"),
 )
 model = AutoModelForMaskedLM.from_pretrained(
     splade_model,
     revision=splade_revision,
     trust_remote_code=False,
     local_files_only=True,
-    cache_dir=str(packages_root / "hf-cache"),
+    cache_dir=str(packages_root / "hf-cache" / "hub"),
 )
 with torch.inference_mode():
     inputs = tokenizer("offline sparse validation", return_tensors="pt")
     activations = torch.log1p(torch.relu(model(**inputs).logits)).amax(dim=1).squeeze(0)
 splade_sparse_terms = int(torch.count_nonzero(activations).item())
 
+flashrank_cache_sha256 = cache_tree_sha256(packages_root / "flashrank-cache")
+assert flashrank_cache_sha256 == expected_flashrank_cache_sha256
 ranker = Ranker(model_name=flashrank_model, cache_dir=str(packages_root / "flashrank-cache"))
 results = ranker.rerank(
     RerankRequest(
@@ -211,6 +266,10 @@ proof = {
         "root": "/app/.packages",
         "path_count": len(candidate_paths),
     },
+    "flashrank": {
+        "model": flashrank_model,
+        "cache_sha256": flashrank_cache_sha256,
+    },
     "first_use": {
         "splade_sparse_terms": splade_sparse_terms,
         "flashrank_results": len(results),
@@ -231,8 +290,9 @@ PY
 write_post_preload_proof() {
     local validation_proof="$1"
     local baseline_free="$2"
+    local staged_models="$3"
 
-    printf '%s\n' "$validation_proof" | docker run --rm -i --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    printf '%s\n' "$validation_proof" | docker_local run --rm -i --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
         --mount "type=bind,src=$root_dir,dst=/workspace,readonly" \
         -e PYTHONPATH=/workspace \
@@ -240,6 +300,7 @@ write_post_preload_proof() {
         -e H4_BASELINE_FREE_BYTES="$baseline_free" \
         -e H4_POSTFLIGHT_FREE_BYTES="$POSTFLIGHT_FREE_BYTES" \
         -e H4_POSTFLIGHT_GROWTH_BYTES="$POSTFLIGHT_GROWTH_BYTES" \
+        -e H4_MODELS_STAGED_FILE="$staged_models" \
         "$PYTHON_IMAGE" \
         python -c '
 import hashlib
@@ -251,6 +312,7 @@ from pathlib import Path
 
 from src.shared.ml_runtime_artifact import (
     publish_preload_validation_proof,
+    publish_staged_model_manifest,
     validate_preload_validation_proof,
 )
 
@@ -274,6 +336,14 @@ errors = validate_preload_validation_proof(
     expected_packages=expected_packages,
 )
 assert not errors, "; ".join(errors)
+staged_models = Path("/artifact") / os.environ["H4_MODELS_STAGED_FILE"]
+models_target = Path("/artifact/.h4-models.json")
+if staged_models == models_target:
+    assert models_target.is_file()
+else:
+    assert staged_models.is_file()
+    assert not models_target.exists()
+    publish_staged_model_manifest(staged_models, models_target)
 target = Path("/artifact/.h4-preload-validation.json")
 publish_preload_validation_proof(target, proof)
 '
@@ -296,11 +366,13 @@ case "$phase" in
         ;;
 esac
 [[ "$volume" == "$CANDIDATE_VOLUME" ]] || die "refusing volume $volume"
+acquire_run_lock
+ensure_local_docker
 
-role="$(docker volume inspect --format '{{ index .Labels "amber.h4.role" }}' "$volume")"
-profile="$(docker volume inspect --format '{{ index .Labels "amber.h4.profile" }}' "$volume")"
-strategy="$(docker volume inspect --format '{{ index .Labels "amber.h4.strategy" }}' "$volume")"
-source="$(docker volume inspect --format '{{ index .Labels "amber.h4.source" }}' "$volume")"
+role="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.role" }}' "$volume")"
+profile="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.profile" }}' "$volume")"
+strategy="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.strategy" }}' "$volume")"
+source="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.source" }}' "$volume")"
 [[ "$role" == "$CANDIDATE_ROLE" ]] || die "candidate role label is not $CANDIDATE_ROLE"
 [[ "$profile" == "$CANDIDATE_PROFILE" ]] || die "candidate profile label is not $CANDIDATE_PROFILE"
 [[ "$strategy" == "$CANDIDATE_STRATEGY" ]] || die "candidate strategy label is not $CANDIDATE_STRATEGY"
@@ -320,7 +392,7 @@ if result.errors:
 PY
 
 if [[ "$phase" == "install" ]]; then
-    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    docker_local run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
         "$PYTHON_IMAGE" \
         sh -ec '
@@ -332,27 +404,27 @@ if [[ "$phase" == "install" ]]; then
         ' || die "candidate already contains an installed artifact"
 
     observed_free="$(free_bytes)"
-    baseline_free="$(docker run --rm --read-only \
+    baseline_free="$(docker_local run --rm --read-only \
         --mount "type=volume,src=$volume,dst=/artifact,readonly" \
         alpine:3.21 \
         sh -ec 'if test -f /artifact/.h4-storage-baseline; then cat /artifact/.h4-storage-baseline; fi')"
     if [[ -z "$baseline_free" ]]; then
         baseline_free="$observed_free"
-        docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+        docker_local run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
             --mount "type=volume,src=$volume,dst=/artifact" \
             -e H4_STORAGE_BASELINE="$baseline_free" \
             alpine:3.21 \
             sh -ec 'test ! -e /artifact/.h4-storage-baseline; printf "%s\n" "$H4_STORAGE_BASELINE" > /artifact/.h4-storage-baseline'
     fi
     [[ "$baseline_free" =~ ^[0-9]+$ ]] || die "candidate storage baseline is invalid"
-    wheelhouse_mode="$(docker run --rm --read-only \
+    wheelhouse_mode="$(docker_local run --rm --read-only \
         --mount "type=volume,src=$volume,dst=/artifact,readonly" \
         alpine:3.21 \
         sh -ec 'if test -d /artifact/.h4-wheelhouse && find /artifact/.h4-wheelhouse -type f -name "*.whl" -print -quit | grep -q .; then printf reuse; else printf fresh; fi')"
     [[ "$wheelhouse_mode" == "fresh" || "$wheelhouse_mode" == "reuse" ]] || die "candidate wheelhouse state is invalid"
     attempt_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
     lock_sha256="$(sha256sum "$requirements_lock" | awk '{print $1}')"
-    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    docker_local run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
         --mount "type=bind,src=$root_dir,dst=/workspace,readonly" \
         -e HOME=/tmp \
@@ -391,7 +463,7 @@ if [[ "$phase" == "install" ]]; then
             cp /workspace/requirements-ml-h4-cpu.lock /artifact/.h4-requirements.lock
         '
 
-    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    docker_local run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
         -e H4_LOCK_SHA256="$lock_sha256" \
         -e H4_PYTHON_IMAGE="$PYTHON_IMAGE" \
@@ -426,11 +498,27 @@ PY
     exit 0
 fi
 
-baseline_free="$(docker run --rm --read-only \
+preload_state="$(docker_local run --rm --read-only \
     --mount "type=volume,src=$volume,dst=/artifact,readonly" \
     alpine:3.21 \
-    sh -ec 'test -f /artifact/.h4-artifact.json; test ! -f /artifact/.h4-models.json; cat /artifact/.h4-storage-baseline')"
-docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+    sh -ec '
+        test -f /artifact/.h4-artifact.json
+        test ! -f /artifact/.h4-preload-validation.json
+        if test -f /artifact/.h4-models.json; then
+            printf resume
+        else
+            printf fresh
+        fi
+        printf " "
+        cat /artifact/.h4-storage-baseline
+    ')"
+read -r preload_mode baseline_free <<< "$preload_state"
+[[ "$preload_mode" == "fresh" || "$preload_mode" == "resume" ]] || die "candidate preload state is invalid"
+[[ "$baseline_free" =~ ^[0-9]+$ ]] || die "candidate storage baseline is invalid"
+if [[ "$preload_mode" == "fresh" ]]; then
+    H4_PRELOAD_ATTEMPT_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    staged_models=".h4-models-${H4_PRELOAD_ATTEMPT_ID}.pending.json"
+    docker_local run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
     --mount "type=volume,src=$volume,dst=/artifact" \
     -e PYTHONPATH=/artifact \
     -e PYTHONDONTWRITEBYTECODE=1 \
@@ -439,11 +527,14 @@ docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
     -e XDG_CACHE_HOME=/artifact/.cache \
     -e HF_HOME=/artifact/hf-cache \
     -e HUGGINGFACE_HUB_CACHE=/artifact/hf-cache/hub \
+    -e H4_MODELS_STAGED_FILE="$staged_models" \
     -e HF_HUB_DISABLE_TELEMETRY=1 \
     "$PYTHON_IMAGE" \
     sh -ec '
         PYTHONPATH=/artifact python - <<"PY"
+import hashlib
 import json
+import os
 from pathlib import Path
 
 from flashrank import Ranker, RerankRequest
@@ -455,10 +546,16 @@ flashrank_model = "ms-marco-MiniLM-L-12-v2"
 
 print("preload=splade", flush=True)
 tokenizer = AutoTokenizer.from_pretrained(
-    splade_model, revision=splade_revision, trust_remote_code=False
+    splade_model,
+    revision=splade_revision,
+    trust_remote_code=False,
+    cache_dir="/artifact/hf-cache/hub",
 )
 model = AutoModelForMaskedLM.from_pretrained(
-    splade_model, revision=splade_revision, trust_remote_code=False
+    splade_model,
+    revision=splade_revision,
+    trust_remote_code=False,
+    cache_dir="/artifact/hf-cache/hub",
 )
 assert tokenizer is not None
 assert model.config.model_type
@@ -476,15 +573,45 @@ results = ranker.rerank(
 )
 assert len(results) == 2, results
 
+
+def cache_tree_sha256(cache_root: Path) -> str:
+    assert cache_root.is_dir()
+    digest = hashlib.sha256()
+    for path in sorted(cache_root.rglob("*"), key=lambda item: item.relative_to(cache_root).as_posix()):
+        assert not path.is_symlink()
+        if path.is_dir():
+            continue
+        assert path.is_file()
+        digest.update(path.relative_to(cache_root).as_posix().encode() + b"\0")
+        with path.open("rb") as cache_file:
+            for chunk in iter(lambda: cache_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+staged_models_name = os.environ["H4_MODELS_STAGED_FILE"]
+assert staged_models_name.startswith(".h4-models-")
+assert staged_models_name.endswith(".pending.json")
+assert "/" not in staged_models_name
+staged_models_path = Path("/artifact") / staged_models_name
+assert not staged_models_path.exists()
 manifest = {
-    "flashrank": {"model": flashrank_model, "results": len(results)},
+    "flashrank": {
+        "cache_sha256": cache_tree_sha256(Path("/artifact/flashrank-cache")),
+        "model": flashrank_model,
+        "results": len(results),
+    },
     "splade": {"model": splade_model, "revision": splade_revision},
 }
-Path("/artifact/.h4-models.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+staged_models_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 print("preload=complete", flush=True)
 PY
     '
-run_post_preload_validation
+else
+    staged_models=".h4-models.json"
+fi
+run_post_preload_validation "$staged_models"
 check_postflight_space "preload" "$baseline_free"
-write_post_preload_proof "$VALIDATION_PROOF" "$baseline_free"
+write_post_preload_proof "$VALIDATION_PROOF" "$baseline_free" "$staged_models"
 printf 'Preloaded and offline-validated SPLADE and FlashRank into %s.\n' "$volume"

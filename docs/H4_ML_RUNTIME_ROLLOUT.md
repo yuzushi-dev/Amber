@@ -77,8 +77,9 @@ find-link wheel on its own.
 
 `src.shared.ml_runtime_artifact.validate_nomic_policy` rejects any dense-local
 package/model/cache path. The static validator also requires exact pins and
-SHA-256 hashes for all lock entries, the CPU Torch build/source, and the target
-ABI. It never invokes `SetupService` or any dynamic installer.
+valid 64-hex SHA-256 hashes for all lock entries (including transitives), the
+CPU Torch build/source, and the target ABI. It never invokes `SetupService` or
+any dynamic installer.
 
 ## Build and validation
 
@@ -94,10 +95,17 @@ rtk scripts/h4_ml_runtime_candidate.sh preload \
 The installer checks the candidate's exact labels and storage floor before it
 downloads hash-verified binary wheels only to its own `.h4-wheelhouse`. It
 installs strictly from that wheelhouse with `--no-index --require-hashes`.
+It refuses `DOCKER_HOST`, requires the `default` Docker context and the local
+`/var/run/docker.sock`, and invokes Docker with that explicit Unix socket; it
+therefore cannot inspect or mutate a remote candidate with the same name. A
+non-blocking host `flock` serializes an authorized install or preload, without
+cleaning shared cache, wheelhouse, manifest, or model state.
 The preload pins SPLADE to revision
 `49cf4c7b0db5b870a401ddf5e2669993ef3699c7`, sets
-`trust_remote_code=False`, and caches only SPLADE and FlashRank. It must stop
-on an unexpected model/cache or remote-code requirement.
+`trust_remote_code=False`, and uses the single Hugging Face hub root
+`hf-cache/hub` for both preload and offline validation. It caches only SPLADE
+and FlashRank. It must stop on an unexpected model/cache or remote-code
+requirement.
 `--authorize-preload` is a deliberate command guard, not a substitute for
 direct user approval: use it only after that approval has been given for this
 specific candidate and preload.
@@ -112,7 +120,22 @@ After preload, validation runs in a non-service container with:
 It must prove exact installed versions, no CUDA/NVIDIA distribution, no local
 dense package/cache anywhere in the candidate tree (including `.cache`,
 `.home`, and any future path), `torch.cuda.is_available() is False`, and no
-first-use download. A successful run persists the canonical proof as
+first-use download. FlashRank 0.2.10 exposes a model name and cache directory,
+but no revision parameter: the authorized preload therefore records a
+path-and-content SHA-256 of its complete cache tree. The network-isolated
+first use recomputes and compares that digest before constructing `Ranker`; a
+cache changed from the approved preload cannot be accepted, and `--network
+none` prevents an upstream fallback.
+
+The model manifest is first written as an attempt-specific pending file. The
+offline validator reads that staged file, and only after validation plus the
+storage postflight does the writer link it into canonical
+`.h4-models.json` after fsyncing its contents. Thus a download, cache, offline-validation, or storage
+failure leaves no canonical model manifest and does not block a new authorized
+retry; no cache cleanup is attempted. If a proof publication fails after the
+model manifest link, the retry resumes network-isolated validation from that
+canonical manifest and publishes only the missing proof. A successful run
+persists the canonical proof as
 `.h4-preload-validation.json`; it is never overwritten. The validator itself
 reads the candidate package tree only as `/app/.packages:ro`, and only a
 separate proof writer may add that single JSON file after the storage postflight succeeds. The proof records durable preflight, baseline, and

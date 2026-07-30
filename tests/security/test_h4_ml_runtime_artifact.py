@@ -2,27 +2,33 @@
 
 from pathlib import Path
 import json
+import os
 import subprocess
 
 import pytest
 
+import src.shared.ml_runtime_artifact as ml_runtime_artifact
 from src.shared.ml_runtime_artifact import (
     ArtifactProfile,
     publish_preload_validation_proof,
+    publish_staged_model_manifest,
     validate_nomic_policy,
     validate_preload_validation_proof,
     validate_requirements_lock,
 )
 
 
-VALID_LOCK = """\
+VALID_SHA256 = "a" * 64
+
+
+VALID_LOCK = f"""\
 --index-url https://pypi.org/simple
 --find-links https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl
 
-torch==2.13.0+cpu --hash=sha256:torchhash
-transformers==5.5.0 --hash=sha256:transformershash
-onnx==1.22.0 --hash=sha256:onnxhash
-flashrank==0.2.10 --hash=sha256:flashrankhash
+torch==2.13.0+cpu --hash=sha256:{VALID_SHA256}
+transformers==5.5.0 --hash=sha256:{VALID_SHA256}
+onnx==1.22.0 --hash=sha256:{VALID_SHA256}
+flashrank==0.2.10 --hash=sha256:{VALID_SHA256}
 """
 
 
@@ -39,7 +45,7 @@ def test_accepts_exact_cpu_lock_for_container_abi():
 
 def test_rejects_unpinned_or_unhashed_requirement():
     invalid_lock = VALID_LOCK.replace(
-        "flashrank==0.2.10 --hash=sha256:flashrankhash", "flashrank>=0.2.10"
+        f"flashrank==0.2.10 --hash=sha256:{VALID_SHA256}", "flashrank>=0.2.10"
     )
 
     errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
@@ -74,6 +80,37 @@ def test_rejects_unhashed_transitive_requirement():
     assert "filelock must include at least one sha256 hash" in errors
 
 
+def test_rejects_non_exact_or_invalidly_hashed_transitive_requirement():
+    invalid_lock = f"{VALID_LOCK}filelock>=3 --hash=sha256:not-a-sha256\n"
+
+    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+
+    assert "filelock must use an exact == pin" in errors
+    assert "filelock must include a valid sha256 hash" in errors
+
+
+def test_rejects_a_transitive_requirement_with_any_malformed_sha256_hash():
+    invalid_lock = (
+        f"{VALID_LOCK}filelock==3.20.0 --hash=sha256:{VALID_SHA256} "
+        "--hash=sha256:not-a-sha256\n"
+    )
+
+    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+
+    assert "filelock must include a valid sha256 hash" in errors
+
+
+def test_rejects_any_non_exact_declaration_even_if_the_package_is_pinned_later():
+    invalid_lock = (
+        f"{VALID_LOCK}filelock>=3 --hash=sha256:{VALID_SHA256}\n"
+        f"filelock==3.20.0 --hash=sha256:{VALID_SHA256}\n"
+    )
+
+    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+
+    assert "filelock must use an exact == pin" in errors
+
+
 def test_accepts_hashes_on_pip_continuation_lines():
     multiline_lock = "\n".join(
         [
@@ -81,13 +118,13 @@ def test_accepts_hashes_on_pip_continuation_lines():
             "--find-links https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl",
             "",
             "torch==2.13.0+cpu " + chr(92),
-            "    --hash=sha256:torchhash",
+            f"    --hash=sha256:{VALID_SHA256}",
             "transformers==5.5.0 " + chr(92),
-            "    --hash=sha256:transformershash",
+            f"    --hash=sha256:{VALID_SHA256}",
             "onnx==1.22.0 " + chr(92),
-            "    --hash=sha256:onnxhash",
+            f"    --hash=sha256:{VALID_SHA256}",
             "flashrank==0.2.10 " + chr(92),
-            "    --hash=sha256:flashrankhash",
+            f"    --hash=sha256:{VALID_SHA256}",
         ]
     )
 
@@ -97,7 +134,7 @@ def test_accepts_hashes_on_pip_continuation_lines():
 
 
 def test_accepts_numpy_2_for_the_2026_torch_2_13_cpu_wheel():
-    compatible_lock = f"{VALID_LOCK}numpy==2.4.4 --hash=sha256:numpyhash\n"
+    compatible_lock = f"{VALID_LOCK}numpy==2.4.4 --hash=sha256:{VALID_SHA256}\n"
 
     errors = validate_requirements_lock(compatible_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
 
@@ -119,7 +156,7 @@ def test_repository_lock_satisfies_the_cpu_artifact_contract():
 
 
 def test_nomic_only_policy_rejects_baai_and_sentence_transformers_cache_paths():
-    forbidden_lock = f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:sentencehash\n# BAAI/bge-m3\n"
+    forbidden_lock = f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:{VALID_SHA256}\n# BAAI/bge-m3\n"
 
     errors = validate_nomic_policy(
         forbidden_lock,
@@ -167,6 +204,7 @@ def test_accepts_complete_offline_post_preload_validation_proof():
         "dense_local_distributions": [],
         "dense_local_cache_paths": [],
         "candidate_scan": {"root": "/app/.packages", "path_count": 1234},
+        "flashrank": {"model": "ms-marco-MiniLM-L-12-v2", "cache_sha256": VALID_SHA256},
         "storage": {
             "preflight_free_bytes": 30_000_000_000,
             "baseline_free_bytes": 29_000_000_000,
@@ -198,6 +236,7 @@ def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
         "dense_local_distributions": ["sentence-transformers"],
         "dense_local_cache_paths": [".cache/models--BAAI--bge-m3"],
         "candidate_scan": {"root": "/app/.packages/hf-cache", "path_count": 1},
+        "flashrank": {"model": "ms-marco-MiniLM-L-12-v2", "cache_sha256": "not-a-hash"},
         "storage": {
             "preflight_free_bytes": 30_000_000_000,
             "baseline_free_bytes": 29_000_000_000,
@@ -225,6 +264,7 @@ def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
     assert "post-preload validation found dense-local distributions" in errors
     assert "post-preload validation found dense-local cache paths" in errors
     assert "post-preload validation did not scan the complete candidate tree" in errors
+    assert "post-preload validation FlashRank cache sha256 is invalid" in errors
     assert "post-preload validation storage floor failed" in errors
     assert "post-preload validation storage budget exceeded" in errors
     assert "offline SPLADE first-use validation did not produce sparse terms" in errors
@@ -269,6 +309,20 @@ def test_atomic_proof_publication_does_not_overwrite_an_existing_proof(tmp_path)
     assert target.read_text() == '{"existing": true}\n'
 
 
+def test_staged_model_manifest_is_fsynced_before_exclusive_publication(tmp_path, monkeypatch):
+    staged = tmp_path / ".h4-models-attempt.pending.json"
+    target = tmp_path / ".h4-models.json"
+    staged.write_text('{"flashrank": {}}\n')
+    fsync_calls: list[int] = []
+
+    monkeypatch.setattr(ml_runtime_artifact.os, "fsync", lambda descriptor: fsync_calls.append(descriptor))
+
+    publish_staged_model_manifest(staged, target)
+
+    assert target.read_text() == '{"flashrank": {}}\n'
+    assert len(fsync_calls) == 2
+
+
 def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
@@ -305,11 +359,78 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "validate_preload_validation_proof" in script
     assert "torch.cuda.is_available() is False" in script
     assert "torch.version.cuda is None" in script
-    assert 'run_post_preload_validation\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof' in script
+    assert 'run_post_preload_validation "$staged_models"\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof' in script
     assert "publish_preload_validation_proof" in script
     assert "assert not target.exists()" not in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
+
+
+def test_builder_enforces_a_local_docker_socket_before_candidate_access():
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+
+    first_candidate_access = script.index('role="$(docker_local volume inspect --format')
+    guard_invocation = script.index("acquire_run_lock\nensure_local_docker")
+    assert "ensure_local_docker" in script
+    assert guard_invocation < first_candidate_access
+    assert '[[ -z "${DOCKER_HOST:-}" ]]' in script
+    assert '[[ "${DOCKER_CONTEXT:-default}" == "default" ]]' in script
+    assert '[[ -S /var/run/docker.sock ]]' in script
+    assert 'env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock' in script
+
+
+def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
+    root = Path(__file__).parents[2]
+    script = root / "scripts/h4_ml_runtime_candidate.sh"
+    environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
+
+    result = subprocess.run(
+        [str(script), "install", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-20260730"],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "DOCKER_HOST must be unset for the local H4 candidate" in result.stderr
+
+
+def test_builder_serializes_install_and_preload_before_candidate_access():
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+
+    first_candidate_access = script.index('role="$(docker_local volume inspect --format')
+    lock_invocation = script.index("acquire_run_lock\nensure_local_docker")
+    assert "acquire_run_lock" in script
+    assert lock_invocation < first_candidate_access
+    assert 'flock -n "$H4_RUN_LOCK_FD"' in script
+    assert "another install or preload already holds the H4 candidate lock" in script
+
+
+def test_preload_uses_one_huggingface_cache_root_and_stages_the_model_manifest():
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+
+    assert 'cache_dir="/artifact/hf-cache/hub"' in script
+    assert 'cache_dir=str(packages_root / "hf-cache" / "hub")' in script
+    assert "H4_MODELS_STAGED_FILE" in script
+    assert ".h4-models-${H4_PRELOAD_ATTEMPT_ID}.pending.json" in script
+    assert "publish_staged_model_manifest" in script
+    assert "flashrank_cache_sha256" in script
+    assert "cache_sha256" in script
+
+
+def test_failed_preload_publication_can_resume_offline_without_replacing_the_manifest():
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+
+    assert "test ! -f /artifact/.h4-preload-validation.json" in script
+    assert "            printf resume\n" in script
+    assert 'staged_models=".h4-models.json"' in script
+    assert "if staged_models == models_target:" in script
+    assert "assert models_target.is_file()" in script
 
 
 def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
