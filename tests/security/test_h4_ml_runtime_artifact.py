@@ -1,10 +1,12 @@
 """Contract tests for the immutable, CPU-only H4 ML artifact."""
 
 from pathlib import Path
+import subprocess
 
 from src.shared.ml_runtime_artifact import (
     ArtifactProfile,
     validate_nomic_policy,
+    validate_preload_validation_proof,
     validate_requirements_lock,
 )
 
@@ -140,6 +142,74 @@ def test_nomic_only_policy_accepts_sparse_and_rerank_caches():
     assert errors == []
 
 
+def test_accepts_complete_offline_post_preload_validation_proof():
+    proof = {
+        "schema": "h4-preload-validation/v1",
+        "network_mode": "none",
+        "offline": {
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+        },
+        "lock_sha256": "expected-lock",
+        "packages": {
+            "torch": "2.13.0+cpu",
+            "transformers": "5.14.1",
+            "onnx": "1.22.0",
+            "flashrank": "0.2.10",
+        },
+        "torch": {"cuda_available": False, "version_cuda": None},
+        "nvidia_distributions": [],
+        "nomic_policy_errors": [],
+        "dense_local_distributions": [],
+        "dense_local_cache_paths": [],
+        "first_use": {"splade_sparse_terms": 4, "flashrank_results": 2},
+    }
+
+    errors = validate_preload_validation_proof(
+        proof,
+        expected_lock_sha256="expected-lock",
+        expected_packages=proof["packages"],
+    )
+
+    assert errors == []
+
+
+def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
+    proof = {
+        "schema": "h4-preload-validation/v1",
+        "network_mode": "bridge",
+        "offline": {"HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "1"},
+        "lock_sha256": "wrong-lock",
+        "packages": {"torch": "2.13.0"},
+        "torch": {"cuda_available": True, "version_cuda": "12.4"},
+        "nvidia_distributions": ["nvidia-cuda-runtime-cu12"],
+        "nomic_policy_errors": ["H4 Nomic policy forbids BAAI/bge-m3"],
+        "dense_local_distributions": ["sentence-transformers"],
+        "dense_local_cache_paths": ["hf-cache/models--BAAI--bge-m3"],
+        "first_use": {"splade_sparse_terms": 0, "flashrank_results": 0},
+    }
+
+    errors = validate_preload_validation_proof(
+        proof,
+        expected_lock_sha256="expected-lock",
+        expected_packages={"torch": "2.13.0+cpu", "transformers": "5.14.1"},
+    )
+
+    assert "post-preload validation must run with --network none" in errors
+    assert "post-preload validation requires HF_HUB_OFFLINE=1" in errors
+    assert "post-preload validation lock hash mismatch" in errors
+    assert "torch version mismatch: expected 2.13.0+cpu, got 2.13.0" in errors
+    assert "transformers missing from post-preload validation" in errors
+    assert "torch.cuda.is_available() must be false" in errors
+    assert "torch.version.cuda must be null" in errors
+    assert "NVIDIA/CUDA distributions are forbidden: nvidia-cuda-runtime-cu12" in errors
+    assert "post-preload validation found Nomic policy errors" in errors
+    assert "post-preload validation found dense-local distributions" in errors
+    assert "post-preload validation found dense-local cache paths" in errors
+    assert "offline SPLADE first-use validation did not produce sparse terms" in errors
+    assert "offline FlashRank first-use validation did not return two results" in errors
+
+
 def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
@@ -164,5 +234,42 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "H4_ATTEMPT_ID" in script
     assert "download_skipped=immutable-wheelhouse-reuse" in script
     assert "H4_WHEELHOUSE_MODE" in script
+    assert "--authorize-preload" in script
+    assert "--network none" in script
+    assert "dst=/app/.packages,readonly" in script
+    assert "HF_HUB_OFFLINE=1" in script
+    assert "TRANSFORMERS_OFFLINE=1" in script
+    assert "HF_DATASETS_OFFLINE=1" in script
+    assert "local_files_only=True" in script
+    assert ".h4-preload-validation.json" in script
+    assert "assert not target.exists()" in script
+    assert "validate_preload_validation_proof" in script
+    assert "torch.cuda.is_available() is False" in script
+    assert "torch.version.cuda is None" in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
+
+
+def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
+    root = Path(__file__).parents[2]
+    rollout = (root / "docs/H4_ML_RUNTIME_ROLLOUT.md").read_text()
+
+    assert "--authorize-preload" in rollout
+    assert "direct user approval" in rollout
+    assert "--network none" in rollout
+    assert ".h4-preload-validation.json" in rollout
+
+
+def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
+    root = Path(__file__).parents[2]
+    script = root / "scripts/h4_ml_runtime_candidate.sh"
+
+    result = subprocess.run(
+        [str(script), "preload", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-20260730"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "preload requires --authorize-preload after direct user approval" in result.stderr

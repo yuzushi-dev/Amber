@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import re
+from collections.abc import Mapping
 
 
 _REQUIRED_MINIMUMS = {
@@ -103,6 +104,76 @@ def validate_nomic_policy(lock_text: str, cache_paths: tuple[str, ...] = ()) -> 
         errors.append("H4 Nomic policy forbids BAAI model cache paths")
     if any("sentence-transformers" in path for path in normalized_paths):
         errors.append("H4 Nomic policy forbids sentence-transformers cache paths")
+    return errors
+
+
+def validate_preload_validation_proof(
+    proof: Mapping[str, object],
+    *,
+    expected_lock_sha256: str,
+    expected_packages: Mapping[str, str],
+) -> list[str]:
+    """Validate durable evidence from the network-isolated post-preload check."""
+    errors: list[str] = []
+    if proof.get("schema") != "h4-preload-validation/v1":
+        errors.append("post-preload validation proof schema is invalid")
+    if proof.get("network_mode") != "none":
+        errors.append("post-preload validation must run with --network none")
+
+    offline = proof.get("offline")
+    if not isinstance(offline, Mapping):
+        offline = {}
+    for variable in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
+        if offline.get(variable) != "1":
+            errors.append(f"post-preload validation requires {variable}=1")
+
+    if proof.get("lock_sha256") != expected_lock_sha256:
+        errors.append("post-preload validation lock hash mismatch")
+
+    packages = proof.get("packages")
+    if not isinstance(packages, Mapping):
+        packages = {}
+    for name, expected_version in sorted(expected_packages.items()):
+        actual_version = packages.get(name)
+        if actual_version is None:
+            errors.append(f"{name} missing from post-preload validation")
+        elif actual_version != expected_version:
+            errors.append(
+                f"{name} version mismatch: expected {expected_version}, got {actual_version}"
+            )
+
+    torch = proof.get("torch")
+    if not isinstance(torch, Mapping):
+        torch = {}
+    if torch.get("cuda_available") is not False:
+        errors.append("torch.cuda.is_available() must be false")
+    if torch.get("version_cuda") is not None:
+        errors.append("torch.version.cuda must be null")
+
+    nvidia_distributions = proof.get("nvidia_distributions")
+    if not isinstance(nvidia_distributions, list):
+        nvidia_distributions = ["invalid-proof-value"]
+    if nvidia_distributions:
+        errors.append(
+            "NVIDIA/CUDA distributions are forbidden: "
+            + ", ".join(sorted(str(name) for name in nvidia_distributions))
+        )
+
+    if proof.get("nomic_policy_errors") != []:
+        errors.append("post-preload validation found Nomic policy errors")
+    if proof.get("dense_local_distributions") != []:
+        errors.append("post-preload validation found dense-local distributions")
+    if proof.get("dense_local_cache_paths") != []:
+        errors.append("post-preload validation found dense-local cache paths")
+
+    first_use = proof.get("first_use")
+    if not isinstance(first_use, Mapping):
+        first_use = {}
+    if not isinstance(first_use.get("splade_sparse_terms"), int) or first_use["splade_sparse_terms"] <= 0:
+        errors.append("offline SPLADE first-use validation did not produce sparse terms")
+    if first_use.get("flashrank_results") != 2:
+        errors.append("offline FlashRank first-use validation did not return two results")
+
     return errors
 
 

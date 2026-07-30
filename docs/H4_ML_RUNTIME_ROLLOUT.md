@@ -87,7 +87,8 @@ rtk python3 -m pytest -q tests/security/test_h4_ml_runtime_artifact.py
 rtk scripts/h4_ml_runtime_candidate.sh install \
   --volume ambermirror_pip-packages-h4-cpu-nomic-20260730
 rtk scripts/h4_ml_runtime_candidate.sh preload \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-20260730
+  --volume ambermirror_pip-packages-h4-cpu-nomic-20260730 \
+  --authorize-preload
 ```
 
 The installer checks the candidate's exact labels and storage floor before it
@@ -97,6 +98,9 @@ The preload pins SPLADE to revision
 `49cf4c7b0db5b870a401ddf5e2669993ef3699c7`, sets
 `trust_remote_code=False`, and caches only SPLADE and FlashRank. It must stop
 on an unexpected model/cache or remote-code requirement.
+`--authorize-preload` is a deliberate command guard, not a substitute for
+direct user approval: use it only after that approval has been given for this
+specific candidate and preload.
 
 After preload, validation runs in a non-service container with:
 
@@ -107,7 +111,11 @@ After preload, validation runs in a non-service container with:
 
 It must prove exact installed versions, no CUDA/NVIDIA distribution, no local
 dense package/cache, `torch.cuda.is_available() is False`, and no first-use
-download. The Nomic check is configuration only: a future deployment may
+download. A successful run persists the canonical proof as
+`.h4-preload-validation.json`; it is never overwritten. The validator itself
+reads the candidate package tree only as `/app/.packages:ro`, and only a
+separate proof writer may add that single JSON file after all offline
+assertions succeed. The Nomic check is configuration only: a future deployment may
 validate the configured remote Ollama endpoint/model through a read-only
 health/configuration contract, but this H4 candidate never contacts it.
 
