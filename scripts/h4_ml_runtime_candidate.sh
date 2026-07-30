@@ -24,7 +24,8 @@ die() {
 }
 
 usage() {
-    printf 'Usage: h4_ml_runtime_candidate.sh <install|preload> --volume %s\n' "$CANDIDATE_VOLUME" >&2
+    printf '%s\n' "Usage: h4_ml_runtime_candidate.sh install --volume $CANDIDATE_VOLUME" >&2
+    printf '%s\n' "       h4_ml_runtime_candidate.sh preload --volume $CANDIDATE_VOLUME --authorize-preload" >&2
     exit 2
 }
 
@@ -54,9 +55,201 @@ check_postflight_space() {
     [[ "$growth" -le "$PEAK_BUDGET_BYTES" ]] || die "4 GiB storage budget exceeded after $phase"
 }
 
-[[ $# -eq 3 && ( "$1" == "install" || "$1" == "preload" ) && "$2" == "--volume" ]] || usage
+run_post_preload_validation() {
+    local lock_sha256
+    local validation_proof
+
+    lock_sha256="$(sha256sum "$requirements_lock" | awk '{print $1}')"
+    validation_proof="$(docker run --rm --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+        --mount "type=volume,src=$volume,dst=/app/.packages,readonly" \
+        --mount "type=bind,src=$root_dir,dst=/workspace,readonly" \
+        -e H4_LOCK_SHA256="$lock_sha256" \
+        -e PYTHONPATH=/app/.packages:/workspace \
+        -e PYTHONDONTWRITEBYTECODE=1 \
+        -e PIP_NO_INDEX=1 \
+        -e HOME=/tmp \
+        -e XDG_CACHE_HOME=/tmp \
+        -e HF_HOME=/app/.packages/hf-cache \
+        -e HUGGINGFACE_HUB_CACHE=/app/.packages/hf-cache/hub \
+        -e HF_HUB_OFFLINE=1 \
+        -e TRANSFORMERS_OFFLINE=1 \
+        -e HF_DATASETS_OFFLINE=1 \
+        -e HF_HUB_DISABLE_TELEMETRY=1 \
+        "$PYTHON_IMAGE" \
+        sh -ec '
+            test -f /app/.packages/.h4-artifact.json
+            test -f /app/.packages/.h4-models.json
+            test ! -e /app/.packages/.h4-preload-validation.json
+            python - <<"PY"
+import hashlib
+import json
+import os
+import re
+from importlib.metadata import distributions, version
+from pathlib import Path
+
+import torch
+from flashrank import Ranker, RerankRequest
+from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers.utils import logging as transformers_logging
+
+from src.shared.ml_runtime_artifact import (
+    validate_nomic_policy,
+    validate_preload_validation_proof,
+)
+
+transformers_logging.set_verbosity_error()
+packages_root = Path("/app/.packages")
+lock_path = packages_root / ".h4-requirements.lock"
+lock_text = lock_path.read_text()
+lock_sha256 = hashlib.sha256(lock_path.read_bytes()).hexdigest()
+assert lock_sha256 == os.environ["H4_LOCK_SHA256"]
+
+expected_packages = {}
+for raw_line in lock_text.splitlines():
+    match = re.match(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)", raw_line.strip())
+    if match:
+        expected_packages[match.group(1).lower()] = match.group(2)
+installed_packages = {
+    name: version(name)
+    for name in expected_packages
+}
+
+artifact = json.loads((packages_root / ".h4-artifact.json").read_text())
+assert artifact["lock_sha256"] == lock_sha256
+assert artifact["torch_cuda_available"] is False
+assert torch.cuda.is_available() is False
+assert torch.version.cuda is None
+
+installed_distribution_names = sorted(
+    {
+        distribution.metadata["Name"].lower()
+        for distribution in distributions()
+        if distribution.metadata.get("Name")
+    }
+)
+nvidia_distributions = [
+    name
+    for name in installed_distribution_names
+    if name.startswith("nvidia-") or "cuda" in name
+]
+dense_local_distributions = [
+    name
+    for name in installed_distribution_names
+    if name == "sentence-transformers"
+]
+
+cache_paths = []
+for cache_root in (packages_root / "hf-cache", packages_root / "flashrank-cache"):
+    if cache_root.exists():
+        cache_paths.extend(str(path.relative_to(packages_root)) for path in cache_root.rglob("*"))
+nomic_policy_errors = validate_nomic_policy(lock_text, tuple(cache_paths))
+dense_local_cache_paths = [
+    path
+    for path in cache_paths
+    if "baai" in path.lower()
+    or "bge-m3" in path.lower()
+    or "sentence-transformers" in path.lower()
+    or "sentence_transformers" in path.lower()
+]
+
+splade_model = "naver/splade-cocondenser-ensembledistil"
+splade_revision = "49cf4c7b0db5b870a401ddf5e2669993ef3699c7"
+flashrank_model = "ms-marco-MiniLM-L-12-v2"
+tokenizer = AutoTokenizer.from_pretrained(
+    splade_model,
+    revision=splade_revision,
+    trust_remote_code=False,
+    local_files_only=True,
+    cache_dir=str(packages_root / "hf-cache"),
+)
+model = AutoModelForMaskedLM.from_pretrained(
+    splade_model,
+    revision=splade_revision,
+    trust_remote_code=False,
+    local_files_only=True,
+    cache_dir=str(packages_root / "hf-cache"),
+)
+with torch.inference_mode():
+    inputs = tokenizer("offline sparse validation", return_tensors="pt")
+    activations = torch.log1p(torch.relu(model(**inputs).logits)).amax(dim=1).squeeze(0)
+splade_sparse_terms = int(torch.count_nonzero(activations).item())
+
+ranker = Ranker(model_name=flashrank_model, cache_dir=str(packages_root / "flashrank-cache"))
+results = ranker.rerank(
+    RerankRequest(
+        query="offline H4 validation",
+        passages=[
+            {"id": "a", "text": "immutable CPU candidate"},
+            {"id": "b", "text": "unrelated document"},
+        ],
+    )
+)
+
+proof = {
+    "schema": "h4-preload-validation/v1",
+    "network_mode": "none",
+    "offline": {
+        "HF_HUB_OFFLINE": os.environ["HF_HUB_OFFLINE"],
+        "TRANSFORMERS_OFFLINE": os.environ["TRANSFORMERS_OFFLINE"],
+    },
+    "lock_sha256": lock_sha256,
+    "packages": installed_packages,
+    "torch": {
+        "cuda_available": torch.cuda.is_available(),
+        "version_cuda": torch.version.cuda,
+    },
+    "nvidia_distributions": nvidia_distributions,
+    "nomic_policy_errors": nomic_policy_errors,
+    "dense_local_distributions": dense_local_distributions,
+    "dense_local_cache_paths": dense_local_cache_paths,
+    "first_use": {
+        "splade_sparse_terms": splade_sparse_terms,
+        "flashrank_results": len(results),
+    },
+}
+errors = validate_preload_validation_proof(
+    proof,
+    expected_lock_sha256=lock_sha256,
+    expected_packages=expected_packages,
+)
+assert not errors, "; ".join(errors)
+print(json.dumps(proof, indent=2, sort_keys=True))
+PY
+        ')"
+
+    printf '%s\n' "$validation_proof" | docker run --rm -i --read-only --network none --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+        --mount "type=volume,src=$volume,dst=/artifact" \
+        "$PYTHON_IMAGE" \
+        python -c '
+import json
+import sys
+from pathlib import Path
+
+proof = json.load(sys.stdin)
+assert proof["schema"] == "h4-preload-validation/v1"
+target = Path("/artifact/.h4-preload-validation.json")
+assert not target.exists()
+target.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n")
+'
+}
+
+[[ $# -ge 1 ]] || usage
 phase="$1"
-volume="$3"
+case "$phase" in
+    install)
+        [[ $# -eq 3 && "$2" == "--volume" ]] || usage
+        volume="$3"
+        ;;
+    preload)
+        [[ $# -eq 4 && "$2" == "--volume" && "$4" == "--authorize-preload" ]] \
+            || die "preload requires --authorize-preload after direct user approval"
+        volume="$3"
+        ;;
+    *)
+        usage
+        ;;
+esac
 [[ "$volume" == "$CANDIDATE_VOLUME" ]] || die "refusing volume $volume"
 
 role="$(docker volume inspect --format '{{ index .Labels "amber.h4.role" }}' "$volume")"
@@ -246,5 +439,6 @@ Path("/artifact/.h4-models.json").write_text(json.dumps(manifest, indent=2, sort
 print("preload=complete", flush=True)
 PY
     '
+run_post_preload_validation
 check_postflight_space "preload" "$baseline_free"
-printf 'Preloaded SPLADE and FlashRank into %s.\n' "$volume"
+printf 'Preloaded and offline-validated SPLADE and FlashRank into %s.\n' "$volume"
