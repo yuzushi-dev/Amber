@@ -167,7 +167,7 @@ def test_repository_lock_satisfies_the_cpu_artifact_contract():
     assert "sentence-transformers" not in result.packages
 
 
-def test_repository_lock_does_not_downgrade_shared_http_runtime():
+def test_repository_lock_does_not_downgrade_shared_application_runtime():
     root = Path(__file__).parents[2]
     lock_text = (root / "requirements-ml-h4-cpu.lock").read_text()
 
@@ -180,6 +180,10 @@ def test_repository_lock_does_not_downgrade_shared_http_runtime():
     assert packages["certifi"] == "2026.7.22"
     assert packages["charset-normalizer"] == "3.4.9"
     assert packages["idna"] == "3.18"
+    assert packages["protobuf"] == "6.33.6"
+    assert packages["setuptools"] == "78.1.1"
+    assert packages["rich"] == "14.3.3"
+    assert packages["tqdm"] == "4.70.0"
 
 
 def test_nomic_only_policy_rejects_baai_and_sentence_transformers_cache_paths():
@@ -358,7 +362,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
-    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1" in script
+    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2" in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
     assert "amber.h4.strategy" in script
@@ -450,7 +454,7 @@ def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
             str(script),
             "install",
             "--volume",
-            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1",
+            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2",
         ],
         capture_output=True,
         check=False,
@@ -518,7 +522,7 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
             str(script),
             "preload",
             "--volume",
-            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1",
+            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2",
         ],
         capture_output=True,
         check=False,
