@@ -4,7 +4,6 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  // @ts-expect-error Vite plugin type mismatch from duplicated vite typings in vitest.
   plugins: [react()],
   resolve: {
     alias: {
