@@ -29,7 +29,7 @@ usage() {
 }
 
 free_bytes() {
-    df -B1 --output=avail "$1" | tail -n 1 | tr -d '[:space:]'
+    df -B1 --output=avail /var/lib/docker | tail -n 1 | tr -d '[:space:]'
 }
 
 check_preflight_space() {
