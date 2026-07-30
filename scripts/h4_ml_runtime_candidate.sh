@@ -93,30 +93,63 @@ if [[ "$phase" == "install" ]]; then
             done
         ' || die "candidate already contains an installed artifact"
 
-    baseline_free="$(free_bytes)"
-    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
-        --mount "type=volume,src=$volume,dst=/artifact" \
-        -e H4_STORAGE_BASELINE="$baseline_free" \
+    observed_free="$(free_bytes)"
+    baseline_free="$(docker run --rm --read-only \
+        --mount "type=volume,src=$volume,dst=/artifact,readonly" \
         alpine:3.21 \
-        sh -ec 'printf "%s\n" "$H4_STORAGE_BASELINE" > /artifact/.h4-storage-baseline'
+        sh -ec 'if test -f /artifact/.h4-storage-baseline; then cat /artifact/.h4-storage-baseline; fi')"
+    if [[ -z "$baseline_free" ]]; then
+        baseline_free="$observed_free"
+        docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+            --mount "type=volume,src=$volume,dst=/artifact" \
+            -e H4_STORAGE_BASELINE="$baseline_free" \
+            alpine:3.21 \
+            sh -ec 'test ! -e /artifact/.h4-storage-baseline; printf "%s\n" "$H4_STORAGE_BASELINE" > /artifact/.h4-storage-baseline'
+    fi
+    [[ "$baseline_free" =~ ^[0-9]+$ ]] || die "candidate storage baseline is invalid"
+    wheelhouse_mode="$(docker run --rm --read-only \
+        --mount "type=volume,src=$volume,dst=/artifact,readonly" \
+        alpine:3.21 \
+        sh -ec 'if test -d /artifact/.h4-wheelhouse && find /artifact/.h4-wheelhouse -type f -name "*.whl" -print -quit | grep -q .; then printf reuse; else printf fresh; fi')"
+    [[ "$wheelhouse_mode" == "fresh" || "$wheelhouse_mode" == "reuse" ]] || die "candidate wheelhouse state is invalid"
+    attempt_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
     lock_sha256="$(sha256sum "$requirements_lock" | awk '{print $1}')"
     docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
         --mount "type=bind,src=$root_dir,dst=/workspace,readonly" \
         -e HOME=/tmp \
+        -e H4_ATTEMPT_ID="$attempt_id" \
+        -e H4_WHEELHOUSE_MODE="$wheelhouse_mode" \
         -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
         -e PIP_NO_CACHE_DIR=1 \
         "$PYTHON_IMAGE" \
         sh -ec '
-            install -d /artifact/.h4-wheelhouse
-            python -m pip download --isolated --only-binary=:all: --require-hashes \
-                --dest /artifact/.h4-wheelhouse \
-                --index-url https://pypi.org/simple \
-                --find-links "'"$TORCH_CPU_FIND_LINK"'" \
-                -r /workspace/requirements-ml-h4-cpu.lock
-            python -m pip install --isolated --no-index --find-links /artifact/.h4-wheelhouse \
-                --require-hashes --target /artifact \
-                -r /workspace/requirements-ml-h4-cpu.lock
+            install -d /artifact/.h4-wheelhouse /artifact/.h4-pip-tmp
+            download_log="/artifact/h4-install-${H4_ATTEMPT_ID}-download.log"
+            install_log="/artifact/h4-install-${H4_ATTEMPT_ID}-install.log"
+            test ! -e "$download_log"
+            test ! -e "$install_log"
+            if [ "$H4_WHEELHOUSE_MODE" = fresh ]; then
+                python -m pip download --isolated --only-binary=:all: --require-hashes \
+                    --dest /artifact/.h4-wheelhouse \
+                    --index-url https://pypi.org/simple \
+                    --find-links "'"$TORCH_CPU_FIND_LINK"'" \
+                    -r /workspace/requirements-ml-h4-cpu.lock \
+                    > "$download_log" 2>&1 || {
+                        tail -n 80 "$download_log" >&2
+                        exit 1
+                    }
+            else
+                printf "download_skipped=immutable-wheelhouse-reuse\\n" > "$download_log"
+            fi
+            TMPDIR=/artifact/.h4-pip-tmp python -m pip install \
+                --isolated --no-index --find-links /artifact/.h4-wheelhouse \
+                --require-hashes --no-compile --target /artifact \
+                -r /workspace/requirements-ml-h4-cpu.lock \
+                > "$install_log" 2>&1 || {
+                    tail -n 80 "$install_log" >&2
+                    exit 1
+                }
             cp /workspace/requirements-ml-h4-cpu.lock /artifact/.h4-requirements.lock
         '
 

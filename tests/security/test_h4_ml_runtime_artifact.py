@@ -156,5 +156,13 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "df -B1 --output=avail /var/lib/docker" in script
     assert 'df -B1 --output=avail "$1"' not in script
     assert '"$mountpoint/.' not in script
+    assert "h4-install-${H4_ATTEMPT_ID}-download.log" in script
+    assert "h4-install-${H4_ATTEMPT_ID}-install.log" in script
+    assert "TMPDIR=/artifact/.h4-pip-tmp" in script
+    assert "--no-compile" in script
+    assert "test -f /artifact/.h4-storage-baseline" in script
+    assert "H4_ATTEMPT_ID" in script
+    assert "download_skipped=immutable-wheelhouse-reuse" in script
+    assert "H4_WHEELHOUSE_MODE" in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
