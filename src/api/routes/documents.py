@@ -457,7 +457,7 @@ async def upload_document(
 async def document_events(
     document_id: str,
     http_request: Request,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """
     Stream document processing events via SSE.
@@ -466,7 +466,12 @@ async def document_events(
     """
     visible_document = await _get_visible_document_or_404(document_id, http_request, session)
     document = visible_document.document
-    tenant_id = visible_document.owner_tenant_id
+    # The function-scoped dependency is finalized before EventSourceResponse
+    # starts sending its body.  Snapshot every ORM-derived value used by the
+    # generator so it never reaches back into a closed session.
+    owner_tenant_id = str(visible_document.owner_tenant_id)
+    initial_status = str(document.status.value)
+    channel = f"document:{owner_tenant_id}:{document_id}:status"
 
     async def event_generator():
         """Generate SSE events from Redis pub/sub."""
@@ -479,7 +484,6 @@ async def document_events(
             pubsub = redis_client.pubsub()
 
             # Subscribe to tenant-qualified status channel
-            channel = f"document:{tenant_id}:{document_id}:status"
             await pubsub.subscribe(channel)
 
             logger.info(f"SSE client connected for document {document_id}")
@@ -490,7 +494,7 @@ async def document_events(
                 "data": json.dumps(
                     {
                         "document_id": document_id,
-                        "status": document.status.value,
+                        "status": initial_status,
                         "message": f"Monitoring document {document_id}",
                     }
                 ),

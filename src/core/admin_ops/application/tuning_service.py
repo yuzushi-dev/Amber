@@ -38,8 +38,11 @@ class TuningService:
     Manages per-tenant retrieval settings and dynamic optimization.
     """
 
-    def __init__(self, session_factory: Any, redis_url: str | None = None):
+    def __init__(
+        self, session_factory: Any, redis_url: str | None = None, session: Any | None = None
+    ):
         self.session_factory = session_factory
+        self._session = session
         self._redis_url = redis_url
         self._redis: Any | None = None  # redis.asyncio.Redis, lazily created
 
@@ -125,7 +128,7 @@ class TuningService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_tenant_config(self, tenant_id: str) -> dict[str, Any]:
+    async def get_tenant_config(self, tenant_id: str, session: Any | None = None) -> dict[str, Any]:
         """Retrieve the raw configuration stored on a tenant."""
         entry = self._config_cache.get(tenant_id)
         if entry is not None:
@@ -135,21 +138,33 @@ class TuningService:
             # Stale – evict and re-fetch
             self._config_cache.pop(tenant_id, None)
 
+        active_session = session or self._session
         try:
-            async with self.session_factory() as session:
-                result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+            if active_session is not None:
+                result = await active_session.execute(select(Tenant).where(Tenant.id == tenant_id))
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     config = tenant.config or {}
                     redis_version = await self._get_redis_version(tenant_id)
                     self._config_cache[tenant_id] = (config, time.monotonic(), redis_version)
                     return config
+            else:
+                async with self.session_factory() as new_session:
+                    result = await new_session.execute(select(Tenant).where(Tenant.id == tenant_id))
+                    tenant = result.scalar_one_or_none()
+                    if tenant:
+                        config = tenant.config or {}
+                        redis_version = await self._get_redis_version(tenant_id)
+                        self._config_cache[tenant_id] = (config, time.monotonic(), redis_version)
+                        return config
         except Exception as e:
             logger.error(f"Failed to fetch tenant config for {tenant_id}: {e}")
 
         return {}
 
-    async def get_effective_tenant_config(self, tenant_id: str) -> dict[str, Any]:
+    async def get_effective_tenant_config(
+        self, tenant_id: str, session: Any | None = None
+    ) -> dict[str, Any]:
         """Resolve config inheritance from the default tenant into the current tenant."""
         entry = self._effective_config_cache.get(tenant_id)
         if entry is not None:
@@ -159,11 +174,11 @@ class TuningService:
             # Stale – evict and re-fetch
             self._effective_config_cache.pop(tenant_id, None)
 
-        tenant_config = await self.get_tenant_config(tenant_id)
+        tenant_config = await self.get_tenant_config(tenant_id, session=session)
         if tenant_id == DEFAULT_TENANT_ID:
             effective_config = merge_tenant_config({}, tenant_config)
         else:
-            default_config = await self.get_tenant_config(DEFAULT_TENANT_ID)
+            default_config = await self.get_tenant_config(DEFAULT_TENANT_ID, session=session)
             effective_config = merge_tenant_config(default_config, tenant_config)
 
         redis_version = await self._get_redis_version(tenant_id)

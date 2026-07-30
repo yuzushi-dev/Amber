@@ -34,7 +34,18 @@ class RulesService:
     def __init__(self, session_factory: Any):
         self.session_factory = session_factory
 
-    async def _fetch_active_rules_for_tenant(self, tenant_id: str) -> list[str]:
+    async def _fetch_active_rules_for_tenant(
+        self, tenant_id: str, session: Any | None = None
+    ) -> list[str]:
+        if session is not None:
+            result = await session.execute(
+                select(GlobalRule.content)
+                .where(GlobalRule.is_active)
+                .where(GlobalRule.tenant_id == tenant_id)
+                .order_by(GlobalRule.priority, GlobalRule.created_at)
+            )
+            return [row[0] for row in result.all()]
+
         async with self.session_factory() as session:
             result = await session.execute(
                 select(GlobalRule.content)
@@ -45,7 +56,7 @@ class RulesService:
             return [row[0] for row in result.all()]
 
     async def get_active_rules(
-        self, tenant_id: str = "", force_refresh: bool = False
+        self, tenant_id: str = "", force_refresh: bool = False, session: Any | None = None
     ) -> list[str]:
         """
         Fetch all active rules for a tenant, ordered by priority.
@@ -56,9 +67,11 @@ class RulesService:
         try:
             default_rules: list[str] = []
             if tenant_id and tenant_id != DEFAULT_TENANT_ID:
-                default_rules = await self._fetch_active_rules_for_tenant(DEFAULT_TENANT_ID)
+                default_rules = await self._fetch_active_rules_for_tenant(
+                    DEFAULT_TENANT_ID, session=session
+                )
 
-            tenant_rules = await self._fetch_active_rules_for_tenant(tenant_id)
+            tenant_rules = await self._fetch_active_rules_for_tenant(tenant_id, session=session)
             rules = merge_rule_lists(default_rules, tenant_rules)
 
             RulesService._rules_cache[tenant_id] = rules
@@ -71,11 +84,13 @@ class RulesService:
             logger.error(f"Failed to fetch rules for tenant {tenant_id!r}: {e}")
             return RulesService._rules_cache.get(tenant_id, [])
 
-    async def build_system_prompt_addendum(self, tenant_id: str = "") -> str:
+    async def build_system_prompt_addendum(
+        self, tenant_id: str = "", session: Any | None = None
+    ) -> str:
         """
         Build the rules section to append to the system prompt.
         """
-        rules = await self.get_active_rules(tenant_id=tenant_id)
+        rules = await self.get_active_rules(tenant_id=tenant_id, session=session)
 
         if not rules:
             return ""

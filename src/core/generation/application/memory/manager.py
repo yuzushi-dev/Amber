@@ -70,21 +70,36 @@ class ConversationMemoryManager:
                 await session.rollback()
                 raise
 
-    async def get_user_facts(self, tenant_id: str, user_id: str, limit: int = 20) -> list[UserFact]:
+    async def get_user_facts(
+        self,
+        tenant_id: str,
+        user_id: str,
+        limit: int = 20,
+        session: AsyncSession | None = None,
+    ) -> list[UserFact]:
         """
         Retrieve top user facts, strictly filtered by tenant_id.
         """
+        if session is not None:
+            return await self._get_user_facts(session, tenant_id, user_id, limit)
+
         async with get_session_maker()() as session:
             await self._configure_session(session, tenant_id)
-            stmt = (
-                select(UserFact)
-                .where(UserFact.tenant_id == tenant_id)
-                .where(UserFact.user_id == user_id)
-                .order_by(desc(UserFact.importance), desc(UserFact.created_at))
-                .limit(limit)
-            )
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
+            return await self._get_user_facts(session, tenant_id, user_id, limit)
+
+    @staticmethod
+    async def _get_user_facts(
+        session: AsyncSession, tenant_id: str, user_id: str, limit: int
+    ) -> list[UserFact]:
+        stmt = (
+            select(UserFact)
+            .where(UserFact.tenant_id == tenant_id)
+            .where(UserFact.user_id == user_id)
+            .order_by(desc(UserFact.importance), desc(UserFact.created_at))
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
     async def save_conversation_summary(
         self,

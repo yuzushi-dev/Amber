@@ -6,7 +6,9 @@
 # =============================================================================
 
 # Web Framework
-fastapi==0.115.6
+# FastAPI 0.141.1 declares starlette>=0.46.0, so Starlette 1.3.1 remains in-range.
+fastapi==0.141.1
+starlette==1.3.1
 uvicorn[standard]==0.49.0
 python-multipart==0.0.32
 sse-starlette==3.0.3
