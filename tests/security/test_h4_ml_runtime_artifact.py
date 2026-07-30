@@ -155,5 +155,6 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "--tmpfs /tmp:rw,noexec,nosuid,size=1g" in script
     assert "df -B1 --output=avail /var/lib/docker" in script
     assert 'df -B1 --output=avail "$1"' not in script
+    assert '"$mountpoint/.' not in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script

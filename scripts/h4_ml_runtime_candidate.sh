@@ -34,9 +34,8 @@ free_bytes() {
 
 check_preflight_space() {
     local phase="$1"
-    local mountpoint="$2"
     local available
-    available="$(free_bytes "$mountpoint")"
+    available="$(free_bytes)"
     printf 'storage_preflight phase=%s free_bytes=%s required_bytes=%s\n' \
         "$phase" "$available" "$REQUIRED_PREFLIGHT_FREE_BYTES"
     [[ "$available" -ge "$REQUIRED_PREFLIGHT_FREE_BYTES" ]] || die "storage gate failed before $phase"
@@ -44,11 +43,10 @@ check_preflight_space() {
 
 check_postflight_space() {
     local phase="$1"
-    local mountpoint="$2"
-    local baseline="$3"
+    local baseline="$2"
     local available
     local growth
-    available="$(free_bytes "$mountpoint")"
+    available="$(free_bytes)"
     growth=$((baseline - available))
     printf 'storage_postflight phase=%s free_bytes=%s growth_bytes=%s budget_bytes=%s\n' \
         "$phase" "$available" "$growth" "$PEAK_BUDGET_BYTES"
@@ -65,12 +63,11 @@ role="$(docker volume inspect --format '{{ index .Labels "amber.h4.role" }}' "$v
 profile="$(docker volume inspect --format '{{ index .Labels "amber.h4.profile" }}' "$volume")"
 strategy="$(docker volume inspect --format '{{ index .Labels "amber.h4.strategy" }}' "$volume")"
 source="$(docker volume inspect --format '{{ index .Labels "amber.h4.source" }}' "$volume")"
-mountpoint="$(docker volume inspect --format '{{.Mountpoint}}' "$volume")"
 [[ "$role" == "$CANDIDATE_ROLE" ]] || die "candidate role label is not $CANDIDATE_ROLE"
 [[ "$profile" == "$CANDIDATE_PROFILE" ]] || die "candidate profile label is not $CANDIDATE_PROFILE"
 [[ "$strategy" == "$CANDIDATE_STRATEGY" ]] || die "candidate strategy label is not $CANDIDATE_STRATEGY"
 [[ "$source" == "$CANDIDATE_SOURCE" ]] || die "candidate source label is not $CANDIDATE_SOURCE"
-check_preflight_space "$phase" "$mountpoint"
+check_preflight_space "$phase"
 
 PYTHONPATH="$root_dir" python3 - "$requirements_input" "$requirements_lock" <<'PY'
 from pathlib import Path
@@ -96,8 +93,12 @@ if [[ "$phase" == "install" ]]; then
             done
         ' || die "candidate already contains an installed artifact"
 
-    baseline_free="$(free_bytes "$mountpoint")"
-    printf '%s\n' "$baseline_free" > "$mountpoint/.h4-storage-baseline"
+    baseline_free="$(free_bytes)"
+    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
+        --mount "type=volume,src=$volume,dst=/artifact" \
+        -e H4_STORAGE_BASELINE="$baseline_free" \
+        alpine:3.21 \
+        sh -ec 'printf "%s\n" "$H4_STORAGE_BASELINE" > /artifact/.h4-storage-baseline'
     lock_sha256="$(sha256sum "$requirements_lock" | awk '{print $1}')"
     docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
         --mount "type=volume,src=$volume,dst=/artifact" \
@@ -149,14 +150,15 @@ metadata = {
 Path("/artifact/.h4-artifact.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 PY
         '
-    check_postflight_space "install" "$mountpoint" "$baseline_free"
+    check_postflight_space "install" "$baseline_free"
     printf 'Installed H4 Nomic CPU artifact into %s (lock sha256 %s).\n' "$volume" "$lock_sha256"
     exit 0
 fi
 
-test -f "$mountpoint/.h4-artifact.json" || die "package artifact is missing"
-test ! -f "$mountpoint/.h4-models.json" || die "candidate already contains model caches"
-baseline_free="$(cat "$mountpoint/.h4-storage-baseline")"
+baseline_free="$(docker run --rm --read-only \
+    --mount "type=volume,src=$volume,dst=/artifact,readonly" \
+    alpine:3.21 \
+    sh -ec 'test -f /artifact/.h4-artifact.json; test ! -f /artifact/.h4-models.json; cat /artifact/.h4-storage-baseline')"
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1g \
     --mount "type=volume,src=$volume,dst=/artifact" \
     -e PYTHONPATH=/artifact \
@@ -211,5 +213,5 @@ Path("/artifact/.h4-models.json").write_text(json.dumps(manifest, indent=2, sort
 print("preload=complete", flush=True)
 PY
     '
-check_postflight_space "preload" "$mountpoint" "$baseline_free"
+check_postflight_space "preload" "$baseline_free"
 printf 'Preloaded SPLADE and FlashRank into %s.\n' "$volume"
