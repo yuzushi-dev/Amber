@@ -12,6 +12,8 @@ _REQUIRED_MINIMUMS = {
     "flashrank": (0, 0),
 }
 _CPU_WHEEL_SOURCE = "pytorch.org/whl/cpu"
+_MIN_FREE_BYTES = 20 * 1024 * 1024 * 1024
+_PEAK_BUDGET_BYTES = 4 * 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,7 @@ def validate_preload_validation_proof(
     *,
     expected_lock_sha256: str,
     expected_packages: Mapping[str, str],
+    require_storage: bool = True,
 ) -> list[str]:
     """Validate durable evidence from the network-isolated post-preload check."""
     errors: list[str] = []
@@ -165,6 +168,45 @@ def validate_preload_validation_proof(
         errors.append("post-preload validation found dense-local distributions")
     if proof.get("dense_local_cache_paths") != []:
         errors.append("post-preload validation found dense-local cache paths")
+
+    candidate_scan = proof.get("candidate_scan")
+    if (
+        not isinstance(candidate_scan, Mapping)
+        or candidate_scan.get("root") != "/app/.packages"
+        or not isinstance(candidate_scan.get("path_count"), int)
+        or candidate_scan["path_count"] <= 0
+    ):
+        errors.append("post-preload validation did not scan the complete candidate tree")
+
+    if require_storage:
+        storage = proof.get("storage")
+        if not isinstance(storage, Mapping):
+            errors.append("post-preload validation storage evidence is missing")
+        else:
+            storage_values = {
+                key: storage.get(key)
+                for key in (
+                    "preflight_free_bytes",
+                    "baseline_free_bytes",
+                    "postflight_free_bytes",
+                    "postflight_growth_bytes",
+                )
+            }
+            byte_values = (
+                storage_values["preflight_free_bytes"],
+                storage_values["baseline_free_bytes"],
+                storage_values["postflight_free_bytes"],
+            )
+            if (
+                not all(isinstance(value, int) and value >= 0 for value in byte_values)
+                or not isinstance(storage_values["postflight_growth_bytes"], int)
+            ):
+                errors.append("post-preload validation storage evidence is invalid")
+            else:
+                if storage_values["postflight_free_bytes"] < _MIN_FREE_BYTES:
+                    errors.append("post-preload validation storage floor failed")
+                if storage_values["postflight_growth_bytes"] > _PEAK_BUDGET_BYTES:
+                    errors.append("post-preload validation storage budget exceeded")
 
     first_use = proof.get("first_use")
     if not isinstance(first_use, Mapping):

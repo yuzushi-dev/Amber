@@ -162,6 +162,13 @@ def test_accepts_complete_offline_post_preload_validation_proof():
         "nomic_policy_errors": [],
         "dense_local_distributions": [],
         "dense_local_cache_paths": [],
+        "candidate_scan": {"root": "/app/.packages", "path_count": 1234},
+        "storage": {
+            "preflight_free_bytes": 30_000_000_000,
+            "baseline_free_bytes": 29_000_000_000,
+            "postflight_free_bytes": 30_000_000_000,
+            "postflight_growth_bytes": -1_000_000_000,
+        },
         "first_use": {"splade_sparse_terms": 4, "flashrank_results": 2},
     }
 
@@ -185,7 +192,14 @@ def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
         "nvidia_distributions": ["nvidia-cuda-runtime-cu12"],
         "nomic_policy_errors": ["H4 Nomic policy forbids BAAI/bge-m3"],
         "dense_local_distributions": ["sentence-transformers"],
-        "dense_local_cache_paths": ["hf-cache/models--BAAI--bge-m3"],
+        "dense_local_cache_paths": [".cache/models--BAAI--bge-m3"],
+        "candidate_scan": {"root": "/app/.packages/hf-cache", "path_count": 1},
+        "storage": {
+            "preflight_free_bytes": 30_000_000_000,
+            "baseline_free_bytes": 29_000_000_000,
+            "postflight_free_bytes": 1,
+            "postflight_growth_bytes": 4_294_967_297,
+        },
         "first_use": {"splade_sparse_terms": 0, "flashrank_results": 0},
     }
 
@@ -206,6 +220,9 @@ def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
     assert "post-preload validation found Nomic policy errors" in errors
     assert "post-preload validation found dense-local distributions" in errors
     assert "post-preload validation found dense-local cache paths" in errors
+    assert "post-preload validation did not scan the complete candidate tree" in errors
+    assert "post-preload validation storage floor failed" in errors
+    assert "post-preload validation storage budget exceeded" in errors
     assert "offline SPLADE first-use validation did not produce sparse terms" in errors
     assert "offline FlashRank first-use validation did not return two results" in errors
 
@@ -237,6 +254,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "--authorize-preload" in script
     assert "--network none" in script
     assert "dst=/app/.packages,readonly" in script
+    assert "packages_root.rglob(\"*\")" in script
     assert "HF_HUB_OFFLINE=1" in script
     assert "TRANSFORMERS_OFFLINE=1" in script
     assert "HF_DATASETS_OFFLINE=1" in script
@@ -246,6 +264,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "validate_preload_validation_proof" in script
     assert "torch.cuda.is_available() is False" in script
     assert "torch.version.cuda is None" in script
+    assert 'run_post_preload_validation\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof' in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
 
@@ -258,6 +277,7 @@ def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
     assert "direct user approval" in rollout
     assert "--network none" in rollout
     assert ".h4-preload-validation.json" in rollout
+    assert "after the storage postflight succeeds" in rollout
 
 
 def test_preload_refuses_to_reach_docker_without_the_explicit_guard():

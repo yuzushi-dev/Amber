@@ -110,12 +110,14 @@ After preload, validation runs in a non-service container with:
 - only synthetic SPLADE sparse and FlashRank rerank inputs.
 
 It must prove exact installed versions, no CUDA/NVIDIA distribution, no local
-dense package/cache, `torch.cuda.is_available() is False`, and no first-use
-download. A successful run persists the canonical proof as
+dense package/cache anywhere in the candidate tree (including `.cache`,
+`.home`, and any future path), `torch.cuda.is_available() is False`, and no
+first-use download. A successful run persists the canonical proof as
 `.h4-preload-validation.json`; it is never overwritten. The validator itself
 reads the candidate package tree only as `/app/.packages:ro`, and only a
-separate proof writer may add that single JSON file after all offline
-assertions succeed. The Nomic check is configuration only: a future deployment may
+separate proof writer may add that single JSON file after the storage postflight succeeds. The proof records durable preflight, baseline, and
+postflight storage values; a failed floor or budget check writes no proof.
+The Nomic check is configuration only: a future deployment may
 validate the configured remote Ollama endpoint/model through a read-only
 health/configuration contract, but this H4 candidate never contacts it.
 
