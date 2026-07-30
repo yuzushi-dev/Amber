@@ -45,6 +45,41 @@ class _FakeSession:
         return self._get_result
 
 
+class _StreamSession(_FakeSession):
+    """Request-RLS phase double used by route-level stream tests."""
+
+    async def execute(self, *_args, **_kwargs):
+        return None
+
+    def add(self, _obj):
+        return None
+
+    async def commit(self):
+        return None
+
+    async def rollback(self):
+        return None
+
+
+class _StreamSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+class _StreamSessionMaker:
+    def __init__(self, session):
+        self.session = session
+
+    def __call__(self):
+        return _StreamSessionContext(self.session)
+
+
 # =============================================================================
 # _load_conversation_history — ownership / existence guards
 # =============================================================================
@@ -317,16 +352,6 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
         raising=False,
     )
 
-    class _SessionStub:
-        async def get(self, *_a, **_kw):
-            return None
-
-        def add(self, _obj):
-            pass
-
-        async def commit(self):
-            pass
-
     request = QueryRequest(
         query="continue our chat",
         options=QueryOptions(model="test-model"),
@@ -338,9 +363,11 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
         headers={"X-User-ID": USER},
     )
 
-    response = await _query_stream_impl(
-        http_request=http_request, request=request, session=_SessionStub()
+    stream_session = _StreamSession()
+    monkeypatch.setattr(
+        "src.api.deps._get_async_session_maker", lambda: _StreamSessionMaker(stream_session)
     )
+    response = await _query_stream_impl(http_request=http_request, request=request)
 
     async for _chunk in response.body_iterator:
         pass
@@ -377,16 +404,6 @@ async def test_flag_on_injects_history_into_retrieval(monkeypatch):
             ]
         },
     )
-
-    class _SessionWithSummary:
-        async def get(self, *_a, **_kw):
-            return summary
-
-        def add(self, _obj):
-            pass
-
-        async def commit(self):
-            pass
 
     monkeypatch.setattr(
         "src.core.retrieval.application.query.structured_query.structured_executor.try_execute",
@@ -432,9 +449,11 @@ async def test_flag_on_injects_history_into_retrieval(monkeypatch):
         headers={"X-User-ID": USER},
     )
 
-    response = await _query_stream_impl(
-        http_request=http_request, request=request, session=_SessionWithSummary()
+    stream_session = _StreamSession(summary)
+    monkeypatch.setattr(
+        "src.api.deps._get_async_session_maker", lambda: _StreamSessionMaker(stream_session)
     )
+    response = await _query_stream_impl(http_request=http_request, request=request)
 
     async for _chunk in response.body_iterator:
         pass

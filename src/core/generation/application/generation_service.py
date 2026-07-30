@@ -86,6 +86,26 @@ class GenerationConfig:
     prompt_version: str = "latest"
 
 
+@dataclass(frozen=True)
+class PreparedGenerationStream:
+    """Detached prompt/provider state prepared before a response starts streaming."""
+
+    prelude_events: tuple[dict[str, Any], ...]
+    provider: LLMProviderPort
+    user_prompt: str
+    system_prompt: str
+    temperature: float
+    max_tokens: int
+    seed: int | None
+    model: str
+    stream_kwargs: dict[str, Any]
+    conversation_history: tuple[dict[str, str], ...]
+    query: str
+    tenant_id: str
+    user_id: str | None
+    tenant_config: dict[str, Any]
+
+
 class GenerationService:
     """
     LLM-based answer generation with context injection and groundedness checks.
@@ -115,11 +135,13 @@ class GenerationService:
         llm_fallback_enabled: bool = True,
         ollama_cloud_base_url: str | None = None,
         ollama_cloud_api_keys: list[str] | None = None,
+        tenant_config_snapshot: dict[str, Any] | None = None,
     ):
         self.config = config or GenerationConfig()
         self.registry = PromptRegistry()
         self.document_repository = document_repository
         self.tenant_repository = tenant_repository
+        self._tenant_config_snapshot = tenant_config_snapshot
 
         if llm_provider:
             self.llm = llm_provider
@@ -152,6 +174,10 @@ class GenerationService:
             self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=True)
 
         self.verifier = SourceVerifier()
+
+    def set_tenant_config_snapshot(self, tenant_config_snapshot: dict[str, Any]) -> None:
+        """Use a detached tenant configuration for a session-free provider phase."""
+        self._tenant_config_snapshot = tenant_config_snapshot
 
     def _resolve_provider_factory(self, tenant_config: dict[str, Any] | None):
         """
@@ -191,6 +217,9 @@ class GenerationService:
 
     async def _get_effective_tenant_config(self, tenant_id: str | None) -> dict[str, Any]:
         """Resolve effective tenant config from default tenant plus local overrides."""
+        if self._tenant_config_snapshot is not None:
+            return self._tenant_config_snapshot
+
         if not tenant_id or not self.tenant_repository:
             return {}
 
@@ -533,18 +562,21 @@ class GenerationService:
             grounding_score=grounding_score,
         )
 
-    async def generate_stream(
+    async def prepare_stream(
         self,
         query: str,
         candidates: list[Any],
         conversation_history: list[dict[str, str]] | None = None,
         options: dict[str, Any] | None = None,
-    ) -> AsyncIterator[dict]:
+        session: Any | None = None,
+    ) -> PreparedGenerationStream:
         """
-        Stream the generated answer with metadata events.
+        Build every DB-dependent part of a stream before the provider is awaited.
 
-        Yields dictionaries suitable for SSE conversion.
+        ``session`` is request-RLS scoped by the API route.  The returned value
+        contains only detached prompt/provider data and can safely outlive it.
         """
+        prelude_events: list[dict[str, Any]] = []
         # Step 0.5: Inject global rules as candidates AND build system prompt addendum
         rules_addendum = ""
         try:
@@ -552,11 +584,15 @@ class GenerationService:
 
             rules_service = get_rules_service()
             _tenant_id = (options or {}).get("tenant_id", "")
-            active_rules = await rules_service.get_active_rules(tenant_id=_tenant_id)
+            active_rules = await rules_service.get_active_rules(
+                tenant_id=_tenant_id, session=session
+            )
 
             if active_rules:
                 # Build system prompt addendum (authoritative rules)
-                rules_addendum = await rules_service.build_system_prompt_addendum(tenant_id=_tenant_id)
+                rules_addendum = await rules_service.build_system_prompt_addendum(
+                    tenant_id=_tenant_id, session=session
+                )
                 logger.info(f"Injecting {len(active_rules)} rules for tenant {_tenant_id!r} into system prompt (stream)")
 
                 # Also inject as candidates for citation support
@@ -598,7 +634,9 @@ class GenerationService:
                 from src.core.generation.application.memory.manager import memory_manager
 
                 # Long-term user facts only — cross-session summaries excluded (ZTD-1820).
-                facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
+                facts = await memory_manager.get_user_facts(
+                    tenant_id, user_id, limit=5, session=session
+                )
                 logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
 
                 parts = []
@@ -609,16 +647,18 @@ class GenerationService:
                 memory_context = "\n\n".join(parts)
                 if memory_context:
                     logger.debug(f"Generation - Memory Context Injected:\n{memory_context}")
-                    # Signal Source Type to Frontend
-                    yield {
-                        "event": "routing",
-                        "data": {"categories": ["User Memory"], "confidence": 1.0},
-                    }
-                    # Signal High Confidence for Memory
-                    yield {
-                        "event": "quality",
-                        "data": {"total": 100, "retrieval": 100, "generation": 100},
-                    }
+                    prelude_events.append(
+                        {
+                            "event": "routing",
+                            "data": {"categories": ["User Memory"], "confidence": 1.0},
+                        }
+                    )
+                    prelude_events.append(
+                        {
+                            "event": "quality",
+                            "data": {"total": 100, "retrieval": 100, "generation": 100},
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Failed to retrieve memory in stream: {e}")
 
@@ -645,7 +685,7 @@ class GenerationService:
                     "text": content,
                 }
             )
-        yield {"event": "sources", "data": cited_sources}
+        prelude_events.append({"event": "sources", "data": cited_sources})
 
         # Step 4: Preparation
         tenant_config = await self._get_effective_tenant_config(tenant_id)
@@ -698,14 +738,16 @@ class GenerationService:
 
         # Emit routing tier as SSE event for observability
         if _complexity_tier is not None:
-            yield {
-                "event": "complexity_tier",
-                "data": {
-                    "tier": _complexity_tier,
-                    "model": llm_cfg.model,
-                    "thinking": _thinking,
-                },
-            }
+            prelude_events.append(
+                {
+                    "event": "complexity_tier",
+                    "data": {
+                        "tier": _complexity_tier,
+                        "model": llm_cfg.model,
+                        "thinking": _thinking,
+                    },
+                }
+            )
 
         temp = (
             self.config.temperature if self.config.temperature is not None else llm_cfg.temperature
@@ -730,19 +772,38 @@ class GenerationService:
         if _thinking:
             stream_kwargs["extra_body"] = {"think": True}
 
+        return PreparedGenerationStream(
+            prelude_events=tuple(prelude_events),
+            provider=provider,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            temperature=temp,
+            max_tokens=self.config.max_tokens,
+            seed=seed,
+            model=llm_cfg.model,
+            stream_kwargs=stream_kwargs,
+            conversation_history=tuple(dict(message) for message in (conversation_history or [])),
+            query=query,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            tenant_config=dict(tenant_config),
+        )
+
+    async def stream_prepared(self, prepared: PreparedGenerationStream) -> AsyncIterator[dict]:
+        """Stream a previously prepared provider request without touching the database."""
         full_answer = ""
         try:
-            logger.info(f"Starting LLM stream with model: {provider.model_name}")
-            async for token in provider.generate_stream(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=temp,
-                max_tokens=self.config.max_tokens,
-                seed=seed,
-                model=llm_cfg.model,
+            logger.info(f"Starting LLM stream with model: {prepared.provider.model_name}")
+            async for token in prepared.provider.generate_stream(
+                prompt=prepared.user_prompt,
+                system_prompt=prepared.system_prompt,
+                temperature=prepared.temperature,
+                max_tokens=prepared.max_tokens,
+                seed=prepared.seed,
+                model=prepared.model,
                 work_class="chat",
-                history=conversation_history,
-                **stream_kwargs,
+                history=[dict(message) for message in prepared.conversation_history],
+                **prepared.stream_kwargs,
             ):
                 full_answer += token
                 yield {"event": "token", "data": token}
@@ -753,7 +814,7 @@ class GenerationService:
             raise
 
         # Step 5.5: Trigger Async Memory Extraction
-        if user_id and full_answer:
+        if prepared.user_id and full_answer:
             try:
                 import asyncio
 
@@ -761,10 +822,10 @@ class GenerationService:
 
                 asyncio.create_task(
                     memory_extractor.extract_and_save_facts(
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        text=query,
-                        tenant_config=tenant_config,
+                        tenant_id=prepared.tenant_id,
+                        user_id=prepared.user_id,
+                        text=prepared.query,
+                        tenant_config=prepared.tenant_config,
                     )
                 )
             except Exception as e:
@@ -774,11 +835,30 @@ class GenerationService:
         yield {
             "event": "done",
             "data": {
-                "follow_ups": self._generate_follow_ups(query, full_answer),
-                "model": provider.model_name,
-                "provider": provider.provider_name,
+                "follow_ups": self._generate_follow_ups(prepared.query, full_answer),
+                "model": prepared.provider.model_name,
+                "provider": prepared.provider.provider_name,
             },
         }
+
+    async def generate_stream(
+        self,
+        query: str,
+        candidates: list[Any],
+        conversation_history: list[dict[str, str]] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> AsyncIterator[dict]:
+        """Public compatibility wrapper for callers without a request DB phase."""
+        prepared = await self.prepare_stream(
+            query=query,
+            candidates=candidates,
+            conversation_history=conversation_history,
+            options=options,
+        )
+        for event in prepared.prelude_events:
+            yield event
+        async for event in self.stream_prepared(prepared):
+            yield event
 
     async def chat_completion(
         self,

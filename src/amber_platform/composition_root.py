@@ -539,7 +539,9 @@ def build_retrieval_service(session=None):
     # Use platform managed one
     neo4j_client = platform.neo4j_client
 
-    tuning_service = TuningService(build_session_factory(), redis_url=settings.db.redis_url)
+    tuning_service = TuningService(
+        build_session_factory(), redis_url=settings.db.redis_url, session=session
+    )
 
     return RetrievalService(
         document_repository=document_repo,
@@ -558,7 +560,7 @@ def build_retrieval_service(session=None):
 
 
 # @lru_cache # Removed because it now depends on Session (request-scoped)
-def build_generation_service(session=None):
+def build_generation_service(session=None, tenant_config_snapshot=None):
     """Build the GenerationService with configured providers."""
     from src.core.generation.application.generation_service import GenerationService
     from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
@@ -603,6 +605,7 @@ def build_generation_service(session=None):
         llm_fallback_enabled=os.environ.get("LLM_FALLBACK_ENABLED", "true").lower() != "false",
         ollama_cloud_base_url=settings.ollama_cloud_base_url,
         ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
+        tenant_config_snapshot=tenant_config_snapshot,
     )
 
 

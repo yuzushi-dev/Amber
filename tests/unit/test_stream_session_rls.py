@@ -1,246 +1,279 @@
-"""
-Regression tests for the streaming RLS session leak fix.
+"""Hermetic lifecycle tests for query SSE database phases.
 
-`_query_stream_impl` (src/api/routes/query.py) receives a DB session that
-already carries every RLS GUC set by `get_db_session` (src/api/deps.py).
-Three blocks inside the SSE generator used to ignore that injected session
-and open a brand-new bare one via `_get_async_session_maker()()`, which has
-NONE of those GUCs set — causing the RLS-protected INSERT/SELECT on
-`conversation_summaries` to fail (loudly for the two saves, silently — as an
-empty SELECT — for the sticky-mode check).
-
-These tests prove the fix without touching the DB: they drive
-`_query_stream_impl` with fake service/session doubles and assert
-(1) `_get_async_session_maker` is never called, and (2) the injected
-`session` object is the one that receives the get/add/commit calls.
-
-A `_Sentinel(BaseException)` is used to abort the generator at the exact
-point under test — NOT `Exception`, because the surrounding code has
-`except Exception` fallbacks (sticky-check swallows failures with a warning
-log; the RAG-save block swallows with an error log) that would otherwise
-hide a wrong-session bug behind a "test passed" result.
+These tests exercise the route's real request-RLS session factory.  Service
+doubles replace only provider/retrieval work, then block at the provider
+boundary so a checked-out SQLAlchemy session would be observable.
 """
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from src.api.routes.query import _query_stream_impl
+from src.api.deps import get_request_rls_context
+from src.api.routes.query import _query_stream_impl, _ScopedAgentRetrievalService
 from src.api.schemas.query import QueryOptions, QueryRequest
 
+RLS_GUCS = [
+    "app.current_tenant",
+    "app.is_super_admin",
+    "app.current_groups",
+    "app.tenant_role",
+    "app.groups_enforced",
+]
 
-class _Sentinel(BaseException):
-    """Escapes `except Exception` fallbacks to pinpoint exactly where the
-    generator reached, without being swallowed as an ordinary error."""
+
+class _TrackingSession:
+    def __init__(self, factory: "_TrackingSessionMaker", number: int):
+        self.factory = factory
+        self.number = number
+        self.gucs: list[str] = []
+        self.guc_values: list[object] = []
+        self.get_calls: list[tuple[object, str]] = []
+        self.added: list[object] = []
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        if "set_config" in sql:
+            start = sql.index("app.")
+            self.gucs.append(sql[start:].split("'", 1)[0])
+            self.guc_values.append(next(iter((params or {}).values())))
+
+    async def get(self, model, identifier):
+        self.get_calls.append((model, identifier))
+        # A session that can see a foreign summary must not add or update it.
+        if self.number == 2:
+            return SimpleNamespace(
+                id=identifier,
+                tenant_id="foreign-tenant",
+                user_id="foreign-user",
+                metadata_={"history": []},
+            )
+        return None
+
+    def add(self, value):
+        self.added.append(value)
+
+    async def commit(self):
+        self.commits += 1
+
+    async def rollback(self):
+        self.rollbacks += 1
 
 
-def _headers(user_id: str = "tester"):
-    return {"X-User-ID": user_id}
+class _TrackingSessionContext:
+    def __init__(self, factory: "_TrackingSessionMaker"):
+        self.factory = factory
+        self.session = _TrackingSession(factory, len(factory.sessions) + 1)
+
+    async def __aenter__(self):
+        self.factory.active += 1
+        self.factory.sessions.append(self.session)
+        return self.session
+
+    async def __aexit__(self, *_exc):
+        self.factory.active -= 1
+        return False
 
 
-def _http_request(tenant_id: str = "tenant-x", conversation_id_scopes=None):
+class _TrackingSessionMaker:
+    def __init__(self):
+        self.active = 0
+        self.sessions: list[_TrackingSession] = []
+
+    def __call__(self):
+        return _TrackingSessionContext(self)
+
+
+class _BlockingGenerationService:
+    def __init__(self, factory: _TrackingSessionMaker):
+        self.factory = factory
+        self.provider_started = asyncio.Event()
+        self.release_provider = asyncio.Event()
+        self.provider_active_counts: list[int] = []
+
+    async def generate_stream(self, **_kwargs):
+        """Compatibility path used by the old implementation during the RED run."""
+        self.provider_started.set()
+        self.provider_active_counts.append(self.factory.active)
+        await self.release_provider.wait()
+        yield {"event": "token", "data": "Hello"}
+        yield {"event": "sources", "data": []}
+        yield {"event": "done", "data": {"model": "test", "provider": "test"}}
+
+    async def prepare_stream(self, **_kwargs):
+        return SimpleNamespace(prelude_events=())
+
+    async def stream_prepared(self, _prepared):
+        self.provider_started.set()
+        self.provider_active_counts.append(self.factory.active)
+        await self.release_provider.wait()
+        yield {"event": "token", "data": "Hello"}
+        yield {"event": "sources", "data": []}
+        yield {"event": "done", "data": {"model": "test", "provider": "test"}}
+
+    @staticmethod
+    def _normalize_citations(text: str) -> str:
+        return text
+
+
+class _BlockingAgent:
+    def __init__(self, generation: _BlockingGenerationService, **_kwargs):
+        self.generation = generation
+
+    async def run(self, **_kwargs):
+        self.generation.provider_started.set()
+        self.generation.provider_active_counts.append(self.generation.factory.active)
+        await self.generation.release_provider.wait()
+        return SimpleNamespace(answer="Agent answer", sources=[], trace=[])
+
+
+def _http_request():
     return SimpleNamespace(
         method="POST",
         state=SimpleNamespace(
-            tenant_id=tenant_id,
-            query_scopes=conversation_id_scopes,
-            is_super_admin=False,
+            tenant_id="tenant-a",
+            permissions=["super_admin"],
+            group_ids=["group-a", "group-b"],
+            tenant_role="admin",
+            groups_enforced=True,
+            query_scopes=None,
+            is_super_admin=True,
         ),
-        headers=_headers(),
+        headers={"X-User-ID": "user-a"},
     )
 
 
 async def _drain(response):
-    """`_query_stream_impl` is a coroutine returning a StreamingResponse;
-    await it, then pump body_iterator to actually run the generator body."""
     async for _chunk in response.body_iterator:
         pass
 
 
-class _BareSession:
-    """Stands in for the old `_get_async_session_maker()()` bare session:
-    fully functional, but carries none of the RLS GUCs. If the code under
-    test still reaches for it, these calls succeed silently — which is
-    exactly the old (buggy) behaviour we must NOT see after the fix."""
-
-    def __init__(self, calls: list[str]):
-        self._calls = calls
-
-    async def get(self, *_args, **_kwargs):
-        self._calls.append("bare.get")
+def _patch_common(monkeypatch, factory, generation):
+    async def structured_precheck(**_kwargs):
         return None
 
-    def add(self, _obj):
-        self._calls.append("bare.add")
+    async def retrieve(**_kwargs):
+        return SimpleNamespace(chunks=[{"chunk_id": "chunk-1", "score": 1.0}], cache_hit=False)
 
-    async def commit(self):
-        self._calls.append("bare.commit")
-
-
-class _BareSessionCtx:
-    def __init__(self, calls: list[str]):
-        self._session = _BareSession(calls)
-
-    async def __aenter__(self):
-        return self._session
-
-    async def __aexit__(self, *_exc):
-        return False
-
-
-class _InjectedSession:
-    """Stands in for the real request-scoped session: same object passed in
-    via `session=` — has all the RLS GUCs set in real life. `.get`/`.commit`
-    raise the sentinel once invoked, to prove control flow reached here."""
-
-    def __init__(self, calls: list[str]):
-        self.calls = calls
-
-    async def get(self, model, pk):
-        self.calls.append(("injected.get", model, pk))
-        raise _Sentinel()
-
-    def add(self, _obj):
-        self.calls.append("injected.add")
-
-    async def commit(self):
-        self.calls.append("injected.commit")
-        raise _Sentinel()
-
-
-def _patch_services(monkeypatch):
-    monkeypatch.setattr(
-        "src.amber_platform.composition_root.build_retrieval_service",
-        lambda _session: SimpleNamespace(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        "src.amber_platform.composition_root.build_generation_service",
-        lambda _session: SimpleNamespace(),
-        raising=False,
-    )
-
-
-def _patch_bare_session_maker(monkeypatch, calls: list[str]):
-    """Patches `_get_async_session_maker` to a working (but GUC-less) bare
-    session factory, and returns a mock recording whether it was invoked.
-
-    Real shape: `_get_async_session_maker()` returns a sessionmaker, and the
-    buggy code calls it again — `_get_async_session_maker()()` — to open a
-    session. So the mock itself must return a *callable* that in turn
-    produces the async context manager.
-    """
-    from unittest.mock import MagicMock
-
-    session_maker = lambda: _BareSessionCtx(calls)  # noqa: E731
-    maker = MagicMock(side_effect=lambda: session_maker)
-    monkeypatch.setattr("src.api.deps._get_async_session_maker", maker)
-    return maker
-
-
-@pytest.mark.asyncio
-async def test_stream_uses_injected_session_for_conversation_save(monkeypatch):
-    """RAG-save block (~:882-940 pre-fix): the streaming answer must be
-    persisted through the session injected via Depends(get_db_session), not
-    a fresh RLS-GUC-less session — otherwise the INSERT is rejected by the
-    `conversation_summaries` RLS policy and streaming history is never
-    persisted (reproduced on prod as InsufficientPrivilegeError)."""
-    _patch_services(monkeypatch)
-
-    bare_calls: list[str] = []
-    injected_calls: list = []
-    maker_mock = _patch_bare_session_maker(monkeypatch, bare_calls)
-
-    async def fake_try_execute(**_kw):
-        return None
-
+    monkeypatch.setattr("src.api.deps._get_async_session_maker", lambda: factory)
     monkeypatch.setattr(
         "src.core.retrieval.application.query.structured_query.structured_executor.try_execute",
-        fake_try_execute,
+        structured_precheck,
     )
-
-    async def fake_generate_stream(**_kw):
-        yield {"event": "token", "data": "Hello"}
-        yield {
-            "event": "sources",
-            "data": [{"chunk_id": "c1", "document_id": "d1", "score": 0.9}],
-        }
-        yield {"event": "done", "data": {"model": "test-model", "provider": "test-provider"}}
-
-    async def fake_retrieve(**_kw):
-        return SimpleNamespace(chunks=[{"score": 0.9}], cache_hit=False)
-
-    generation_service = SimpleNamespace(
-        generate_stream=fake_generate_stream,
-        _normalize_citations=lambda text: text,
-    )
-    retrieval_service = SimpleNamespace(retrieve=fake_retrieve)
-
     monkeypatch.setattr(
         "src.amber_platform.composition_root.build_retrieval_service",
-        lambda _session: retrieval_service,
-        raising=False,
+        lambda _session: SimpleNamespace(retrieve=retrieve),
     )
     monkeypatch.setattr(
         "src.amber_platform.composition_root.build_generation_service",
-        lambda _session: generation_service,
-        raising=False,
+        lambda _session: generation,
     )
 
-    request = QueryRequest(
-        query="How do I enable alerting?",
-        options=QueryOptions(model="test-model"),
-        conversation_id=None,
-    )
 
-    injected = _InjectedSession(injected_calls)
-
-    response = await _query_stream_impl(
-        http_request=_http_request(),
-        request=request,
-        session=injected,
-    )
-
-    with pytest.raises(_Sentinel):
-        await _drain(response)
-
-    assert "injected.add" in injected.calls
-    assert "injected.commit" in injected.calls
-    assert bare_calls == [], "conversation save must not touch the bare (GUC-less) session"
-    assert maker_mock.called is False, "_get_async_session_maker must never be invoked"
+def _assert_rls_phases(factory: _TrackingSessionMaker):
+    assert len(factory.sessions) == 2
+    assert factory.active == 0
+    assert [session.gucs for session in factory.sessions] == [RLS_GUCS, RLS_GUCS]
+    assert [session.guc_values for session in factory.sessions] == [
+        ["tenant-a", "true", "group-a,group-b", "admin", "true"],
+        ["tenant-a", "true", "group-a,group-b", "admin", "true"],
+    ]
+    assert all(session.commits == 1 for session in factory.sessions)
 
 
 @pytest.mark.asyncio
-async def test_sticky_check_uses_injected_session(monkeypatch):
-    """Sticky-mode check (~:443 pre-fix): the SELECT on conversation_summaries
-    must run through the injected (GUC-carrying) session. Under RLS without
-    GUCs the SELECT doesn't error — it silently returns 0 rows — so an
-    already-agent conversation never auto-switches back to agent mode."""
-    _patch_services(monkeypatch)
-
-    bare_calls: list[str] = []
-    injected_calls: list = []
-    maker_mock = _patch_bare_session_maker(monkeypatch, bare_calls)
+async def test_rag_stream_closes_pre_phase_before_provider_and_reloads_post_phase(monkeypatch):
+    factory = _TrackingSessionMaker()
+    generation = _BlockingGenerationService(factory)
+    _patch_common(monkeypatch, factory, generation)
 
     request = QueryRequest(
-        query="continue our conversation",
-        options=None,
-        conversation_id="conv-123",
+        query="Explain the alerting setup",
+        options=QueryOptions(model="test"),
+        conversation_id="conversation-1",
+    )
+    response = await _query_stream_impl(http_request=_http_request(), request=request)
+    drain_task = asyncio.create_task(_drain(response))
+    try:
+        await asyncio.wait_for(generation.provider_started.wait(), timeout=1)
+        assert generation.provider_active_counts == [0]
+    finally:
+        generation.release_provider.set()
+        await asyncio.wait_for(drain_task, timeout=1)
+
+    _assert_rls_phases(factory)
+    assert [identifier for _model, identifier in factory.sessions[1].get_calls] == [
+        "conversation-1"
+    ]
+    assert factory.sessions[1].added == []
+
+
+@pytest.mark.asyncio
+async def test_agent_retrieval_tool_opens_its_own_short_rls_phase(monkeypatch):
+    factory = _TrackingSessionMaker()
+    monkeypatch.setattr("src.api.deps._get_async_session_maker", lambda: factory)
+
+    async def retrieve(**_kwargs):
+        assert factory.active == 1
+        return SimpleNamespace(chunks=[])
+
+    monkeypatch.setattr(
+        "src.amber_platform.composition_root.build_retrieval_service",
+        lambda _session: SimpleNamespace(retrieve=retrieve),
     )
 
-    injected = _InjectedSession(injected_calls)
+    # The context is produced by the real request-state snapshotter in stream
+    # execution; the values here mirror the authenticated request.
+    service = _ScopedAgentRetrievalService(get_request_rls_context(_http_request()))
+    result = await service.retrieve(query="find alerts", tenant_id="tenant-a")
 
-    response = await _query_stream_impl(
-        http_request=_http_request(),
-        request=request,
-        session=injected,
+    assert result.chunks == []
+    assert factory.active == 0
+    assert [session.gucs for session in factory.sessions] == [RLS_GUCS]
+    assert factory.sessions[0].guc_values == [
+        "tenant-a",
+        "true",
+        "group-a,group-b",
+        "admin",
+        "true",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_closes_pre_phase_before_provider_and_reloads_post_phase(monkeypatch):
+    factory = _TrackingSessionMaker()
+    generation = _BlockingGenerationService(factory)
+    _patch_common(monkeypatch, factory, generation)
+
+    monkeypatch.setattr("src.api.config.settings.enable_agent_mode", True, raising=False)
+    monkeypatch.setattr(
+        "src.core.generation.application.agent.orchestrator.AgentOrchestrator",
+        lambda **kwargs: _BlockingAgent(generation, **kwargs),
+    )
+    monkeypatch.setattr(
+        "src.core.generation.domain.memory_models.ConversationSummary",
+        lambda **kwargs: SimpleNamespace(**kwargs),
     )
 
-    with pytest.raises(_Sentinel):
-        await _drain(response)
+    request = QueryRequest(
+        query="Inspect the workspace",
+        options=QueryOptions(agent_mode=True),
+        conversation_id="conversation-1",
+    )
+    response = await _query_stream_impl(http_request=_http_request(), request=request)
+    drain_task = asyncio.create_task(_drain(response))
+    try:
+        await asyncio.wait_for(generation.provider_started.wait(), timeout=1)
+        assert generation.provider_active_counts == [0]
+    finally:
+        generation.release_provider.set()
+        await asyncio.wait_for(drain_task, timeout=1)
 
-    get_calls = [c for c in injected.calls if isinstance(c, tuple) and c[0] == "injected.get"]
-    assert len(get_calls) == 1
-    assert get_calls[0][2] == "conv-123"
-    assert bare_calls == [], "sticky-mode check must not touch the bare (GUC-less) session"
-    assert maker_mock.called is False, "_get_async_session_maker must never be invoked"
+    _assert_rls_phases(factory)
+    assert [identifier for _model, identifier in factory.sessions[1].get_calls] == [
+        "conversation-1"
+    ]
+    assert factory.sessions[1].added == []

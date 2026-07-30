@@ -5,7 +5,9 @@ API Dependencies
 FastAPI dependency injection utilities.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,74 @@ def _get_async_session_maker():
     return _async_session_maker
 
 
+@dataclass(frozen=True)
+class RequestRlsContext:
+    """The complete RLS state that must be applied to every request DB session."""
+
+    tenant_id: str
+    is_super_admin: bool
+    group_ids: tuple[str, ...]
+    tenant_role: str | None
+    groups_enforced: bool
+
+
+def get_request_rls_context(request: Request) -> RequestRlsContext:
+    """Snapshot the request state used by PostgreSQL row-level security."""
+    from src.shared.context import get_current_tenant
+
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    permissions = getattr(request.state, "permissions", [])
+    group_ids = getattr(request.state, "group_ids", [])
+
+    return RequestRlsContext(
+        tenant_id=str(tenant_id) if tenant_id else "",
+        is_super_admin="super_admin" in permissions,
+        group_ids=tuple(group_ids),
+        tenant_role=getattr(request.state, "tenant_role", "user"),
+        groups_enforced=bool(getattr(request.state, "groups_enforced", False)),
+    )
+
+
+async def apply_request_rls_context(session: AsyncSession, context: RequestRlsContext) -> None:
+    """Apply every request RLS GUC unconditionally to one fresh session."""
+    from sqlalchemy import text
+
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
+        {"tenant_id": context.tenant_id},
+    )
+    await session.execute(
+        text("SELECT set_config('app.is_super_admin', :is_super, false)"),
+        {"is_super": "true" if context.is_super_admin else "false"},
+    )
+    await session.execute(
+        text("SELECT set_config('app.current_groups', :groups, false)"),
+        {"groups": ",".join(context.group_ids)},
+    )
+    await session.execute(
+        text("SELECT set_config('app.tenant_role', :role, false)"),
+        {"role": context.tenant_role},
+    )
+    await session.execute(
+        text("SELECT set_config('app.groups_enforced', :enforced, false)"),
+        {"enforced": "true" if context.groups_enforced else "false"},
+    )
+
+
+@asynccontextmanager
+async def request_rls_session(context: RequestRlsContext) -> AsyncIterator[AsyncSession]:
+    """Open, configure, commit/rollback, and close one request-RLS session."""
+    session_maker = _get_async_session_maker()
+    async with session_maker() as session:
+        try:
+            await apply_request_rls_context(session, context)
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that yields a database session.
@@ -38,66 +108,9 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
     Injects the current tenant ID into the session for RLS.
     Sets app.is_super_admin if the user has the 'super_admin' scope.
     """
-    session_maker = _get_async_session_maker()
-    async with session_maker() as session:
-        try:
-            # Inject current tenant into session configuration
-            from sqlalchemy import text
-
-            from src.shared.context import get_current_tenant
-
-            # Source the tenant from request.state (set by AuthenticationMiddleware),
-            # mirroring how permissions/group_ids/tenant_role are read below.
-            # get_current_tenant() reads a contextvar set inside the auth
-            # BaseHTTPMiddleware, which does NOT reliably propagate to endpoint
-            # dependencies; relying on it left app.current_tenant empty on some
-            # pooled connections, so FORCE-RLS tables (e.g. documents) returned 0
-            # rows intermittently — surfacing as source titles resolving to
-            # "Untitled". request.state survives the middleware boundary.
-            tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
-            # Always set app.current_tenant, even to an empty string when no
-            # tenant is bound to this request. RLS policies on tenant tables
-            # read this GUC unconditionally (`current_setting('app.current_tenant')`
-            # without missing_ok), so failing to set it raises
-            # `unrecognized configuration parameter` 42704 on the first query.
-            await session.execute(
-                text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
-                {"tenant_id": str(tenant_id) if tenant_id else ""},
-            )
-
-            # Always set app.is_super_admin unconditionally so pooled connections
-            # that previously served a super-admin request cannot bleed 'true'
-            # into subsequent non-super-admin requests (RLS bypass prevention).
-            permissions = getattr(request.state, "permissions", [])
-            is_super_admin = "super_admin" in permissions
-            await session.execute(
-                text("SELECT set_config('app.is_super_admin', :is_super, false)"),
-                {"is_super": "true" if is_super_admin else "false"},
-            )
-
-            # Inject group context for RLS group enforcement
-            group_ids = getattr(request.state, "group_ids", [])
-            groups_enforced = getattr(request.state, "groups_enforced", False)
-            tenant_role = getattr(request.state, "tenant_role", "user")
-
-            await session.execute(
-                text("SELECT set_config('app.current_groups', :groups, false)"),
-                {"groups": ",".join(group_ids)},
-            )
-            await session.execute(
-                text("SELECT set_config('app.tenant_role', :role, false)"),
-                {"role": tenant_role},
-            )
-            await session.execute(
-                text("SELECT set_config('app.groups_enforced', :enforced, false)"),
-                {"enforced": "true" if groups_enforced else "false"},
-            )
-
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    context = get_request_rls_context(request)
+    async with request_rls_session(context) as session:
+        yield session
 
 
 async def verify_admin(request: Request):
