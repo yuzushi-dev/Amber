@@ -19,6 +19,7 @@ _REQUIRED_MINIMUMS = {
 _CPU_WHEEL_SOURCE = "pytorch.org/whl/cpu"
 _MIN_FREE_BYTES = 20 * 1024 * 1024 * 1024
 _PEAK_BUDGET_BYTES = 4 * 1024 * 1024 * 1024
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,9 @@ def validate_requirements_lock(lock_text: str, profile: ArtifactProfile) -> Vali
         return ValidationResult({}, ["artifact requires CPython 3.11 on Linux x86_64"])
 
     packages: dict[str, str] = {}
-    hashes: set[str] = set()
+    hashes: dict[str, list[str]] = {}
     declared: set[str] = set()
+    unpinned: set[str] = set()
     has_cpu_index = _CPU_WHEEL_SOURCE in lock_text
 
     active_package: str | None = None
@@ -49,23 +51,27 @@ def validate_requirements_lock(lock_text: str, profile: ArtifactProfile) -> Vali
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        hash_values = re.findall(r"--hash=sha256:([^\s\\]+)", line)
         if line.startswith("--hash=sha256:"):
             if active_package:
-                hashes.add(active_package)
+                hashes.setdefault(active_package, []).extend(hash_values)
             continue
         if line.startswith("--"):
             continue
         requirement = line.split()[0]
-        match = re.match(r"([A-Za-z0-9-]+)(==(.+))?", requirement)
-        if not match:
+        name_match = re.match(r"[A-Za-z0-9_.-]+", requirement)
+        if not name_match:
             continue
-        name = match.group(1).lower()
+        name = name_match.group(0).lower()
         active_package = name
         declared.add(name)
-        if match.group(2):
-            packages[name] = match.group(3)
-        if "--hash=sha256:" in line:
-            hashes.add(name)
+        exact_match = re.fullmatch(r"[A-Za-z0-9_.-]+==([^=\s\\][^\s\\]*)", requirement)
+        if exact_match:
+            packages[name] = exact_match.group(1)
+        else:
+            unpinned.add(name)
+        if hash_values:
+            hashes.setdefault(name, []).extend(hash_values)
 
     errors: list[str] = []
     for package, minimum in _REQUIRED_MINIMUMS.items():
@@ -73,13 +79,7 @@ def validate_requirements_lock(lock_text: str, profile: ArtifactProfile) -> Vali
         if version is None:
             if package not in declared:
                 errors.append(f"missing required package: {package}")
-            else:
-                errors.append(f"{package} must use an exact == pin")
-                if package not in hashes:
-                    errors.append(f"{package} must include at least one sha256 hash")
             continue
-        if package not in hashes:
-            errors.append(f"{package} must include at least one sha256 hash")
         if not _is_at_least(version, minimum):
             errors.append(f"{package} must meet minimum version {_format_minimum(minimum)}")
 
@@ -89,9 +89,13 @@ def validate_requirements_lock(lock_text: str, profile: ArtifactProfile) -> Vali
     if torch_version and not has_cpu_index:
         errors.append("torch requires the PyTorch CPU wheel index")
     for package in sorted(declared):
-        error = f"{package} must include at least one sha256 hash"
-        if package not in hashes and error not in errors:
-            errors.append(error)
+        if package in unpinned or package not in packages:
+            errors.append(f"{package} must use an exact == pin")
+        package_hashes = hashes.get(package, [])
+        if not package_hashes:
+            errors.append(f"{package} must include at least one sha256 hash")
+        elif not all(_SHA256_HEX.fullmatch(value) for value in package_hashes):
+            errors.append(f"{package} must include a valid sha256 hash")
 
     errors.extend(validate_nomic_policy(lock_text))
     return ValidationResult(packages, errors)
@@ -165,6 +169,17 @@ def _fsync_directory(directory: Path) -> None:
         os.close(directory_fd)
 
 
+def publish_staged_model_manifest(staged: Path, target: Path) -> None:
+    """Atomically publish a validated staged model manifest without replacing one."""
+    staged_fd = os.open(staged, os.O_RDONLY)
+    try:
+        os.fsync(staged_fd)
+    finally:
+        os.close(staged_fd)
+    os.link(staged, target)
+    _fsync_directory(target.parent)
+
+
 def validate_preload_validation_proof(
     proof: Mapping[str, object],
     *,
@@ -233,6 +248,16 @@ def validate_preload_validation_proof(
         or candidate_scan["path_count"] <= 0
     ):
         errors.append("post-preload validation did not scan the complete candidate tree")
+
+    flashrank = proof.get("flashrank")
+    if (
+        not isinstance(flashrank, Mapping)
+        or not isinstance(flashrank.get("model"), str)
+        or not flashrank["model"]
+        or not isinstance(flashrank.get("cache_sha256"), str)
+        or not _SHA256_HEX.fullmatch(flashrank["cache_sha256"])
+    ):
+        errors.append("post-preload validation FlashRank cache sha256 is invalid")
 
     if require_storage:
         storage = proof.get("storage")
