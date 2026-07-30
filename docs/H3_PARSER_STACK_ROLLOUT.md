@@ -83,20 +83,48 @@ Compose declares the active volume as `external: true`, so an unprepared target
 causes a pre-start failure instead of silently starting with an empty volume and
 losing optional features.
 
-## 3. Activation and rollback
+## 3. Activation and normal rollback
 
 Only after the prepare/verify steps and normal deployment approval, deploy using
 the H3 image with `PIP_PACKAGES_ACTIVE_VOLUME` set to the fresh target. Validate
 the required feature(s) with real application health/query checks before traffic
 cutover. The API, worker, beat and canary all select the same active volume.
 
-To roll back only the optional-package selection, keep images and data volumes
-unchanged and set the active variable back to the preserved legacy reference:
+The package volume is not a normal rollback lever. For a normal H3 rollback,
+keep the clean prepared `PIP_PACKAGES_ACTIVE_VOLUME` in place and roll back only
+the application/traffic change to the previous known-good H3 image or release.
+If the fresh volume itself must be replaced, prepare a new clean versioned target
+(for example `amber2_pip-packages-h3-r2`) with the same inventory/apply/verify
+procedure; do not use the legacy volume.
 
 ```bash
-export PIP_PACKAGES_ACTIVE_VOLUME="$PIP_PACKAGES_ROLLBACK_VOLUME"
+# Normal rollback retains the clean H3 volume.
+export PIP_PACKAGES_ACTIVE_VOLUME=amber2_pip-packages-h3
 docker compose -f docker-compose.yml config
 ```
 
 Perform any subsequent service restart or traffic action only with direct human
 approval. Do not delete either volume during the rollback window.
+
+## 4. Legacy-volume emergency exception
+
+Mounting `PIP_PACKAGES_ROLLBACK_VOLUME` with an H3 image is a documented
+**security regression**: it may restore Marker or a vulnerable Pillow/pi-heif
+decoder ahead of the secure image packages. It is never a normal rollback.
+
+Use the legacy mount only during a declared incident and only after **direct user approval**.
+The exception must be **time-bounded**, recorded with an owner and
+end time, and have **compensating monitoring**: capture the effective
+`PIL.__version__`, `pi_heif.__version__`, and absence/presence of Marker/Surya
+before traffic is restored; alert on parser/import errors for the whole window.
+The incident plan must include a **return to the fresh volume** using the
+inventory/apply/verify procedure above.
+
+```bash
+# Emergency exception only: this intentionally reintroduces legacy package risk.
+export PIP_PACKAGES_ACTIVE_VOLUME="$PIP_PACKAGES_ROLLBACK_VOLUME"
+docker compose -f docker-compose.yml config
+```
+
+Do not delete either volume during the incident window. Revert the environment
+selection to a verified clean H3 volume as soon as the emergency condition ends.

@@ -193,13 +193,36 @@ verify_target() {
   docker run --rm -i --read-only \
     -v "$target_volume:/app/.packages:ro" \
     -e PYTHONDONTWRITEBYTECODE=1 \
-    -e PYTHONPATH=/app:/app/.packages \
+    -e PYTHONPATH=/app/.packages:/app \
     --entrypoint python "$image" - "${selected_features[@]}" <<'PY'
 import importlib
 import importlib.util
 import sys
 
+from packaging.version import InvalidVersion, Version
+from PIL import __version__ as pillow_version
+from pi_heif import __version__ as pi_heif_version
+
 from src.api.services.setup_service import OPTIONAL_FEATURES
+
+
+def require_effective_floor(distribution: str, version: str, minimum: str) -> None:
+    try:
+        installed = Version(version)
+        required = Version(minimum)
+    except InvalidVersion as exc:
+        raise SystemExit(f"{distribution} has an invalid effective version {version!r}: {exc}")
+    if installed < required:
+        raise SystemExit(
+            f"{distribution} effective version {installed} is below required floor {required}"
+        )
+    print(f"verified effective native parser dependency: {distribution} {installed}")
+
+
+# The target volume is first on PYTHONPATH. These imports therefore fail if a
+# stale volume shadows the secure image packages with an old native decoder.
+require_effective_floor("Pillow", pillow_version, "12.3.0")
+require_effective_floor("pi-heif", pi_heif_version, "1.3.0")
 
 for feature_id in sys.argv[1:]:
     module = OPTIONAL_FEATURES[feature_id].check_import
