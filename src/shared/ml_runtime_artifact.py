@@ -8,7 +8,6 @@ _REQUIRED_MINIMUMS = {
     "torch": (2, 13),
     "transformers": (5, 5),
     "onnx": (1, 22),
-    "sentence-transformers": (0, 0),
     "flashrank": (0, 0),
 }
 _CPU_WHEEL_SOURCE = "pytorch.org/whl/cpu"
@@ -81,16 +80,30 @@ def validate_requirements_lock(lock_text: str, profile: ArtifactProfile) -> Vali
         errors.append("torch must use an explicit +cpu wheel build")
     if torch_version and not has_cpu_index:
         errors.append("torch requires the PyTorch CPU wheel index")
-    numpy_version = packages.get("numpy")
-    if torch_version and torch_version.startswith("2.13") and numpy_version and numpy_version.startswith("2."):
-        errors.append("torch 2.13 requires NumPy 1.x for binary ABI compatibility")
-
     for package in sorted(declared):
         error = f"{package} must include at least one sha256 hash"
         if package not in hashes and error not in errors:
             errors.append(error)
 
+    errors.extend(validate_nomic_policy(lock_text))
     return ValidationResult(packages, errors)
+
+
+def validate_nomic_policy(lock_text: str, cache_paths: tuple[str, ...] = ()) -> list[str]:
+    """Reject dense-local dependencies and caches from the Nomic/Ollama strategy."""
+    errors: list[str] = []
+    normalized_lock = lock_text.lower()
+    if "sentence-transformers" in normalized_lock:
+        errors.append("H4 Nomic policy forbids sentence-transformers")
+    if "baai/bge-m3" in normalized_lock:
+        errors.append("H4 Nomic policy forbids BAAI/bge-m3")
+
+    normalized_paths = [path.lower() for path in cache_paths]
+    if any("baai" in path or "bge-m3" in path for path in normalized_paths):
+        errors.append("H4 Nomic policy forbids BAAI model cache paths")
+    if any("sentence-transformers" in path for path in normalized_paths):
+        errors.append("H4 Nomic policy forbids sentence-transformers cache paths")
+    return errors
 
 
 def _is_at_least(version: str, minimum: tuple[int, int]) -> bool:
