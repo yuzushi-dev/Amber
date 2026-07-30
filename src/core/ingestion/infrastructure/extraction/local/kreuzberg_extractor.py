@@ -13,7 +13,7 @@ from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, Ext
 logger = logging.getLogger(__name__)
 
 try:
-    from kreuzberg import ExtractionConfig, OutputFormat, extract_bytes_sync
+    from kreuzberg import ExtractionConfig, OcrConfig, OutputFormat, extract_bytes_sync
 
     HAS_KREUZBERG = True
 except ImportError:
@@ -55,10 +55,15 @@ class KreuzbergExtractor(BaseExtractor):
 
         try:
             mime_type = _normalize_mime(mime_type)
-            config = ExtractionConfig(output_format=OutputFormat.MARKDOWN)
+            config = ExtractionConfig(
+                output_format=OutputFormat.MARKDOWN,
+                ocr=OcrConfig(backend="tesseract"),
+            )
 
             # extract_bytes_sync(data, mime_type, config=...)
             result = extract_bytes_sync(file_content, mime_type, config=config)
+            if not result.content or not result.content.strip():
+                raise RuntimeError("Kreuzberg returned no extractable content")
 
             elapsed = (time.time() - start_time) * 1000
 
