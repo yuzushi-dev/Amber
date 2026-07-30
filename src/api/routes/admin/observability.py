@@ -5,6 +5,7 @@ Observability Admin Routes
 Endpoints for monitoring system health and business metrics.
 """
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -19,6 +20,8 @@ from src.core.admin_ops.application.metrics.collector import AggregatedMetrics
 from src.core.admin_ops.domain.audit import AuditLog
 from src.core.ingestion.domain.document_share import DocumentShare
 from src.core.tenants.domain.tenant import Tenant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/observability",
@@ -334,15 +337,17 @@ async def deep_health_check():
         await r.ping()
         await r.close()
         status_report["redis"] = "ok"
-    except Exception as e:
-        status_report["redis"] = f"error: {str(e)}"
+    except Exception:
+        logger.exception("Redis deep health check failed")
+        status_report["redis"] = "error"
 
     try:
         neo = platform.neo4j_client
         await neo.verify_connectivity()
         status_report["neo4j"] = "ok"
-    except Exception as e:
-        status_report["neo4j"] = f"error: {str(e)}"
+    except Exception:
+        logger.exception("Neo4j deep health check failed")
+        status_report["neo4j"] = "error"
 
     return status_report
 
