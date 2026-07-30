@@ -151,3 +151,15 @@ def test_worker_ready_does_not_flush_community_locks():
         on_worker_ready()
 
     mock_redis.assert_not_called()
+
+
+def test_worker_ready_canary_skips_recovery(monkeypatch):
+    """A canary worker must not mutate stale documents or publish live tasks."""
+    from src.workers.celery_app import on_worker_ready
+
+    monkeypatch.setenv("AMBER_CANARY", "true")
+
+    with patch("src.workers.recovery.run_recovery_sync") as mock_recovery:
+        on_worker_ready()
+
+    mock_recovery.assert_not_called()
