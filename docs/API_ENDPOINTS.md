@@ -270,8 +270,6 @@ curl -X POST /v1/documents \
 | `embedding_provider`         | string  | `openai`                 | Embedding provider               |
 | `embedding_model`            | string  | `text-embedding-3-small` | Embedding model                  |
 | `active_vector_collection`   | string  | `amber_default`          | Active Milvus collection (super admin only) |
-| `hybrid_ocr_enabled`         | boolean | true                     | Enable OCR for image-heavy pages |
-| `ocr_text_density_threshold` | integer | 50                       | OCR trigger threshold            |
 | `rag_system_prompt`          | string  | null                     | Override system prompt           |
 | `rag_user_prompt`            | string  | null                     | Override user prompt             |
 

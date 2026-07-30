@@ -64,12 +64,6 @@ const FEATURE_DETAILS: Record<string, string[]> = {
         'Packages: ragas, datasets',
         'Size: ~150 MB',
         'Purpose: Automated faithfulness and relevancy scoring'
-    ],
-    'ocr': [
-        'Engine: Marker PDF & Surya OCR',
-        'Packages: marker-pdf, surya-ocr',
-        'Size: ~3.0 GB',
-        'Purpose: Deep learning PDF extraction'
     ]
 }
 

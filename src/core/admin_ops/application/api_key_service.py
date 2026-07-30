@@ -36,7 +36,6 @@ def _default_tenant_config() -> dict[str, Any]:
         "similarity_threshold": 0.7,
         "reranking_enabled": True,
         "graph_expansion_enabled": True,
-        "hybrid_ocr_enabled": True,
     }
 
 

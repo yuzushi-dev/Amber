@@ -396,7 +396,7 @@ Entities and relations are extracted per chunk, deduplicated, then clustered int
 Everything between an uploaded file and a queryable chunk runs in Celery, with the document's state tracked in Postgres so a crashed worker does not lose the job.
 
 #### Multi-Format Support
-- **PDF**: PyMuPDF4LLM, Marker-PDF, and Unstructured fallback
+- **PDF**: configured local extraction via Docling, Kreuzberg, or PyMuPDF4LLM; Unstructured remains the general parser route when no specialist is selected
 - **Markdown**: Native parsing with structure preservation
 - **Text**: Direct ingestion
 - **External Sources**: Connectors for Confluence, Zendesk
@@ -923,4 +923,3 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit m
 ## License
 
 Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details. Release history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
-
