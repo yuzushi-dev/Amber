@@ -58,6 +58,8 @@ mistralai==1.12.4
 tiktoken==0.12.0
 kreuzberg==4.9.9
 unstructured[docx]==0.18.31  # ponytail: .docx backstop extractor (was vendored in /app/.packages, not in image -> python-docx missing -> docx ingestion FAILED)
+Pillow>=12.3.0
+pi-heif>=1.3.0
 
 # Observability & Tracing
 opentelemetry-api==1.40.0
