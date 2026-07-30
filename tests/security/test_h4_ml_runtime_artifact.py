@@ -167,6 +167,21 @@ def test_repository_lock_satisfies_the_cpu_artifact_contract():
     assert "sentence-transformers" not in result.packages
 
 
+def test_repository_lock_does_not_downgrade_shared_http_runtime():
+    root = Path(__file__).parents[2]
+    lock_text = (root / "requirements-ml-h4-cpu.lock").read_text()
+
+    packages = validate_requirements_lock(
+        lock_text, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).packages
+
+    assert packages["requests"] == "2.34.2"
+    assert packages["urllib3"] == "2.7.0"
+    assert packages["certifi"] == "2026.7.22"
+    assert packages["charset-normalizer"] == "3.4.9"
+    assert packages["idna"] == "3.18"
+
+
 def test_nomic_only_policy_rejects_baai_and_sentence_transformers_cache_paths():
     forbidden_lock = (
         f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:{VALID_SHA256}\n# BAAI/bge-m3\n"
@@ -343,7 +358,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
-    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84" in script
+    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1" in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
     assert "amber.h4.strategy" in script
@@ -431,7 +446,12 @@ def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
     environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
 
     result = subprocess.run(
-        [str(script), "install", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-12127b84"],
+        [
+            str(script),
+            "install",
+            "--volume",
+            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1",
+        ],
         capture_output=True,
         check=False,
         env=environment,
@@ -494,7 +514,12 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
     script = root / "scripts/h4_ml_runtime_candidate.sh"
 
     result = subprocess.run(
-        [str(script), "preload", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-12127b84"],
+        [
+            str(script),
+            "preload",
+            "--volume",
+            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1",
+        ],
         capture_output=True,
         check=False,
         text=True,

@@ -21,7 +21,7 @@ is not mounted, cleared, relabeled, or deleted by this procedure.
 ## Candidate and storage guard
 
 The single active candidate is
-`ambermirror_pip-packages-h4-cpu-nomic-12127b84`.
+`ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1`.
 
 | Label | Value |
 | --- | --- |
@@ -55,8 +55,8 @@ PyPI is the sole package index; the official CPU Torch find-link is
 
 | File | SHA-256 |
 | --- | --- |
-| `requirements-ml-h4-cpu.in` | `d05e423a467abd4f25034a8f591e1c889edb3cb74136f8fcd241a56256b527b5` |
-| `requirements-ml-h4-cpu.lock` | `660f9a353d5f25e3f51cb349316dda465561d37059da7da5dc5159feb0de7917` |
+| `requirements-ml-h4-cpu.in` | `9a0d3a91f37fcbed935cf379ee7562bfa02c0263ac7e985de9556fa1590744b1` |
+| `requirements-ml-h4-cpu.lock` | `04cfcbbc63c3e5d2aeabb24799f1708554f80646d8fb219d7eff7be7dd0a9024` |
 
 Direct versions are:
 
@@ -88,9 +88,9 @@ any dynamic installer.
 ```bash
 rtk python3 -m pytest -q tests/security/test_h4_ml_runtime_artifact.py
 rtk scripts/h4_ml_runtime_candidate.sh install \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84
+  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1
 rtk scripts/h4_ml_runtime_candidate.sh preload \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84 \
+  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1 \
   --authorize-preload
 ```
 
@@ -155,7 +155,7 @@ health/configuration contract, but this H4 candidate never contacts it.
 The canary Compose file keeps the H3 feature volume mounted at
 `/app/.packages` and mounts the validated H4 candidate separately and
 read-only at `/app/.packages-h4`. Set
-`H4_ML_RUNTIME_VOLUME=ambermirror_pip-packages-h4-cpu-nomic-12127b84`;
+`H4_ML_RUNTIME_VOLUME=ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1`;
 API and worker then receive:
 
 - `AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4`;

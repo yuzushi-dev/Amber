@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-12127b84"
+readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-12127b84-httpfix1"
 readonly CANDIDATE_ROLE="ml-runtime-candidate"
 readonly CANDIDATE_PROFILE="cpu"
 readonly CANDIDATE_STRATEGY="nomic-ollama-remote"
