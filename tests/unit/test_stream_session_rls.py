@@ -11,7 +11,12 @@ from types import SimpleNamespace
 import pytest
 
 from src.api.deps import get_request_rls_context
-from src.api.routes.query import _query_stream_impl, _ScopedAgentRetrievalService
+from src.api.routes.query import (
+    _persist_agent_conversation,
+    _prepare_stream_phase,
+    _query_stream_impl,
+    _ScopedAgentRetrievalService,
+)
 from src.api.schemas.query import QueryOptions, QueryRequest
 
 RLS_GUCS = [
@@ -43,15 +48,7 @@ class _TrackingSession:
 
     async def get(self, model, identifier):
         self.get_calls.append((model, identifier))
-        # A session that can see a foreign summary must not add or update it.
-        if self.number == 2:
-            return SimpleNamespace(
-                id=identifier,
-                tenant_id="foreign-tenant",
-                user_id="foreign-user",
-                metadata_={"history": []},
-            )
-        return None
+        return self.factory.summaries_by_session.get(self.number)
 
     def add(self, value):
         self.added.append(value)
@@ -79,9 +76,21 @@ class _TrackingSessionContext:
 
 
 class _TrackingSessionMaker:
-    def __init__(self):
+    def __init__(self, summaries_by_session: dict[int, object] | None = None):
         self.active = 0
         self.sessions: list[_TrackingSession] = []
+        self.summaries_by_session = (
+            {
+                2: SimpleNamespace(
+                    id="foreign-conversation",
+                    tenant_id="foreign-tenant",
+                    user_id="foreign-user",
+                    metadata_={"history": []},
+                )
+            }
+            if summaries_by_session is None
+            else summaries_by_session
+        )
 
     def __call__(self):
         return _TrackingSessionContext(self)
@@ -119,6 +128,24 @@ class _BlockingGenerationService:
         return text
 
 
+class _PreparedGenerationService:
+    """Represents the real two-step prelude/stream-prepared contract."""
+
+    def __init__(self, prelude_events: tuple[dict, ...]):
+        self.prelude_events = prelude_events
+
+    async def prepare_stream(self, **_kwargs):
+        return SimpleNamespace(prelude_events=self.prelude_events)
+
+    async def stream_prepared(self, _prepared):
+        yield {"event": "token", "data": "Grounded answer"}
+        yield {"event": "done", "data": {"model": "test", "provider": "test"}}
+
+    @staticmethod
+    def _normalize_citations(text: str) -> str:
+        return text
+
+
 class _BlockingAgent:
     def __init__(self, generation: _BlockingGenerationService, **_kwargs):
         self.generation = generation
@@ -130,7 +157,7 @@ class _BlockingAgent:
         return SimpleNamespace(answer="Agent answer", sources=[], trace=[])
 
 
-def _http_request():
+def _http_request(user_id: str = "user-a"):
     return SimpleNamespace(
         method="POST",
         state=SimpleNamespace(
@@ -142,7 +169,7 @@ def _http_request():
             query_scopes=None,
             is_super_admin=True,
         ),
-        headers={"X-User-ID": "user-a"},
+        headers={"X-User-ID": user_id},
     )
 
 
@@ -277,3 +304,138 @@ async def test_agent_stream_closes_pre_phase_before_provider_and_reloads_post_ph
         "conversation-1"
     ]
     assert factory.sessions[1].added == []
+
+
+@pytest.mark.asyncio
+async def test_rag_persists_sources_and_summary_emitted_in_generation_prelude(monkeypatch):
+    source = {
+        "chunk_id": "chunk-1",
+        "document_id": "document-1",
+        "title": "Alerting runbook",
+        "content_preview": "The alert fires when...",
+    }
+    factory = _TrackingSessionMaker(summaries_by_session={})
+    generation = _PreparedGenerationService(({"event": "sources", "data": [source]},))
+    _patch_common(monkeypatch, factory, generation)
+    recorded_metrics: list[object] = []
+
+    class _MetricsCollector:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def record(self, metrics):
+            recorded_metrics.append(metrics)
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(
+        "src.core.generation.domain.memory_models.ConversationSummary",
+        lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+    monkeypatch.setattr(
+        "src.core.admin_ops.application.metrics.collector.MetricsCollector", _MetricsCollector
+    )
+
+    response = await _query_stream_impl(
+        http_request=_http_request(),
+        request=QueryRequest(
+            query="Explain the alerting setup",
+            options=QueryOptions(model="test"),
+            conversation_id="conversation-1",
+        ),
+    )
+    chunks = [chunk async for chunk in response.body_iterator]
+    payload = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+
+    saved_summary = factory.sessions[1].added[0]
+    assert saved_summary.summary == "Grounded answer"
+    assert saved_summary.metadata_["sources"] == [source]
+    assert saved_summary.metadata_["history"][-1]["sources"] == [source]
+    assert recorded_metrics[0].sources_cited == 1
+    assert payload.index("event: sources") < payload.index("event: token")
+
+
+@pytest.mark.asyncio
+async def test_agent_same_tenant_other_user_is_not_sticky_or_mutated(monkeypatch):
+    foreign_summary = SimpleNamespace(
+        id="conversation-1",
+        tenant_id="tenant-a",
+        user_id="user-b",
+        metadata_={"mode": "agent", "history": [{"query": "old", "answer": "private"}]},
+    )
+    factory = _TrackingSessionMaker(summaries_by_session={1: foreign_summary, 2: foreign_summary})
+    generation = _PreparedGenerationService(())
+    _patch_common(monkeypatch, factory, generation)
+    monkeypatch.setattr(
+        "sqlalchemy.orm.attributes.flag_modified",
+        lambda *_args: pytest.fail("foreign summary mutated"),
+    )
+
+    request = QueryRequest(
+        query="Continue the earlier conversation",
+        options=QueryOptions(model="test"),
+        conversation_id="conversation-1",
+    )
+    phase = await _prepare_stream_phase(
+        _http_request(), request, get_request_rls_context(_http_request())
+    )
+    assert phase.agent_mode is False
+    assert request.options.agent_mode is False
+
+    persisted = await _persist_agent_conversation(
+        rls_context=get_request_rls_context(_http_request()),
+        conversation_id="conversation-1",
+        tenant_id="tenant-a",
+        user_id="user-a",
+        query="Continue the earlier conversation",
+        answer="Should not be written",
+        sources=[],
+        tools_used=[],
+    )
+    assert persisted is False
+    assert factory.sessions[1].added == []
+    assert foreign_summary.metadata_ == {
+        "mode": "agent",
+        "history": [{"query": "old", "answer": "private"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_same_user_conversation_is_updated(monkeypatch):
+    summary = SimpleNamespace(
+        id="conversation-1",
+        tenant_id="tenant-a",
+        user_id="user-a",
+        metadata_={"mode": "agent", "history": []},
+    )
+    factory = _TrackingSessionMaker(summaries_by_session={1: summary, 2: summary})
+    generation = _PreparedGenerationService(())
+    _patch_common(monkeypatch, factory, generation)
+    monkeypatch.setattr("sqlalchemy.orm.attributes.flag_modified", lambda *_args: None)
+
+    request = QueryRequest(
+        query="Continue the earlier conversation",
+        options=QueryOptions(model="test"),
+        conversation_id="conversation-1",
+    )
+    phase = await _prepare_stream_phase(
+        _http_request(), request, get_request_rls_context(_http_request())
+    )
+    assert phase.agent_mode is True
+    assert request.options.agent_mode is True
+
+    persisted = await _persist_agent_conversation(
+        rls_context=get_request_rls_context(_http_request()),
+        conversation_id="conversation-1",
+        tenant_id="tenant-a",
+        user_id="user-a",
+        query="Continue the earlier conversation",
+        answer="Valid answer",
+        sources=[{"document_id": "document-1"}],
+        tools_used=["retrieve_context"],
+    )
+
+    assert persisted is True
+    assert factory.sessions[1].added == [summary]
+    assert summary.metadata_["answer"] == "Valid answer"

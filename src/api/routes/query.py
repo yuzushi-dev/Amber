@@ -626,7 +626,9 @@ async def _persist_agent_conversation(
 
         async with request_rls_session(rls_context) as session:
             existing_summary = await session.get(ConversationSummary, conversation_id)
-            if existing_summary and existing_summary.tenant_id != tenant_id:
+            if existing_summary and (
+                existing_summary.tenant_id != tenant_id or existing_summary.user_id != user_id
+            ):
                 logger.warning("Skipping foreign agent conversation persistence: %s", conversation_id)
                 return False
 
@@ -715,8 +717,11 @@ async def _prepare_stream_phase(
                 existing_conv = await session.get(ConversationSummary, request.conversation_id)
                 if existing_conv and existing_conv.metadata_:
                     # Ownership check: only allow sticky switch for caller's own conversation
-                    if existing_conv.tenant_id != tenant_id:
-                        existing_conv = None  # ignore foreign-tenant conversations
+                    if (
+                        existing_conv.tenant_id != tenant_id
+                        or existing_conv.user_id != stream_user_id
+                    ):
+                        existing_conv = None  # ignore foreign conversations
                 if existing_conv and existing_conv.metadata_:
                     mode = existing_conv.metadata_.get("mode")
                     if mode == "agent":
@@ -1066,10 +1071,25 @@ async def _query_stream_impl(
             stream_model = ""
             stream_provider = ""
             stream_start_time = time.perf_counter()
+
+            def process_stream_event(event_dict: dict[str, Any]) -> tuple[str, Any]:
+                nonlocal collected_sources, full_answer, stream_model, stream_provider
+
+                event = event_dict.get("event", "message")
+                data = event_dict.get("data", "")
+                if event == "token":
+                    full_answer += str(data)
+                elif event == "sources":
+                    collected_sources = data
+                elif event == "done" and isinstance(data, dict):
+                    stream_model = data.get("model", "")
+                    stream_provider = data.get("provider", "")
+                return event, data
+
             if phase.prepared_generation is not None:
                 for event_dict in phase.prepared_generation.prelude_events:
-                    data_str = json.dumps(event_dict.get("data", ""))
-                    yield f"event: {event_dict.get('event', 'message')}\ndata: {data_str}\n\n"
+                    event, data = process_stream_event(event_dict)
+                    yield f"event: {event}\ndata: {json.dumps(data)}\n\n"
                 event_iterator = phase.generation_service.stream_prepared(
                     phase.prepared_generation
                 )
@@ -1086,15 +1106,7 @@ async def _query_stream_impl(
                 )
 
             async for event_dict in event_iterator:
-                event = event_dict.get("event", "message")
-                data = event_dict.get("data", "")
-                if event == "token":
-                    full_answer += str(data)
-                elif event == "sources":
-                    collected_sources = data
-                elif event == "done" and isinstance(data, dict):
-                    stream_model = data.get("model", "")
-                    stream_provider = data.get("provider", "")
+                event, data = process_stream_event(event_dict)
                 yield f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
             full_answer = phase.generation_service._normalize_citations(full_answer)
