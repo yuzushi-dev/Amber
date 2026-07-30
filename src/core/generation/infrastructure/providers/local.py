@@ -19,6 +19,7 @@ from src.core.generation.infrastructure.providers.base import (
     RerankResult,
     TokenUsage,
 )
+from src.shared.h4_ml_runtime import validated_h4_runtime_root
 from src.shared.model_registry import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_RERANKER_MODEL,
@@ -132,7 +133,8 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
             ) from e
 
 
-_flashrank_ranker_cache: dict[str, Any] = {}
+_flashrank_ranker_cache: dict[tuple[str, str | None], Any] = {}
+
 
 class FlashRankReranker(BaseRerankerProvider):
     """
@@ -152,15 +154,21 @@ class FlashRankReranker(BaseRerankerProvider):
     def _load_ranker(self, model_name: str):
         """Lazily load FlashRank ranker and cache globally."""
         global _flashrank_ranker_cache
-        if model_name in _flashrank_ranker_cache:
-            return _flashrank_ranker_cache[model_name]
+        runtime_root = validated_h4_runtime_root()
+        runtime_key = str(runtime_root) if runtime_root is not None else None
+        cache_key = (model_name, runtime_key)
+        if cache_key in _flashrank_ranker_cache:
+            return _flashrank_ranker_cache[cache_key]
 
         try:
             from flashrank import Ranker
 
             logger.info(f"Loading FlashRank reranker: {model_name} (Global Cache)")
-            ranker = Ranker(model_name=model_name)
-            _flashrank_ranker_cache[model_name] = ranker
+            ranker_options = {"model_name": model_name}
+            if runtime_root is not None:
+                ranker_options["cache_dir"] = str(runtime_root / "flashrank-cache")
+            ranker = Ranker(**ranker_options)
+            _flashrank_ranker_cache[cache_key] = ranker
             return ranker
 
         except ImportError as e:

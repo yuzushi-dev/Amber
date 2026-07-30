@@ -1,9 +1,9 @@
 """Contract tests for the immutable, CPU-only H4 ML artifact."""
 
-from pathlib import Path
 import json
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +16,6 @@ from src.shared.ml_runtime_artifact import (
     validate_preload_validation_proof,
     validate_requirements_lock,
 )
-
 
 VALID_SHA256 = "a" * 64
 
@@ -48,7 +47,9 @@ def test_rejects_unpinned_or_unhashed_requirement():
         f"flashrank==0.2.10 --hash=sha256:{VALID_SHA256}", "flashrank>=0.2.10"
     )
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "flashrank must use an exact == pin" in errors
     assert "flashrank must include at least one sha256 hash" in errors
@@ -60,14 +61,18 @@ def test_rejects_torch_without_cpu_wheel_pin_and_index():
         "",
     )
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "torch must use an explicit +cpu wheel build" in errors
     assert "torch requires the PyTorch CPU wheel index" in errors
 
 
 def test_rejects_non_container_abi():
-    errors = validate_requirements_lock(VALID_LOCK, ArtifactProfile("3.12", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        VALID_LOCK, ArtifactProfile("3.12", "Linux", "x86_64")
+    ).errors
 
     assert errors == ["artifact requires CPython 3.11 on Linux x86_64"]
 
@@ -75,7 +80,9 @@ def test_rejects_non_container_abi():
 def test_rejects_unhashed_transitive_requirement():
     invalid_lock = f"{VALID_LOCK}filelock==3.20.0\n"
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "filelock must include at least one sha256 hash" in errors
 
@@ -83,7 +90,9 @@ def test_rejects_unhashed_transitive_requirement():
 def test_rejects_non_exact_or_invalidly_hashed_transitive_requirement():
     invalid_lock = f"{VALID_LOCK}filelock>=3 --hash=sha256:not-a-sha256\n"
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "filelock must use an exact == pin" in errors
     assert "filelock must include a valid sha256 hash" in errors
@@ -91,11 +100,12 @@ def test_rejects_non_exact_or_invalidly_hashed_transitive_requirement():
 
 def test_rejects_a_transitive_requirement_with_any_malformed_sha256_hash():
     invalid_lock = (
-        f"{VALID_LOCK}filelock==3.20.0 --hash=sha256:{VALID_SHA256} "
-        "--hash=sha256:not-a-sha256\n"
+        f"{VALID_LOCK}filelock==3.20.0 --hash=sha256:{VALID_SHA256} --hash=sha256:not-a-sha256\n"
     )
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "filelock must include a valid sha256 hash" in errors
 
@@ -106,7 +116,9 @@ def test_rejects_any_non_exact_declaration_even_if_the_package_is_pinned_later()
         f"filelock==3.20.0 --hash=sha256:{VALID_SHA256}\n"
     )
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert "filelock must use an exact == pin" in errors
 
@@ -136,16 +148,16 @@ def test_accepts_hashes_on_pip_continuation_lines():
 def test_accepts_numpy_2_for_the_2026_torch_2_13_cpu_wheel():
     compatible_lock = f"{VALID_LOCK}numpy==2.4.4 --hash=sha256:{VALID_SHA256}\n"
 
-    errors = validate_requirements_lock(compatible_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(
+        compatible_lock, ArtifactProfile("3.11", "Linux", "x86_64")
+    ).errors
 
     assert errors == []
 
 
 def test_repository_lock_satisfies_the_cpu_artifact_contract():
     root = Path(__file__).parents[2]
-    lock_text = (root / "requirements-ml-h4-cpu.in").read_text() + "\n" + (
-        root / "requirements-ml-h4-cpu.lock"
-    ).read_text()
+    lock_text = (root / "requirements-ml-h4-cpu.lock").read_text()
 
     result = validate_requirements_lock(lock_text, ArtifactProfile("3.11", "Linux", "x86_64"))
 
@@ -156,7 +168,9 @@ def test_repository_lock_satisfies_the_cpu_artifact_contract():
 
 
 def test_nomic_only_policy_rejects_baai_and_sentence_transformers_cache_paths():
-    forbidden_lock = f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:{VALID_SHA256}\n# BAAI/bge-m3\n"
+    forbidden_lock = (
+        f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:{VALID_SHA256}\n# BAAI/bge-m3\n"
+    )
 
     errors = validate_nomic_policy(
         forbidden_lock,
@@ -315,7 +329,9 @@ def test_staged_model_manifest_is_fsynced_before_exclusive_publication(tmp_path,
     staged.write_text('{"flashrank": {}}\n')
     fsync_calls: list[int] = []
 
-    monkeypatch.setattr(ml_runtime_artifact.os, "fsync", lambda descriptor: fsync_calls.append(descriptor))
+    monkeypatch.setattr(
+        ml_runtime_artifact.os, "fsync", lambda descriptor: fsync_calls.append(descriptor)
+    )
 
     publish_staged_model_manifest(staged, target)
 
@@ -327,11 +343,13 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
-    assert "ambermirror_pip-packages-h4-cpu-nomic-20260730" in script
+    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84" in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
     assert "amber.h4.strategy" in script
     assert "amber.h4.source" in script
+    assert "amber.h4.source-ref" in script
+    assert 'CANDIDATE_SOURCE_REF="12127b84"' in script
     assert "--require-hashes" in script
     assert "--no-index" in script
     assert "--read-only" in script
@@ -350,7 +368,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "--authorize-preload" in script
     assert "--network none" in script
     assert "dst=/app/.packages,readonly" in script
-    assert "packages_root.rglob(\"*\")" in script
+    assert 'packages_root.rglob("*")' in script
     assert "HF_HUB_OFFLINE=1" in script
     assert "TRANSFORMERS_OFFLINE=1" in script
     assert "HF_DATASETS_OFFLINE=1" in script
@@ -359,11 +377,36 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "validate_preload_validation_proof" in script
     assert "torch.cuda.is_available() is False" in script
     assert "torch.version.cuda is None" in script
-    assert 'run_post_preload_validation "$staged_models"\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof' in script
+    assert (
+        'run_post_preload_validation "$staged_models"\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof'
+        in script
+    )
     assert "publish_preload_validation_proof" in script
     assert "assert not target.exists()" not in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
+
+
+def test_builder_installs_and_validates_the_standalone_lock():
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+
+    assert "TORCH_CPU_FIND_LINK" not in script
+    assert 'Path(sys.argv[1]).read_text() + "\\n" + Path(sys.argv[2]).read_text()' not in script
+    assert 'python3 - "$requirements_lock"' in script
+    assert "--index-url https://pypi.org/simple" not in script
+    assert '--find-links "\'"' not in script
+
+
+def test_canary_uses_a_separate_read_only_h4_overlay():
+    root = Path(__file__).parents[2]
+    canary = (root / "deploy/docker-compose.canary.yml").read_text()
+
+    assert "AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4" in canary
+    assert "PYTHONPATH=/app/.packages-h4:/app:/app/src:/app/.packages" in canary
+    assert canary.count("h4-ml-runtime:/app/.packages-h4:ro") == 2
+    assert "H4_ML_RUNTIME_VOLUME" in canary
+    assert "h4-ml-runtime:" in canary
 
 
 def test_builder_enforces_a_local_docker_socket_before_candidate_access():
@@ -376,8 +419,10 @@ def test_builder_enforces_a_local_docker_socket_before_candidate_access():
     assert guard_invocation < first_candidate_access
     assert '[[ -z "${DOCKER_HOST:-}" ]]' in script
     assert '[[ "${DOCKER_CONTEXT:-default}" == "default" ]]' in script
-    assert '[[ -S /var/run/docker.sock ]]' in script
-    assert 'env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock' in script
+    assert "[[ -S /var/run/docker.sock ]]" in script
+    assert (
+        "env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock" in script
+    )
 
 
 def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
@@ -386,7 +431,7 @@ def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
     environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
 
     result = subprocess.run(
-        [str(script), "install", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-20260730"],
+        [str(script), "install", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-12127b84"],
         capture_output=True,
         check=False,
         env=environment,
@@ -449,7 +494,7 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
     script = root / "scripts/h4_ml_runtime_candidate.sh"
 
     result = subprocess.run(
-        [str(script), "preload", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-20260730"],
+        [str(script), "preload", "--volume", "ambermirror_pip-packages-h4-cpu-nomic-12127b84"],
         capture_output=True,
         check=False,
         text=True,

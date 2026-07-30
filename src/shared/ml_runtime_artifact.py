@@ -1,14 +1,13 @@
 """Static validation for the immutable H4 ML runtime artifact."""
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
-from typing import TextIO
-
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TextIO, cast
 
 _REQUIRED_MINIMUMS = {
     "torch": (2, 13),
@@ -140,7 +139,7 @@ def publish_preload_validation_proof(
                 json.dump(proof, temporary_file, indent=2, sort_keys=True)
                 temporary_file.write("\n")
             else:
-                write_payload(temporary_file)
+                write_payload(cast(TextIO, temporary_file.file))
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
 
@@ -264,35 +263,33 @@ def validate_preload_validation_proof(
         if not isinstance(storage, Mapping):
             errors.append("post-preload validation storage evidence is missing")
         else:
-            storage_values = {
-                key: storage.get(key)
-                for key in (
-                    "preflight_free_bytes",
-                    "baseline_free_bytes",
-                    "postflight_free_bytes",
-                    "postflight_growth_bytes",
-                )
-            }
-            byte_values = (
-                storage_values["preflight_free_bytes"],
-                storage_values["baseline_free_bytes"],
-                storage_values["postflight_free_bytes"],
-            )
-            if (
-                not all(isinstance(value, int) and value >= 0 for value in byte_values)
-                or not isinstance(storage_values["postflight_growth_bytes"], int)
+            preflight_free = storage.get("preflight_free_bytes")
+            baseline_free = storage.get("baseline_free_bytes")
+            postflight_free = storage.get("postflight_free_bytes")
+            postflight_growth = storage.get("postflight_growth_bytes")
+            if not (
+                isinstance(preflight_free, int)
+                and preflight_free >= 0
+                and isinstance(baseline_free, int)
+                and baseline_free >= 0
+                and isinstance(postflight_free, int)
+                and postflight_free >= 0
+                and isinstance(postflight_growth, int)
             ):
                 errors.append("post-preload validation storage evidence is invalid")
             else:
-                if storage_values["postflight_free_bytes"] < _MIN_FREE_BYTES:
+                if postflight_free < _MIN_FREE_BYTES:
                     errors.append("post-preload validation storage floor failed")
-                if storage_values["postflight_growth_bytes"] > _PEAK_BUDGET_BYTES:
+                if postflight_growth > _PEAK_BUDGET_BYTES:
                     errors.append("post-preload validation storage budget exceeded")
 
     first_use = proof.get("first_use")
     if not isinstance(first_use, Mapping):
         first_use = {}
-    if not isinstance(first_use.get("splade_sparse_terms"), int) or first_use["splade_sparse_terms"] <= 0:
+    if (
+        not isinstance(first_use.get("splade_sparse_terms"), int)
+        or first_use["splade_sparse_terms"] <= 0
+    ):
         errors.append("offline SPLADE first-use validation did not produce sparse terms")
     if first_use.get("flashrank_results") != 2:
         errors.append("offline FlashRank first-use validation did not return two results")

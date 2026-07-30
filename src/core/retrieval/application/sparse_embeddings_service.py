@@ -9,6 +9,12 @@ Uses a Masked Language Model to generate token weights.
 import logging
 import threading
 
+from src.shared.h4_ml_runtime import (
+    SPLADE_MODEL,
+    SPLADE_REVISION,
+    validated_h4_runtime_root,
+)
+
 try:
     import torch
     from transformers import AutoModelForMaskedLM, AutoTokenizer
@@ -27,10 +33,11 @@ class SparseEmbeddingService:
     """
 
     # Lightweight SPLADE model
-    DEFAULT_MODEL = "naver/splade-cocondenser-ensembledistil"
+    DEFAULT_MODEL = SPLADE_MODEL
     _shared_lock = threading.Lock()
     _shared_model_name: str | None = None
     _shared_device: str | None = None
+    _shared_runtime_root: str | None = None
     _shared_tokenizer = None
     _shared_model = None
 
@@ -56,11 +63,14 @@ class SparseEmbeddingService:
             raise ImportError("torch and transformers are required for SparseEmbeddingService")
 
         cls = type(self)
+        runtime_root = validated_h4_runtime_root()
+        runtime_key = str(runtime_root) if runtime_root is not None else None
         if (
             cls._shared_model is not None
             and cls._shared_tokenizer is not None
             and cls._shared_model_name == self.model_name
             and cls._shared_device == self._device
+            and cls._shared_runtime_root == runtime_key
         ):
             self._tokenizer = cls._shared_tokenizer
             self._model = cls._shared_model
@@ -72,6 +82,7 @@ class SparseEmbeddingService:
                 and cls._shared_tokenizer is not None
                 and cls._shared_model_name == self.model_name
                 and cls._shared_device == self._device
+                and cls._shared_runtime_root == runtime_key
             ):
                 self._tokenizer = cls._shared_tokenizer
                 self._model = cls._shared_model
@@ -79,8 +90,20 @@ class SparseEmbeddingService:
 
             logger.info(f"Loading SPLADE model: {self.model_name} on {self._device}")
             try:
-                tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                model = AutoModelForMaskedLM.from_pretrained(self.model_name)
+                load_options = {}
+                if runtime_root is not None:
+                    if self.model_name != self.DEFAULT_MODEL:
+                        raise RuntimeError(
+                            "H4 ML runtime only supports the pinned default SPLADE model"
+                        )
+                    load_options = {
+                        "revision": SPLADE_REVISION,
+                        "trust_remote_code": False,
+                        "local_files_only": True,
+                        "cache_dir": str(runtime_root / "hf-cache" / "hub"),
+                    }
+                tokenizer = AutoTokenizer.from_pretrained(self.model_name, **load_options)
+                model = AutoModelForMaskedLM.from_pretrained(self.model_name, **load_options)
                 model.to(self._device)
                 model.eval()
 
@@ -88,6 +111,7 @@ class SparseEmbeddingService:
                 cls._shared_model = model
                 cls._shared_model_name = self.model_name
                 cls._shared_device = self._device
+                cls._shared_runtime_root = runtime_key
 
                 self._tokenizer = tokenizer
                 self._model = model

@@ -13,15 +13,15 @@ The current local candidate is strictly for CPU sparse retrieval and reranking:
 - FlashRank reranking: `ms-marco-MiniLM-L-12-v2`;
 - Nomic: remote Ollama configuration contract only.
 
-It does not start a service, mount an H3/legacy package volume, access a
-datastore, create or migrate a collection, ingest content, reindex data, route
-traffic, or use a GPU. The previous H4 candidate remains audit-only and is not
-mounted, cleared, relabeled, or deleted by this procedure.
+It does not start a service, alter or copy an H3/legacy package volume, access
+a datastore, create or migrate a collection, ingest content, reindex data,
+route traffic, or use a GPU. The previous H4 candidate remains audit-only and
+is not mounted, cleared, relabeled, or deleted by this procedure.
 
 ## Candidate and storage guard
 
 The single active candidate is
-`ambermirror_pip-packages-h4-cpu-nomic-20260730`.
+`ambermirror_pip-packages-h4-cpu-nomic-12127b84`.
 
 | Label | Value |
 | --- | --- |
@@ -30,7 +30,7 @@ The single active candidate is
 | `amber.h4.strategy` | `nomic-ollama-remote` |
 | `amber.h4.source` | `clean` |
 | `amber.h4.created` | `2026-07-30` |
-| `amber.h4.source-ref` | `08d7a60a` |
+| `amber.h4.source-ref` | `12127b84` |
 | `amber.h4.disposal` | `direct-user-approval-required` |
 
 The candidate name was proven absent before creation. It is never to be
@@ -56,7 +56,7 @@ PyPI is the sole package index; the official CPU Torch find-link is
 | File | SHA-256 |
 | --- | --- |
 | `requirements-ml-h4-cpu.in` | `d05e423a467abd4f25034a8f591e1c889edb3cb74136f8fcd241a56256b527b5` |
-| `requirements-ml-h4-cpu.lock` | `9cd303586d8bee32848f14457d28cdb46278df1acbde5ee04f1c2156e8f48456` |
+| `requirements-ml-h4-cpu.lock` | `660f9a353d5f25e3f51cb349316dda465561d37059da7da5dc5159feb0de7917` |
 
 Direct versions are:
 
@@ -68,7 +68,9 @@ Direct versions are:
 | ONNX | `1.22.0` | PyPI, SHA-256 in lock |
 | FlashRank | `0.2.10` | PyPI, SHA-256 in lock |
 
-The lock contains 43 exact, hash-verified packages: six fewer than the
+The standalone lock contains the PyPI index and official CPU Torch find-link,
+so installation and validation never reconstruct source directives from the
+input file or shell arguments. It contains 43 exact, hash-verified packages: six fewer than the
 abandoned candidate. It excludes the dense-local stack and its
 SciPy/scikit-learn transitive packages. ONNX 1.22 selects NumPy 2.4.6 through
 its current `ml-dtypes` dependency. The Torch wheel hash is explicit in both
@@ -86,9 +88,9 @@ any dynamic installer.
 ```bash
 rtk python3 -m pytest -q tests/security/test_h4_ml_runtime_artifact.py
 rtk scripts/h4_ml_runtime_candidate.sh install \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-20260730
+  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84
 rtk scripts/h4_ml_runtime_candidate.sh preload \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-20260730 \
+  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84 \
   --authorize-preload
 ```
 
@@ -148,6 +150,25 @@ The Nomic check is configuration only: a future deployment may
 validate the configured remote Ollama endpoint/model through a read-only
 health/configuration contract, but this H4 candidate never contacts it.
 
+## Canary overlay
+
+The canary Compose file keeps the H3 feature volume mounted at
+`/app/.packages` and mounts the validated H4 candidate separately and
+read-only at `/app/.packages-h4`. Set
+`H4_ML_RUNTIME_VOLUME=ambermirror_pip-packages-h4-cpu-nomic-12127b84`;
+API and worker then receive:
+
+- `AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4`;
+- H4 before H3 on `PYTHONPATH`, without replacing or copying either volume;
+- the pinned SPLADE revision with `local_files_only=True` and
+  `hf-cache/hub`;
+- the validated FlashRank cache directory.
+
+When H4 is enabled, missing proof/manifests/cache directories fail closed.
+Before starting services, test the actual API and worker application
+components in non-service containers with both volumes mounted read-only and
+`--network none`.
+
 ## Release gates and rollback
 
 No Dependabot alert is closed by this work. H3 must be merged and `main`
@@ -158,8 +179,8 @@ For any future production decision:
 1. Perform a read-only GPU probe for NVIDIA driver, runtime/toolkit, visible
    devices, memory, and Torch/CUDA ABI. This CPU candidate supplies no GPU
    evidence.
-2. Preserve the normal H3 image and clean H3 package volume as rollback. Do
-   not mount an H3/legacy volume into H4.
+2. Preserve the normal H3 image and clean H3 package volume as rollback. H4 is
+   a separate read-only overlay; never copy, mutate, or replace the H3 volume.
 3. Require direct user approval for an H4 API/worker startup, any traffic
    change, collection work, ingestion, model configuration change, or
    candidate disposal.

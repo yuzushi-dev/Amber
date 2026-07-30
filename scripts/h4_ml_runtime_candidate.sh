@@ -3,16 +3,16 @@
 
 set -euo pipefail
 
-readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-20260730"
+readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-12127b84"
 readonly CANDIDATE_ROLE="ml-runtime-candidate"
 readonly CANDIDATE_PROFILE="cpu"
 readonly CANDIDATE_STRATEGY="nomic-ollama-remote"
 readonly CANDIDATE_SOURCE="clean"
+readonly CANDIDATE_SOURCE_REF="12127b84"
 readonly MIN_FREE_BYTES=21474836480
 readonly PEAK_BUDGET_BYTES=4294967296
 readonly REQUIRED_PREFLIGHT_FREE_BYTES=25769803776
 readonly PYTHON_IMAGE="python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93"
-readonly TORCH_CPU_FIND_LINK="https://download-r2.pytorch.org/whl/cpu/torch/"
 readonly H4_RUN_LOCK_PATH="/tmp/amber-h4-ml-runtime-candidate.lock"
 
 PRECHECK_FREE_BYTES=""
@@ -22,7 +22,6 @@ VALIDATION_PROOF=""
 H4_RUN_LOCK_FD=""
 
 root_dir="$(cd "$(dirname "$BASH_SOURCE")/.." && pwd)"
-requirements_input="$root_dir/requirements-ml-h4-cpu.in"
 requirements_lock="$root_dir/requirements-ml-h4-cpu.lock"
 
 die() {
@@ -373,19 +372,22 @@ role="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.role" }
 profile="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.profile" }}' "$volume")"
 strategy="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.strategy" }}' "$volume")"
 source="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.source" }}' "$volume")"
+source_ref="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.source-ref" }}' "$volume")"
 [[ "$role" == "$CANDIDATE_ROLE" ]] || die "candidate role label is not $CANDIDATE_ROLE"
 [[ "$profile" == "$CANDIDATE_PROFILE" ]] || die "candidate profile label is not $CANDIDATE_PROFILE"
 [[ "$strategy" == "$CANDIDATE_STRATEGY" ]] || die "candidate strategy label is not $CANDIDATE_STRATEGY"
 [[ "$source" == "$CANDIDATE_SOURCE" ]] || die "candidate source label is not $CANDIDATE_SOURCE"
+[[ "$source_ref" == "$CANDIDATE_SOURCE_REF" ]] \
+    || die "candidate source-ref label is not $CANDIDATE_SOURCE_REF"
 check_preflight_space "$phase"
 
-PYTHONPATH="$root_dir" python3 - "$requirements_input" "$requirements_lock" <<'PY'
+PYTHONPATH="$root_dir" python3 - "$requirements_lock" <<'PY'
 from pathlib import Path
 import sys
 
 from src.shared.ml_runtime_artifact import ArtifactProfile, validate_requirements_lock
 
-lock_text = Path(sys.argv[1]).read_text() + "\n" + Path(sys.argv[2]).read_text()
+lock_text = Path(sys.argv[1]).read_text()
 result = validate_requirements_lock(lock_text, ArtifactProfile("3.11", "Linux", "x86_64"))
 if result.errors:
     raise SystemExit("invalid H4 Nomic artifact lock: " + "; ".join(result.errors))
@@ -442,8 +444,6 @@ if [[ "$phase" == "install" ]]; then
             if [ "$H4_WHEELHOUSE_MODE" = fresh ]; then
                 python -m pip download --isolated --only-binary=:all: --require-hashes \
                     --dest /artifact/.h4-wheelhouse \
-                    --index-url https://pypi.org/simple \
-                    --find-links "'"$TORCH_CPU_FIND_LINK"'" \
                     -r /workspace/requirements-ml-h4-cpu.lock \
                     > "$download_log" 2>&1 || {
                         tail -n 80 "$download_log" >&2

@@ -30,7 +30,8 @@ services:
       # All ${VAR} expressions are expanded from .env in the project root.
       - API_HOST=${API_HOST:-0.0.0.0}
       - API_PORT=8000
-      - PYTHONPATH=/app:/app/src:/app/.packages
+      - PYTHONPATH=/app/.packages-h4:/app:/app/src:/app/.packages
+      - AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY}
       - TENANT_ID=${TENANT_ID:-default}
@@ -77,6 +78,7 @@ services:
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
+      - h4-ml-runtime:/app/.packages-h4:ro
       - ./.cache/huggingface:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
@@ -125,7 +127,8 @@ services:
       - TENANT_ID=${TENANT_ID:-default}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      - PYTHONPATH=/app:/app/src:/app/.packages
+      - PYTHONPATH=/app/.packages-h4:/app:/app/src:/app/.packages
+      - AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4
       - DATABASE_URL=postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
       - REDIS_URL=redis://redis:6379/0
       - NEO4J_URI=bolt://neo4j:7687
@@ -158,6 +161,7 @@ services:
       - ./alembic:/app/alembic:ro
       - graphrag-uploads:/app/uploads
       - pip-packages:/app/.packages
+      - h4-ml-runtime:/app/.packages-h4:ro
       - ./.cache/huggingface:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
@@ -188,6 +192,9 @@ volumes:
   pip-packages:
     external: true
     name: ${PIP_PACKAGES_ACTIVE_VOLUME:-amber2_pip-packages-h3}
+  h4-ml-runtime:
+    external: true
+    name: ${H4_ML_RUNTIME_VOLUME:?H4_ML_RUNTIME_VOLUME must name a validated H4 candidate}
   # Preserves an explicit, inactive rollback reference when the canary overlay
   # is used independently. The live H3 path never mounts the legacy volume.
   pip-packages-rollback:
