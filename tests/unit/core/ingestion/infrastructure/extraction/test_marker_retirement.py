@@ -19,10 +19,24 @@ def test_setup_wizard_does_not_offer_retired_marker_ocr():
     )
 
 
+def test_h3_keeps_h4_local_embedding_dependencies_outside_parser_scope():
+    local_embeddings = OPTIONAL_FEATURES["local_embeddings"].packages
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text().lower()
+
+    assert "torch" in local_embeddings
+    assert any(package.startswith("transformers") for package in local_embeddings)
+    assert "sentence-transformers>=2.7.0" in requirements
+    assert "transformers==4.40.1" in requirements
+
+
 @pytest.mark.parametrize("setting", ("marker_enabled", "hybrid_ocr_enabled"))
 def test_retired_marker_settings_fail_explicitly(setting: str):
     with pytest.raises(ValueError, match="Marker OCR support has been retired"):
         ExtractionSettings(**{setting: True})
+
+
+def test_unused_legacy_ocr_density_threshold_is_not_a_runtime_setting():
+    assert "ocr_text_density_threshold" not in ExtractionSettings.model_fields
 
 
 def test_admin_configuration_does_not_offer_retired_hybrid_ocr():
@@ -38,3 +52,12 @@ def test_admin_configuration_does_not_offer_retired_hybrid_ocr():
         assert retired_setting not in tenant_defaults
         assert retired_setting not in frontend_types
         assert retired_setting not in api_docs
+
+
+def test_active_parser_docs_do_not_describe_retired_marker_fallbacks():
+    readme = (PROJECT_ROOT / "README.md").read_text().lower()
+    internals = (PROJECT_ROOT / "docs" / "INTERNALS.md").read_text().lower()
+
+    assert "marker-pdf" not in readme
+    assert "marker-pdf" not in internals
+    assert "marker_pdf.convert" not in internals

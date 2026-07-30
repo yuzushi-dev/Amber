@@ -50,7 +50,6 @@ class ExtractionSettings(BaseSettings):
 
     # OCR Settings
     mistral_ocr_enabled: bool = False
-    ocr_text_density_threshold: int = 50  # Character count threshold for triggering OCR
 
     # Quality actions
     # Default OFF: when True, low-quality extractions stop at NEEDS_REVIEW, but no

@@ -629,4 +629,15 @@ volumes:
   graphrag-garage-meta:
   graphrag-milvus:
   graphrag-uploads:
+  # H3 parser-stack rollout: the legacy package volume can shadow the patched
+  # image, so the active target is deliberately a fresh, externally prepared
+  # versioned volume. Compose must fail before starting services if it has not
+  # been prepared with scripts/prepare_h3_pip_packages_volume.sh.
   pip-packages:
+    external: true
+    name: ${PIP_PACKAGES_ACTIVE_VOLUME:-amber2_pip-packages-h3}
+  # Kept external and inactive as a rollback reference. Never mount or copy it
+  # into the H3 target; see docs/H3_PARSER_STACK_ROLLOUT.md.
+  pip-packages-rollback:
+    external: true
+    name: ${PIP_PACKAGES_ROLLBACK_VOLUME:-amber2_pip-packages}

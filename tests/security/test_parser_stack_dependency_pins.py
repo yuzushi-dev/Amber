@@ -7,7 +7,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SECURITY_FLOORS = {"pillow": (12, 3, 0), "pi-heif": (1, 3, 0)}
-RETIRED_LOCK_PACKAGES = {"marker-pdf", "surya-ocr", "torch", "transformers"}
+RETIRED_PARSER_LOCK_PACKAGES = {"marker-pdf", "surya-ocr"}
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -29,12 +29,12 @@ def test_lock_resolves_patched_native_parser_dependency(package: str):
     )
 
 
-def test_lock_retired_marker_stack_is_absent():
+def test_lock_retired_parser_stack_is_absent_without_claiming_h4_optional_dependencies():
     locked_packages = _locked_package_versions()
     retired_packages = {
         package
         for package in locked_packages
-        if package in RETIRED_LOCK_PACKAGES or package.startswith("nvidia-")
+        if package in RETIRED_PARSER_LOCK_PACKAGES
     }
     assert not retired_packages, f"retired parser packages remain locked: {retired_packages}"
 
