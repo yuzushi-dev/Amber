@@ -1,10 +1,14 @@
 """Contract tests for the immutable, CPU-only H4 ML artifact."""
 
 from pathlib import Path
+import json
 import subprocess
+
+import pytest
 
 from src.shared.ml_runtime_artifact import (
     ArtifactProfile,
+    publish_preload_validation_proof,
     validate_nomic_policy,
     validate_preload_validation_proof,
     validate_requirements_lock,
@@ -227,6 +231,44 @@ def test_rejects_incomplete_or_non_cpu_post_preload_validation_proof():
     assert "offline FlashRank first-use validation did not return two results" in errors
 
 
+def test_atomic_proof_publication_never_leaves_a_canonical_file_after_write_failure(tmp_path):
+    target = tmp_path / ".h4-preload-validation.json"
+
+    def fail_after_partial_write(handle):
+        handle.write('{"partial":')
+        raise OSError("simulated proof write failure")
+
+    with pytest.raises(OSError, match="simulated proof write failure"):
+        publish_preload_validation_proof(
+            target,
+            {"schema": "h4-preload-validation/v1"},
+            write_payload=fail_after_partial_write,
+        )
+
+    assert not target.exists()
+    assert list(tmp_path.glob(".h4-preload-validation.json.*.tmp")) == []
+
+
+def test_atomic_proof_publication_persists_only_complete_json(tmp_path):
+    target = tmp_path / ".h4-preload-validation.json"
+    proof = {"schema": "h4-preload-validation/v1", "storage": {"postflight": 1}}
+
+    publish_preload_validation_proof(target, proof)
+
+    assert json.loads(target.read_text()) == proof
+    assert list(tmp_path.glob(".h4-preload-validation.json.*.tmp")) == []
+
+
+def test_atomic_proof_publication_does_not_overwrite_an_existing_proof(tmp_path):
+    target = tmp_path / ".h4-preload-validation.json"
+    target.write_text('{"existing": true}\n')
+
+    with pytest.raises(FileExistsError):
+        publish_preload_validation_proof(target, {"schema": "replacement"})
+
+    assert target.read_text() == '{"existing": true}\n'
+
+
 def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
@@ -260,11 +302,12 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "HF_DATASETS_OFFLINE=1" in script
     assert "local_files_only=True" in script
     assert ".h4-preload-validation.json" in script
-    assert "assert not target.exists()" in script
     assert "validate_preload_validation_proof" in script
     assert "torch.cuda.is_available() is False" in script
     assert "torch.version.cuda is None" in script
     assert 'run_post_preload_validation\ncheck_postflight_space "preload" "$baseline_free"\nwrite_post_preload_proof' in script
+    assert "publish_preload_validation_proof" in script
+    assert "assert not target.exists()" not in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
 

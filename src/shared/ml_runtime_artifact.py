@@ -1,8 +1,13 @@
 """Static validation for the immutable H4 ML runtime artifact."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
 import re
-from collections.abc import Mapping
+import tempfile
+from typing import TextIO
 
 
 _REQUIRED_MINIMUMS = {
@@ -107,6 +112,57 @@ def validate_nomic_policy(lock_text: str, cache_paths: tuple[str, ...] = ()) -> 
     if any("sentence-transformers" in path for path in normalized_paths):
         errors.append("H4 Nomic policy forbids sentence-transformers cache paths")
     return errors
+
+
+def publish_preload_validation_proof(
+    target: Path,
+    proof: Mapping[str, object],
+    *,
+    write_payload: Callable[[TextIO], None] | None = None,
+) -> None:
+    """Atomically publish a proof without replacing an existing canonical file."""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f"{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            if write_payload is None:
+                json.dump(proof, temporary_file, indent=2, sort_keys=True)
+                temporary_file.write("\n")
+            else:
+                write_payload(temporary_file)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+
+        os.link(temporary_path, target)
+        _fsync_directory(target.parent)
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+            else:
+                try:
+                    _fsync_directory(target.parent)
+                except OSError:
+                    pass
+
+
+def _fsync_directory(directory: Path) -> None:
+    directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def validate_preload_validation_proof(

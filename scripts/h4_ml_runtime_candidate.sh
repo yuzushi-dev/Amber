@@ -249,7 +249,10 @@ import re
 import sys
 from pathlib import Path
 
-from src.shared.ml_runtime_artifact import validate_preload_validation_proof
+from src.shared.ml_runtime_artifact import (
+    publish_preload_validation_proof,
+    validate_preload_validation_proof,
+)
 
 proof = json.load(sys.stdin)
 lock_path = Path("/artifact/.h4-requirements.lock")
@@ -272,8 +275,7 @@ errors = validate_preload_validation_proof(
 )
 assert not errors, "; ".join(errors)
 target = Path("/artifact/.h4-preload-validation.json")
-assert not target.exists()
-target.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n")
+publish_preload_validation_proof(target, proof)
 '
 }
 

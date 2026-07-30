@@ -117,6 +117,10 @@ first-use download. A successful run persists the canonical proof as
 reads the candidate package tree only as `/app/.packages:ro`, and only a
 separate proof writer may add that single JSON file after the storage postflight succeeds. The proof records durable preflight, baseline, and
 postflight storage values; a failed floor or budget check writes no proof.
+Publication is exclusive and atomic on the candidate filesystem: a fsynced
+temporary file is linked into place only if the canonical path does not yet
+exist, then the directory is fsynced. A failed write can leave only a
+best-effort-cleaned temporary file, never a partial canonical proof.
 The Nomic check is configuration only: a future deployment may
 validate the configured remote Ollama endpoint/model through a read-only
 health/configuration contract, but this H4 candidate never contacts it.
