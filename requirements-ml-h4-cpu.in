@@ -3,9 +3,8 @@
 --index-url https://pypi.org/simple
 --find-links https://download-r2.pytorch.org/whl/cpu/torch/
 
-torch==2.13.0+cpu
-numpy==1.26.4
+torch==2.13.0+cpu --hash=sha256:6746dbcbeb526eb61330b76b41ff1b4eb848951103a892eeb080dfa2b264667b
+numpy==2.4.6
 transformers==5.14.1
 onnx==1.22.0
-sentence-transformers==5.6.1
 flashrank==0.2.10

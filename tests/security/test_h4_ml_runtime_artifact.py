@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
-from src.shared.ml_runtime_artifact import ArtifactProfile, validate_requirements_lock
+from src.shared.ml_runtime_artifact import (
+    ArtifactProfile,
+    validate_nomic_policy,
+    validate_requirements_lock,
+)
 
 
 VALID_LOCK = """\
@@ -12,7 +16,6 @@ VALID_LOCK = """\
 torch==2.13.0+cpu --hash=sha256:torchhash
 transformers==5.5.0 --hash=sha256:transformershash
 onnx==1.22.0 --hash=sha256:onnxhash
-sentence-transformers==5.1.0 --hash=sha256:sentencehash
 flashrank==0.2.10 --hash=sha256:flashrankhash
 """
 
@@ -77,8 +80,6 @@ def test_accepts_hashes_on_pip_continuation_lines():
             "    --hash=sha256:transformershash",
             "onnx==1.22.0 " + chr(92),
             "    --hash=sha256:onnxhash",
-            "sentence-transformers==5.1.0 " + chr(92),
-            "    --hash=sha256:sentencehash",
             "flashrank==0.2.10 " + chr(92),
             "    --hash=sha256:flashrankhash",
         ]
@@ -89,12 +90,12 @@ def test_accepts_hashes_on_pip_continuation_lines():
     assert result.errors == []
 
 
-def test_rejects_numpy_2_for_torch_2_13_abi():
-    invalid_lock = f"{VALID_LOCK}numpy==2.4.4 --hash=sha256:numpyhash\n"
+def test_accepts_numpy_2_for_the_2026_torch_2_13_cpu_wheel():
+    compatible_lock = f"{VALID_LOCK}numpy==2.4.4 --hash=sha256:numpyhash\n"
 
-    errors = validate_requirements_lock(invalid_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
+    errors = validate_requirements_lock(compatible_lock, ArtifactProfile("3.11", "Linux", "x86_64")).errors
 
-    assert "torch 2.13 requires NumPy 1.x for binary ABI compatibility" in errors
+    assert errors == []
 
 
 def test_repository_lock_satisfies_the_cpu_artifact_contract():
@@ -106,16 +107,51 @@ def test_repository_lock_satisfies_the_cpu_artifact_contract():
     result = validate_requirements_lock(lock_text, ArtifactProfile("3.11", "Linux", "x86_64"))
 
     assert result.errors == []
+    assert result.packages["torch"] == "2.13.0+cpu"
+    assert result.packages["numpy"].startswith("2.")
+    assert "sentence-transformers" not in result.packages
+
+
+def test_nomic_only_policy_rejects_baai_and_sentence_transformers_cache_paths():
+    forbidden_lock = f"{VALID_LOCK}sentence-transformers==5.6.1 --hash=sha256:sentencehash\n# BAAI/bge-m3\n"
+
+    errors = validate_nomic_policy(
+        forbidden_lock,
+        cache_paths=(
+            "hf-cache/hub/models--naver--splade-cocondenser-ensembledistil",
+            "hf-cache/sentence-transformers/models--BAAI--bge-m3",
+        ),
+    )
+
+    assert "H4 Nomic policy forbids sentence-transformers" in errors
+    assert "H4 Nomic policy forbids BAAI/bge-m3" in errors
+    assert "H4 Nomic policy forbids BAAI model cache paths" in errors
+
+
+def test_nomic_only_policy_accepts_sparse_and_rerank_caches():
+    errors = validate_nomic_policy(
+        VALID_LOCK,
+        cache_paths=(
+            "hf-cache/hub/models--naver--splade-cocondenser-ensembledistil",
+            "flashrank-cache/ms-marco-MiniLM-L-12-v2",
+        ),
+    )
+
+    assert errors == []
 
 
 def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
-    assert "ambermirror_pip-packages-h4-cpu-20260730" in script
+    assert "ambermirror_pip-packages-h4-cpu-nomic-20260730" in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
+    assert "amber.h4.strategy" in script
+    assert "amber.h4.source" in script
     assert "--require-hashes" in script
     assert "--no-index" in script
+    assert "--read-only" in script
+    assert "--tmpfs /tmp:rw,noexec,nosuid,size=1g" in script
     assert "SetupService" not in script
     assert "amber2_pip-packages" not in script
