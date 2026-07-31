@@ -84,6 +84,21 @@ def test_verify_target_has_ephemeral_tmp_for_imports_in_read_only_container():
     assert "--tmpfs /tmp:rw,noexec,nosuid,size=64m" in verify_body
 
 
+@pytest.mark.parametrize("dockerfile", ["docker/api.Dockerfile", "docker/worker.Dockerfile"])
+def test_runtime_images_create_writable_user_cache_before_switching_user(dockerfile: str):
+    build = (PROJECT_ROOT / dockerfile).read_text()
+    root_build, separator, _ = build.partition("USER appuser")
+
+    assert separator, f"{dockerfile} must switch to appuser"
+    assert (
+        "install -d -o appuser -g appuser "
+        "/home/appuser/.cache /home/appuser/.cache/huggingface" in root_build
+    ), (
+        f"{dockerfile} must own the Hugging Face cache parent before Compose bind-mounts "
+        "its child path; otherwise Kreuzberg silently drops the Tesseract backend"
+    )
+
+
 @pytest.mark.parametrize("feature_id", ["local_embeddings", "reranking", "ragas"])
 def test_optional_ml_features_pin_protobuf_compatible_with_opentelemetry(feature_id: str):
     from src.api.services.setup_service import OPTIONAL_FEATURES
