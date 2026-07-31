@@ -164,6 +164,10 @@ API and worker then receive:
   `hf-cache/hub`;
 - the validated FlashRank cache directory.
 
+`api-canary` starts Uvicorn directly instead of the standard image entrypoint.
+This prevents canary startup from running migrations or `init_resources`
+against the shared backing services. Treat any such startup action as NO-GO.
+
 When H4 is enabled, missing proof/manifests/cache directories fail closed.
 Before starting services, test the actual API and worker application
 components in non-service containers with both volumes mounted read-only and

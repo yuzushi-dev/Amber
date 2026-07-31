@@ -23,6 +23,10 @@ services:
   api-canary:
     image: amber2-api:latest
     container_name: amber2-api-canary-1
+    # Bypass the standard image entrypoint: a canary must not run migrations
+    # or init_resources against the shared backing services.
+    entrypoint: ["/usr/local/bin/uvicorn"]
+    command: ["src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8001:8000"  # Direct host port for pre-cutover smoke testing.
                      # nginx routes :8000 to api-canary when canary is active.

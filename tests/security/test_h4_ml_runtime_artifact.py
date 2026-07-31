@@ -421,6 +421,8 @@ def test_canary_uses_a_separate_read_only_h4_overlay():
     root = Path(__file__).parents[2]
     canary = (root / "deploy/docker-compose.canary.yml").read_text()
 
+    assert 'entrypoint: ["/usr/local/bin/uvicorn"]' in canary
+    assert 'command: ["src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]' in canary
     assert "AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4" in canary
     assert "PYTHONPATH=/app/.packages-h4:/app:/app/src:/app/.packages" in canary
     assert canary.count("h4-ml-runtime:/app/.packages-h4:ro") == 2
