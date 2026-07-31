@@ -43,26 +43,26 @@ Document Ready
 
 **Implementation**: [src/core/ingestion/infrastructure/extraction/](../src/core/ingestion/infrastructure/extraction/)
 
-Multi-parser fallback strategy:
+Configured parser routing strategy:
 
 ```python
-# Priority order:
-1. PyMuPDF4LLM (PDF) - Fast, preserves structure
-2. Marker-PDF (PDF) - Slower, better for complex layouts
-3. Unstructured (PDF, DOCX, HTML) - Universal fallback
-4. Native parsers (Markdown, TXT)
+# PDF route (first enabled local specialist wins):
+1. Docling (PDF) - Structure-preserving Markdown for tables and reading order
+2. Kreuzberg (PDF) - High-performance local extractor
+3. PyMuPDF4LLM (PDF) - Standard local extractor
+4. Unstructured (PDF, DOCX, HTML) - General parser route when no specialist is selected
+5. Native parsers (Markdown, TXT, HTML)
 ```
 
 **PDF Extraction Pipeline**:
 ```python
 async def extract_pdf(file_content: bytes) -> str:
-    # Try fast parser first
-    try:
-        return pymupdf4llm.to_markdown(file_content)
-    except Exception:
-        # Fallback to robust parser
-        return marker_pdf.convert(file_content)
+    extractor = ExtractorRegistry.get_extractor("application/pdf", ".pdf")
+    return await extractor.extract(file_content=file_content, mime_type="application/pdf")
 ```
+
+`FallbackManager` can append Mistral OCR only when that external integration is
+explicitly enabled. Marker OCR is retired and is not a fallback path.
 
 **Output**: Markdown-formatted text with preserved structure (headers, lists, tables)
 

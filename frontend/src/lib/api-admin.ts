@@ -78,8 +78,6 @@ export interface TenantConfig {
     agent_system_prompt: string | null
     community_summary_prompt: string | null
     fact_extraction_prompt: string | null
-    hybrid_ocr_enabled: boolean
-    ocr_text_density_threshold: number
     weights?: {
         vector_weight: number
         graph_weight: number

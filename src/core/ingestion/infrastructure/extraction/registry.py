@@ -8,9 +8,6 @@ Factory for getting the appropriate extractor for a file.
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor
 from src.core.ingestion.infrastructure.extraction.config import extraction_settings
 from src.core.ingestion.infrastructure.extraction.local.html_extractor import HtmlExtractor
-from src.core.ingestion.infrastructure.extraction.local.hybrid_extractor import (
-    HybridMarkerExtractor,
-)
 from src.core.ingestion.infrastructure.extraction.local.kreuzberg_extractor import (
     KreuzbergExtractor,
 )
@@ -93,10 +90,6 @@ class ExtractorRegistry:
             # Kreuzberg (High Performance / Local)
             if extraction_settings.kreuzberg_enabled:
                 return cls._get_instance("kreuzberg", KreuzbergExtractor)
-
-            # Hybrid OCR (Marker + PyMuPDF)
-            if extraction_settings.hybrid_ocr_enabled:
-                return cls._get_instance("hybrid", HybridMarkerExtractor)
 
             # PyMuPDF Standard
             if extraction_settings.pymupdf_enabled:

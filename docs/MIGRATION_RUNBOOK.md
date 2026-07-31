@@ -336,13 +336,17 @@ hand-provisioned state that exists only as a docker volume and a host directory.
 The HuggingFace mount is *relative to the compose file*, so running the same
 compose from a different checkout silently gets an empty, root-owned directory.
 
-Before cutting traffic over to the new host, either copy both across:
+Before cutting traffic over to the new host, restore both deliberately. Since
+the H3 parser-stack retirement, **do not copy a legacy `pip-packages` volume**:
+it can carry retired parser packages that would shadow the patched image. Follow
+[the H3 parser-stack rollout](H3_PARSER_STACK_ROLLOUT.md) to inventory the old
+volume read-only and reinstall the explicitly selected non-parser optional
+features into a fresh versioned volume. The target volume is external, so Compose
+will not start the application until that preparation has happened.
+
+Copy the model cache separately when it is required:
 
 ```bash
-# deps volume
-docker run --rm -v amber2_pip-packages:/from:ro -v <new>_pip-packages:/to \
-  alpine sh -c 'cp -a /from/. /to/'
-# model cache
 rsync -a <old>:/root/amber2/.cache/huggingface/ /root/amber2/.cache/huggingface/
 ```
 

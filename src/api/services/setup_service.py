@@ -78,7 +78,13 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="document_processing",
         name="Document Processing",
         description="Parse PDFs, DOCX, HTML (Est. ~2 mins)",
-        packages=["unstructured>=0.11.0", "python-magic>=0.4.27", "pymupdf4llm>=0.0.1"],
+        packages=[
+            "unstructured[docx]>=0.18.31",
+            "python-magic>=0.4.27",
+            "pymupdf4llm>=0.0.1",
+            "Pillow>=12.3.0",
+            "pi-heif>=1.3.0",
+        ],
         size_mb=800,
         check_import="unstructured",
     ),
@@ -89,14 +95,6 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         packages=["ragas>=0.2.0", "huggingface-hub", "datasets"],
         size_mb=150,
         check_import="ragas",
-    ),
-    "ocr": Feature(
-        id="ocr",
-        name="Advanced OCR (Marker)",
-        description="Deep learning PDF extraction (Est. ~10 mins)",
-        packages=["marker-pdf>=0.2.0", "surya-ocr>=0.5.0"],
-        size_mb=3000,
-        check_import="marker",
     ),
 }
 

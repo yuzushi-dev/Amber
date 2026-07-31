@@ -187,4 +187,9 @@ volumes:
     name: amber2_graphrag-uploads
   pip-packages:
     external: true
-    name: amber2_pip-packages
+    name: ${PIP_PACKAGES_ACTIVE_VOLUME:-amber2_pip-packages-h3}
+  # Preserves an explicit, inactive rollback reference when the canary overlay
+  # is used independently. The live H3 path never mounts the legacy volume.
+  pip-packages-rollback:
+    external: true
+    name: ${PIP_PACKAGES_ROLLBACK_VOLUME:-amber2_pip-packages}

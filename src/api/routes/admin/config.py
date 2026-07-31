@@ -125,11 +125,6 @@ class TenantConfigResponse(BaseModel):
     community_summary_prompt: str | None = None
     fact_extraction_prompt: str | None = None
 
-    # Ingestion Settings
-    hybrid_ocr_enabled: bool = True
-    ocr_text_density_threshold: int = 50
-
-
 class TenantConfigUpdate(BaseModel):
     """Tenant configuration update request."""
 
@@ -171,11 +166,6 @@ class TenantConfigUpdate(BaseModel):
     agent_system_prompt: str | None = None
     community_summary_prompt: str | None = None
     fact_extraction_prompt: str | None = None
-
-    # Ingestion Settings
-    hybrid_ocr_enabled: bool | None = None
-    ocr_text_density_threshold: int | None = Field(None, ge=0, le=1000)
-
 
 class ConfigSchemaField(BaseModel):
     """Schema field definition for UI rendering."""
@@ -236,26 +226,6 @@ async def get_config_schema():
     for rendering the tuning panel UI.
     """
     fields = [
-        # Ingestion Settings
-        ConfigSchemaField(
-            name="hybrid_ocr_enabled",
-            type="boolean",
-            label="Enable Hybrid OCR",
-            description="Use OCR only for image-heavy pages (slower but more accurate)",
-            default=True,
-            group="ingestion",
-        ),
-        ConfigSchemaField(
-            name="ocr_text_density_threshold",
-            type="number",
-            label="OCR Trigger Threshold",
-            description="Minimum character count per page to avoid OCR (lower triggers OCR)",
-            default=50,
-            min=0,
-            max=1000,
-            step=10,
-            group="ingestion",
-        ),
         # Model Settings - Provider Selection
         ConfigSchemaField(
             name="llm_provider",
@@ -551,8 +521,6 @@ async def get_tenant_config(tenant_id: str):
             agent_system_prompt=config.get("agent_system_prompt"),
             community_summary_prompt=config.get("community_summary_prompt"),
             fact_extraction_prompt=config.get("fact_extraction_prompt"),
-            hybrid_ocr_enabled=config.get("hybrid_ocr_enabled", True),
-            ocr_text_density_threshold=config.get("ocr_text_density_threshold", 50),
         )
 
     except Exception as e:

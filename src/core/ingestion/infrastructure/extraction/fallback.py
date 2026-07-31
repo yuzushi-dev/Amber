@@ -12,7 +12,6 @@ from src.core.ingestion.infrastructure.extraction.api.mistral_ocr_extractor impo
 )
 from src.core.ingestion.infrastructure.extraction.base import BaseExtractor, ExtractionResult
 from src.core.ingestion.infrastructure.extraction.config import extraction_settings
-from src.core.ingestion.infrastructure.extraction.local.marker_extractor import MarkerExtractor
 from src.core.ingestion.infrastructure.extraction.registry import ExtractorRegistry
 
 logger = logging.getLogger(__name__)
@@ -66,12 +65,7 @@ class FallbackManager:
         except ValueError:
             pass  # No primary found? Should fall back to unstructured usually.
 
-        # 2. Secondary (Marker - Heavy Local)
-        # Typically for PDFs or Images.
-        if "pdf" in mime_type.lower() and extraction_settings.marker_enabled:
-            chain.append(MarkerExtractor())
-
-        # 3. Tertiary (Mistral OCR - API)
+        # 2. Secondary (Mistral OCR - API)
         # Final resort
         if extraction_settings.mistral_ocr_enabled:
             chain.append(MistralOCRExtractor())
