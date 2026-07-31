@@ -32,6 +32,7 @@ COPY config/ /app/config/
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser && \
+    install -d -o appuser -g appuser /home/appuser/.cache /home/appuser/.cache/huggingface && \
     mkdir -p /app/uploads && \
     chown -R appuser:appuser /app
 USER appuser
