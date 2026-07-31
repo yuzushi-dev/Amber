@@ -76,6 +76,21 @@ def test_h3_volume_helper_is_dry_run_by_default_and_never_copies_legacy_volume()
     assert "cp -a" not in helper.read_text()
 
 
+def test_verify_target_has_ephemeral_tmp_for_imports_in_read_only_container():
+    helper = (PROJECT_ROOT / "scripts" / "prepare_h3_pip_packages_volume.sh").read_text()
+    verify_body = helper.split("verify_target() {", 1)[1].split("\n}\n\ncase", 1)[0]
+
+    assert "--read-only" in verify_body
+    assert "--tmpfs /tmp:rw,noexec,nosuid,size=64m" in verify_body
+
+
+@pytest.mark.parametrize("feature_id", ["local_embeddings", "reranking", "ragas"])
+def test_optional_ml_features_pin_protobuf_compatible_with_opentelemetry(feature_id: str):
+    from src.api.services.setup_service import OPTIONAL_FEATURES
+
+    assert "protobuf==6.33.6" in OPTIONAL_FEATURES[feature_id].packages
+
+
 def test_h3_rollout_document_requires_explicit_feature_restore_and_validation():
     runbook = (PROJECT_ROOT / "docs" / "H3_PARSER_STACK_ROLLOUT.md").read_text()
 

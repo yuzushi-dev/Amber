@@ -41,6 +41,12 @@ class Feature:
     error_message: str | None = None
 
 
+# Each optional feature is resolved in an independent pip invocation into the
+# same target directory. Repeat this shared constraint in every ML feature that
+# can otherwise resolve a newer, OpenTelemetry-incompatible Protobuf release.
+OPTIONAL_PROTOBUF_PIN = "protobuf==6.33.6"
+
+
 # Define all optional features
 OPTIONAL_FEATURES: dict[str, Feature] = {
     "local_embeddings": Feature(
@@ -53,6 +59,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
             "transformers>=4.40.1",
             "huggingface-hub",
             "tokenizers",
+            OPTIONAL_PROTOBUF_PIN,
         ],
         size_mb=2100,
         check_import="sentence_transformers",
@@ -62,7 +69,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="reranking",
         name="FlashRank Reranking",
         description="High-quality result reranking (Est. <1 min)",
-        packages=["flashrank>=0.2.0"],
+        packages=["flashrank>=0.2.0", OPTIONAL_PROTOBUF_PIN],
         size_mb=50,
         check_import="flashrank",
     ),
@@ -92,7 +99,7 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         id="ragas",
         name="RAGAS Evaluation",
         description="Systematic RAG evaluation metrics (Est. ~1 min)",
-        packages=["ragas>=0.2.0", "huggingface-hub", "datasets"],
+        packages=["ragas>=0.2.0", "huggingface-hub", "datasets", OPTIONAL_PROTOBUF_PIN],
         size_mb=150,
         check_import="ragas",
     ),

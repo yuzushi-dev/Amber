@@ -191,6 +191,7 @@ PY
 verify_target() {
   docker volume inspect "$target_volume" >/dev/null
   docker run --rm -i --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     -v "$target_volume:/app/.packages:ro" \
     -e PYTHONDONTWRITEBYTECODE=1 \
     -e PYTHONPATH=/app/.packages:/app \
