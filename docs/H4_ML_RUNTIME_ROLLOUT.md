@@ -21,7 +21,7 @@ is not mounted, cleared, relabeled, or deleted by this procedure.
 ## Candidate and storage guard
 
 The single active candidate is
-`ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2`.
+`ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d`.
 
 | Label | Value |
 | --- | --- |
@@ -29,8 +29,8 @@ The single active candidate is
 | `amber.h4.profile` | `cpu` |
 | `amber.h4.strategy` | `nomic-ollama-remote` |
 | `amber.h4.source` | `clean` |
-| `amber.h4.created` | `2026-07-30` |
-| `amber.h4.source-ref` | `12127b84` |
+| `amber.h4.created` | `2026-07-31` |
+| `amber.h4.source-ref` | `da122dfb` |
 | `amber.h4.disposal` | `direct-user-approval-required` |
 
 The candidate name was proven absent before creation. It is never to be
@@ -88,9 +88,9 @@ any dynamic installer.
 ```bash
 rtk python3 -m pytest -q tests/security/test_h4_ml_runtime_artifact.py
 rtk scripts/h4_ml_runtime_candidate.sh install \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2
+  --volume ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d
 rtk scripts/h4_ml_runtime_candidate.sh preload \
-  --volume ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2 \
+  --volume ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d \
   --authorize-preload
 ```
 
@@ -155,7 +155,7 @@ health/configuration contract, but this H4 candidate never contacts it.
 The canary Compose file keeps the H3 feature volume mounted at
 `/app/.packages` and mounts the validated H4 candidate separately and
 read-only at `/app/.packages-h4`. Set
-`H4_ML_RUNTIME_VOLUME=ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2`;
+`H4_ML_RUNTIME_VOLUME=ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d`;
 API and worker then receive:
 
 - `AMBER_H4_ML_RUNTIME_ROOT=/app/.packages-h4`;

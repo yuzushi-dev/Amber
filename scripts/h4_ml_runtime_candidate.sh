@@ -3,12 +3,12 @@
 
 set -euo pipefail
 
-readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2"
+readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d"
 readonly CANDIDATE_ROLE="ml-runtime-candidate"
 readonly CANDIDATE_PROFILE="cpu"
 readonly CANDIDATE_STRATEGY="nomic-ollama-remote"
 readonly CANDIDATE_SOURCE="clean"
-readonly CANDIDATE_SOURCE_REF="12127b84"
+readonly CANDIDATE_SOURCE_REF="da122dfb"
 readonly MIN_FREE_BYTES=21474836480
 readonly PEAK_BUDGET_BYTES=4294967296
 readonly REQUIRED_PREFLIGHT_FREE_BYTES=25769803776

@@ -362,13 +362,13 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
-    assert "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2" in script
+    assert "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d" in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
     assert "amber.h4.strategy" in script
     assert "amber.h4.source" in script
     assert "amber.h4.source-ref" in script
-    assert 'CANDIDATE_SOURCE_REF="12127b84"' in script
+    assert 'CANDIDATE_SOURCE_REF="da122dfb"' in script
     assert "--require-hashes" in script
     assert "--no-index" in script
     assert "--read-only" in script
@@ -454,7 +454,7 @@ def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
             str(script),
             "install",
             "--volume",
-            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2",
+            "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d",
         ],
         capture_output=True,
         check=False,
@@ -511,6 +511,8 @@ def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
     assert "--network none" in rollout
     assert ".h4-preload-validation.json" in rollout
     assert "after the storage postflight succeeds" in rollout
+    assert "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d" in rollout
+    assert "`da122dfb`" in rollout
 
 
 def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
@@ -522,7 +524,7 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
             str(script),
             "preload",
             "--volume",
-            "ambermirror_pip-packages-h4-cpu-nomic-12127b84-compatfix2",
+            "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d",
         ],
         capture_output=True,
         check=False,
