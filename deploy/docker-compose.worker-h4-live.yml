@@ -29,10 +29,11 @@ services:
       - graphrag-uploads:/app/uploads:ro
       - pip-packages:/app/.packages:ro
       - h4-ml-runtime:/app/.packages-h4:ro
+      - h4-ml-runtime:/home/appuser/.cache/huggingface:ro
     deploy:
       replicas: 1
     healthcheck:
-      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-1@$(hostname)' -t 5 -j | grep -q pong"]
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d \"h4-live-1@$(hostname)\" -t 5 -j | grep -q pong"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -61,10 +62,11 @@ services:
       - graphrag-uploads:/app/uploads:ro
       - pip-packages:/app/.packages:ro
       - h4-ml-runtime:/app/.packages-h4:ro
+      - h4-ml-runtime:/home/appuser/.cache/huggingface:ro
     deploy:
       replicas: 1
     healthcheck:
-      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-2@$(hostname)' -t 5 -j | grep -q pong"]
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d \"h4-live-2@$(hostname)\" -t 5 -j | grep -q pong"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -93,10 +95,11 @@ services:
       - graphrag-uploads:/app/uploads:ro
       - pip-packages:/app/.packages:ro
       - h4-ml-runtime:/app/.packages-h4:ro
+      - h4-ml-runtime:/home/appuser/.cache/huggingface:ro
     deploy:
       replicas: 1
     healthcheck:
-      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-3@$(hostname)' -t 5 -j | grep -q pong"]
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d \"h4-live-3@$(hostname)\" -t 5 -j | grep -q pong"]
       interval: 30s
       timeout: 10s
       retries: 3

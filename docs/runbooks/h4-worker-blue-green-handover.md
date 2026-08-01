@@ -245,6 +245,26 @@ both worker generations intact.
 6. Re-run the data invariants, API smoke, RAG query, queue checks, and error-log
    checks before rolling back another pair.
 
+### Rollback abort compensation
+
+If rollback fails after H4 `cancel_consumer` but before its graceful stop,
+restore all live consumers on the still-running H4 node before leaving the
+procedure:
+
+```bash
+h4_node="h4-live-1@$(docker inspect --format '{{.Config.Hostname}}' amber2-worker-h4-live-1)"
+for queue in high_priority celery evaluation low_priority; do
+  docker exec amber2-worker-h4-live-1 celery -A src.workers.celery_app \
+    control add_consumer "$queue" -d "$h4_node" -j
+done
+docker exec amber2-worker-h4-live-1 celery -A src.workers.celery_app \
+  inspect active_queues -d "$h4_node" -j
+```
+
+Require exactly the four live queues in the reply. This deliberately leaves
+both generations consuming while the failed rollback is diagnosed; do not
+stop either worker unless its own drain has subsequently been proven.
+
 If data invariants change unexpectedly, freeze the handover: keep all
 containers and volumes present, preserve logs and the verified backup, and
 escalate as an incident. Do not attempt an in-place restore on production

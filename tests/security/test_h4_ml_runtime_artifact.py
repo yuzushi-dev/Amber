@@ -864,10 +864,15 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
     assert "preload requires --authorize-preload after direct user approval" in result.stderr
 
 
-def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
+def test_h4_live_worker_overlay_declares_safe_blue_green_replicas(tmp_path):
     root = Path(__file__).parents[2]
     overlay = yaml.safe_load((root / "deploy/docker-compose.worker-h4-live.yml").read_text())
     expected_services = {f"worker-h4-live-{index}" for index in range(1, 4)}
+    fake_celery = tmp_path / "celery"
+    fake_celery.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$H4_HEALTH_ARGS"\nprintf pong\n'
+    )
+    fake_celery.chmod(0o755)
 
     assert set(overlay["services"]) == expected_services
 
@@ -890,10 +895,28 @@ def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
         assert service["stop_grace_period"] == "300s"
         healthcheck = service["healthcheck"]
         assert healthcheck["test"][0] == "CMD-SHELL"
-        assert f'h4-live-{index}@$(hostname)' in healthcheck["test"][1]
+        health_command = healthcheck["test"][1]
+        assert f'-d "h4-live-{index}@$(hostname)"' in health_command
         assert healthcheck["interval"] == "30s"
         assert healthcheck["timeout"] == "10s"
         assert healthcheck["retries"] == 3
+        health_args = tmp_path / f"health-args-{index}"
+        health_result = subprocess.run(
+            ["sh", "-c", health_command],
+            env=os.environ
+            | {
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "H4_HEALTH_ARGS": str(health_args),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert health_result.returncode == 0, health_result.stderr
+        arguments = health_args.read_text().splitlines()
+        destination = arguments[arguments.index("-d") + 1]
+        assert destination.startswith(f"h4-live-{index}@")
+        assert "$(hostname)" not in destination
 
 
 def test_resolved_h4_live_workers_inherit_production_canary_safety():
@@ -977,6 +1000,7 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         "/app/uploads",
         "/app/.packages",
         "/app/.packages-h4",
+        "/home/appuser/.cache/huggingface",
     }
     for index in range(1, 4):
         service = resolved["services"][f"worker-h4-live-{index}"]
@@ -996,6 +1020,7 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         assert all(mounts[target]["read_only"] is True for target in expected_targets)
         assert mounts["/app/.packages"]["source"] == "pip-packages"
         assert mounts["/app/.packages-h4"]["source"] == "h4-ml-runtime"
+        assert mounts["/home/appuser/.cache/huggingface"]["source"] == "h4-ml-runtime"
         assert service["deploy"]["replicas"] == 1
         assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
 
@@ -1031,6 +1056,7 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
         "docker stop --time 300",
         "conferma diretta",
         "Rollback",
+        "Rollback abort compensation",
     }
     forbidden_fragments = {
         "docker rm",
