@@ -581,6 +581,64 @@ def test_resolved_canary_compose_reuses_live_datastore_volume_names():
     assert resolved["volumes"]["graphrag-minio-data"]["name"] == "amber2_graphrag-minio-data"
 
 
+def test_canary_explicitly_propagates_ollama_cloud_api_keys_once_per_service():
+    root = Path(__file__).parents[2]
+    canary = yaml.safe_load((root / "deploy/docker-compose.canary.yml").read_text())
+    expected = "OLLAMA_CLOUD_API_KEYS=${OLLAMA_CLOUD_API_KEYS:-}"
+
+    for service_name in ("api-canary", "worker-canary"):
+        environment = canary["services"][service_name]["environment"]
+
+        assert environment.count(expected) == 1
+
+
+def test_resolved_canary_propagates_ollama_cloud_api_keys():
+    root = Path(__file__).parents[2]
+    sentinel = "canary-key-sentinel-a,canary-key-sentinel-b"
+    environment = os.environ | {
+        "H4_ML_RUNTIME_VOLUME": "amber2_h4_candidate",
+        "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
+        "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
+        "OLLAMA_CLOUD_API_KEYS": sentinel,
+    }
+    try:
+        compose_version = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker CLI is not installed")
+
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin is not available")
+
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "deploy/docker-compose.canary.yml",
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    resolved = json.loads(result.stdout)
+    for service_name in ("api-canary", "worker-canary"):
+        assert resolved["services"][service_name]["environment"]["OLLAMA_CLOUD_API_KEYS"] == sentinel
+
+
 def test_canary_mounts_every_shared_production_path_read_only():
     root = Path(__file__).parents[2]
     canary_path = root / "deploy/docker-compose.canary.yml"
