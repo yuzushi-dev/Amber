@@ -407,24 +407,51 @@ def resolve_token_encoding(model: str | None) -> str | None:
     return None
 
 
+def ollama_num_ctx() -> int:
+    """Context length the local Ollama daemon is told to allocate."""
+    try:
+        return int(os.getenv("OLLAMA_NUM_CTX", str(DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW)))
+    except ValueError:
+        return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
+
+
+def ollama_request_num_ctx(model: str | None) -> int:
+    """num_ctx to send to the local daemon. Identical to the window prompts are
+    budgeted against, so a request can never exceed the context it declares."""
+    if not model:
+        return ollama_num_ctx()
+    return llm_context_window("ollama", model) or ollama_num_ctx()
+
+
+def _registered_context_window(catalog: dict[str, Any], model: str) -> int | None:
+    for candidate in (model, model.split(":", 1)[0]):
+        context_window = catalog.get(candidate, {}).get("context_window")
+        if context_window is not None:
+            return int(context_window)
+    return None
+
+
 def llm_context_window(provider: str | None, model: str | None) -> int | None:
-    """Return the configured context window for a provider/model pair."""
+    """Return the usable context window for a provider/model pair."""
     if not provider or not model:
         return None
     if provider.startswith("ollama_cloud_"):
         provider = "ollama_cloud"
 
-    if provider == "ollama":
-        try:
-            return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-        except ValueError:
-            return 32768
+    context_window = _registered_context_window(LLM_MODELS.get(provider, {}), model)
+    if context_window is not None:
+        return context_window
 
-    models = LLM_MODELS.get(provider, {})
-    for candidate in (model, model.split(":", 1)[0]):
-        context_window = models.get(candidate, {}).get("context_window")
-        if context_window is not None:
-            return int(context_window)
+    if provider == "ollama":
+        # Ollama tags cloud-served models `<name>-cloud`; the local daemon proxies those
+        # to Ollama Cloud, so their real window is the registered one. Every other model
+        # runs on local hardware and stays bounded by OLLAMA_NUM_CTX.
+        if model.endswith("-cloud"):
+            proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
+            if proxied is not None:
+                return proxied
+        return ollama_num_ctx()
+
     if provider in LLM_MODELS:
         return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
     return None

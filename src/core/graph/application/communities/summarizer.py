@@ -358,12 +358,26 @@ class CommunitySummarizer:
             f"- {entity.get('name') or '(unnamed)'} ({entity.get('type') or 'Unknown'})"
             for entity in entities
         ]
-        prompt = self._render_prompt("\n".join(entity_lines), "", "")
-        used_tokens = self._prompt_tokens(prompt, model)
-        if used_tokens > render_budget:
+        empty_tokens = self._prompt_tokens(self._render_prompt("", "", ""), model)
+        if empty_tokens > render_budget:
             raise CommunityPromptBudgetError(
-                f"Community requires {used_tokens} input tokens before descriptions; budget is {render_budget}"
+                f"Context window {context_window} cannot hold an empty community prompt"
             )
+        # A partial roster beats a permanently failed community: keep the deterministic
+        # prefix that fits. Measured on the rendered prompt, because per-line token sums
+        # drift from the assembled text.
+        kept = self._fit_rendered_entities(entity_lines, render_budget, model)
+        if kept < len(entity_lines):
+            logger.warning(
+                "Community entity roster truncated to %s/%s entries to fit the %s token budget",
+                kept,
+                len(entity_lines),
+                render_budget,
+            )
+            entity_lines = entity_lines[:kept]
+        used_tokens = self._prompt_tokens(
+            self._render_prompt("\n".join(entity_lines), "", ""), model
+        )
 
         entity_detail_lines = [
             (
@@ -471,6 +485,18 @@ class CommunitySummarizer:
     @staticmethod
     def _prompt_tokens(prompt: str, model: str) -> int:
         return Tokenizer.count_tokens(f"{COMMUNITY_SUMMARY_SYSTEM_PROMPT}\n{prompt}", model)
+
+    def _fit_rendered_entities(self, lines: list[str], render_budget: int, model: str) -> int:
+        """Largest prefix of `lines` whose rendered prompt stays within the budget."""
+        low, high = 0, len(lines)
+        while low < high:
+            mid = (low + high + 1) // 2
+            rendered = self._render_prompt("\n".join(lines[:mid]), "", "")
+            if self._prompt_tokens(rendered, model) <= render_budget:
+                low = mid
+            else:
+                high = mid - 1
+        return low
 
     @staticmethod
     def _fit_lines(

@@ -14,6 +14,7 @@ import pytest
 
 from src.core.generation.infrastructure.providers.base import ProviderConfig
 from src.core.generation.infrastructure.providers.ollama import OllamaLLMProvider
+from src.shared.model_registry import llm_context_window
 
 
 class _NoOpLimiter:
@@ -125,3 +126,47 @@ async def test_generate_stream_without_history_is_unchanged(provider):
 
     # history must never leak into the provider payload as a stray kwarg
     assert "history" not in fake_client.chat.completions.last_call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_matches_the_budget_used_for_proxied_cloud_models(provider, monkeypatch):
+    """Prompt budgeting grants cloud models their full window, so the daemon must be
+    told the same num_ctx instead of the local 32768 default."""
+    p, fake_client = provider
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "32768")
+
+    stream = p.generate_stream(prompt="hi", model="gemma4:31b-cloud")
+    async for _ in stream:
+        pass
+
+    options = fake_client.chat.completions.last_call_kwargs["extra_body"]["options"]
+    assert options["num_ctx"] == llm_context_window("ollama", "gemma4:31b-cloud")
+    assert options["num_ctx"] == 131_072
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_stays_local_for_local_models(provider, monkeypatch):
+    p, fake_client = provider
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "16384")
+
+    stream = p.generate_stream(prompt="hi", model="llama3")
+    async for _ in stream:
+        pass
+
+    options = fake_client.chat.completions.last_call_kwargs["extra_body"]["options"]
+    assert options["num_ctx"] == 16_384
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_never_exceeds_the_proxied_model_window(provider, monkeypatch):
+    """A local num_ctx above the cloud model's real window must not be forwarded."""
+    p, fake_client = provider
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "262144")
+
+    stream = p.generate_stream(prompt="hi", model="gemma4:31b-cloud")
+    async for _ in stream:
+        pass
+
+    options = fake_client.chat.completions.last_call_kwargs["extra_body"]["options"]
+    assert options["num_ctx"] == llm_context_window("ollama", "gemma4:31b-cloud")
+    assert options["num_ctx"] == 131_072

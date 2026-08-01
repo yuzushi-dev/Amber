@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+from src.core.utils import tokenizer
 from src.core.utils.tokenizer import Tokenizer
 from src.shared.model_registry import DEFAULT_LLM_MODEL
 
@@ -31,3 +34,18 @@ def test_model_specific_encoding():
     # Just ensure it doesn't crash and returns valid counts
     assert count_mini > 0
     assert count_legacy > 0
+
+
+def test_get_encoding_resolves_once_per_model():
+    """Prompt budgeting counts tokens line by line; re-resolving the encoding on
+    every call also re-emits the unknown-model warning per counted line."""
+    model = "gemma4:31b-cloud"
+    Tokenizer.get_encoding.cache_clear()
+
+    with patch.object(
+        tokenizer.tiktoken, "encoding_for_model", wraps=tokenizer.tiktoken.encoding_for_model
+    ) as spy:
+        encodings = [Tokenizer.get_encoding(model) for _ in range(50)]
+
+    assert spy.call_count == 1
+    assert all(e is encodings[0] for e in encodings)
