@@ -407,24 +407,38 @@ def resolve_token_encoding(model: str | None) -> str | None:
     return None
 
 
+def _registered_context_window(catalog: dict[str, Any], model: str) -> int | None:
+    for candidate in (model, model.split(":", 1)[0]):
+        context_window = catalog.get(candidate, {}).get("context_window")
+        if context_window is not None:
+            return int(context_window)
+    return None
+
+
 def llm_context_window(provider: str | None, model: str | None) -> int | None:
-    """Return the configured context window for a provider/model pair."""
+    """Return the usable context window for a provider/model pair."""
     if not provider or not model:
         return None
     if provider.startswith("ollama_cloud_"):
         provider = "ollama_cloud"
 
-    if provider == "ollama":
-        try:
-            return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-        except ValueError:
-            return 32768
+    context_window = _registered_context_window(LLM_MODELS.get(provider, {}), model)
+    if context_window is not None:
+        return context_window
 
-    models = LLM_MODELS.get(provider, {})
-    for candidate in (model, model.split(":", 1)[0]):
-        context_window = models.get(candidate, {}).get("context_window")
-        if context_window is not None:
-            return int(context_window)
+    if provider == "ollama":
+        # The local daemon also proxies *-cloud models, whose real window is the one
+        # registered for their native provider. OLLAMA_NUM_CTX only bounds models that
+        # genuinely run locally and carry no registered window.
+        for catalog in LLM_MODELS.values():
+            context_window = _registered_context_window(catalog, model)
+            if context_window is not None:
+                return context_window
+        try:
+            return int(os.getenv("OLLAMA_NUM_CTX", str(DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW)))
+        except ValueError:
+            return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
+
     if provider in LLM_MODELS:
         return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
     return None

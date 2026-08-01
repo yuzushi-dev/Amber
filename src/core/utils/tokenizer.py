@@ -6,6 +6,7 @@ Utility for counting tokens using tiktoken (with fallback).
 """
 
 import logging
+from functools import lru_cache
 from typing import Any
 
 from src.shared.model_registry import DEFAULT_LLM_MODEL, resolve_token_encoding
@@ -30,10 +31,13 @@ class Tokenizer:
     Utility for token counting and text truncation.
     """
 
+    # Cached: prompt budgeting counts tokens line by line, so an uncached lookup
+    # re-resolves the encoding — and re-logs the unknown-model warning — thousands
+    # of times per community summary.
     @staticmethod
+    @lru_cache(maxsize=32)
     def get_encoding(model: str | None = None) -> Any:
         """Get tiktoken encoding for a model."""
-        logger.debug('Tokenizer.get_encoding model=%s', model)
         if not TIKTOKEN_AVAILABLE:
             return None
 
