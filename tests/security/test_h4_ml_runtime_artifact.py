@@ -879,8 +879,8 @@ def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
         queue_names = set(command[command.index("-Q") + 1].split(","))
 
         assert service["extends"] == {
-            "file": "deploy/docker-compose.canary.yml",
-            "service": "worker-canary",
+            "file": "docker-compose.yml",
+            "service": "worker",
         }
         assert service["container_name"] == f"amber2-worker-h4-live-{index}"
         assert queue_names == live_queues | {f"h4_promotion_{index}"}
@@ -897,6 +897,7 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         "H4_ML_RUNTIME_VOLUME": "amber2_h4_candidate",
         "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
         "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
+        "APP_DATABASE_URL": "postgresql+asyncpg://app-role-sentinel@postgres/graphrag",
         "OLLAMA_CLOUD_API_KEYS": sentinel,
         "DEFAULT_LLM_PROVIDER": "ollama_cloud",
         "DEFAULT_LLM_MODEL": "gemma4:31b-cloud",
@@ -960,6 +961,8 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
     resolved = json.loads(result.stdout)
     assert resolved["name"] == "amber2"
     assert resolved["volumes"] == baseline["volumes"]
+    live_environment = baseline["services"]["worker"]["environment"]
+    intentional_h4_overrides = {"HF_HOME", "PYTHONPATH"}
 
     expected_targets = {
         "/app/src",
@@ -973,6 +976,12 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         service = resolved["services"][f"worker-h4-live-{index}"]
         mounts = {mount["target"]: mount for mount in service["volumes"]}
 
+        for name, value in live_environment.items():
+            if name not in intentional_h4_overrides:
+                assert service["environment"][name] == value
+        assert service["environment"]["APP_DATABASE_URL"] == (
+            "postgresql+asyncpg://app-role-sentinel@postgres/graphrag"
+        )
         assert service["environment"]["OLLAMA_CLOUD_API_KEYS"] == sentinel
         assert service["environment"]["AMBER_CANARY"] == "true"
         assert service["environment"]["DEFAULT_LLM_PROVIDER"] == "ollama_cloud"
@@ -981,6 +990,7 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         assert all(mounts[target]["read_only"] is True for target in expected_targets)
         assert mounts["/app/.packages"]["source"] == "pip-packages"
         assert mounts["/app/.packages-h4"]["source"] == "h4-ml-runtime"
+        assert service["deploy"]["replicas"] == 1
         assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
 
 

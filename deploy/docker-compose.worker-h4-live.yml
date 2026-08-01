@@ -10,27 +10,78 @@ name: amber2
 services:
   worker-h4-live-1:
     extends:
-      file: deploy/docker-compose.canary.yml
-      service: worker-canary
+      file: docker-compose.yml
+      service: worker
+    image: amber2-worker:latest
     container_name: amber2-worker-h4-live-1
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-1@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_1
+    environment:
+      PYTHONPATH: /app/.packages-h4:/app:/app/src:/app/.packages
+      AMBER_H4_ML_RUNTIME_ROOT: /app/.packages-h4
+      HF_HOME: /app/.packages-h4/hf-cache
+      HUGGINGFACE_HUB_CACHE: /app/.packages-h4/hf-cache/hub
+      AMBER_CANARY: "true"
+    volumes:
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads:ro
+      - pip-packages:/app/.packages:ro
+      - h4-ml-runtime:/app/.packages-h4:ro
+    deploy:
+      replicas: 1
     restart: unless-stopped
     stop_grace_period: 300s
 
   worker-h4-live-2:
     extends:
-      file: deploy/docker-compose.canary.yml
-      service: worker-canary
+      file: docker-compose.yml
+      service: worker
+    image: amber2-worker:latest
     container_name: amber2-worker-h4-live-2
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-2@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_2
+    environment:
+      PYTHONPATH: /app/.packages-h4:/app:/app/src:/app/.packages
+      AMBER_H4_ML_RUNTIME_ROOT: /app/.packages-h4
+      HF_HOME: /app/.packages-h4/hf-cache
+      HUGGINGFACE_HUB_CACHE: /app/.packages-h4/hf-cache/hub
+      AMBER_CANARY: "true"
+    volumes:
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads:ro
+      - pip-packages:/app/.packages:ro
+      - h4-ml-runtime:/app/.packages-h4:ro
+    deploy:
+      replicas: 1
     restart: unless-stopped
     stop_grace_period: 300s
 
   worker-h4-live-3:
     extends:
-      file: deploy/docker-compose.canary.yml
-      service: worker-canary
+      file: docker-compose.yml
+      service: worker
+    image: amber2-worker:latest
     container_name: amber2-worker-h4-live-3
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-3@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_3
+    environment:
+      PYTHONPATH: /app/.packages-h4:/app:/app/src:/app/.packages
+      AMBER_H4_ML_RUNTIME_ROOT: /app/.packages-h4
+      HF_HOME: /app/.packages-h4/hf-cache
+      HUGGINGFACE_HUB_CACHE: /app/.packages-h4/hf-cache/hub
+      AMBER_CANARY: "true"
+    volumes:
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads:ro
+      - pip-packages:/app/.packages:ro
+      - h4-ml-runtime:/app/.packages-h4:ro
+    deploy:
+      replicas: 1
     restart: unless-stopped
     stop_grace_period: 300s
