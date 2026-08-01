@@ -862,3 +862,252 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
 
     assert result.returncode == 1
     assert "preload requires --authorize-preload after direct user approval" in result.stderr
+
+
+def test_h4_live_worker_overlay_declares_safe_blue_green_replicas(tmp_path):
+    root = Path(__file__).parents[2]
+    overlay = yaml.safe_load((root / "deploy/docker-compose.worker-h4-live.yml").read_text())
+    expected_services = {f"worker-h4-live-{index}" for index in range(1, 4)}
+    fake_celery = tmp_path / "celery"
+    fake_celery.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$H4_HEALTH_ARGS"\nprintf pong\n'
+    )
+    fake_celery.chmod(0o755)
+
+    assert set(overlay["services"]) == expected_services
+
+    live_queues = {"high_priority", "celery", "evaluation", "low_priority"}
+    for index in range(1, 4):
+        service_name = f"worker-h4-live-{index}"
+        service = overlay["services"][service_name]
+        command = service["command"].split()
+        queue_names = set(command[command.index("-Q") + 1].split(","))
+
+        assert service["extends"] == {
+            "file": "docker-compose.yml",
+            "service": "worker",
+        }
+        assert service["container_name"] == f"amber2-worker-h4-live-{index}"
+        assert queue_names == live_queues | {f"h4_promotion_{index}"}
+        assert f"--hostname=h4-live-{index}@%h" in command
+        assert "--concurrency=${CELERY_CONCURRENCY:-2}" in command
+        assert service["restart"] == "unless-stopped"
+        assert service["stop_grace_period"] == "300s"
+        healthcheck = service["healthcheck"]
+        assert healthcheck["test"][0] == "CMD-SHELL"
+        health_command = healthcheck["test"][1]
+        assert f'-d "h4-live-{index}@$(hostname)"' in health_command
+        assert healthcheck["interval"] == "30s"
+        assert healthcheck["timeout"] == "10s"
+        assert healthcheck["retries"] == 3
+        health_args = tmp_path / f"health-args-{index}"
+        health_result = subprocess.run(
+            ["sh", "-c", health_command],
+            env=os.environ
+            | {
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "H4_HEALTH_ARGS": str(health_args),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert health_result.returncode == 0, health_result.stderr
+        arguments = health_args.read_text().splitlines()
+        destination = arguments[arguments.index("-d") + 1]
+        assert destination.startswith(f"h4-live-{index}@")
+        assert "$(hostname)" not in destination
+
+
+def test_resolved_h4_live_workers_inherit_production_canary_safety():
+    root = Path(__file__).parents[2]
+    sentinel = "h4-live-key-sentinel-a,h4-live-key-sentinel-b"
+    environment = os.environ | {
+        "H4_ML_RUNTIME_VOLUME": "amber2_h4_candidate",
+        "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
+        "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
+        "APP_DATABASE_URL": "postgresql+asyncpg://app-role-sentinel@postgres/graphrag",
+        "OLLAMA_CLOUD_API_KEYS": sentinel,
+        "DEFAULT_LLM_PROVIDER": "ollama_cloud",
+        "DEFAULT_LLM_MODEL": "gemma4:31b-cloud",
+        "SECRET_KEY": "compose-contract-secret",
+        "DEV_API_KEY": "compose-contract-api-key",
+        "GRAPHRAG_APP_PASSWORD": "compose-contract-password",
+        "POSTGRES_PASSWORD": "compose-contract-password",
+        "NEO4J_PASSWORD": "compose-contract-password",
+        "OBJECT_STORAGE_ACCESS_KEY": "compose-contract-access-key",
+        "OBJECT_STORAGE_SECRET_KEY": "compose-contract-secret-key",
+    }
+    base_command = [
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "deploy/docker-compose.canary.yml",
+    ]
+
+    try:
+        compose_version = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker CLI is not installed")
+
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin is not available")
+
+    baseline_result = subprocess.run(
+        [*base_command, "config", "--format", "json"],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    result = subprocess.run(
+        [
+            *base_command,
+            "-f",
+            "deploy/docker-compose.worker-h4-live.yml",
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert baseline_result.returncode == 0, baseline_result.stderr
+    assert result.returncode == 0, result.stderr
+    baseline = json.loads(baseline_result.stdout)
+    resolved = json.loads(result.stdout)
+    assert resolved["name"] == "amber2"
+    assert resolved["volumes"] == baseline["volumes"]
+    live_environment = baseline["services"]["worker"]["environment"]
+    intentional_h4_overrides = {"HF_HOME", "PYTHONPATH"}
+
+    expected_targets = {
+        "/app/src",
+        "/app/config",
+        "/app/alembic",
+        "/app/uploads",
+        "/app/.packages",
+        "/app/.packages-h4",
+        "/home/appuser/.cache/huggingface",
+    }
+    for index in range(1, 4):
+        service = resolved["services"][f"worker-h4-live-{index}"]
+        mounts = {mount["target"]: mount for mount in service["volumes"]}
+
+        for name, value in live_environment.items():
+            if name not in intentional_h4_overrides:
+                assert service["environment"][name] == value
+        assert service["environment"]["APP_DATABASE_URL"] == (
+            "postgresql+asyncpg://app-role-sentinel@postgres/graphrag"
+        )
+        assert service["environment"]["OLLAMA_CLOUD_API_KEYS"] == sentinel
+        assert service["environment"]["AMBER_CANARY"] == "true"
+        assert service["environment"]["DEFAULT_LLM_PROVIDER"] == "ollama_cloud"
+        assert service["environment"]["DEFAULT_LLM_MODEL"] == "gemma4:31b-cloud"
+        assert expected_targets <= mounts.keys()
+        assert all(mounts[target]["read_only"] is True for target in expected_targets)
+        assert mounts["/app/.packages"]["source"] == "pip-packages"
+        assert mounts["/app/.packages-h4"]["source"] == "h4-ml-runtime"
+        assert mounts["/home/appuser/.cache/huggingface"]["source"] == "h4-ml-runtime"
+        assert service["deploy"]["replicas"] == 1
+        assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
+
+
+def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
+    root = Path(__file__).parents[2]
+    runbook = (
+        root / "docs/runbooks/h4-worker-blue-green-handover.md"
+    ).read_text()
+
+    required_fragments = {
+        "docker-compose.yml",
+        "deploy/docker-compose.canary.yml",
+        "deploy/docker-compose.worker-h4-live.yml",
+        "--dry-run",
+        "--no-deps",
+        "--no-build",
+        "--pull never",
+        "MemAvailable",
+        "4294967296",
+        "2147483648",
+        "OOMKilled",
+        "STALE_MIN_AGE_MINUTES == 30",
+        "src.workers.tasks.health_check",
+        "python -m src.workers.h4_readonly_probe",
+        "h4_promotion_1",
+        "cancel_consumer",
+        "add_consumer",
+        "inspect active_queues",
+        "inspect active",
+        "inspect reserved",
+        "inspect scheduled",
+        "docker stop --time 300",
+        "conferma diretta",
+        "Rollback",
+        "Rollback abort compensation",
+        "five queues",
+        "h4_promotion_N",
+    }
+    forbidden_fragments = {
+        "docker rm",
+        "compose down",
+        "down -v",
+        "docker volume rm",
+        "docker system prune",
+        "docker volume prune",
+        "rm -rf",
+    }
+
+    missing_required = {
+        fragment for fragment in required_fragments if fragment not in runbook
+    }
+    present_forbidden = {
+        fragment for fragment in forbidden_fragments if fragment in runbook
+    }
+
+    assert not missing_required
+    assert not present_forbidden
+
+
+def test_h4_readonly_probe_rejects_owner_role_and_missing_cloud_keys():
+    from types import SimpleNamespace
+
+    from src.workers.h4_readonly_probe import (
+        ProbeFailure,
+        validate_provider_settings,
+        validate_role_evidence,
+    )
+
+    with pytest.raises(ProbeFailure):
+        validate_role_evidence(superuser=False, bypass_rls=False, owns_documents=True)
+    with pytest.raises(ProbeFailure):
+        validate_role_evidence(superuser=True, bypass_rls=False, owns_documents=False)
+
+    valid_settings = SimpleNamespace(
+        db=SimpleNamespace(app_database_url="postgresql+asyncpg://app-role@postgres/db"),
+        default_llm_provider="ollama_cloud",
+        default_llm_model="gemma4:31b-cloud",
+        ollama_cloud_api_keys=["sentinel-a", "sentinel-b"],
+    )
+    validate_provider_settings(valid_settings)
+
+    invalid_settings = SimpleNamespace(
+        db=SimpleNamespace(app_database_url=None),
+        default_llm_provider="ollama_cloud",
+        default_llm_model="gemma4:31b-cloud",
+        ollama_cloud_api_keys=[],
+    )
+    with pytest.raises(ProbeFailure):
+        validate_provider_settings(invalid_settings)
