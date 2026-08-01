@@ -1,5 +1,6 @@
 """Regression coverage for the retired Marker OCR feature."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ def test_setup_wizard_does_not_offer_retired_marker_ocr():
 def test_general_requirements_exclude_optional_local_embedding_stack():
     requirements = (PROJECT_ROOT / "requirements.txt").read_text().lower().splitlines()
     names = {
-        line.split("==")[0].split(">=")[0]
+        re.split(r"[<>=!~;\[]", line, maxsplit=1)[0].strip()
         for line in requirements
         if line and not line.startswith("#")
     }
@@ -33,13 +34,18 @@ def test_general_requirements_exclude_optional_local_embedding_stack():
 def test_local_embeddings_use_validated_compatible_versions():
     packages = set(OPTIONAL_FEATURES["local_embeddings"].packages)
 
-    assert {
+    assert packages == {
         "torch==2.13.0+cpu",
         "sentence-transformers==5.6.1",
         "transformers==5.14.1",
         "huggingface-hub==1.25.1",
         "tokenizers==0.22.2",
-    } <= packages
+        "protobuf==6.33.6",
+    }
+    assert OPTIONAL_FEATURES["local_embeddings"].pip_extra_args == [
+        "--extra-index-url",
+        "https://download.pytorch.org/whl/cpu",
+    ]
 
 
 def test_optional_requirements_document_validated_local_embedding_versions():
@@ -47,6 +53,9 @@ def test_optional_requirements_document_validated_local_embedding_versions():
 
     for package in OPTIONAL_FEATURES["local_embeddings"].packages:
         assert package in optional
+    assert "sentence-transformers>=2.7.0" not in optional
+    assert "transformers==4.40.1" not in optional
+    assert '"--index-url"' not in optional
 
 
 @pytest.mark.parametrize("setting", ("marker_enabled", "hybrid_ocr_enabled"))
