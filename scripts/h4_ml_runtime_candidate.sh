@@ -62,8 +62,24 @@ acquire_run_lock() {
         || die "another install or preload already holds the H4 candidate lock"
 }
 
+docker_root_dir() {
+    local docker_root
+
+    if ! docker_root="$(docker_local info --format '{{ .DockerRootDir }}')"; then
+        die "Docker root discovery failed"
+    fi
+    [[ -n "$docker_root" ]] || die "Docker root is empty"
+    [[ "$docker_root" == /* ]] || die "Docker root is not an absolute path"
+    [[ "$docker_root" != *[[:cntrl:]]* ]] || die "Docker root contains control characters"
+    [[ -d "$docker_root" ]] || die "Docker root directory does not exist"
+    printf '%s\n' "$docker_root"
+}
+
 free_bytes() {
-    df -B1 --output=avail /var/lib/docker | tail -n 1 | tr -d '[:space:]'
+    local docker_root
+
+    docker_root="$(docker_root_dir)"
+    df -B1 --output=avail -- "$docker_root" | tail -n 1 | tr -d '[:space:]'
 }
 
 check_preflight_space() {
