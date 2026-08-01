@@ -10,7 +10,7 @@ name: amber2
 services:
   worker-h4-live-1:
     extends:
-      file: docker-compose.canary.yml
+      file: deploy/docker-compose.canary.yml
       service: worker-canary
     container_name: amber2-worker-h4-live-1
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-1@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_1
@@ -19,7 +19,7 @@ services:
 
   worker-h4-live-2:
     extends:
-      file: docker-compose.canary.yml
+      file: deploy/docker-compose.canary.yml
       service: worker-canary
     container_name: amber2-worker-h4-live-2
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-2@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_2
@@ -28,7 +28,7 @@ services:
 
   worker-h4-live-3:
     extends:
-      file: docker-compose.canary.yml
+      file: deploy/docker-compose.canary.yml
       service: worker-canary
     container_name: amber2-worker-h4-live-3
     command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-3@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_3

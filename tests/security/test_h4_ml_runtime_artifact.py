@@ -879,7 +879,7 @@ def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
         queue_names = set(command[command.index("-Q") + 1].split(","))
 
         assert service["extends"] == {
-            "file": "docker-compose.canary.yml",
+            "file": "deploy/docker-compose.canary.yml",
             "service": "worker-canary",
         }
         assert service["container_name"] == f"amber2-worker-h4-live-{index}"
@@ -888,3 +888,97 @@ def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
         assert "--concurrency=${CELERY_CONCURRENCY:-2}" in command
         assert service["restart"] == "unless-stopped"
         assert service["stop_grace_period"] == "300s"
+
+
+def test_resolved_h4_live_workers_inherit_production_canary_safety():
+    root = Path(__file__).parents[2]
+    sentinel = "h4-live-key-sentinel-a,h4-live-key-sentinel-b"
+    environment = os.environ | {
+        "H4_ML_RUNTIME_VOLUME": "amber2_h4_candidate",
+        "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
+        "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
+        "OLLAMA_CLOUD_API_KEYS": sentinel,
+        "DEFAULT_LLM_PROVIDER": "ollama_cloud",
+        "DEFAULT_LLM_MODEL": "gemma4:31b-cloud",
+        "SECRET_KEY": "compose-contract-secret",
+        "DEV_API_KEY": "compose-contract-api-key",
+        "GRAPHRAG_APP_PASSWORD": "compose-contract-password",
+        "POSTGRES_PASSWORD": "compose-contract-password",
+        "NEO4J_PASSWORD": "compose-contract-password",
+        "OBJECT_STORAGE_ACCESS_KEY": "compose-contract-access-key",
+        "OBJECT_STORAGE_SECRET_KEY": "compose-contract-secret-key",
+    }
+    base_command = [
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "deploy/docker-compose.canary.yml",
+    ]
+
+    try:
+        compose_version = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker CLI is not installed")
+
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin is not available")
+
+    baseline_result = subprocess.run(
+        [*base_command, "config", "--format", "json"],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    result = subprocess.run(
+        [
+            *base_command,
+            "-f",
+            "deploy/docker-compose.worker-h4-live.yml",
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert baseline_result.returncode == 0, baseline_result.stderr
+    assert result.returncode == 0, result.stderr
+    baseline = json.loads(baseline_result.stdout)
+    resolved = json.loads(result.stdout)
+    assert resolved["name"] == "amber2"
+    assert resolved["volumes"] == baseline["volumes"]
+
+    expected_targets = {
+        "/app/src",
+        "/app/config",
+        "/app/alembic",
+        "/app/uploads",
+        "/app/.packages",
+        "/app/.packages-h4",
+    }
+    for index in range(1, 4):
+        service = resolved["services"][f"worker-h4-live-{index}"]
+        mounts = {mount["target"]: mount for mount in service["volumes"]}
+
+        assert service["environment"]["OLLAMA_CLOUD_API_KEYS"] == sentinel
+        assert service["environment"]["AMBER_CANARY"] == "true"
+        assert service["environment"]["DEFAULT_LLM_PROVIDER"] == "ollama_cloud"
+        assert service["environment"]["DEFAULT_LLM_MODEL"] == "gemma4:31b-cloud"
+        assert expected_targets <= mounts.keys()
+        assert all(mounts[target]["read_only"] is True for target in expected_targets)
+        assert mounts["/app/.packages"]["source"] == "pip-packages"
+        assert mounts["/app/.packages-h4"]["source"] == "h4-ml-runtime"
+        assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
