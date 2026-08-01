@@ -261,9 +261,11 @@ docker exec amber2-worker-h4-live-1 celery -A src.workers.celery_app \
   inspect active_queues -d "$h4_node" -j
 ```
 
-Require exactly the four live queues in the reply. This deliberately leaves
-both generations consuming while the failed rollback is diagnosed; do not
-stop either worker unless its own drain has subsequently been proven.
+Require exactly the five queues in the reply: `high_priority`, `celery`,
+`evaluation`, `low_priority`, and the replica's existing `h4_promotion_N`.
+The private queue must remain active. This deliberately leaves both generations
+consuming while the failed rollback is diagnosed; do not stop either worker
+unless its own drain has subsequently been proven.
 
 If data invariants change unexpectedly, freeze the handover: keep all
 containers and volumes present, preserve logs and the verified backup, and

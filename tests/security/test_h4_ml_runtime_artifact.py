@@ -1057,6 +1057,8 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
         "conferma diretta",
         "Rollback",
         "Rollback abort compensation",
+        "five queues",
+        "h4_promotion_N",
     }
     forbidden_fragments = {
         "docker rm",
