@@ -517,6 +517,25 @@ def test_canary_uses_a_separate_read_only_h4_overlay():
     assert "h4-ml-runtime:" in canary
 
 
+def test_canary_mounts_every_shared_production_path_read_only():
+    root = Path(__file__).parents[2]
+    canary = (root / "deploy/docker-compose.canary.yml").read_text()
+
+    shared_read_only_mounts = (
+        "graphrag-uploads:/app/uploads:ro",
+        "pip-packages:/app/.packages:ro",
+        "h4-ml-runtime:/app/.packages-h4:ro",
+        "./.cache/huggingface:/home/appuser/.cache/huggingface:ro",
+    )
+
+    for mount in shared_read_only_mounts:
+        assert canary.count(mount) == 2
+
+    assert "graphrag-uploads:/app/uploads\n" not in canary
+    assert "pip-packages:/app/.packages\n" not in canary
+    assert "./.cache/huggingface:/home/appuser/.cache/huggingface\n" not in canary
+
+
 def test_builder_enforces_a_local_docker_socket_before_candidate_access():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()

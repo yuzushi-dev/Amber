@@ -80,10 +80,10 @@ services:
       - ./scripts:/app/scripts:ro
       - ./config:/app/config:ro
       - ./alembic:/app/alembic:ro
-      - graphrag-uploads:/app/uploads
-      - pip-packages:/app/.packages
+      - graphrag-uploads:/app/uploads:ro
+      - pip-packages:/app/.packages:ro
       - h4-ml-runtime:/app/.packages-h4:ro
-      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,10 +163,10 @@ services:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
       - ./alembic:/app/alembic:ro
-      - graphrag-uploads:/app/uploads
-      - pip-packages:/app/.packages
+      - graphrag-uploads:/app/uploads:ro
+      - pip-packages:/app/.packages:ro
       - h4-ml-runtime:/app/.packages-h4:ro
-      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface:ro
     depends_on:
       postgres:
         condition: service_healthy
