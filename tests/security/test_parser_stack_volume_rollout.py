@@ -20,10 +20,13 @@ def _compose(path: str) -> dict:
     return yaml.safe_load((PROJECT_ROOT / path).read_text())
 
 
-def _assert_active_mounts(compose: dict, services: tuple[str, ...]) -> None:
+def _assert_active_mounts(
+    compose: dict, services: tuple[str, ...], *, read_only: bool = False
+) -> None:
+    expected_mount = "pip-packages:/app/.packages:ro" if read_only else "pip-packages:/app/.packages"
     for service_name in services:
         mounts = compose["services"][service_name]["volumes"]
-        assert "pip-packages:/app/.packages" in mounts
+        assert expected_mount in mounts
 
 
 def _assert_versioned_volume_contract(compose: dict) -> None:
@@ -43,7 +46,7 @@ def test_default_and_canary_compose_select_fresh_h3_volume_and_keep_rollback_ref
     canary_compose = _compose("deploy/docker-compose.canary.yml")
 
     _assert_active_mounts(base_compose, ("api", "worker", "celery_beat"))
-    _assert_active_mounts(canary_compose, ("api-canary", "worker-canary"))
+    _assert_active_mounts(canary_compose, ("api-canary", "worker-canary"), read_only=True)
     _assert_versioned_volume_contract(base_compose)
     _assert_versioned_volume_contract(canary_compose)
 
