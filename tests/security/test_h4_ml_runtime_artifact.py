@@ -374,7 +374,10 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "--no-index" in script
     assert "--read-only" in script
     assert "--tmpfs /tmp:rw,noexec,nosuid,size=1g" in script
-    assert "df -B1 --output=avail /var/lib/docker" in script
+    assert "docker_local info --format '{{ .DockerRootDir }}'" in script
+    assert 'df -B1 --output=avail -- "$docker_root"' in script
+    assert "/var/lib/docker" not in script
+    assert "H4_DOCKER_ROOT" not in script
     assert 'df -B1 --output=avail "$1"' not in script
     assert '"$mountpoint/.' not in script
     assert "h4-install-${H4_ATTEMPT_ID}-download.log" in script
@@ -409,6 +412,85 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "SetupService" not in script
     assert "docker_local volume create" not in script
     assert "docker_local volume rm" not in script
+
+
+def _run_builder_free_bytes(tmp_path: Path, docker_root: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    root = Path(__file__).parents[2]
+    script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
+    function_prefix = script.split("[[ $# -ge 1 ]] || usage", maxsplit=1)[0]
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    df_args = tmp_path / "df-args"
+    fake_df = fake_bin / "df"
+    fake_df.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$@" > "$DF_ARGS_LOG"\n'
+        "printf 'Avail\\n30000000000\\n'\n"
+    )
+    fake_df.chmod(0o755)
+    harness = (
+        function_prefix
+        + "\ndocker_local() { printf '%s\\n' \"$TEST_DOCKER_ROOT\"; }\n"
+        + "free_bytes\n"
+    )
+    harness_path = tmp_path / "free-bytes-harness.sh"
+    harness_path.write_text(harness)
+    environment = {
+        **os.environ,
+        "DF_ARGS_LOG": str(df_args),
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "TEST_DOCKER_ROOT": docker_root,
+    }
+
+    result = subprocess.run(
+        ["bash", str(harness_path)],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    return result, df_args
+
+
+def test_storage_gate_measures_the_daemon_docker_root(tmp_path):
+    docker_root = tmp_path / "custom docker root"
+    docker_root.mkdir()
+
+    result, df_args = _run_builder_free_bytes(tmp_path, str(docker_root))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "30000000000"
+    assert df_args.read_text().splitlines() == [
+        "-B1",
+        "--output=avail",
+        "--",
+        str(docker_root),
+    ]
+
+
+@pytest.mark.parametrize(
+    "docker_root",
+    [
+        "relative/docker",
+        "/opt/docker\n/other",
+        "/opt/docker\tother",
+    ],
+)
+def test_storage_gate_rejects_invalid_daemon_docker_root_before_df(tmp_path, docker_root):
+    result, df_args = _run_builder_free_bytes(tmp_path, docker_root)
+
+    assert result.returncode == 1
+    assert "Docker root" in result.stderr
+    assert not df_args.exists()
+
+
+def test_storage_gate_rejects_a_missing_daemon_docker_root_before_df(tmp_path):
+    result, df_args = _run_builder_free_bytes(tmp_path, str(tmp_path / "missing"))
+
+    assert result.returncode == 1
+    assert "Docker root" in result.stderr
+    assert not df_args.exists()
 
 
 def test_builder_installs_and_validates_the_standalone_lock():

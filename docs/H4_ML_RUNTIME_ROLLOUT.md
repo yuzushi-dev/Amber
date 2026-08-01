@@ -81,6 +81,12 @@ postflight byte counts. The builder uses a read-only root filesystem and a
 volume. Stop without cleanup if a preflight fails, the final 20 GiB floor is
 breached, or observed candidate growth exceeds 4 GiB.
 
+Free space is measured on the filesystem that backs the guarded local daemon's
+`DockerRootDir`, resolved from `docker info`; it is not assumed to be
+`/var/lib/docker`. The builder accepts only one existing absolute path without
+control characters and fails closed before `df` if discovery or validation
+fails. There is deliberately no environment or CLI override for this path.
+
 ## Immutable CPU package artifact
 
 The target ABI is **CPython 3.11 / Linux x86_64**. The builder image is pinned
