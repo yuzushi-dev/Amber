@@ -48,6 +48,19 @@ def _is_test_runtime() -> bool:
     return os.getenv("AMBER_SKIP_STARTUP_TASKS", "false").lower() == "true"
 
 
+async def _bootstrap_api_key_if_allowed(session, dev_key: str) -> bool:
+    """Bootstrap the configured key only for a mutable, non-canary API."""
+    if os.getenv("AMBER_CANARY", "false").lower() == "true":
+        logger.info("Canary mode: skipping API key bootstrap")
+        return False
+
+    from src.core.admin_ops.application.api_key_service import ApiKeyService
+
+    service = ApiKeyService(session)
+    await service.ensure_bootstrap_key(dev_key, name="Development Key")
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -173,7 +186,6 @@ async def lifespan(app: FastAPI):
     try:
         from src.amber_platform.composition_root import build_vector_store_factory, platform
         from src.api.deps import _get_async_session_maker
-        from src.core.admin_ops.application.api_key_service import ApiKeyService
         from src.core.admin_ops.application.migration_service import EmbeddingMigrationService
         from src.infrastructure.adapters.celery_dispatcher import CeleryTaskDispatcher
 
@@ -188,8 +200,7 @@ async def lifespan(app: FastAPI):
 
         async with _get_async_session_maker()() as session:
             # Bootstrap Key
-            service = ApiKeyService(session)
-            await service.ensure_bootstrap_key(dev_key, name="Development Key")
+            await _bootstrap_api_key_if_allowed(session, dev_key)
 
             # Check Embedding Compatibility
             if (
@@ -248,7 +259,7 @@ async def lifespan(app: FastAPI):
                         raise
                     logger.error(f"Failed to check embedding compatibility on startup: {e}")
 
-        logger.info("Bootstrapped API key and checked embeddings")
+        logger.info("Checked API key bootstrap policy and embeddings")
 
         # ---------------------------------------------------------
         # DB Integrity Check (Neo4j & Postgres)
