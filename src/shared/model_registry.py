@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from src.shared.provider_models import ConfigurationError, ProviderTier
+
+DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW = 32_768
 
 LLM_MODELS = {
     "openai": {
@@ -401,6 +404,29 @@ def resolve_token_encoding(model: str | None) -> str | None:
         provider = next(iter(providers))
         return TOKEN_ENCODING_BY_PROVIDER.get(provider)
 
+    return None
+
+
+def llm_context_window(provider: str | None, model: str | None) -> int | None:
+    """Return the configured context window for a provider/model pair."""
+    if not provider or not model:
+        return None
+    if provider.startswith("ollama_cloud_"):
+        provider = "ollama_cloud"
+
+    if provider == "ollama":
+        try:
+            return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+        except ValueError:
+            return 32768
+
+    models = LLM_MODELS.get(provider, {})
+    for candidate in (model, model.split(":", 1)[0]):
+        context_window = models.get(candidate, {}).get("context_window")
+        if context_window is not None:
+            return int(context_window)
+    if provider in LLM_MODELS:
+        return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
     return None
 
 

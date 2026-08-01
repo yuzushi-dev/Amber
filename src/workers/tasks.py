@@ -25,6 +25,14 @@ from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+_COMMUNITY_RESUME_PHASES = frozenset({"detection", "summarization", "embedding"})
+
+
+class CommunityPhaseError(RuntimeError):
+    def __init__(self, resume_from: str, cause: Exception):
+        super().__init__(str(cause))
+        self.resume_from = resume_from
+
 
 def _is_revoked(task_id: str) -> bool:
     """
@@ -35,6 +43,7 @@ def _is_revoked(task_id: str) -> bool:
     """
     try:
         from celery.result import AsyncResult
+
         state = AsyncResult(task_id, app=celery_app).state
         return state == "REVOKED"
     except Exception as exc:
@@ -47,6 +56,7 @@ def _background_warmup():
     try:
         logger.info("Starting background warmup for SparseEmbeddingService (SPLADE)...")
         from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
+
         service = SparseEmbeddingService()
         if service.prewarm():
             logger.info("SparseEmbeddingService background warmup completed.")
@@ -168,8 +178,7 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
     # task was already revoked (e.g. cancel called while task was in the queue).
     if _is_revoked(self.request.id):
         logger.info(
-            f"[Task {self.request.id}] Task revoked before start; "
-            f"skipping document {document_id}"
+            f"[Task {self.request.id}] Task revoked before start; skipping document {document_id}"
         )
         return {"document_id": document_id, "status": "cancelled", "task_id": self.request.id}
 
@@ -254,6 +263,7 @@ def process_communities(
     skip_detection: bool = False,
     force_full_embedding_resync: bool = False,
     embedding_resync_run_id: str | None = None,
+    resume_from: str = "detection",
 ) -> dict:
     """
     Periodic or triggered task to update graph communities and summaries.
@@ -269,7 +279,19 @@ def process_communities(
                         for explicit repair and migration operations.
         embedding_resync_run_id: Stable ID for a forced resync. Retries retain
                         this value so acknowledged batches are not re-embedded.
+        resume_from: First incomplete phase of this task run. Celery retries persist it
+            in their kwargs so completed detection/summarization work is not repeated.
     """
+    if resume_from not in _COMMUNITY_RESUME_PHASES:
+        raise ValueError(f"Unknown community resume phase: {resume_from}")
+
+    if _is_revoked(self.request.id):
+        logger.info(
+            f"[Task {self.request.id}] Task revoked before start; "
+            f"skipping community processing for tenant {tenant_id}"
+        )
+        return {"status": "cancelled", "tenant_id": tenant_id}
+
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
     lock_ttl_seconds = 60 * 60 * 2  # 2h safety TTL in case of worker crash
@@ -303,14 +325,6 @@ def process_communities(
 
     logger.info(f"[Task {self.request.id}] Updating communities for tenant {tenant_id}")
 
-    # Cooperative cancellation: check before doing any work.
-    if _is_revoked(self.request.id):
-        logger.info(
-            f"[Task {self.request.id}] Task revoked before start; "
-            f"skipping community processing for tenant {tenant_id}"
-        )
-        return {"status": "cancelled", "tenant_id": tenant_id}
-
     resync_run_id = embedding_resync_run_id or (
         self.request.id if force_full_embedding_resync else None
     )
@@ -323,6 +337,7 @@ def process_communities(
                 force_full_embedding_resync=force_full_embedding_resync,
                 force_full_resync_id=resync_run_id,
                 task_id=self.request.id,
+                resume_from=resume_from,
             )
         )
         return result
@@ -331,6 +346,7 @@ def process_communities(
         retry_kwargs = {
             "skip_detection": skip_detection,
             "force_full_embedding_resync": force_full_embedding_resync,
+            "resume_from": getattr(e, "resume_from", resume_from),
         }
         if resync_run_id:
             retry_kwargs["embedding_resync_run_id"] = resync_run_id
@@ -356,6 +372,7 @@ async def _process_communities_async(
     force_full_embedding_resync: bool = False,
     force_full_resync_id: str | None = None,
     task_id: str = "",
+    resume_from: str = "detection",
 ) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -366,6 +383,7 @@ async def _process_communities_async(
     configure_settings(settings)
 
     from src.core.database.session import configure_database
+
     configure_database(settings.db.database_url)
 
     from src.core.admin_ops.application.tuning_service import TuningService
@@ -377,43 +395,50 @@ async def _process_communities_async(
     from src.core.retrieval.application.embeddings_service import EmbeddingService
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
+    next_phase = resume_from
     try:
-        # 1. Detection (skip if flag is set — useful for retrying summarization/embedding only)
-        detect_res = {"status": "skipped_by_flag", "community_count": 0}
-        if not skip_detection:
-            # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
-            # wipe that detect_communities() performs at the start of every full-Leiden run.
-            # If the task was revoked after we started running but before the destructive
-            # step, abort here so acks_late re-delivery can't silently re-wipe communities.
-            if task_id and _is_revoked(task_id):
-                logger.info(
-                    f"[Task {task_id}] Revoked before community detection/wipe; "
-                    f"aborting for tenant {tenant_id}"
+        # 1. Detection or the pre-existing incremental update.
+        detect_res = {"status": "skipped_by_checkpoint", "community_count": 0}
+        if resume_from == "detection":
+            if not skip_detection:
+                # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
+                # wipe that detect_communities() performs at the start of every full-Leiden run.
+                # If the task was revoked after we started running but before the destructive
+                # step, abort here so acks_late re-delivery can't silently re-wipe communities.
+                if task_id and _is_revoked(task_id):
+                    logger.info(
+                        f"[Task {task_id}] Revoked before community detection/wipe; "
+                        f"aborting for tenant {tenant_id}"
+                    )
+                    return {"status": "cancelled", "tenant_id": tenant_id}
+
+                detector = CommunityDetector(platform.neo4j_client)
+                detect_res = await detector.detect_communities(
+                    tenant_id,
+                    resolution=settings.leiden_resolution,
+                    max_levels=settings.leiden_max_levels,
+                    seed=settings.leiden_seed,
                 )
-                return {"status": "cancelled", "tenant_id": tenant_id}
 
-            detector = CommunityDetector(platform.neo4j_client)
-            detect_res = await detector.detect_communities(
-                tenant_id,
-                resolution=settings.leiden_resolution,
-                max_levels=settings.leiden_max_levels,
-                seed=settings.leiden_seed,
-            )
-
-            if detect_res["status"] == "skipped":
-                return detect_res
+                if detect_res["status"] == "skipped":
+                    return detect_res
+            else:
+                detector = CommunityDetector(platform.neo4j_client)
+                incremental_res = await detector.assign_orphans_and_mark_stale(tenant_id)
+                logger.info(
+                    f"Incremental community update for tenant {tenant_id}: "
+                    f"assigned={incremental_res.get('assigned', 0)} "
+                    f"unassigned={incremental_res.get('unassigned', 0)}"
+                )
+                detect_res = {"status": "incremental", **incremental_res}
         else:
-            # Incremental mode: assign orphan entities to nearest existing community,
-            # mark those communities stale. Summarizer then re-summarizes only stale ones.
-            from src.core.graph.application.communities.leiden import CommunityDetector
-            detector = CommunityDetector(platform.neo4j_client)
-            incremental_res = await detector.assign_orphans_and_mark_stale(tenant_id)
             logger.info(
-                f"Incremental community update for tenant {tenant_id}: "
-                f"assigned={incremental_res.get('assigned', 0)} "
-                f"unassigned={incremental_res.get('unassigned', 0)}"
+                "Resuming community task for tenant %s from %s; skipping detection",
+                tenant_id,
+                resume_from,
             )
-            detect_res = {"status": "incremental", **incremental_res}
+        if resume_from != "embedding":
+            next_phase = "summarization"
 
         tuning_service = TuningService(get_session_maker(), redis_url=settings.db.redis_url)
         tenant_config = await tuning_service.get_effective_tenant_config(tenant_id)
@@ -440,23 +465,31 @@ async def _process_communities_async(
             ollama_cloud_base_url=settings.ollama_cloud_base_url,
             ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
         )
-        summarizer = CommunitySummarizer(platform.neo4j_client, factory)
 
-        # We summarize all that are now stale or new
-        # Check tenant config for override, otherwise use global setting
-        concurrency = tenant_config.get("community_summarization_concurrency") or settings.community_summarization_concurrency
-        await summarizer.summarize_all_stale(
-            tenant_id,
-            tenant_config=tenant_config,
-            concurrency=int(concurrency)
-        )
+        if resume_from in {"detection", "summarization"}:
+            summarizer = CommunitySummarizer(platform.neo4j_client, factory)
+            concurrency = (
+                tenant_config.get("community_summarization_concurrency")
+                or settings.community_summarization_concurrency
+            )
+            await summarizer.summarize_all_stale(
+                tenant_id,
+                tenant_config=tenant_config,
+                concurrency=int(concurrency),
+            )
+        else:
+            logger.info("Resuming community task for tenant %s from embedding", tenant_id)
+
+        next_phase = "embedding"
 
         # 3. Embeddings
         # Resolve embedding provider/model from tenant_config first (mirrors
         # RetrievalService._resolve_embedding_service), falling back to system defaults.
         # This ensures community embedding WRITES use the same vector space as GLOBAL
         # search QUERIES, which also honour the tenant override.
-        t_embedding_provider = tenant_config.get("embedding_provider") or settings.default_embedding_provider
+        t_embedding_provider = (
+            tenant_config.get("embedding_provider") or settings.default_embedding_provider
+        )
         t_embedding_model = tenant_config.get("embedding_model") or settings.default_embedding_model
 
         # Use the already-configured ProviderFactory (which carries the tenant's ollama URL)
@@ -487,6 +520,7 @@ async def _process_communities_async(
         sparse_svc = None
         try:
             from src.amber_platform.composition_root import platform
+
             sparse_svc = platform.sparse_embedding_service
         except Exception as e:
             logger.warning(f"Failed to initialize SparseEmbeddingService: {e}")
@@ -507,9 +541,7 @@ async def _process_communities_async(
         """
         ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
         embedding_provider_name = str(
-            getattr(embedding_provider, "provider_name", None)
-            or t_embedding_provider
-            or "unknown"
+            getattr(embedding_provider, "provider_name", None) or t_embedding_provider or "unknown"
         )
         sync_stats = await comm_embedding_svc.sync_stale_communities(
             ready_comms,
@@ -553,6 +585,8 @@ async def _process_communities_async(
             "force_full_embedding_resync": force_full_embedding_resync,
             "embedding_resync_run_id": force_full_resync_id,
         }
+    except Exception as e:
+        raise CommunityPhaseError(next_phase, e) from e
     finally:
         # Close Neo4j connection to prevent event loop conflicts
         try:
@@ -673,8 +707,13 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     try:
         async with async_session() as tmp_session:
             from sqlalchemy import text as _text
-            await tmp_session.execute(_text("SELECT set_config('app.current_tenant', :tid, false)"), {"tid": tenant_id})
-            await tmp_session.execute(_text("SELECT set_config('app.is_super_admin', 'true', false)"))
+
+            await tmp_session.execute(
+                _text("SELECT set_config('app.current_tenant', :tid, false)"), {"tid": tenant_id}
+            )
+            await tmp_session.execute(
+                _text("SELECT set_config('app.is_super_admin', 'true', false)")
+            )
             t_repo = PostgresTenantRepository(tmp_session)
             t_obj = await t_repo.get(tenant_id)
             if t_obj and t_obj.config:
@@ -727,6 +766,7 @@ async def _process_document_async(document_id: str, tenant_id: str, task_id: str
     try:
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
+
             await configure_worker_session(session, tenant_id)
             # Initialize services
             from src.core.events.dispatcher import EventDispatcher
@@ -863,6 +903,7 @@ async def _mark_document_failed(document_id: str, error: str, tenant_id: str = "
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
+
             await configure_worker_session(session, tenant_id)
             result = await session.execute(select(Document).where(Document.id == document_id))
             document = result.scalars().first()
@@ -983,6 +1024,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
+
             await configure_worker_session(session, tenant_id)
             # Fetch benchmark run
             result = await session.execute(
@@ -1199,6 +1241,7 @@ async def _mark_benchmark_failed(benchmark_run_id: str, error: str, tenant_id: s
 
         async with async_session() as session:
             from src.core.database.session import configure_worker_session
+
             await configure_worker_session(session, tenant_id)
             result = await session.execute(
                 select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
