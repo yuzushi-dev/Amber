@@ -4,6 +4,7 @@
 set -euo pipefail
 
 readonly CANDIDATE_VOLUME="ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d"
+readonly PRODUCTION_VOLUME_PREFIX="amber2_pip-packages-h4-cpu-nomic-da122dfb-"
 readonly CANDIDATE_ROLE="ml-runtime-candidate"
 readonly CANDIDATE_PROFILE="cpu"
 readonly CANDIDATE_STRATEGY="nomic-ollama-remote"
@@ -32,6 +33,8 @@ die() {
 usage() {
     printf '%s\n' "Usage: h4_ml_runtime_candidate.sh install --volume $CANDIDATE_VOLUME" >&2
     printf '%s\n' "       h4_ml_runtime_candidate.sh preload --volume $CANDIDATE_VOLUME --authorize-preload" >&2
+    printf '%s\n' "       h4_ml_runtime_candidate.sh install --volume ${PRODUCTION_VOLUME_PREFIX}<current-head-short> --authorize-production" >&2
+    printf '%s\n' "       h4_ml_runtime_candidate.sh preload --volume ${PRODUCTION_VOLUME_PREFIX}<current-head-short> --authorize-production --authorize-preload" >&2
     exit 2
 }
 
@@ -350,21 +353,44 @@ publish_preload_validation_proof(target, proof)
 
 [[ $# -ge 1 ]] || usage
 phase="$1"
+production_mode=false
 case "$phase" in
     install)
-        [[ $# -eq 3 && "$2" == "--volume" ]] || usage
+        if [[ $# -eq 4 && "$2" == "--volume" && "$4" == "--authorize-production" ]]; then
+            production_mode=true
+        else
+            [[ $# -eq 3 && "$2" == "--volume" ]] || usage
+        fi
         volume="$3"
         ;;
     preload)
-        [[ $# -eq 4 && "$2" == "--volume" && "$4" == "--authorize-preload" ]] \
-            || die "preload requires --authorize-preload after direct user approval"
+        if [[ $# -eq 5 && "$2" == "--volume" && "$4" == "--authorize-production" && "$5" == "--authorize-preload" ]]; then
+            production_mode=true
+        else
+            [[ $# -eq 4 && "$2" == "--volume" && "$4" == "--authorize-preload" ]] \
+                || die "preload requires --authorize-preload after direct user approval"
+        fi
         volume="$3"
         ;;
     *)
         usage
         ;;
 esac
-[[ "$volume" == "$CANDIDATE_VOLUME" ]] || die "refusing volume $volume"
+
+candidate_ref=""
+if [[ "$volume" == amber2_pip-packages-h4-cpu-nomic-* ]]; then
+    [[ "$production_mode" == true ]] \
+        || die "production volume requires --authorize-production after direct user approval"
+    candidate_ref="$(git -C "$root_dir" rev-parse --verify 'HEAD^{commit}')"
+    [[ "$candidate_ref" =~ ^[0-9a-f]{40}$ ]] || die "current candidate HEAD is not a full Git commit"
+    expected_production_volume="${PRODUCTION_VOLUME_PREFIX}${candidate_ref:0:8}"
+    [[ "$volume" == "$expected_production_volume" ]] \
+        || die "refusing production volume $volume; expected $expected_production_volume"
+else
+    [[ "$production_mode" == false ]] \
+        || die "--authorize-production is valid only for the exact production volume"
+    [[ "$volume" == "$CANDIDATE_VOLUME" ]] || die "refusing volume $volume"
+fi
 acquire_run_lock
 ensure_local_docker
 
@@ -379,6 +405,11 @@ source_ref="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.s
 [[ "$source" == "$CANDIDATE_SOURCE" ]] || die "candidate source label is not $CANDIDATE_SOURCE"
 [[ "$source_ref" == "$CANDIDATE_SOURCE_REF" ]] \
     || die "candidate source-ref label is not $CANDIDATE_SOURCE_REF"
+if [[ "$production_mode" == true ]]; then
+    labeled_candidate_ref="$(docker_local volume inspect --format '{{ index .Labels "amber.h4.candidate-ref" }}' "$volume")"
+    [[ "$labeled_candidate_ref" == "$candidate_ref" ]] \
+        || die "candidate-ref label is not current HEAD $candidate_ref"
+fi
 check_preflight_space "$phase"
 
 PYTHONPATH="$root_dir" python3 - "$requirements_lock" <<'PY'
