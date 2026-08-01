@@ -12,7 +12,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
-from importlib import metadata
+from importlib import metadata, util
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,10 @@ class Feature:
 # same target directory. Repeat this shared constraint in every ML feature that
 # can otherwise resolve a newer, OpenTelemetry-incompatible Protobuf release.
 OPTIONAL_PROTOBUF_PIN = "protobuf==6.33.6"
+FRESH_PACKAGES_VOLUME_REQUIRED = (
+    "Installed optional packages do not match the validated versions. "
+    "Select a fresh versioned PACKAGES_DIR volume; the active volume was not modified."
+)
 
 
 # Define all optional features
@@ -167,9 +171,46 @@ class SetupService:
     def _detect_installed_features(self) -> None:
         """Scan all features and update their installation status."""
         for feature_id, feature in self._features.items():
+            try:
+                module_present = util.find_spec(feature.check_import) is not None
+            except (ImportError, ValueError):
+                module_present = False
+            if not module_present:
+                continue
+
+            mismatches = self._exact_version_mismatches(feature)
+            if mismatches:
+                feature.status = FeatureStatus.FAILED
+                feature.error_message = FRESH_PACKAGES_VOLUME_REQUIRED
+                logger.warning(
+                    "Feature '%s' requires a fresh packages volume: %s",
+                    feature_id,
+                    ", ".join(mismatches),
+                )
+                continue
+
             if self._check_feature_installed(feature_id):
                 feature.status = FeatureStatus.INSTALLED
                 logger.info(f"Feature '{feature_id}' is already installed")
+
+    @staticmethod
+    def _exact_version_mismatches(feature: Feature) -> list[str]:
+        """Return mismatches for exact pins without importing feature modules."""
+        mismatches: list[str] = []
+        for package_spec in feature.packages:
+            if "==" not in package_spec:
+                continue
+            package_name, expected_version = package_spec.split("==", maxsplit=1)
+            try:
+                installed_version = metadata.version(package_name)
+            except metadata.PackageNotFoundError:
+                mismatches.append(f"{package_name}=missing (expected {expected_version})")
+                continue
+            if installed_version != expected_version:
+                mismatches.append(
+                    f"{package_name}={installed_version} (expected {expected_version})"
+                )
+        return mismatches
 
     def _check_feature_installed(self, feature_id: str) -> bool:
         """Check if a feature's packages are importable."""
@@ -178,29 +219,13 @@ class SetupService:
             return False
 
         try:
+            if util.find_spec(feature.check_import) is None:
+                return False
+            mismatches = self._exact_version_mismatches(feature)
+            if mismatches:
+                logger.info("Feature '%s' version mismatch: %s", feature_id, ", ".join(mismatches))
+                return False
             importlib.import_module(feature.check_import)
-            for package_spec in feature.packages:
-                if "==" not in package_spec:
-                    continue
-                package_name, expected_version = package_spec.split("==", maxsplit=1)
-                try:
-                    installed_version = metadata.version(package_name)
-                except metadata.PackageNotFoundError:
-                    logger.debug(
-                        "Feature '%s' exact package is missing: %s",
-                        feature_id,
-                        package_name,
-                    )
-                    return False
-                if installed_version != expected_version:
-                    logger.info(
-                        "Feature '%s' package %s has version %s; expected %s",
-                        feature_id,
-                        package_name,
-                        installed_version,
-                        expected_version,
-                    )
-                    return False
             return True
         except ImportError as e:
             logger.debug(f"Feature '{feature_id}' import check failed: {e}")
@@ -258,6 +283,12 @@ class SetupService:
 
         if feature.status == FeatureStatus.INSTALLED:
             return {"success": True, "message": "Already installed"}
+
+        if (
+            feature.status == FeatureStatus.FAILED
+            and feature.error_message == FRESH_PACKAGES_VOLUME_REQUIRED
+        ):
+            return {"success": False, "error": FRESH_PACKAGES_VOLUME_REQUIRED}
 
         if feature.status == FeatureStatus.INSTALLING:
             return {"success": False, "error": "Installation already in progress"}
@@ -370,6 +401,21 @@ class SetupService:
                     "phase": "complete",
                     "progress": 100,
                     "message": "Already installed",
+                    "current": idx,
+                    "total": total,
+                }
+                continue
+
+            if (
+                feature.status == FeatureStatus.FAILED
+                and feature.error_message == FRESH_PACKAGES_VOLUME_REQUIRED
+            ):
+                yield {
+                    "feature_id": feature_id,
+                    "feature_name": feature.name,
+                    "phase": "failed",
+                    "progress": 0,
+                    "message": FRESH_PACKAGES_VOLUME_REQUIRED,
                     "current": idx,
                     "total": total,
                 }
