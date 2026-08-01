@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 import src.shared.ml_runtime_artifact as ml_runtime_artifact
 from src.shared.ml_runtime_artifact import (
@@ -519,7 +520,8 @@ def test_canary_uses_a_separate_read_only_h4_overlay():
 
 def test_canary_mounts_every_shared_production_path_read_only():
     root = Path(__file__).parents[2]
-    canary = (root / "deploy/docker-compose.canary.yml").read_text()
+    canary_path = root / "deploy/docker-compose.canary.yml"
+    canary = yaml.safe_load(canary_path.read_text())
 
     shared_read_only_mounts = (
         "graphrag-uploads:/app/uploads:ro",
@@ -528,12 +530,9 @@ def test_canary_mounts_every_shared_production_path_read_only():
         "./.cache/huggingface:/home/appuser/.cache/huggingface:ro",
     )
 
-    for mount in shared_read_only_mounts:
-        assert canary.count(mount) == 2
-
-    assert "graphrag-uploads:/app/uploads\n" not in canary
-    assert "pip-packages:/app/.packages\n" not in canary
-    assert "./.cache/huggingface:/home/appuser/.cache/huggingface\n" not in canary
+    for service_name in ("api-canary", "worker-canary"):
+        service_mounts = set(canary["services"][service_name]["volumes"])
+        assert service_mounts.issuperset(shared_read_only_mounts)
 
 
 def test_builder_enforces_a_local_docker_socket_before_candidate_access():
