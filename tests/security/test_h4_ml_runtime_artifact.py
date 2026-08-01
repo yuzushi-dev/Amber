@@ -862,3 +862,29 @@ def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
 
     assert result.returncode == 1
     assert "preload requires --authorize-preload after direct user approval" in result.stderr
+
+
+def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
+    root = Path(__file__).parents[2]
+    overlay = yaml.safe_load((root / "deploy/docker-compose.worker-h4-live.yml").read_text())
+    expected_services = {f"worker-h4-live-{index}" for index in range(1, 4)}
+
+    assert set(overlay["services"]) == expected_services
+
+    live_queues = {"high_priority", "celery", "evaluation", "low_priority"}
+    for index in range(1, 4):
+        service_name = f"worker-h4-live-{index}"
+        service = overlay["services"][service_name]
+        command = service["command"].split()
+        queue_names = set(command[command.index("-Q") + 1].split(","))
+
+        assert service["extends"] == {
+            "file": "docker-compose.canary.yml",
+            "service": "worker-canary",
+        }
+        assert service["container_name"] == f"amber2-worker-h4-live-{index}"
+        assert queue_names == live_queues | {f"h4_promotion_{index}"}
+        assert f"--hostname=h4-live-{index}@%h" in command
+        assert "--concurrency=${CELERY_CONCURRENCY:-2}" in command
+        assert service["restart"] == "unless-stopped"
+        assert service["stop_grace_period"] == "300s"

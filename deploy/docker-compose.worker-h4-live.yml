@@ -1,0 +1,36 @@
+# H4 blue/green production worker overlay.
+#
+# Compose together with docker-compose.yml and docker-compose.canary.yml. Each
+# worker extends the already validated H4 canary worker, consumes the four live
+# queues, and owns one private promotion queue for an unambiguous health probe.
+# Production handover remains manual and checkpointed; see the runbook.
+
+name: amber2
+
+services:
+  worker-h4-live-1:
+    extends:
+      file: docker-compose.canary.yml
+      service: worker-canary
+    container_name: amber2-worker-h4-live-1
+    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-1@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_1
+    restart: unless-stopped
+    stop_grace_period: 300s
+
+  worker-h4-live-2:
+    extends:
+      file: docker-compose.canary.yml
+      service: worker-canary
+    container_name: amber2-worker-h4-live-2
+    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-2@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_2
+    restart: unless-stopped
+    stop_grace_period: 300s
+
+  worker-h4-live-3:
+    extends:
+      file: docker-compose.canary.yml
+      service: worker-canary
+    container_name: amber2-worker-h4-live-3
+    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2} --hostname=h4-live-3@%h -Q high_priority,celery,evaluation,low_priority,h4_promotion_3
+    restart: unless-stopped
+    stop_grace_period: 300s
