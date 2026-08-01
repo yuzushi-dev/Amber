@@ -144,3 +144,36 @@ or production file changed, and secret-scan every changed file.
 
 Stage only explicitly modified files. Do not push, merge, deploy, or open a
 pull request without a separate decision after review.
+
+### Task 4: Fail closed on legacy optional volumes
+
+**Files:**
+- Modify: `src/api/services/setup_service.py`
+- Create: `tests/unit/test_setup_service_optional_versions.py`
+- Modify: `tests/unit/core/ingestion/infrastructure/extraction/test_marker_retirement.py`
+- Modify: `requirements-optional.txt`
+
+**Step 1: Add RED tests for legacy volume safety**
+
+Prove that an importable volume containing Transformers 4.40.1 is detected as
+incompatible without importing its modules. Assert both `install_feature` and
+`install_features_stream` return the fresh-volume error without invoking a pip
+subprocess. Tighten package and documentation assertions to exact equality and
+reject all legacy guidance.
+
+**Step 2: Verify the failures**
+
+Run the two affected unit modules. Expected: failures show import-before-version,
+in-place pip execution, and stale duplicate documentation.
+
+**Step 3: Implement the fail-closed boundary**
+
+Inspect exact distribution metadata before importing. If an importable feature
+has missing or mismatched exact pins, mark it failed with an instruction to use
+a fresh versioned `PACKAGES_DIR`. Refuse normal and SSE installation on that
+active target. Do not delete, overwrite, or upgrade the incompatible volume.
+
+**Step 4: Verify GREEN and rerun all gates**
+
+Run focused setup/security tests, backend verification, unchanged frontend
+lint/build/tests, resolver dry-run, diff audit, and independent re-review.

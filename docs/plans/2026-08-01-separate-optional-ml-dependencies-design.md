@@ -40,12 +40,24 @@ an installation failure must not mutate the core environment. No migration,
 datastore action, Compose action, or production operation is part of this
 change.
 
+An existing optional volume with missing or mismatched exact pins is never
+upgraded in place. Detection reads distribution metadata before importing the
+feature, marks the feature failed with a fresh-volume requirement, and both
+normal and SSE installation paths refuse to invoke pip. The operator must
+select a fresh versioned `PACKAGES_DIR` volume, install and verify there, and
+retain the old volume for rollback. This prevents a failed resolver, network,
+or disk operation from partially deleting the active optional runtime and
+prevents a legacy Transformers module from entering `sys.modules` before
+activation.
+
 ## Verification
 
 Regression tests must prove the three legacy ML packages are absent from the
 general manifest, the optional feature exposes the exact coherent pins, and
-the operator documentation matches. TDD requires observing these tests fail
-against the current files before implementation. Then run dependency resolver
-dry-run, targeted tests, Ruff, mypy, import contracts, and the complete project
-quality gate. Do not push or open a pull request until every relevant gate is
-green and the diff has passed review and secret scanning.
+the operator documentation matches. They must also prove an importable legacy
+volume is rejected before import and that neither installation path invokes
+pip against it. TDD requires observing these tests fail against the current
+files before implementation. Then run dependency resolver dry-run, targeted
+tests, Ruff, mypy, import contracts, and the complete project quality gate. Do
+not push or open a pull request until every relevant gate is green and the
+diff has passed review and secret scanning.
