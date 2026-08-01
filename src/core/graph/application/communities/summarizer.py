@@ -11,9 +11,23 @@ from src.core.generation.application.prompts.community_summary import (
 from src.core.generation.domain.ports.provider_factory import ProviderFactoryPort
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.graph.domain.ports.graph_client import GraphClientPort
+from src.core.utils.tokenizer import Tokenizer
+from src.shared.model_registry import llm_context_window
 from src.shared.provider_models import RateLimitError
 
 logger = logging.getLogger(__name__)
+
+SUMMARY_COMPLETION_TOKENS = 800
+SUMMARY_PROVIDER_OVERHEAD_TOKENS = 512
+SUMMARY_BUDGET_MARGIN_TOKENS = 512
+MAX_ENTITY_DESCRIPTION_TOKENS = 128
+MAX_RELATIONSHIP_DESCRIPTION_TOKENS = 96
+MAX_TEXT_UNIT_TOKENS = 512
+MAX_CHILD_SUMMARY_TOKENS = 256
+
+
+class CommunityPromptBudgetError(ValueError):
+    """Raised when a community cannot be represented within the model context window."""
 
 
 class CommunitySummarizer:
@@ -46,26 +60,12 @@ class CommunitySummarizer:
         # 1. Fetch data for community
         data = await self._fetch_community_data(community_id, tenant_id)
         if not data["entities"] and not data["child_summaries"]:
-            logger.warning(f"Community {community_id} has no entities and no child summaries. Skipping.")
+            logger.warning(
+                f"Community {community_id} has no entities and no child summaries. Skipping."
+            )
             return {}
 
-        # 2. Format for LLM
-        entities_str = self._format_entities(data["entities"])
-        relationships_str = self._format_relationships(data["relationships"])
-        text_units_str = self._format_text_units(data.get("text_units", []))
-
-        # If it's a higher level community, we might want to include summaries of child communities
-        if data["child_summaries"]:
-            child_summaries_str = "\n".join(
-                [f"- {s['title']}: {s['summary']}" for s in data["child_summaries"]]
-            )
-            entities_str += f"\n\nCHILD COMMUNITIES SUMMARIES:\n{child_summaries_str}"
-
-        prompt = COMMUNITY_SUMMARY_USER_PROMPT.format(
-            entities=entities_str, relationships=relationships_str, text_units=text_units_str
-        )
-
-        # 3. Call LLM
+        # 2. Resolve the target model before rendering so the input has a hard budget.
         try:
             from src.core.generation.application.llm_steps import resolve_llm_step_config
             from src.shared.kernel.runtime import get_settings
@@ -77,20 +77,33 @@ class CommunitySummarizer:
                 step_id="graph.community_summary",
                 settings=settings,
             )
-
+            # Resolve the primary provider without its wrapper to obtain the
+            # canonical provider/model used to budget the prompt.
+            budget_llm = self.factory.get_llm_provider(
+                provider_name=llm_cfg.provider,
+                model=llm_cfg.model,
+                tier=ProviderTier.ECONOMY,
+                with_failover=False,
+            )
+            primary_budget_llm = (
+                budget_llm.providers[0] if getattr(budget_llm, "providers", None) else budget_llm
+            )
+            prompt = self._build_prompt(
+                data,
+                provider=llm_cfg.provider or primary_budget_llm.provider_name,
+                model=llm_cfg.model or primary_budget_llm.default_model,
+            )
             llm = self.factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=ProviderTier.ECONOMY,
             )
 
-            # NOTE: Ollama Cloud (OpenAI-compatible) can 500 on larger prompts if max_tokens is omitted.
-            # Community summaries are small JSON; cap the completion to a sane budget.
             result = await llm.generate(
                 prompt=prompt,
                 system_prompt=COMMUNITY_SUMMARY_SYSTEM_PROMPT,
                 temperature=llm_cfg.temperature,
-                max_tokens=800,
+                max_tokens=SUMMARY_COMPLETION_TOKENS,
                 seed=llm_cfg.seed,
                 work_class="communities",
             )
@@ -294,16 +307,15 @@ class CommunitySummarizer:
         child_query = """
         MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE child.summary IS NOT NULL
-        RETURN child.title as title, child.summary as summary
+        RETURN child.id as id, child.title as title, child.summary as summary
+        ORDER BY child.id
         """
 
-        # Fetch Exemplar TextUnits (Chunks)
-        # We find chunks that MENTION entities in this community.
-        # We limit to top 10 distinct chunks to avoid blowing up context window.
+        # Fetch exemplar text units in a stable order.
         chunk_query = """
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
-        WITH DISTINCT c_chunk LIMIT 3
+        WITH DISTINCT c_chunk ORDER BY c_chunk.id LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
@@ -321,21 +333,167 @@ class CommunitySummarizer:
             "child_communities": [],
         }
 
-    def _format_entities(self, entities: list[dict[str, Any]]) -> str:
-        return "\n".join([f"- {e['name']} ({e['type']}): {e['description']}" for e in entities])
+    def _build_prompt(self, data: dict[str, Any], *, provider: str, model: str) -> str:
+        context_window = llm_context_window(provider, model)
+        if context_window is None:
+            raise CommunityPromptBudgetError(
+                f"No context window is configured for provider={provider!r}, model={model!r}"
+            )
+        input_budget = context_window - SUMMARY_COMPLETION_TOKENS - SUMMARY_PROVIDER_OVERHEAD_TOKENS
+        render_budget = input_budget - SUMMARY_BUDGET_MARGIN_TOKENS
+        if render_budget <= 0:
+            raise CommunityPromptBudgetError(
+                f"Context window {context_window} cannot reserve summary completion and provider overhead"
+            )
 
-    def _format_relationships(self, relationships: list[dict[str, Any]]) -> str:
-        return "\n".join(
-            [
-                f"- {r['source']} -> {r['type']} -> {r['target']}: {r['description']}"
-                for r in relationships
-            ]
+        entities = sorted(
+            data["entities"],
+            key=lambda entity: (
+                str(entity.get("name") or ""),
+                str(entity.get("type") or ""),
+                str(entity.get("description") or ""),
+            ),
+        )
+        entity_lines = [
+            f"- {entity.get('name') or '(unnamed)'} ({entity.get('type') or 'Unknown'})"
+            for entity in entities
+        ]
+        prompt = self._render_prompt("\n".join(entity_lines), "", "")
+        used_tokens = self._prompt_tokens(prompt, model)
+        if used_tokens > render_budget:
+            raise CommunityPromptBudgetError(
+                f"Community requires {used_tokens} input tokens before descriptions; budget is {render_budget}"
+            )
+
+        entity_detail_lines = [
+            (
+                f"- {entity.get('name') or '(unnamed)'}: "
+                f"{Tokenizer.truncate_to_budget(str(entity.get('description') or ''), MAX_ENTITY_DESCRIPTION_TOKENS, model)}"
+            )
+            for entity in entities
+            if entity.get("description")
+        ]
+        entity_details, used_tokens = self._fit_lines(
+            "ENTITY DESCRIPTIONS:", entity_detail_lines, used_tokens, render_budget, model
         )
 
-    def _format_text_units(self, text_units: list[dict[str, Any]]) -> str:
-        if not text_units:
-            return "(No exemplar text units available)"
-        return "\n".join([f"--- TextUnit ID: {tu['id']} ---\n{tu['content']}" for tu in text_units])
+        relationships = sorted(
+            data["relationships"],
+            key=lambda relationship: (
+                not bool(relationship.get("description")),
+                str(relationship.get("source") or ""),
+                str(relationship.get("target") or ""),
+                str(relationship.get("type") or ""),
+                str(relationship.get("description") or ""),
+            ),
+        )
+        relationship_lines = [
+            f"- {relationship.get('source') or '(unknown)'} -> "
+            f"{relationship.get('type') or 'RELATED_TO'} -> "
+            f"{relationship.get('target') or '(unknown)'}: "
+            f"{Tokenizer.truncate_to_budget(str(relationship.get('description') or ''), MAX_RELATIONSHIP_DESCRIPTION_TOKENS, model)}"
+            for relationship in relationships
+        ]
+        relationship_lines, used_tokens = self._fit_lines(
+            "", relationship_lines, used_tokens, render_budget, model
+        )
+
+        text_units = sorted(
+            data.get("text_units", []), key=lambda text_unit: str(text_unit.get("id") or "")
+        )
+        text_unit_lines = [
+            f"--- TextUnit ID: {text_unit.get('id') or '(unknown)'} ---\n"
+            f"{Tokenizer.truncate_to_budget(str(text_unit.get('content') or ''), MAX_TEXT_UNIT_TOKENS, model)}"
+            for text_unit in text_units
+        ]
+        text_unit_lines, used_tokens = self._fit_lines(
+            "", text_unit_lines, used_tokens, render_budget, model
+        )
+
+        child_summaries = sorted(
+            data["child_summaries"],
+            key=lambda child: (
+                str(child.get("id") or ""),
+                str(child.get("title") or ""),
+                str(child.get("summary") or ""),
+            ),
+        )
+        child_lines = [
+            f"- {child.get('title') or '(untitled)'}: "
+            f"{Tokenizer.truncate_to_budget(str(child.get('summary') or ''), MAX_CHILD_SUMMARY_TOKENS, model)}"
+            for child in child_summaries
+        ]
+        child_lines, used_tokens = self._fit_lines(
+            "CHILD COMMUNITIES SUMMARIES:", child_lines, used_tokens, render_budget, model
+        )
+
+        entities_str = "\n".join(
+            line for group in (entity_lines, entity_details, child_lines) for line in group
+        )
+        prompt = self._render_prompt(
+            entities_str,
+            "\n".join(relationship_lines),
+            "\n".join(text_unit_lines) or "(No exemplar text units available)",
+        )
+        actual_tokens = self._prompt_tokens(prompt, model)
+        if actual_tokens > input_budget:
+            raise CommunityPromptBudgetError(
+                f"Community prompt requires {actual_tokens} input tokens; budget is {input_budget}"
+            )
+        logger.info(
+            "Community prompt budget provider=%s model=%s context=%s input=%s/%s "
+            "entities=%s descriptions=%s/%s relationships=%s/%s text_units=%s/%s children=%s/%s",
+            provider,
+            model,
+            context_window,
+            actual_tokens,
+            input_budget,
+            len(entities),
+            max(0, len(entity_details) - 1),
+            len(entity_detail_lines),
+            len(relationship_lines),
+            len(relationships),
+            len(text_unit_lines),
+            len(text_units),
+            max(0, len(child_lines) - 1),
+            len(child_summaries),
+        )
+        return prompt
+
+    @staticmethod
+    def _render_prompt(entities: str, relationships: str, text_units: str) -> str:
+        return COMMUNITY_SUMMARY_USER_PROMPT.format(
+            entities=entities,
+            relationships=relationships,
+            text_units=text_units,
+        )
+
+    @staticmethod
+    def _prompt_tokens(prompt: str, model: str) -> int:
+        return Tokenizer.count_tokens(f"{COMMUNITY_SUMMARY_SYSTEM_PROMPT}\n{prompt}", model)
+
+    @staticmethod
+    def _fit_lines(
+        heading: str,
+        lines: list[str],
+        used_tokens: int,
+        input_budget: int,
+        model: str,
+    ) -> tuple[list[str], int]:
+        retained: list[str] = []
+        if heading:
+            heading_tokens = Tokenizer.count_tokens(f"\n{heading}\n", model)
+            if used_tokens + heading_tokens > input_budget or not lines:
+                return retained, used_tokens
+            retained.append(heading)
+            used_tokens += heading_tokens
+        for line in lines:
+            line_tokens = Tokenizer.count_tokens(f"\n{line}", model)
+            if used_tokens + line_tokens > input_budget:
+                break
+            retained.append(line)
+            used_tokens += line_tokens
+        return retained, used_tokens
 
     def _parse_json(self, text: str) -> dict[str, Any]:
         """Clean and parse JSON from LLM response."""
@@ -358,7 +516,9 @@ class CommunitySummarizer:
                 return json.loads(match.group(1), strict=False)
             raise
 
-    async def _persist_summary(self, community_id: str, summary: dict[str, Any], tenant_id: str = ""):
+    async def _persist_summary(
+        self, community_id: str, summary: dict[str, Any], tenant_id: str = ""
+    ):
         """Updates the Community node with the generated summary fields."""
         query = """
         MATCH (c:Community {id: $id, tenant_id: $tenant_id})
