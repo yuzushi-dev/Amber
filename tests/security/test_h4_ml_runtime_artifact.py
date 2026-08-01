@@ -518,6 +518,16 @@ def test_canary_uses_a_separate_read_only_h4_overlay():
     assert "h4-ml-runtime:" in canary
 
 
+def test_canary_compose_uses_the_live_project_identity_from_any_worktree():
+    root = Path(__file__).parents[2]
+    canary_path = root / "deploy/docker-compose.canary.yml"
+    canary_text = canary_path.read_text()
+    canary = yaml.safe_load(canary_text)
+
+    assert canary["name"] == "amber2"
+    assert canary_text.count("docker compose --project-name amber2") == 2
+
+
 def test_canary_mounts_every_shared_production_path_read_only():
     root = Path(__file__).parents[2]
     canary_path = root / "deploy/docker-compose.canary.yml"

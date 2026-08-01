@@ -4,7 +4,7 @@
 # (postgres, redis, neo4j, milvus, garage) as the live stack.
 #
 # Usage (from /root/amber2):
-#   docker compose -f docker-compose.yml -f deploy/docker-compose.canary.yml \
+#   docker compose --project-name amber2 -f docker-compose.yml -f deploy/docker-compose.canary.yml \
 #       up -d api-canary worker-canary
 #
 # Smoke test canary directly (before nginx cutover):
@@ -16,8 +16,10 @@
 #
 # Rollback:
 #   bash deploy/cutover.sh --to live
-#   docker compose -f docker-compose.yml -f deploy/docker-compose.canary.yml \
+#   docker compose --project-name amber2 -f docker-compose.yml -f deploy/docker-compose.canary.yml \
 #       stop api-canary worker-canary
+
+name: amber2
 
 services:
   api-canary:
