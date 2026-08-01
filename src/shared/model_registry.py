@@ -416,13 +416,11 @@ def ollama_num_ctx() -> int:
 
 
 def ollama_request_num_ctx(model: str | None) -> int:
-    """num_ctx to send for `model`: cloud models proxied by the local daemon keep
-    their own window, local models stay bounded by OLLAMA_NUM_CTX."""
-    num_ctx = ollama_num_ctx()
+    """num_ctx to send to the local daemon. Identical to the window prompts are
+    budgeted against, so a request can never exceed the context it declares."""
     if not model:
-        return num_ctx
-    proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
-    return max(num_ctx, proxied) if proxied is not None else num_ctx
+        return ollama_num_ctx()
+    return llm_context_window("ollama", model) or ollama_num_ctx()
 
 
 def _registered_context_window(catalog: dict[str, Any], model: str) -> int | None:

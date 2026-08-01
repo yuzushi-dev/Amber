@@ -155,3 +155,18 @@ async def test_num_ctx_stays_local_for_local_models(provider, monkeypatch):
 
     options = fake_client.chat.completions.last_call_kwargs["extra_body"]["options"]
     assert options["num_ctx"] == 16_384
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_never_exceeds_the_proxied_model_window(provider, monkeypatch):
+    """A local num_ctx above the cloud model's real window must not be forwarded."""
+    p, fake_client = provider
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "262144")
+
+    stream = p.generate_stream(prompt="hi", model="gemma4:31b-cloud")
+    async for _ in stream:
+        pass
+
+    options = fake_client.chat.completions.last_call_kwargs["extra_body"]["options"]
+    assert options["num_ctx"] == llm_context_window("ollama", "gemma4:31b-cloud")
+    assert options["num_ctx"] == 131_072
