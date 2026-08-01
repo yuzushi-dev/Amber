@@ -94,3 +94,9 @@ async def test_legacy_optional_volume_requires_fresh_target_without_import_or_pi
     assert "fresh" in feature.error_message.lower()
     assert result["success"] is False
     assert "fresh" in result["error"].lower()
+
+    events = [event async for event in service.install_features_stream(["local_embeddings"])]
+
+    assert len(events) == 1
+    assert events[0]["phase"] == "failed"
+    assert "fresh" in events[0]["message"].lower()
