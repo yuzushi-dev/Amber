@@ -888,6 +888,12 @@ def test_h4_live_worker_overlay_declares_safe_blue_green_replicas():
         assert "--concurrency=${CELERY_CONCURRENCY:-2}" in command
         assert service["restart"] == "unless-stopped"
         assert service["stop_grace_period"] == "300s"
+        healthcheck = service["healthcheck"]
+        assert healthcheck["test"][0] == "CMD-SHELL"
+        assert f'h4-live-{index}@$(hostname)' in healthcheck["test"][1]
+        assert healthcheck["interval"] == "30s"
+        assert healthcheck["timeout"] == "10s"
+        assert healthcheck["retries"] == 3
 
 
 def test_resolved_h4_live_workers_inherit_production_canary_safety():
@@ -1012,10 +1018,13 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
         "4294967296",
         "2147483648",
         "OOMKilled",
+        "STALE_MIN_AGE_MINUTES == 30",
         "src.workers.tasks.health_check",
         "python -m src.workers.h4_readonly_probe",
         "h4_promotion_1",
         "cancel_consumer",
+        "add_consumer",
+        "inspect active_queues",
         "inspect active",
         "inspect reserved",
         "inspect scheduled",

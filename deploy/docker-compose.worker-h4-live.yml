@@ -31,6 +31,12 @@ services:
       - h4-ml-runtime:/app/.packages-h4:ro
     deploy:
       replicas: 1
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-1@$(hostname)' -t 5 -j | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     stop_grace_period: 300s
 
@@ -57,6 +63,12 @@ services:
       - h4-ml-runtime:/app/.packages-h4:ro
     deploy:
       replicas: 1
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-2@$(hostname)' -t 5 -j | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     stop_grace_period: 300s
 
@@ -83,5 +95,11 @@ services:
       - h4-ml-runtime:/app/.packages-h4:ro
     deploy:
       replicas: 1
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d 'h4-live-3@$(hostname)' -t 5 -j | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     stop_grace_period: 300s

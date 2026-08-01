@@ -33,7 +33,16 @@ revision, volume, container, or queue from the recorded preflight.
    verification must exit zero. A previously completed non-production restore
    drill must cover the same backup format and application revision.
 6. Confirm the current API canary and all three H3 workers are healthy. Run the
-   read-only API smoke suite and one known-good RAG query before mutation.
+   read-only API smoke suite and one known-good RAG query before mutation. Also
+   prove the retained H3 code has the expected recovery floor before relying on
+   it for rollback:
+
+   ```bash
+   for container in amber2-worker-9 amber2-worker-10 amber2-worker-11; do
+     docker exec "$container" python -c \
+       'from src.workers.recovery import STALE_MIN_AGE_MINUTES; assert STALE_MIN_AGE_MINUTES == 30'
+   done
+   ```
 7. Prove host memory headroom immediately before every H4 start. Do not count
    swap as capacity: `MemAvailable` must be at least 4 GiB, leaving the full
    2 GiB H4 cgroup limit plus a 2 GiB datastore/host margin. Also capture
@@ -159,6 +168,25 @@ done
 
 Every control reply must identify only `$h3_node` and report success. A timeout,
 extra destination, or negative reply blocks the handover.
+
+If any later gate fails while H3 is still running, restore all four consumers
+before leaving the procedure. Adding an already present consumer is harmless,
+so compensate all queues rather than guessing which cancellation landed:
+
+```bash
+for queue in high_priority celery evaluation low_priority; do
+  docker exec amber2-worker-h4-live-1 celery -A src.workers.celery_app \
+    control add_consumer "$queue" -d "$h3_node" -j
+done
+docker exec amber2-worker-h4-live-1 celery -A src.workers.celery_app \
+  inspect active_queues -d "$h3_node" -j
+```
+
+The `active_queues` reply must contain exactly the four live queues for
+`$h3_node`. If the node cannot reply, preserve both generations and escalate;
+do not assume consumer delivery was restored. This compensation is not needed
+after the H3 container has been deliberately stopped, because that state uses
+the Rollback procedure below.
 
 ### 3. Prove the H3 worker is drained
 
