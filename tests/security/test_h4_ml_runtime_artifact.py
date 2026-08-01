@@ -536,6 +536,19 @@ def test_resolved_canary_compose_reuses_live_datastore_volume_names():
         "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
         "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
     }
+    try:
+        compose_version = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker CLI is not installed")
+
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin is not available")
+
     command = [
         "docker",
         "compose",
@@ -548,20 +561,14 @@ def test_resolved_canary_compose_reuses_live_datastore_volume_names():
         "json",
     ]
 
-    try:
-        result = subprocess.run(
-            command,
-            cwd=root,
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        pytest.skip("Docker Compose CLI is not installed")
-
-    if result.returncode != 0 and "compose" in result.stderr.lower():
-        pytest.skip("Docker Compose plugin is not available")
+    result = subprocess.run(
+        command,
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
     assert result.returncode == 0, result.stderr
     resolved = json.loads(result.stdout)
@@ -570,6 +577,8 @@ def test_resolved_canary_compose_reuses_live_datastore_volume_names():
     assert resolved["volumes"]["graphrag-redis"]["name"] == "amber2_graphrag-redis"
     assert resolved["volumes"]["graphrag-neo4j"]["name"] == "amber2_graphrag-neo4j"
     assert resolved["volumes"]["graphrag-milvus"]["name"] == "amber2_graphrag-milvus"
+    assert resolved["volumes"]["graphrag-etcd"]["name"] == "amber2_graphrag-etcd"
+    assert resolved["volumes"]["graphrag-minio-data"]["name"] == "amber2_graphrag-minio-data"
 
 
 def test_canary_mounts_every_shared_production_path_read_only():

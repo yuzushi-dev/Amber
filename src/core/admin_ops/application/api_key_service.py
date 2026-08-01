@@ -88,7 +88,7 @@ class ApiKeyService:
         """
         Validate a raw API key against the database.
         Returns the ApiKey record if valid and active, else None.
-        Updates last_used_at timestamp.
+        Updates last_used_at unless the process is running in canary mode.
         """
         if not key:
             return None
