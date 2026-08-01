@@ -36,6 +36,41 @@ The single active candidate is
 The candidate name was proven absent before creation. It is never to be
 removed, cleared, or reused without direct user approval.
 
+### Production exact-SHA candidate
+
+The mirror name above remains the only accepted default. On production, the
+builder accepts exactly one separately authorized name derived from the Git
+HEAD that contains the builder itself:
+
+`amber2_pip-packages-h4-cpu-nomic-da122dfb-<current-head-short>`
+
+The target must be absent before a separately approved `docker volume create`.
+The production volume uses the same labels as the mirror candidate and adds
+`amber.h4.candidate-ref=<current-full-head>`. Resolve and show `candidate_ref`,
+`production_volume`, the complete create command, and free space to the user
+before requesting direct approval. The approved form is:
+
+```bash
+candidate_ref="$(git rev-parse --verify 'HEAD^{commit}')"
+production_volume="amber2_pip-packages-h4-cpu-nomic-da122dfb-${candidate_ref:0:8}"
+
+docker volume create \
+  --label amber.h4.role=ml-runtime-candidate \
+  --label amber.h4.profile=cpu \
+  --label amber.h4.strategy=nomic-ollama-remote \
+  --label amber.h4.source=clean \
+  --label amber.h4.source-ref=da122dfb \
+  --label "amber.h4.candidate-ref=$candidate_ref" \
+  --label amber.h4.disposal=direct-user-approval-required \
+  "$production_volume"
+```
+
+The builder never creates, deletes, clears, copies, or relabels a volume. It
+requires `--authorize-production`, recomputes the current full HEAD, derives
+the only accepted production name, and verifies the candidate-ref label before
+install or preload. The flag is a command guard and does not replace direct
+approval for any production mutation.
+
 The host floor is **20 GiB free**. The conservative maximum growth for this
 candidate is **4 GiB** (wheelhouse, installed package target, SPLADE,
 FlashRank, resolver/log overhead, and atomic download headroom). Before
@@ -93,6 +128,23 @@ rtk scripts/h4_ml_runtime_candidate.sh preload \
   --volume ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d \
   --authorize-preload
 ```
+
+After the production volume has been separately approved and created, the
+production forms are:
+
+```bash
+rtk scripts/h4_ml_runtime_candidate.sh install \
+  --volume "$production_volume" \
+  --authorize-production
+rtk scripts/h4_ml_runtime_candidate.sh preload \
+  --volume "$production_volume" \
+  --authorize-production \
+  --authorize-preload
+```
+
+Install and preload are distinct production mutations. Show each resolved
+command and request direct approval at its checkpoint; approval for volume
+creation does not authorize preload.
 
 The installer checks the candidate's exact labels and storage floor before it
 downloads hash-verified binary wheels only to its own `.h4-wheelhouse`. It

@@ -363,6 +363,7 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
 
     assert "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d" in script
+    assert 'PRODUCTION_VOLUME_PREFIX="amber2_pip-packages-h4-cpu-nomic-da122dfb-"' in script
     assert "amber.h4.role" in script
     assert "amber.h4.profile" in script
     assert "amber.h4.strategy" in script
@@ -385,6 +386,9 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "download_skipped=immutable-wheelhouse-reuse" in script
     assert "H4_WHEELHOUSE_MODE" in script
     assert "--authorize-preload" in script
+    assert "--authorize-production" in script
+    assert "git -C \"$root_dir\" rev-parse --verify 'HEAD^{commit}'" in script
+    assert "amber.h4.candidate-ref" in script
     assert "--network none" in script
     assert "dst=/app/.packages,readonly" in script
     assert 'packages_root.rglob("*")' in script
@@ -403,7 +407,8 @@ def test_builder_is_scoped_to_the_single_labeled_candidate_volume():
     assert "publish_preload_validation_proof" in script
     assert "assert not target.exists()" not in script
     assert "SetupService" not in script
-    assert "amber2_pip-packages" not in script
+    assert "docker_local volume create" not in script
+    assert "docker_local volume rm" not in script
 
 
 def test_builder_installs_and_validates_the_standalone_lock():
@@ -468,6 +473,77 @@ def test_builder_refuses_a_remote_docker_host_without_reaching_a_candidate():
     assert "DOCKER_HOST must be unset for the local H4 candidate" in result.stderr
 
 
+def test_builder_requires_explicit_production_authorization_before_docker_access():
+    root = Path(__file__).parents[2]
+    script = root / "scripts/h4_ml_runtime_candidate.sh"
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+    volume = f"amber2_pip-packages-h4-cpu-nomic-da122dfb-{head[:8]}"
+    environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
+
+    result = subprocess.run(
+        [str(script), "install", "--volume", volume],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "production volume requires --authorize-production" in result.stderr
+
+
+def test_builder_accepts_only_the_current_head_production_name_with_authorization():
+    root = Path(__file__).parents[2]
+    script = root / "scripts/h4_ml_runtime_candidate.sh"
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+    volume = f"amber2_pip-packages-h4-cpu-nomic-da122dfb-{head[:8]}"
+    environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
+
+    result = subprocess.run(
+        [str(script), "install", "--volume", volume, "--authorize-production"],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "DOCKER_HOST must be unset for the local H4 candidate" in result.stderr
+
+
+def test_builder_refuses_an_authorized_production_name_not_derived_from_head():
+    root = Path(__file__).parents[2]
+    script = root / "scripts/h4_ml_runtime_candidate.sh"
+    environment = {**os.environ, "DOCKER_HOST": "tcp://192.0.2.1:2375"}
+
+    result = subprocess.run(
+        [
+            str(script),
+            "install",
+            "--volume",
+            "amber2_pip-packages-h4-cpu-nomic-da122dfb-deadbeef",
+            "--authorize-production",
+        ],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "refusing production volume" in result.stderr
+
+
 def test_builder_serializes_install_and_preload_before_candidate_access():
     root = Path(__file__).parents[2]
     script = (root / "scripts/h4_ml_runtime_candidate.sh").read_text()
@@ -514,6 +590,9 @@ def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
     assert ".h4-preload-validation.json" in rollout
     assert "after the storage postflight succeeds" in rollout
     assert "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d" in rollout
+    assert "amber2_pip-packages-h4-cpu-nomic-da122dfb-<current-head-short>" in rollout
+    assert "amber.h4.candidate-ref" in rollout
+    assert "--authorize-production" in rollout
     assert "`da122dfb`" in rollout
 
 
