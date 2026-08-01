@@ -1013,6 +1013,7 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
         "2147483648",
         "OOMKilled",
         "src.workers.tasks.health_check",
+        "python -m src.workers.h4_readonly_probe",
         "h4_promotion_1",
         "cancel_consumer",
         "inspect active",
@@ -1041,3 +1042,35 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
 
     assert not missing_required
     assert not present_forbidden
+
+
+def test_h4_readonly_probe_rejects_owner_role_and_missing_cloud_keys():
+    from types import SimpleNamespace
+
+    from src.workers.h4_readonly_probe import (
+        ProbeFailure,
+        validate_provider_settings,
+        validate_role_evidence,
+    )
+
+    with pytest.raises(ProbeFailure):
+        validate_role_evidence(superuser=False, bypass_rls=False, owns_documents=True)
+    with pytest.raises(ProbeFailure):
+        validate_role_evidence(superuser=True, bypass_rls=False, owns_documents=False)
+
+    valid_settings = SimpleNamespace(
+        db=SimpleNamespace(app_database_url="postgresql+asyncpg://app-role@postgres/db"),
+        default_llm_provider="ollama_cloud",
+        default_llm_model="gemma4:31b-cloud",
+        ollama_cloud_api_keys=["sentinel-a", "sentinel-b"],
+    )
+    validate_provider_settings(valid_settings)
+
+    invalid_settings = SimpleNamespace(
+        db=SimpleNamespace(app_database_url=None),
+        default_llm_provider="ollama_cloud",
+        default_llm_model="gemma4:31b-cloud",
+        ollama_cloud_api_keys=[],
+    )
+    with pytest.raises(ProbeFailure):
+        validate_provider_settings(invalid_settings)

@@ -123,6 +123,21 @@ print("private H4 probe: PASS")
 PY
 ```
 
+The queue task proves exclusive routing, but it is not a live-readiness probe.
+Run the worker-local read-only probe as a second mandatory gate:
+
+```bash
+docker exec amber2-worker-h4-live-1 python -m src.workers.h4_readonly_probe
+```
+
+This command fails closed unless `APP_DATABASE_URL` uses a non-owner,
+non-superuser, non-`BYPASSRLS` role against a FORCE-RLS documents table; it
+constructs the configured Ollama Cloud provider without printing keys or making
+an LLM request, and runs offline SPLADE plus FlashRank inference from the
+validated immutable H4 runtime. It opens the database transaction read-only and
+does not modify application data. Require its single `PASS` line, then repeat
+the 2 GiB `MemAvailable` and `OOMKilled` checks before touching H3.
+
 If the private probe fails, do not touch H3. Diagnose H4; if it has no active,
 reserved, or scheduled work, stop only this new H4 container with the graceful
 command shown in Rollback.
