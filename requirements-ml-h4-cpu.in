@@ -1,0 +1,22 @@
+# H4 CPU candidate direct requirements. The generated .lock contains every
+# transitive requirement and wheel hash; do not install this input directly.
+--index-url https://pypi.org/simple
+--find-links https://download-r2.pytorch.org/whl/cpu/torch/
+
+torch==2.13.0+cpu --hash=sha256:6746dbcbeb526eb61330b76b41ff1b4eb848951103a892eeb080dfa2b264667b
+numpy==2.4.6
+transformers==5.14.1
+onnx==1.22.0
+flashrank==0.2.10
+
+# H4 is first on PYTHONPATH in the canary. Keep shared dependencies aligned with
+# the core/H3 runtime so the ML overlay cannot downgrade the application's stack.
+requests==2.34.2
+urllib3==2.7.0
+certifi==2026.7.22
+charset-normalizer==3.4.9
+idna==3.18
+protobuf==6.33.6
+setuptools==78.1.1
+rich==14.3.3
+tqdm==4.70.0

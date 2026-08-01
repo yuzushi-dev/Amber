@@ -3,9 +3,80 @@ Unit tests for SparseEmbeddingService with GPU batching.
 """
 
 from importlib.util import find_spec
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def _ready_h4_runtime(tmp_path):
+    for name in (
+        ".h4-artifact.json",
+        ".h4-models.json",
+        ".h4-preload-validation.json",
+    ):
+        (tmp_path / name).write_text("{}\n")
+    (tmp_path / "hf-cache" / "hub").mkdir(parents=True)
+    (tmp_path / "flashrank-cache").mkdir()
+    return tmp_path
+
+
+def _reset_sparse_shared_state(service_type):
+    service_type._shared_model_name = None
+    service_type._shared_device = None
+    service_type._shared_tokenizer = None
+    service_type._shared_model = None
+
+
+def test_h4_sparse_loader_uses_pinned_offline_cache(tmp_path, monkeypatch):
+    import src.core.retrieval.application.sparse_embeddings_service as sparse_module
+
+    runtime_root = _ready_h4_runtime(tmp_path)
+    monkeypatch.setenv("AMBER_H4_ML_RUNTIME_ROOT", str(runtime_root))
+    tokenizer_loader = MagicMock()
+    tokenizer_loader.from_pretrained.return_value = object()
+    model = MagicMock()
+    model_loader = MagicMock()
+    model_loader.from_pretrained.return_value = model
+    fake_torch = MagicMock()
+    fake_torch.cuda.is_available.return_value = False
+    service_type = sparse_module.SparseEmbeddingService
+    _reset_sparse_shared_state(service_type)
+
+    with (
+        patch.object(sparse_module, "HAS_DEPS", True),
+        patch.object(sparse_module, "torch", fake_torch, create=True),
+        patch.object(sparse_module, "AutoTokenizer", tokenizer_loader, create=True),
+        patch.object(sparse_module, "AutoModelForMaskedLM", model_loader, create=True),
+    ):
+        service_type()._load_model()
+
+    expected = {
+        "revision": "49cf4c7b0db5b870a401ddf5e2669993ef3699c7",
+        "trust_remote_code": False,
+        "local_files_only": True,
+        "cache_dir": str(runtime_root / "hf-cache" / "hub"),
+    }
+    tokenizer_loader.from_pretrained.assert_called_once_with(service_type.DEFAULT_MODEL, **expected)
+    model_loader.from_pretrained.assert_called_once_with(service_type.DEFAULT_MODEL, **expected)
+
+
+def test_h4_sparse_loader_fails_closed_without_validation_proof(tmp_path, monkeypatch):
+    import src.core.retrieval.application.sparse_embeddings_service as sparse_module
+
+    monkeypatch.setenv("AMBER_H4_ML_RUNTIME_ROOT", str(tmp_path))
+    fake_torch = MagicMock()
+    fake_torch.cuda.is_available.return_value = False
+    service_type = sparse_module.SparseEmbeddingService
+    _reset_sparse_shared_state(service_type)
+
+    with (
+        patch.object(sparse_module, "HAS_DEPS", True),
+        patch.object(sparse_module, "torch", fake_torch, create=True),
+        patch.object(sparse_module, "AutoTokenizer", MagicMock(), create=True),
+        patch.object(sparse_module, "AutoModelForMaskedLM", MagicMock(), create=True),
+        pytest.raises(RuntimeError, match="validated H4 ML runtime"),
+    ):
+        service_type()._load_model()
 
 
 # Test without actual model loading

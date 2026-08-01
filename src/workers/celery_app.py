@@ -217,6 +217,10 @@ def on_worker_ready(**kwargs):
     processing.  run_recovery_sync defaults to recovery.STALE_MIN_AGE_MINUTES —
     keep it that way.
     """
+    if os.getenv("AMBER_CANARY", "").lower() == "true":
+        logger.info("Canary worker ready - skipping stale document recovery")
+        return
+
     logger.info("Worker ready - checking for stale documents...")
     try:
         from src.workers.recovery import run_recovery_sync
