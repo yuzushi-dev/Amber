@@ -982,3 +982,45 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         assert mounts["/app/.packages"]["source"] == "pip-packages"
         assert mounts["/app/.packages-h4"]["source"] == "h4-ml-runtime"
         assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
+
+
+def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
+    root = Path(__file__).parents[2]
+    runbook = (
+        root / "docs/runbooks/h4-worker-blue-green-handover.md"
+    ).read_text()
+
+    required_fragments = {
+        "docker-compose.yml",
+        "deploy/docker-compose.canary.yml",
+        "deploy/docker-compose.worker-h4-live.yml",
+        "--dry-run",
+        "--no-deps",
+        "--no-build",
+        "--pull never",
+        "src.workers.tasks.health_check",
+        "h4_promotion_1",
+        "cancel_consumer",
+        "inspect active",
+        "inspect reserved",
+        "inspect scheduled",
+        "docker stop --time 300",
+        "conferma diretta",
+        "Rollback",
+    }
+    forbidden_fragments = {
+        "docker rm",
+        "compose down",
+        "down -v",
+        "docker volume rm",
+        "docker system prune",
+        "docker volume prune",
+        "rm -rf",
+    }
+
+    assert required_fragments <= set(
+        fragment for fragment in required_fragments if fragment in runbook
+    )
+    assert forbidden_fragments.isdisjoint(
+        fragment for fragment in forbidden_fragments if fragment in runbook
+    )
