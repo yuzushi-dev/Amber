@@ -271,16 +271,17 @@ class TestCommunitySummarizer:
             for index in range(4_000)
         ]
 
-        prompt = summarizer._build_prompt(
-            {
-                "entities": entities,
-                "relationships": [],
-                "child_summaries": [],
-                "text_units": [],
-            },
-            provider="ollama",
-            model="llama3",
-        )
+        with patch.dict("os.environ", {"OLLAMA_NUM_CTX": "32768"}):
+            prompt = summarizer._build_prompt(
+                {
+                    "entities": entities,
+                    "relationships": [],
+                    "child_summaries": [],
+                    "text_units": [],
+                },
+                provider="ollama",
+                model="llama3",
+            )
 
         assert (
             Tokenizer.count_tokens(f"{COMMUNITY_SUMMARY_SYSTEM_PROMPT}\n{prompt}", "llama3") + 1_312

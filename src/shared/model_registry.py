@@ -407,6 +407,24 @@ def resolve_token_encoding(model: str | None) -> str | None:
     return None
 
 
+def ollama_num_ctx() -> int:
+    """Context length the local Ollama daemon is told to allocate."""
+    try:
+        return int(os.getenv("OLLAMA_NUM_CTX", str(DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW)))
+    except ValueError:
+        return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
+
+
+def ollama_request_num_ctx(model: str | None) -> int:
+    """num_ctx to send for `model`: cloud models proxied by the local daemon keep
+    their own window, local models stay bounded by OLLAMA_NUM_CTX."""
+    num_ctx = ollama_num_ctx()
+    if not model:
+        return num_ctx
+    proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
+    return max(num_ctx, proxied) if proxied is not None else num_ctx
+
+
 def _registered_context_window(catalog: dict[str, Any], model: str) -> int | None:
     for candidate in (model, model.split(":", 1)[0]):
         context_window = catalog.get(candidate, {}).get("context_window")
@@ -427,17 +445,13 @@ def llm_context_window(provider: str | None, model: str | None) -> int | None:
         return context_window
 
     if provider == "ollama":
-        # The local daemon also proxies *-cloud models, whose real window is the one
-        # registered for their native provider. OLLAMA_NUM_CTX only bounds models that
-        # genuinely run locally and carry no registered window.
-        for catalog in LLM_MODELS.values():
-            context_window = _registered_context_window(catalog, model)
-            if context_window is not None:
-                return context_window
-        try:
-            return int(os.getenv("OLLAMA_NUM_CTX", str(DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW)))
-        except ValueError:
-            return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW
+        # The local daemon also proxies Ollama Cloud models, whose real window is the
+        # one registered for ollama_cloud. OLLAMA_NUM_CTX bounds models that genuinely
+        # run locally.
+        proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
+        if proxied is not None:
+            return proxied
+        return ollama_num_ctx()
 
     if provider in LLM_MODELS:
         return DEFAULT_UNKNOWN_LLM_CONTEXT_WINDOW

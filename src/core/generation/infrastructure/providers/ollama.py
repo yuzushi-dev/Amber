@@ -31,6 +31,7 @@ from src.shared.model_registry import (
     DEFAULT_LLM_MODEL,
     EMBEDDING_MODELS,
     LLM_MODELS,
+    ollama_request_num_ctx,
 )
 
 try:
@@ -163,12 +164,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             if "options" not in extra_body:
                 extra_body["options"] = {}
             if "num_ctx" not in extra_body["options"]:
-                import os
-
-                try:
-                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-                except Exception:
-                    extra_body["options"]["num_ctx"] = 32768
+                extra_body["options"]["num_ctx"] = ollama_request_num_ctx(model)
 
         try:
             try:
@@ -253,9 +249,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = (
-                    format(span_context.trace_id, "032x") if span_context.is_valid else None
-                )
+                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 await self.config.usage_tracker.record_usage(
                     tenant_id=get_current_tenant() or "default",
@@ -276,7 +270,6 @@ class OllamaLLMProvider(BaseLLMProvider):
         except Exception as e:
             self._handle_error(e, model)
 
-
     @trace_span("LLM.chat")
     async def chat(
         self,
@@ -296,12 +289,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             if "options" not in extra_body:
                 extra_body["options"] = {}
             if "num_ctx" not in extra_body["options"]:
-                import os
-
-                try:
-                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-                except Exception:
-                    extra_body["options"]["num_ctx"] = 32768
+                extra_body["options"]["num_ctx"] = ollama_request_num_ctx(model)
 
         try:
             try:
@@ -327,7 +315,6 @@ class OllamaLLMProvider(BaseLLMProvider):
             raise
         except Exception as e:
             self._handle_error(e, model)
-
 
     async def generate_stream(
         self,
@@ -360,12 +347,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             if "options" not in extra_body:
                 extra_body["options"] = {}
             if "num_ctx" not in extra_body["options"]:
-                import os
-
-                try:
-                    extra_body["options"]["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
-                except Exception:
-                    extra_body["options"]["num_ctx"] = 32768
+                extra_body["options"]["num_ctx"] = ollama_request_num_ctx(model)
 
         try:
             try:
@@ -405,7 +387,6 @@ class OllamaLLMProvider(BaseLLMProvider):
         except Exception as e:
             self._handle_error(e, model)
 
-
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
@@ -413,9 +394,9 @@ class OllamaLLMProvider(BaseLLMProvider):
         # Log the full error details including response body if available
         error_body = ""
         if hasattr(e, "response") and hasattr(e.response, "text"):
-             error_body = f" | Response Body: {e.response.text}"
-        elif hasattr(e, "body"): # Some versions use body
-             error_body = f" | Body: {e.body}"
+            error_body = f" | Response Body: {e.response.text}"
+        elif hasattr(e, "body"):  # Some versions use body
+            error_body = f" | Body: {e.body}"
 
         logger.error(f"Ollama Error ({error_type}): {e}{error_body}")
 
@@ -545,9 +526,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             # Record usage if tracker is available
             if self.config.usage_tracker:
                 span_context = trace.get_current_span().get_span_context()
-                trace_id = (
-                    format(span_context.trace_id, "032x") if span_context.is_valid else None
-                )
+                trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 # Merge metadata from kwargs (e.g. document_id) with result metadata
                 usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
@@ -570,7 +549,6 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             raise
         except Exception as e:
             self._handle_error(e, model)
-
 
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""
