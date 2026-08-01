@@ -588,8 +588,10 @@ def test_canary_explicitly_propagates_ollama_cloud_api_keys_once_per_service():
 
     for service_name in ("api-canary", "worker-canary"):
         environment = canary["services"][service_name]["environment"]
+        variable_names = [entry.partition("=")[0] for entry in environment]
 
-        assert environment.count(expected) == 1
+        assert variable_names.count("OLLAMA_CLOUD_API_KEYS") == 1
+        assert expected in environment
 
 
 def test_resolved_canary_propagates_ollama_cloud_api_keys():
