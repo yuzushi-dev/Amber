@@ -12,6 +12,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
+from importlib import metadata
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,28 @@ class SetupService:
 
         try:
             importlib.import_module(feature.check_import)
+            for package_spec in feature.packages:
+                if "==" not in package_spec:
+                    continue
+                package_name, expected_version = package_spec.split("==", maxsplit=1)
+                try:
+                    installed_version = metadata.version(package_name)
+                except metadata.PackageNotFoundError:
+                    logger.debug(
+                        "Feature '%s' exact package is missing: %s",
+                        feature_id,
+                        package_name,
+                    )
+                    return False
+                if installed_version != expected_version:
+                    logger.info(
+                        "Feature '%s' package %s has version %s; expected %s",
+                        feature_id,
+                        package_name,
+                        installed_version,
+                        expected_version,
+                    )
+                    return False
             return True
         except ImportError as e:
             logger.debug(f"Feature '{feature_id}' import check failed: {e}")
@@ -252,6 +275,7 @@ class SetupService:
                     "-m",
                     "pip",
                     "install",
+                    "--upgrade",
                     "--no-cache-dir",
                     "--target",
                     self.PACKAGES_DIR,
