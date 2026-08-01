@@ -19,14 +19,34 @@ def test_setup_wizard_does_not_offer_retired_marker_ocr():
     )
 
 
-def test_h3_keeps_h4_local_embedding_dependencies_outside_parser_scope():
-    local_embeddings = OPTIONAL_FEATURES["local_embeddings"].packages
-    requirements = (PROJECT_ROOT / "requirements.txt").read_text().lower()
+def test_general_requirements_exclude_optional_local_embedding_stack():
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text().lower().splitlines()
+    names = {
+        line.split("==")[0].split(">=")[0]
+        for line in requirements
+        if line and not line.startswith("#")
+    }
 
-    assert "torch" in local_embeddings
-    assert any(package.startswith("transformers") for package in local_embeddings)
-    assert "sentence-transformers>=2.7.0" in requirements
-    assert "transformers==4.40.1" in requirements
+    assert names.isdisjoint({"sentence-transformers", "transformers", "huggingface-hub"})
+
+
+def test_local_embeddings_use_validated_compatible_versions():
+    packages = set(OPTIONAL_FEATURES["local_embeddings"].packages)
+
+    assert {
+        "torch==2.13.0+cpu",
+        "sentence-transformers==5.6.1",
+        "transformers==5.14.1",
+        "huggingface-hub==1.25.1",
+        "tokenizers==0.22.2",
+    } <= packages
+
+
+def test_optional_requirements_document_validated_local_embedding_versions():
+    optional = (PROJECT_ROOT / "requirements-optional.txt").read_text()
+
+    for package in OPTIONAL_FEATURES["local_embeddings"].packages:
+        assert package in optional
 
 
 @pytest.mark.parametrize("setting", ("marker_enabled", "hybrid_ocr_enabled"))
