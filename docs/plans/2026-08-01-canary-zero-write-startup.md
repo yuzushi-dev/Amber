@@ -30,7 +30,7 @@
 
 1. Write a contract requiring top-level `name: amber2` and `--project-name amber2` in every usage/rollback command example.
 2. Run the test and observe RED.
-3. Add the project name and update examples.
+3. Add the project name and update examples with `--no-deps --no-build --pull never`.
 4. Render Compose from a differently named worktree and prove the resolved project and datastore volume names are `amber2*`.
 5. Commit.
 

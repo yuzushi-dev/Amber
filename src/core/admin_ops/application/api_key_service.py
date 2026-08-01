@@ -5,6 +5,7 @@ ApiKey Service
 Service for managing API keys with database persistence.
 """
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -107,14 +108,13 @@ class ApiKeyService:
         result = await self.session.execute(query)
         key_record = result.scalars().first()
 
-        if key_record:
+        if key_record and os.getenv("AMBER_CANARY", "false").lower() != "true":
             # Update last used asynchronously?
             # For now, we update synchronously in the transaction
             key_record.last_used_at = datetime.now(UTC)
             await self.session.commit()
-            return key_record
 
-        return None
+        return key_record
 
     async def list_keys(self, tenant_id: str | None = None) -> list[ApiKey]:
         """

@@ -526,6 +526,50 @@ def test_canary_compose_uses_the_live_project_identity_from_any_worktree():
 
     assert canary["name"] == "amber2"
     assert canary_text.count("docker compose --project-name amber2") == 2
+    assert "up -d --no-deps --no-build --pull never api-canary worker-canary" in canary_text
+
+
+def test_resolved_canary_compose_reuses_live_datastore_volume_names():
+    root = Path(__file__).parents[2]
+    environment = os.environ | {
+        "H4_ML_RUNTIME_VOLUME": "amber2_h4_candidate",
+        "PIP_PACKAGES_ACTIVE_VOLUME": "amber2_h3_active",
+        "PIP_PACKAGES_ROLLBACK_VOLUME": "amber2_h3_rollback",
+    }
+    command = [
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "deploy/docker-compose.canary.yml",
+        "config",
+        "--format",
+        "json",
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker Compose CLI is not installed")
+
+    if result.returncode != 0 and "compose" in result.stderr.lower():
+        pytest.skip("Docker Compose plugin is not available")
+
+    assert result.returncode == 0, result.stderr
+    resolved = json.loads(result.stdout)
+    assert resolved["name"] == "amber2"
+    assert resolved["volumes"]["graphrag-postgres"]["name"] == "amber2_graphrag-postgres"
+    assert resolved["volumes"]["graphrag-redis"]["name"] == "amber2_graphrag-redis"
+    assert resolved["volumes"]["graphrag-neo4j"]["name"] == "amber2_graphrag-neo4j"
+    assert resolved["volumes"]["graphrag-milvus"]["name"] == "amber2_graphrag-milvus"
 
 
 def test_canary_mounts_every_shared_production_path_read_only():

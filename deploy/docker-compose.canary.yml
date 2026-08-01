@@ -5,10 +5,12 @@
 #
 # Usage (from /root/amber2):
 #   docker compose --project-name amber2 -f docker-compose.yml -f deploy/docker-compose.canary.yml \
-#       up -d api-canary worker-canary
+#       up -d --no-deps --no-build --pull never api-canary worker-canary
 #
-# Smoke test canary directly (before nginx cutover):
-#   bash scripts/smoke_production_readonly.sh --base-url http://127.0.0.1:8001
+# Health-only canary check (before nginx cutover):
+#   curl --fail http://127.0.0.1:8001/health
+# Authenticated smoke requests can update operational metadata and require a
+# separate production approval even when their application query is read-only.
 #
 # Nginx cutover (after canary passes smoke tests):
 #   bash deploy/cutover.sh --to canary --dry-run

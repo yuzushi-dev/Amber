@@ -23,6 +23,8 @@ The third option is selected. A dedicated read-only database role remains a futu
 
 `deploy/docker-compose.canary.yml` declares top-level `name: amber2`, so Compose resolves the shared production datastore volume names even when invoked from an exact-SHA worktree. Usage and rollback examples also pass `--project-name amber2` as visible defense in depth.
 
+The documented start command additionally requires `--no-deps --no-build --pull never`, preventing Compose from starting or recreating live datastore services. The only pre-cutover check authorized by this design is unauthenticated health. Canary authentication suppresses the normal `last_used_at` commit, but authenticated smoke remains a separate production action because other operational middleware may record metrics.
+
 ## Verification
 
 - Unit test proves canary mode never constructs or calls the API-key service.
