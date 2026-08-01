@@ -1018,9 +1018,12 @@ def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
         "rm -rf",
     }
 
-    assert required_fragments <= set(
-        fragment for fragment in required_fragments if fragment in runbook
-    )
-    assert forbidden_fragments.isdisjoint(
+    missing_required = {
+        fragment for fragment in required_fragments if fragment not in runbook
+    }
+    present_forbidden = {
         fragment for fragment in forbidden_fragments if fragment in runbook
-    )
+    }
+
+    assert not missing_required
+    assert not present_forbidden
