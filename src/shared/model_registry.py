@@ -443,12 +443,13 @@ def llm_context_window(provider: str | None, model: str | None) -> int | None:
         return context_window
 
     if provider == "ollama":
-        # The local daemon also proxies Ollama Cloud models, whose real window is the
-        # one registered for ollama_cloud. OLLAMA_NUM_CTX bounds models that genuinely
-        # run locally.
-        proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
-        if proxied is not None:
-            return proxied
+        # Ollama tags cloud-served models `<name>-cloud`; the local daemon proxies those
+        # to Ollama Cloud, so their real window is the registered one. Every other model
+        # runs on local hardware and stays bounded by OLLAMA_NUM_CTX.
+        if model.endswith("-cloud"):
+            proxied = _registered_context_window(LLM_MODELS.get("ollama_cloud", {}), model)
+            if proxied is not None:
+                return proxied
         return ollama_num_ctx()
 
     if provider in LLM_MODELS:

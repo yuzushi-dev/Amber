@@ -47,6 +47,14 @@ def test_cloud_model_proxied_through_local_ollama_keeps_its_context_window():
         assert llm_context_window("ollama", "gemma4:31b-cloud") == 131_072
 
 
+def test_locally_pulled_model_stays_bounded_by_num_ctx():
+    """gpt-oss:120b is in the ollama_cloud catalog but can also run on local hardware;
+    the local daemon's limit must win for anything not tagged `-cloud`."""
+    with patch.dict("os.environ", {"OLLAMA_NUM_CTX": "8192"}):
+        assert llm_context_window("ollama", "gpt-oss:120b") == 8_192
+        assert llm_context_window("ollama_cloud", "gpt-oss:120b") == 131_072
+
+
 class TestCommunitySummarizer:
     @pytest.mark.asyncio
     async def test_summarize_community_success(self, mock_neo4j, mock_factory):
