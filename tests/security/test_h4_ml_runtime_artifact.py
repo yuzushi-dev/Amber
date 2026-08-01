@@ -530,8 +530,12 @@ def test_canary_mounts_every_shared_production_path_read_only():
     )
 
     for service_name in ("api-canary", "worker-canary"):
-        service_mounts = set(canary["services"][service_name]["volumes"])
-        assert service_mounts.issuperset(shared_read_only_mounts)
+        service_mounts = canary["services"][service_name]["volumes"]
+        mount_targets = [mount.split(":")[1] for mount in service_mounts]
+
+        for mount in shared_read_only_mounts:
+            assert service_mounts.count(mount) == 1
+            assert mount_targets.count(mount.split(":")[1]) == 1
 
 
 def test_canary_uses_the_read_only_h4_artifact_cache_without_a_host_bind():
@@ -545,10 +549,15 @@ def test_canary_uses_the_read_only_h4_artifact_cache_without_a_host_bind():
 
     for service_name in ("api-canary", "worker-canary"):
         service = canary["services"][service_name]
-        assert set(service["environment"]).issuperset(expected_cache_environment)
-        assert not any(
-            mount.startswith("./.cache/huggingface:") for mount in service["volumes"]
-        )
+        environment = service["environment"]
+        environment_keys = [entry.split("=", 1)[0] for entry in environment]
+        mount_targets = [mount.split(":")[1] for mount in service["volumes"]]
+
+        for entry in expected_cache_environment:
+            assert environment.count(entry) == 1
+            assert environment_keys.count(entry.split("=", 1)[0]) == 1
+
+        assert "/home/appuser/.cache/huggingface" not in mount_targets
 
 
 def test_builder_enforces_a_local_docker_socket_before_candidate_access():
