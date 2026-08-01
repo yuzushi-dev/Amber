@@ -34,7 +34,29 @@ revision, volume, container, or queue from the recorded preflight.
    drill must cover the same backup format and application revision.
 6. Confirm the current API canary and all three H3 workers are healthy. Run the
    read-only API smoke suite and one known-good RAG query before mutation.
-7. Obtain **conferma diretta** from the operator after showing the exact first
+7. Prove host memory headroom immediately before every H4 start. Do not count
+   swap as capacity: `MemAvailable` must be at least 4 GiB, leaving the full
+   2 GiB H4 cgroup limit plus a 2 GiB datastore/host margin. Also capture
+   per-container usage and reject any recent kernel OOM event:
+
+   ```bash
+   mem_available_bytes="$(awk '/^MemAvailable:/ {print $2 * 1024}' /proc/meminfo)"
+   test "$mem_available_bytes" -ge 4294967296 || {
+     echo "FAIL: less than 4 GiB MemAvailable before H4 overlap" >&2
+     exit 1
+   }
+   docker stats --no-stream --format '{{.Name}} {{.MemUsage}}'
+   if journalctl -k --since '-30 minutes' --no-pager | grep -Eqi 'oom-kill|out of memory'; then
+     echo "FAIL: recent kernel OOM evidence" >&2
+     exit 1
+   fi
+   ```
+
+   If this gate fails, do not start H4. Capacity may be recovered only from an
+   explicitly identified stateless canary after proving it has no active work;
+   that is a separate production mutation requiring its own dry-run and direct
+   approval. Datastores and live workers are never capacity targets.
+8. Obtain **conferma diretta** from the operator after showing the exact first
    replica command. A prior general approval is not sufficient for the first
    production worker start.
 
@@ -67,6 +89,19 @@ only the explicitly recorded pair names and `h4_promotion_N` queue.
 ```bash
 "${compose[@]}" up -d --no-deps --no-build --pull never worker-h4-live-1
 docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.Config.Image}}' amber2-worker-h4-live-1
+```
+
+Immediately after start, require at least 2 GiB host margin and prove neither
+the new worker nor any core datastore was OOM-killed. A failure here blocks the
+probe and the H3 drain:
+
+```bash
+mem_available_bytes="$(awk '/^MemAvailable:/ {print $2 * 1024}' /proc/meminfo)"
+test "$mem_available_bytes" -ge 2147483648
+for container in amber2-worker-h4-live-1 amber2-postgres-1 amber2-redis-1 \
+  amber2-neo4j-1 amber2-milvus-1 amber2-minio-1; do
+  test "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" = false
+done
 ```
 
 Confirm from `docker inspect` that the source and package mounts match the
