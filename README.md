@@ -484,7 +484,6 @@ The admin UI covers the operational surface: documents, connectors, jobs, backup
 - **Zendesk**: Ingest Help Center articles from Zendesk
 - **Content Browser**: Browse and selectively ingest items from connected services
 - **Incremental Sync**: Efficient updates using `since` timestamps
-- See [docs/CONNECTORS.md](docs/CONNECTORS.md) for configuration details
 
 #### Job Management (`/admin/ops`)
 - **Job Dashboard**: Monitor active, pending, and completed tasks
@@ -850,7 +849,7 @@ make migrate      # Run migrations
 
 ## Testing
 
-See [docs/TESTING.md](docs/TESTING.md) for the full guide to unit, integration, and E2E tests.
+Run the repository test targets for unit, integration, and coverage checks:
 ```bash
 make test          # Run all tests
 make test-unit     # Unit tests only
@@ -904,10 +903,6 @@ docker compose logs -f worker
 - Clear caches
 - Adjust Redis maxmemory
 
-## Implementation Details
-
-The ingestion pipeline, the query pipeline, and the caching and failure handling around both are documented in [docs/INTERNALS.md](docs/INTERNALS.md), down to the Cypher schemas and the chunking algorithm.
-
 ## Contributing
 
 Contributions are welcome.
@@ -922,4 +917,4 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit m
 
 ## License
 
-Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details. Release history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+Amber is released under the **MIT License**. See [LICENSE](LICENSE) for details. Release history is in [CHANGELOG.md](CHANGELOG.md).

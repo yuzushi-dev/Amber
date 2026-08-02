@@ -242,5 +242,5 @@ if [ "${FAILURES}" -gt 0 ]; then
 fi
 say "VERDICT: restorable — 0 failures, ${WARNINGS} warning(s)"
 [ "${WARNINGS}" -gt 0 ] && say "Read every WARN above before relying on this backup."
-say "Next: prove it end-to-end with a restore drill (docs/MIGRATION_RUNBOOK.md, step 3)."
+say "Next: prove it end-to-end with a restore drill using the internal migration procedure."
 say "============================================================"

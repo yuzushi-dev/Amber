@@ -22,7 +22,7 @@
 #   bash scripts/restore.sh --backup=/opt/backups/amber/backup_XXXX
 #   bash scripts/restore.sh --backup=... --project=amber2 --repo=/root/amber2
 #
-# See docs/MIGRATION_RUNBOOK.md for the procedure this script belongs to.
+# Follow the internal migration runbook for the complete procedure.
 
 set -euo pipefail
 
@@ -238,4 +238,4 @@ say "  Postgres: localhost:5433   Neo4j: :7474/:7687   Milvus: :19530   App: :80
 say "  Stop:  docker compose -p $PROJECT down"
 say "  Wipe:  docker compose -p $PROJECT down -v      # DESTROYS this project's data"
 say "============================================================"
-say "Next: run the post-restore parity checks in docs/MIGRATION_RUNBOOK.md, step 3."
+say "Next: run the post-restore parity checks from the internal migration runbook."

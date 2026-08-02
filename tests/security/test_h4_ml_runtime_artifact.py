@@ -828,22 +828,6 @@ def test_failed_preload_publication_can_resume_offline_without_replacing_the_man
     assert "assert models_target.is_file()" in script
 
 
-def test_rollout_requires_explicit_preload_authorization_and_offline_proof():
-    root = Path(__file__).parents[2]
-    rollout = (root / "docs/H4_ML_RUNTIME_ROLLOUT.md").read_text()
-
-    assert "--authorize-preload" in rollout
-    assert "direct user approval" in rollout
-    assert "--network none" in rollout
-    assert ".h4-preload-validation.json" in rollout
-    assert "after the storage postflight succeeds" in rollout
-    assert "ambermirror_pip-packages-h4-cpu-nomic-da122dfb-38eb9c2d" in rollout
-    assert "amber2_pip-packages-h4-cpu-nomic-da122dfb-<current-head-short>" in rollout
-    assert "amber.h4.candidate-ref" in rollout
-    assert "--authorize-production" in rollout
-    assert "`da122dfb`" in rollout
-
-
 def test_preload_refuses_to_reach_docker_without_the_explicit_guard():
     root = Path(__file__).parents[2]
     script = root / "scripts/h4_ml_runtime_candidate.sh"
@@ -1023,62 +1007,6 @@ def test_resolved_h4_live_workers_inherit_production_canary_safety():
         assert mounts["/home/appuser/.cache/huggingface"]["source"] == "h4-ml-runtime"
         assert service["deploy"]["replicas"] == 1
         assert service["deploy"]["resources"]["limits"]["memory"] == "2147483648"
-
-
-def test_h4_worker_handover_runbook_is_fail_closed_and_non_destructive():
-    root = Path(__file__).parents[2]
-    runbook = (
-        root / "docs/runbooks/h4-worker-blue-green-handover.md"
-    ).read_text()
-
-    required_fragments = {
-        "docker-compose.yml",
-        "deploy/docker-compose.canary.yml",
-        "deploy/docker-compose.worker-h4-live.yml",
-        "--dry-run",
-        "--no-deps",
-        "--no-build",
-        "--pull never",
-        "MemAvailable",
-        "4294967296",
-        "2147483648",
-        "OOMKilled",
-        "STALE_MIN_AGE_MINUTES == 30",
-        "src.workers.tasks.health_check",
-        "python -m src.workers.h4_readonly_probe",
-        "h4_promotion_1",
-        "cancel_consumer",
-        "add_consumer",
-        "inspect active_queues",
-        "inspect active",
-        "inspect reserved",
-        "inspect scheduled",
-        "docker stop --time 300",
-        "conferma diretta",
-        "Rollback",
-        "Rollback abort compensation",
-        "five queues",
-        "h4_promotion_N",
-    }
-    forbidden_fragments = {
-        "docker rm",
-        "compose down",
-        "down -v",
-        "docker volume rm",
-        "docker system prune",
-        "docker volume prune",
-        "rm -rf",
-    }
-
-    missing_required = {
-        fragment for fragment in required_fragments if fragment not in runbook
-    }
-    present_forbidden = {
-        fragment for fragment in forbidden_fragments if fragment in runbook
-    }
-
-    assert not missing_required
-    assert not present_forbidden
 
 
 def test_h4_readonly_probe_rejects_owner_role_and_missing_cloud_keys():

@@ -216,7 +216,6 @@ frontend/frontend_lint.txt
 frontend/frontend_lint_final.txt
 /tools
 .~lock.Amber_Stakeholder_Presentation.pptx\#
-/docs/internal
 
 .ruff_cache
 /.venv_mig
@@ -232,10 +231,8 @@ task_plan.md
 openapi.json
 openapi_v2.json
 frontend/test-results/
-docs/plans/
 /.drift
 .driftignore
-docs/HYBRID_QUERY_PROPOSAL.md
 backups/
 
 # Local Docker secrets
@@ -243,6 +240,7 @@ docker/garage/garage.toml
 docker-compose.yml.bak.*
 
 # Documentation
+/docs/
 documentation_html/
 archive/
 
@@ -262,12 +260,9 @@ memory/security-log.md
 
 # Internal business/stakeholder artifacts — never publish (purged from history)
 *.pptx
-docs/Amber_Stakeholder_Presentation.md
-docs/Amber_Business_Document.md
 
 # Auto-generated memory dump + internal artifacts (do not commit)
 AGENTS.md
-docs/MEMORY_AUDIT.md
 scripts/amber_log_archive.sh
 scripts/fix_usage_logs_created_at.py
 scripts/html_reingest_dryrun.py
