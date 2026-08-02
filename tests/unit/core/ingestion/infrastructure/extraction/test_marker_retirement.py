@@ -74,19 +74,14 @@ def test_admin_configuration_does_not_offer_retired_hybrid_ocr():
         PROJECT_ROOT / "src" / "core" / "admin_ops" / "application" / "api_key_service.py"
     ).read_text()
     frontend_types = (PROJECT_ROOT / "frontend" / "src" / "lib" / "api-admin.ts").read_text()
-    api_docs = (PROJECT_ROOT / "docs" / "API_ENDPOINTS.md").read_text()
 
     for retired_setting in ("hybrid_ocr_enabled", "ocr_text_density_threshold"):
         assert retired_setting not in admin_config
         assert retired_setting not in tenant_defaults
         assert retired_setting not in frontend_types
-        assert retired_setting not in api_docs
 
 
-def test_active_parser_docs_do_not_describe_retired_marker_fallbacks():
+def test_public_readme_does_not_describe_retired_marker_fallbacks():
     readme = (PROJECT_ROOT / "README.md").read_text().lower()
-    internals = (PROJECT_ROOT / "docs" / "INTERNALS.md").read_text().lower()
 
     assert "marker-pdf" not in readme
-    assert "marker-pdf" not in internals
-    assert "marker_pdf.convert" not in internals

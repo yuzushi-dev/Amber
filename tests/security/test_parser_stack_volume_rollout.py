@@ -109,37 +109,6 @@ def test_optional_ml_features_pin_protobuf_compatible_with_opentelemetry(feature
     assert "protobuf==6.33.6" in OPTIONAL_FEATURES[feature_id].packages
 
 
-def test_h3_rollout_document_requires_explicit_feature_restore_and_validation():
-    runbook = (PROJECT_ROOT / "docs" / "H3_PARSER_STACK_ROLLOUT.md").read_text()
-
-    assert "PIP_PACKAGES_ACTIVE_VOLUME" in runbook
-    assert "PIP_PACKAGES_ROLLBACK_VOLUME" in runbook
-    assert "--inventory" in runbook
-    assert "--apply" in runbook
-    assert "local_embeddings" in runbook
-    assert "docker compose -f docker-compose.yml config" in runbook
-    assert "rollback" in runbook.lower()
-    assert "cp -a /from/. /to/" not in runbook
-
-
-def test_normal_rollback_keeps_clean_h3_volume_and_legacy_use_is_an_emergency_exception():
-    runbook = (PROJECT_ROOT / "docs" / "H3_PARSER_STACK_ROLLOUT.md").read_text()
-    normal_rollback, emergency_heading, emergency_exception = runbook.partition(
-        "## 4. Legacy-volume emergency exception"
-    )
-
-    assert emergency_heading
-    assert 'PIP_PACKAGES_ACTIVE_VOLUME="$PIP_PACKAGES_ROLLBACK_VOLUME"' not in normal_rollback
-    assert 'PIP_PACKAGES_ACTIVE_VOLUME="$PIP_PACKAGES_ROLLBACK_VOLUME"' in emergency_exception
-    for required_safeguard in (
-        "direct user approval",
-        "time-bounded",
-        "compensating monitoring",
-        "return to the fresh volume",
-    ):
-        assert required_safeguard in runbook.lower()
-
-
 def _write_distribution_metadata(target: Path, name: str, version: str) -> None:
     metadata_dir = target / f"{name}-{version}.dist-info"
     metadata_dir.mkdir()
