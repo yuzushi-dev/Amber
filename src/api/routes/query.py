@@ -157,7 +157,7 @@ async def query(
 
         if history_settings.enable_multiturn_history_reinjection:
             conversation_history = await _load_conversation_history(
-                session, request.conversation_id, tenant_id, api_key_id or user_id
+                session, request.conversation_id, tenant_id, user_id
             )
 
         response = await use_case.execute(

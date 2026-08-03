@@ -266,3 +266,51 @@ async def test_ollama_provider_generate_prepends_history_to_messages(monkeypatch
     assert captured_messages[1] == {"role": "user", "content": "Turn 1 Q"}
     assert captured_messages[2] == {"role": "assistant", "content": "Turn 1 A"}
     assert captured_messages[3] == {"role": "user", "content": "Turn 2 Q"}
+
+
+@pytest.mark.asyncio
+async def test_nonstream_query_route_loads_history_with_resolved_user_id(monkeypatch):
+    """The non-stream `query()` handler must invoke `_load_conversation_history` with the resolved `user_id`."""
+    from src.api.routes.query import query
+
+    loaded_calls = []
+
+    async def fake_load_conversation_history(session, conv_id, tenant_id, user_id):
+        loaded_calls.append({"conv_id": conv_id, "tenant_id": tenant_id, "user_id": user_id})
+        return [{"role": "user", "content": "previous turn"}]
+
+    monkeypatch.setattr("src.api.routes.query._load_conversation_history", fake_load_conversation_history)
+
+    executed_calls = []
+
+    async def fake_execute(self, request, tenant_id, http_request_state=None, user_id="", conversation_history=None):
+        executed_calls.append({"user_id": user_id, "history": conversation_history})
+        return SimpleNamespace(
+            conversation_id="conv-100",
+            answer="Answer text",
+            sources=[],
+        )
+
+    monkeypatch.setattr("src.core.retrieval.application.use_cases_query.QueryUseCase.execute", fake_execute)
+    monkeypatch.setattr("src.amber_platform.composition_root.build_retrieval_service", lambda _s: MagicMock())
+    monkeypatch.setattr("src.amber_platform.composition_root.build_generation_service", lambda _s: MagicMock())
+    monkeypatch.setattr("src.amber_platform.composition_root.build_metrics_collector", lambda: MagicMock())
+
+    from src.api.config import settings as api_settings
+    monkeypatch.setattr(api_settings, "enable_multiturn_history_reinjection", True, raising=False)
+
+    mock_request = SimpleNamespace(
+        method="POST",
+        state=SimpleNamespace(tenant_id="tenant-xyz", api_key_name="my-key-name", api_key_id="key-id-999"),
+        headers={"X-User-ID": "resolved-user-id"},
+    )
+    query_body = QueryRequest(query="Follow-up query", conversation_id="conv-100")
+    mock_session = AsyncMock()
+
+    response = await query(request=query_body, http_request=mock_request, session=mock_session)
+
+    assert len(loaded_calls) == 1
+    assert loaded_calls[0]["user_id"] == "resolved-user-id"
+    assert loaded_calls[0]["conv_id"] == "conv-100"
+    assert len(executed_calls) == 1
+    assert executed_calls[0]["history"] == [{"role": "user", "content": "previous turn"}]
