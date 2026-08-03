@@ -252,7 +252,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 await self.config.usage_tracker.record_usage(
-                    tenant_id=get_current_tenant() or "default",
+                    tenant_id=kwargs.get("tenant_id") or get_current_tenant() or "default",
                     operation="generation",
                     provider=self.provider_name,
                     model=model,
@@ -532,7 +532,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
 
                 await self.config.usage_tracker.record_usage(
-                    tenant_id=get_current_tenant() or "default",
+                    tenant_id=kwargs.get("tenant_id") or get_current_tenant() or "default",
                     operation="embedding",
                     provider=self.provider_name,
                     model=model,

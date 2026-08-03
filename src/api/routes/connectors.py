@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,17 @@ from src.shared.security import decrypt_credentials, encrypt_credentials
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 logger = logging.getLogger(__name__)
 
+
+
+def _get_tenant_id(request: Request) -> str:
+    """Extract tenant ID from request context (FastAPI request state or contextvar fallback)."""
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
 
 # --- Request/Response Models ---
 
@@ -107,7 +119,9 @@ async def list_available_connectors():
 
 
 @router.get("/{connector_type}/status", response_model=ResponseSchema[ConnectorStatusResponse])
-async def get_connector_status(connector_type: str, db: AsyncSession = Depends(get_db_session)):
+async def get_connector_status(
+    connector_type: str, request: Request, db: AsyncSession = Depends(get_db_session)
+):
     """Get the status of a specific connector."""
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(
@@ -115,7 +129,7 @@ async def get_connector_status(connector_type: str, db: AsyncSession = Depends(g
             detail=f"Connector type '{connector_type}' not found",
         )
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
 
     return ResponseSchema(
@@ -132,7 +146,10 @@ async def get_connector_status(connector_type: str, db: AsyncSession = Depends(g
 
 @router.post("/{connector_type}/auth", response_model=ResponseSchema[ConnectorStatusResponse])
 async def authenticate_connector(
-    connector_type: str, request: ConnectorAuthRequest, db: AsyncSession = Depends(get_db_session)
+    connector_type: str,
+    request: ConnectorAuthRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Authenticate a connector with external service.
@@ -147,7 +164,7 @@ async def authenticate_connector(
             detail=f"Connector type '{connector_type}' not found",
         )
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(http_request)
 
     # Get connector class and instantiate
     ConnectorClass = CONNECTOR_REGISTRY[connector_type]
@@ -232,6 +249,7 @@ async def trigger_sync(
     connector_type: str,
     request: ConnectorSyncRequest,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     db: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -245,7 +263,7 @@ async def trigger_sync(
             detail=f"Connector type '{connector_type}' not found",
         )
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(http_request)
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
 
     if state.status == "syncing":
@@ -294,6 +312,7 @@ class IngestItemsRequest(BaseModel):
 @router.get("/{connector_type}/items", response_model=ResponseSchema[dict[str, Any]])
 async def list_connector_items(
     connector_type: str,
+    request: Request,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -308,7 +327,7 @@ async def list_connector_items(
             detail=f"Connector type '{connector_type}' not found",
         )
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     # 1. Get Connector State & Config
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
@@ -531,6 +550,7 @@ async def ingest_selected_items(
     connector_type: str,
     request: IngestItemsRequest,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     db: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -539,7 +559,7 @@ async def ingest_selected_items(
     if connector_type not in CONNECTOR_REGISTRY:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(http_request)
     state = await get_or_create_connector_state(db, tenant_id, connector_type)
 
     if state.status == "syncing":

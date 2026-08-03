@@ -13,6 +13,18 @@ from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.admin_ops.domain.feedback import Feedback
 from src.core.database.session import async_session_maker
 from src.core.generation.domain.memory_models import ConversationSummary
+from fastapi import HTTPException, status
+
+
+def _get_tenant_id(request: Request) -> str:
+    """Extract tenant ID from request context."""
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
 from src.core.graph.application.context_writer import context_graph_writer
 from src.core.retrieval.application.embeddings_service import EmbeddingService
 from src.shared.context import get_current_tenant
@@ -34,7 +46,7 @@ async def get_pending_feedback(
     Super admins see feedback from all tenants.
     """
     is_super_admin = getattr(request.state, "is_super_admin", False)
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     base_query = (
         select(Feedback, ConversationSummary)
@@ -92,10 +104,10 @@ async def get_pending_feedback(
 
 
 @router.post("/{feedback_id}/verify", response_model=ResponseSchema[bool])
-async def verify_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
+async def verify_feedback(feedback_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Mark feedback as VERIFIED and compute query embedding for similarity search."""
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     # 1. Fetch the feedback and its associated conversation
     stmt = (
@@ -178,9 +190,9 @@ async def verify_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{feedback_id}/reject", response_model=ResponseSchema[bool])
-async def reject_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
+async def reject_feedback(feedback_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Mark feedback as REJECTED."""
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     query = (
         update(Feedback)
@@ -198,9 +210,9 @@ async def reject_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/export", response_class=StreamingResponse)
-async def export_golden_dataset(format: str = "jsonl", db: AsyncSession = Depends(get_db)):
+async def export_golden_dataset(request: Request, format: str = "jsonl", db: AsyncSession = Depends(get_db)):
     """Export VERIFIED feedback as a JSONL dataset."""
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     # 1. Fetch Verified Feedback
     query = select(Feedback).where(
@@ -242,12 +254,12 @@ async def export_golden_dataset(format: str = "jsonl", db: AsyncSession = Depend
 
 @router.get("/approved", response_model=ResponseSchema[list[dict]])
 async def get_approved_feedback(
-    skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)
+    request: Request, skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)
 ):
     """List all VERIFIED Q&A pairs for the Q&A Library."""
     from src.core.generation.domain.memory_models import ConversationSummary
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     query = (
         select(Feedback, ConversationSummary)
@@ -298,10 +310,10 @@ async def get_approved_feedback(
 
 @router.put("/{feedback_id}/toggle-active", response_model=ResponseSchema[bool])
 async def toggle_feedback_active(
-    feedback_id: str, is_active: bool, db: AsyncSession = Depends(get_db)
+    feedback_id: str, is_active: bool, request: Request, db: AsyncSession = Depends(get_db)
 ):
     """Toggle whether a verified Q&A is active (used for injection)."""
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     query = (
         update(Feedback)
@@ -325,11 +337,11 @@ async def toggle_feedback_active(
 
 
 @router.delete("/{feedback_id}", response_model=ResponseSchema[bool])
-async def delete_feedback(feedback_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_feedback(feedback_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Delete a feedback item from the library."""
     from sqlalchemy import delete as sql_delete
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(request)
 
     query = sql_delete(Feedback).where(Feedback.id == feedback_id, Feedback.tenant_id == tenant_id)
 
