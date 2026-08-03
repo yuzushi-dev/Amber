@@ -124,6 +124,7 @@ async def test_admin_list_chat_history_groups_attributed_by_api_key_id(monkeypat
        NOT key-1's group ("Engineering").
     """
     from types import SimpleNamespace
+
     from src.api.routes.admin.chat_history import list_chat_history
 
     conv1 = MagicMock()
@@ -197,6 +198,7 @@ async def test_admin_list_chat_history_legacy_row_yields_no_group(monkeypatch):
     """A legacy row with `api_key_id=None` must yield `group_name=None`,
     even if its `user_id` matches a valid API key name."""
     from types import SimpleNamespace
+
     from src.api.routes.admin.chat_history import list_chat_history
 
     conv_legacy = MagicMock()

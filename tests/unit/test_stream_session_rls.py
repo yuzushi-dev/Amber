@@ -12,7 +12,6 @@ import pytest
 
 from src.api.deps import get_request_rls_context
 from src.api.routes.query import (
-    _load_conversation_history,
     _persist_agent_conversation,
     _prepare_stream_phase,
     _query_stream_impl,
@@ -445,6 +444,35 @@ async def test_agent_same_user_conversation_is_updated(monkeypatch):
     assert persisted is True
     assert factory.sessions[1].added == [summary]
     assert summary.metadata_["answer"] == "Valid answer"
+
+
+@pytest.mark.asyncio
+async def test_agent_new_conversation_is_inserted_with_title(monkeypatch):
+    """INSERT path (no existing_summary): must build a new ConversationSummary
+    without raising NameError on title_text (regression: merge of #72/#30 lost
+    the title_text assignment present in the sibling _persist_rag_conversation)."""
+    factory = _TrackingSessionMaker(summaries_by_session={1: None})
+    monkeypatch.setattr("src.api.deps._get_async_session_maker", lambda: factory)
+
+    long_query = "A" * 80
+    persisted = await _persist_agent_conversation(
+        rls_context=get_request_rls_context(_http_request()),
+        conversation_id="conversation-new",
+        tenant_id="tenant-a",
+        user_id="user-a",
+        api_key_id="key-a",
+        query=long_query,
+        answer="Valid answer",
+        sources=[{"document_id": "document-1"}],
+        tools_used=["retrieve_context"],
+    )
+
+    assert persisted is True
+    assert len(factory.sessions[0].added) == 1
+    new_summary = factory.sessions[0].added[0]
+    assert new_summary.title == "A" * 50 + "..."
+    assert new_summary.tenant_id == "tenant-a"
+    assert new_summary.api_key_id == "key-a"
 
 
 @pytest.mark.asyncio

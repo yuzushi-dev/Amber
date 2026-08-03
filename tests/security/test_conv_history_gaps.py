@@ -275,10 +275,8 @@ async def test_rag_persist_adopts_legacy_conversation_with_no_api_key_id(monkeyp
     orphaned into a silent no-op forever — no worse than the pre-fix
     behaviour (any same-tenant caller could already update it with zero
     ownership check), but durable and provably owned afterward."""
-    from types import SimpleNamespace as SN
 
     from src.api.routes.query import _persist_rag_conversation
-
     from src.core.generation.domain.memory_models import ConversationSummary
 
     existing = ConversationSummary(

@@ -15,16 +15,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.api.config import settings as api_settings
+from src.api.schemas.query import QueryOptions, QueryRequest
 from src.core.generation.application.generation_service import GenerationResult, GenerationService
 from src.core.generation.domain.provider_models import (
     GenerationResult as ProviderGenerationResult,
+)
+from src.core.generation.domain.provider_models import (
     ProviderConfig,
     TokenUsage,
 )
 from src.core.generation.infrastructure.providers.ollama import OllamaLLMProvider
 from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
 from src.core.retrieval.application.use_cases_query import QueryUseCase
-from src.api.schemas.query import QueryOptions, QueryRequest
 from src.shared.kernel.runtime import configure_settings
 
 
@@ -313,7 +315,7 @@ async def test_nonstream_query_route_loads_history_with_api_key_id(monkeypatch):
     query_body = QueryRequest(query="Follow-up query", conversation_id="conv-100")
     mock_session = AsyncMock()
 
-    response = await query(request=query_body, http_request=mock_request, session=mock_session)
+    await query(request=query_body, http_request=mock_request, session=mock_session)
 
     assert len(loaded_calls) == 1
     assert loaded_calls[0]["api_key_id"] == "key-id-999"

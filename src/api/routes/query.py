@@ -13,8 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from inspect import isawaitable
-from typing import Any
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.generation.domain.memory_models import ConversationSummary
@@ -696,6 +695,7 @@ async def _persist_agent_conversation(
         summary_text = (
             "" if _looks_like_refusal(answer, sources) else answer[:200] + "..." if len(answer) > 200 else answer
         )
+        title_text = query[:50] + "..." if len(query) > 50 else query
         async with request_rls_session(rls_context) as session:
             existing_summary = await session.get(ConversationSummary, conversation_id)
             resolved = _resolve_owned_summary(existing_summary, tenant_id, api_key_id)
