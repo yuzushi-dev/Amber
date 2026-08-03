@@ -11,6 +11,8 @@ class SearchResult:
     tenant_id: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+    score_type: str = "cosine"
+    source: str = "vector"
 
 
 class VectorStorePort(Protocol):

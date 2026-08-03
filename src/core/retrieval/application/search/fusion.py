@@ -43,6 +43,7 @@ def fuse_results(
     for chunk_id, score in fused_scores.items():
         candidate = candidates_map[chunk_id]
         candidate.score = score
+        candidate.score_type = "rrf"
         final_candidates.append(candidate)
 
     # Sort by descending RRF score

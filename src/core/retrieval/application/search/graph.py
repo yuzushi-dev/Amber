@@ -65,6 +65,7 @@ class GraphSearcher:
                     content=r["content"],
                     score=1.0,  # Initial score for graph hits
                     source="graph",
+                    score_type="graph_prior",
                 )
                 for r in results
             ]
@@ -127,6 +128,7 @@ class GraphSearcher:
                     content=r["content"],
                     score=0.8,  # Neighbor hits have slightly lower confidence
                     source="graph",
+                    score_type="graph_prior",
                 )
                 for r in results
             ]

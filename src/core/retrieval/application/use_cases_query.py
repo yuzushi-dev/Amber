@@ -261,6 +261,8 @@ class QueryUseCase:
                             text=s.content_preview,
                             score=s.score,
                             page=None,
+                            score_type=getattr(s, "score_type", "cosine"),
+                            source=getattr(s, "source", "vector"),
                         )
                         for s in gen_result.sources
                     ]
