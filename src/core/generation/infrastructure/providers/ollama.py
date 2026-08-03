@@ -151,6 +151,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         start_time = time.perf_counter()
 
         work_class = kwargs.pop("work_class", "ingestion")
+        tenant_id = kwargs.pop("tenant_id", None)
 
         # Build messages
         messages: list[dict[str, Any]] = []
@@ -252,7 +253,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
 
                 await self.config.usage_tracker.record_usage(
-                    tenant_id=kwargs.get("tenant_id") or get_current_tenant() or "default",
+                    tenant_id=tenant_id or get_current_tenant() or "default",
                     operation="generation",
                     provider=self.provider_name,
                     model=model,
@@ -282,6 +283,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         model = self.default_model
 
         work_class = kwargs.pop("work_class", "chat")
+        kwargs.pop("tenant_id", None)
 
         # Ollama-native options via extra_body (skipped for cloud endpoints)
         extra_body = kwargs.pop("extra_body", {}) or {}
@@ -331,6 +333,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         model = model or self.default_model
 
         work_class = kwargs.pop("work_class", "chat")
+        kwargs.pop("tenant_id", None)
 
         messages: list[dict[str, Any]] = []
         if system_prompt:
@@ -482,6 +485,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         start_time = time.perf_counter()
 
         work_class = kwargs.pop("work_class", "ingestion")
+        tenant_id = kwargs.pop("tenant_id", None)
         limiter = get_ollama_capacity_limiter()
 
         try:
@@ -532,7 +536,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 usage_metadata = {**result.metadata, **(kwargs.get("metadata") or {})}
 
                 await self.config.usage_tracker.record_usage(
-                    tenant_id=kwargs.get("tenant_id") or get_current_tenant() or "default",
+                    tenant_id=tenant_id or get_current_tenant() or "default",
                     operation="embedding",
                     provider=self.provider_name,
                     model=model,

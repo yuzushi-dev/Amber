@@ -60,6 +60,7 @@ async def test_ollama_provider_usage_tracking_uses_explicit_tenant_id(monkeypatc
     provider.default_model = "llama3"
 
     async def fake_create(**kwargs):
+        assert "tenant_id" not in kwargs, "tenant_id must be popped before calling OpenAI client"
         mock_resp = MagicMock()
         mock_resp.choices = [MagicMock(message=MagicMock(content="Answer"), finish_reason="stop")]
         mock_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
@@ -107,6 +108,7 @@ async def test_anthropic_provider_usage_tracking_uses_explicit_tenant_id(monkeyp
 def test_get_tenant_id_unauthenticated_raises_401():
     """_get_tenant_id must raise 401 if no tenant ID is present in request state or contextvar."""
     from fastapi import HTTPException
+
     from src.api.routes.connectors import _get_tenant_id
 
     mock_req = MagicMock()
@@ -121,7 +123,6 @@ def test_get_tenant_id_unauthenticated_raises_401():
 @pytest.mark.asyncio
 async def test_super_admin_get_pending_feedback_without_tenant_succeeds():
     """Super Admin calling get_pending_feedback without tenant_id in request.state must NOT raise 401."""
-    from types import SimpleNamespace
     from src.api.routes.admin.feedback import get_pending_feedback
 
     mock_request = SimpleNamespace(
@@ -133,3 +134,20 @@ async def test_super_admin_get_pending_feedback_without_tenant_succeeds():
 
     res = await get_pending_feedback(request=mock_request, skip=0, limit=10, db=mock_db)
     assert res.data == []
+
+
+def test_rate_limit_middleware_executes_before_auth_in_app():
+    """RateLimitMiddleware must be placed before AuthenticationMiddleware in application middleware stack."""
+    from src.api.main import app
+    from src.api.middleware.auth import AuthenticationMiddleware
+    from src.api.middleware.rate_limit import RateLimitMiddleware
+
+    middleware_cls_list = [m.cls for m in app.user_middleware]
+    assert RateLimitMiddleware in middleware_cls_list
+    assert AuthenticationMiddleware in middleware_cls_list
+
+    # Starlette add_middleware uses user_middleware.insert(0, ...), so later added middleware
+    # has a smaller index and executes earlier (outermost) in request processing order.
+    rate_idx = middleware_cls_list.index(RateLimitMiddleware)
+    auth_idx = middleware_cls_list.index(AuthenticationMiddleware)
+    assert rate_idx < auth_idx, "RateLimitMiddleware (outer) must execute before AuthenticationMiddleware (inner)"

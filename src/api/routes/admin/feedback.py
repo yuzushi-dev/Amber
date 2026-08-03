@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,10 @@ from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.admin_ops.domain.feedback import Feedback
 from src.core.database.session import async_session_maker
 from src.core.generation.domain.memory_models import ConversationSummary
-from fastapi import HTTPException, status
+from src.core.graph.application.context_writer import context_graph_writer
+from src.core.retrieval.application.embeddings_service import EmbeddingService
+from src.shared.context import get_current_tenant
+from src.shared.kernel.runtime import get_settings
 
 
 def _get_tenant_id(request: Request) -> str:
@@ -25,10 +28,6 @@ def _get_tenant_id(request: Request) -> str:
             detail="Authentication required: tenant context missing.",
         )
     return str(tenant_id)
-from src.core.graph.application.context_writer import context_graph_writer
-from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.shared.context import get_current_tenant
-from src.shared.kernel.runtime import get_settings
 
 router = APIRouter(prefix="/feedback", tags=["admin-feedback"], dependencies=[Depends(verify_tenant_admin)])
 
@@ -209,7 +208,9 @@ async def reject_feedback(feedback_id: str, request: Request, db: AsyncSession =
 
 
 @router.get("/export", response_class=StreamingResponse)
-async def export_golden_dataset(request: Request, format: str = "jsonl", db: AsyncSession = Depends(get_db)):
+async def export_golden_dataset(
+    format: str = "jsonl", *, request: Request, db: AsyncSession = Depends(get_db)
+):
     """Export VERIFIED feedback as a JSONL dataset."""
     tenant_id = _get_tenant_id(request)
 

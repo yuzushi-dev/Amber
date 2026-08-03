@@ -10,8 +10,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from fastapi import Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +27,6 @@ from src.shared.security import decrypt_credentials, encrypt_credentials
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 logger = logging.getLogger(__name__)
-
 
 
 def _get_tenant_id(request: Request) -> str:
