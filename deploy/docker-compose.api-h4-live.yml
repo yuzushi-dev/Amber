@@ -1,0 +1,50 @@
+# H4 ML runtime overlay for the live `api` service (amber2-api-1).
+#
+# `api-canary` (deploy/docker-compose.canary.yml) already runs on the H4
+# ML runtime volume. The live `api` service must match it, otherwise the
+# two instances silently diverge on resolved package versions (e.g.
+# huggingface-hub) depending on which one nginx/the frontend happens to
+# route to — this bit us once: local_embeddings reported "Failed" only on
+# the container that hadn't been given this overlay.
+#
+# This file also carries a PYTHONPATH fix (prioritizing the image's own
+# site-packages between /app/src and /app/.packages) that predates the H4
+# work; it applies to `api`, `worker`, and `celery_beat` for consistency,
+# even though only `api` needs the H4 mount today.
+#
+# Usage (from the repo root):
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.api-h4-live.yml \
+#       up -d --no-deps --no-build api
+#
+# Or set once in .env so every `docker compose` invocation picks it up:
+#   COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.api-h4-live.yml
+
+services:
+  api:
+    environment:
+      PYTHONPATH: /app/.packages-h4:/app:/app/src:/usr/local/lib/python3.11/site-packages:/app/.packages
+      AMBER_H4_ML_RUNTIME_ROOT: /app/.packages-h4
+      HF_HOME: /app/.packages-h4/hf-cache
+      HUGGINGFACE_HUB_CACHE: /app/.packages-h4/hf-cache/hub
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
+      - ./pytest.ini:/app/pytest.ini:ro
+      - ./config:/app/config:ro
+      - ./alembic:/app/alembic:ro
+      - graphrag-uploads:/app/uploads
+      - pip-packages:/app/.packages
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+      - h4-ml-runtime:/app/.packages-h4:ro
+  worker:
+    environment:
+      PYTHONPATH: /app:/app/src:/usr/local/lib/python3.11/site-packages:/app/.packages
+  celery_beat:
+    environment:
+      PYTHONPATH: /app:/app/src:/usr/local/lib/python3.11/site-packages:/app/.packages
+
+volumes:
+  h4-ml-runtime:
+    external: true
+    name: ${H4_ML_RUNTIME_VOLUME:?H4_ML_RUNTIME_VOLUME must name a validated H4 candidate}
