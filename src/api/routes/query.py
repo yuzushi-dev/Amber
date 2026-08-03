@@ -151,12 +151,21 @@ async def query(
 
         # Determine User ID (extract logic from previous implementation)
         user_id = _get_user_id(http_request)
+        api_key_id = getattr(http_request.state, "api_key_id", None)
+        conversation_history: list[dict] | None = None
+        from src.api.config import settings as history_settings
+
+        if history_settings.enable_multiturn_history_reinjection:
+            conversation_history = await _load_conversation_history(
+                session, request.conversation_id, tenant_id, api_key_id or user_id
+            )
 
         response = await use_case.execute(
             request=request,
             tenant_id=tenant_id,
             http_request_state=http_request.state,
             user_id=user_id,
+            conversation_history=conversation_history,
         )
 
         # Persist conversation summary in Postgres (mirrors streaming path).
@@ -743,6 +752,13 @@ async def _prepare_stream_phase(
             tenant_config_snapshot = (
                 await snapshot_result if isawaitable(snapshot_result) else snapshot_result
             )
+            agent_history: list[dict] | None = None
+            from src.api.config import settings as history_settings
+
+            if history_settings.enable_multiturn_history_reinjection:
+                agent_history = await _load_conversation_history(
+                    session, request.conversation_id, tenant_id, stream_user_id
+                )
             return _StreamPrePhase(
                 agent_mode=True,
                 generation_service=generation_service,
@@ -750,7 +766,7 @@ async def _prepare_stream_phase(
                 prepared_generation=None,
                 stream_user_id=stream_user_id,
                 tenant_config_snapshot=dict(tenant_config_snapshot or {}),
-                conversation_history=None,
+                conversation_history=agent_history,
             )
 
         retrieval_service = build_retrieval_service(session)
@@ -1012,7 +1028,9 @@ async def _query_stream_impl(
                     system_prompt=AGENT_SYSTEM_PROMPT,
                 )
                 agent_response = await agent.run(
-                    query=request.query, conversation_id=agent_conversation_id
+                    query=request.query,
+                    conversation_id=agent_conversation_id,
+                    conversation_history=phase.conversation_history,
                 )
                 agent_sources = getattr(agent_response, "sources", []) or []
                 agent_trace = getattr(agent_response, "trace", []) or []
