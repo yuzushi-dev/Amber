@@ -47,6 +47,7 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
                 {"step": "vector_search", "duration_ms": 12.0},
                 {"step": "rerank", "duration_ms": 45.5, "model": "bge-reranker"},
             ],
+            reranking_ms=45.5,
         )
     )
 
@@ -102,7 +103,82 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
     assert captured_metrics.chunks_retrieved == 2
     assert captured_metrics.chunks_used == 2, "chunks_used must be populated from generation context count"
     assert captured_metrics.reranking_latency_ms == pytest.approx(45.5), (
-        "reranking_latency_ms must be extracted from retrieval trace step 'rerank'"
+        "reranking_latency_ms must be copied from RetrievalResult.reranking_ms (independent of include_trace)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reranking_latency_ms_independent_of_trace():
+    """reranking_latency_ms must come from RetrievalResult.reranking_ms, not from
+    scanning `.trace` for a 'rerank' step — real clients never set include_trace,
+    so a trace-dependent extraction always reports 0 in production (issue #71 regression).
+    """
+    retrieval_service = MagicMock()
+    retrieval_service.retrieve = AsyncMock(
+        return_value=SimpleNamespace(
+            chunks=[
+                {"chunk_id": "c1", "content": "text 1", "score": 0.9, "title": "Doc 1"},
+                {"chunk_id": "c2", "content": "text 2", "score": 0.8, "title": "Doc 2"},
+            ],
+            cache_hit=False,
+            search_mode="basic",
+            router_latency_ms=1.5,
+            trace=[],
+            reranking_ms=45.5,
+        )
+    )
+
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(
+        return_value=GenerationResult(
+            answer="Answer text",
+            sources=[SimpleNamespace(document_id="d1", title="Doc 1", content_preview="text 1", score=0.9)],
+            model="gpt-4o",
+            provider="openai",
+            latency_ms=25.0,
+            tokens_used=50,
+            cost_estimate=0.001,
+            chunks_used=2,
+            follow_up_questions=[],
+            trace=[],
+        )
+    )
+
+    captured_metrics = None
+
+    class FakeTrackQuery:
+        def __init__(self):
+            self.m = SimpleNamespace(
+                query_id="q-1", tenant_id="tenant-1", query="test query",
+                chunks_retrieved=0, chunks_used=0, reranking_latency_ms=0.0,
+                tokens_used=0, input_tokens=0, output_tokens=0, cost_estimate=0.0,
+                model="", provider="", sources_cited=0, answer_length=0, response="",
+                operation="",
+            )
+
+        async def __aenter__(self):
+            nonlocal captured_metrics
+            captured_metrics = self.m
+            return self.m
+
+        async def __aexit__(self, *args):
+            return False
+
+    metrics_collector = MagicMock()
+    metrics_collector.track_query.return_value = FakeTrackQuery()
+
+    uc = QueryUseCase(
+        retrieval_service=retrieval_service,
+        generation_service=generation_service,
+        metrics_collector=metrics_collector,
+    )
+
+    req = QueryRequest(query="test query")
+    await uc.execute(request=req, tenant_id="tenant-1", user_id="user-1")
+
+    assert captured_metrics is not None
+    assert captured_metrics.reranking_latency_ms == pytest.approx(45.5), (
+        "reranking_latency_ms must not depend on a populated .trace / include_trace flag"
     )
 
 

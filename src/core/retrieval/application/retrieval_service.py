@@ -61,6 +61,7 @@ class RetrievalResult:
     router_latency_ms: float = 0.0
     reranked: bool = False
     trace: list[dict[str, Any]] = field(default_factory=list)
+    reranking_ms: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1224,6 +1225,7 @@ class RetrievalService:
 
         all_chunks = []
         seen_chunk_ids = set()
+        reranking_ms_total = 0.0
 
         for q in queries_to_run:
             logger.debug("Vector search processing query variant: %s", q[:120])
@@ -1443,6 +1445,7 @@ class RetrievalService:
                     search_results = reranked_results
 
                     trace.append(rerank_trace)
+                    reranking_ms_total += rerank_trace["duration_ms"]
 
                 except Exception as e:
                     logger.warning(f"Reranking failed, using vector scores: {e}")
@@ -1522,6 +1525,7 @@ class RetrievalService:
             tenant_id=tenant_id,
             latency_ms=0,  # Updated by caller
             trace=trace,
+            reranking_ms=reranking_ms_total,
         )
 
     async def _fetch_chunks_by_ids(

@@ -1177,10 +1177,7 @@ async def _query_stream_impl(
                     if phase and phase.prepared_generation
                     else len(collected_sources)
                 )
-                stream_rerank_latency_ms = 0.0
-                for rt in (retrieval_result.trace if retrieval_result else []):
-                    if isinstance(rt, dict) and rt.get("step") == "rerank":
-                        stream_rerank_latency_ms += float(rt.get("duration_ms", 0.0))
+                stream_rerank_latency_ms = retrieval_result.reranking_ms if retrieval_result else 0.0
 
                 metrics = QueryMetrics(
                     query_id=query_id,
