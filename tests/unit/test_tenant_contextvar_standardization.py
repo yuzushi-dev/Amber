@@ -8,6 +8,7 @@ Covers:
 """
 
 import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -71,3 +72,64 @@ async def test_ollama_provider_usage_tracking_uses_explicit_tenant_id(monkeypatc
 
     tracker.record_usage.assert_called_once()
     assert tracker.record_usage.call_args.kwargs.get("tenant_id") == "explicit-tenant"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_provider_usage_tracking_uses_explicit_tenant_id(monkeypatch):
+    """AnthropicLLMProvider must pass explicit tenant_id to usage_tracker.record_usage."""
+    from src.core.generation.domain.provider_models import ProviderConfig
+    from src.core.generation.infrastructure.providers.anthropic import AnthropicLLMProvider
+
+    tracker = MagicMock()
+    tracker.record_usage = AsyncMock()
+
+    provider = AnthropicLLMProvider(
+        config=ProviderConfig(api_key="test-key", usage_tracker=tracker),
+    )
+    provider.default_model = "claude-3-5-sonnet-20241022"
+
+    mock_msg = MagicMock()
+    mock_msg.id = "msg-123"
+    mock_msg.content = [MagicMock(text="Answer text")]
+    mock_msg.usage = MagicMock(input_tokens=12, output_tokens=8)
+
+    async def fake_create(**_kw):
+        return mock_msg
+
+    monkeypatch.setattr(provider.client.messages, "create", fake_create)
+
+    await provider.generate(prompt="Hello", tenant_id="explicit-anthropic-tenant")
+
+    tracker.record_usage.assert_called_once()
+    assert tracker.record_usage.call_args.kwargs.get("tenant_id") == "explicit-anthropic-tenant"
+
+
+def test_get_tenant_id_unauthenticated_raises_401():
+    """_get_tenant_id must raise 401 if no tenant ID is present in request state or contextvar."""
+    from fastapi import HTTPException
+    from src.api.routes.connectors import _get_tenant_id
+
+    mock_req = MagicMock()
+    mock_req.state = SimpleNamespace()
+
+    with pytest.raises(HTTPException) as exc_info:
+        _get_tenant_id(mock_req)
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_super_admin_get_pending_feedback_without_tenant_succeeds():
+    """Super Admin calling get_pending_feedback without tenant_id in request.state must NOT raise 401."""
+    from types import SimpleNamespace
+    from src.api.routes.admin.feedback import get_pending_feedback
+
+    mock_request = SimpleNamespace(
+        state=SimpleNamespace(is_super_admin=True)  # no tenant_id set
+    )
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+
+    res = await get_pending_feedback(request=mock_request, skip=0, limit=10, db=mock_db)
+    assert res.data == []

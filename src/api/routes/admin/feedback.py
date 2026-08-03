@@ -46,7 +46,6 @@ async def get_pending_feedback(
     Super admins see feedback from all tenants.
     """
     is_super_admin = getattr(request.state, "is_super_admin", False)
-    tenant_id = _get_tenant_id(request)
 
     base_query = (
         select(Feedback, ConversationSummary)
@@ -62,8 +61,8 @@ async def get_pending_feedback(
     )
 
     if not is_super_admin:
+        tenant_id = _get_tenant_id(request)
         base_query = base_query.where(Feedback.tenant_id == tenant_id)
-
     result = await db.execute(base_query)
     rows = result.all()
 
