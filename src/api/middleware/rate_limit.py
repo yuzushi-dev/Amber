@@ -79,7 +79,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Middleware for enforcing rate limits.
 
-    Applies per-tenant rate limits using Redis-backed sliding window.
+    Applies per-IP rate limits using Redis-backed sliding window. Note: this
+    middleware executes prior to AuthenticationMiddleware in the outer stack,
+    so tenant context is not yet resolved; requests fall back to client IP keying.
     Returns 429 Too Many Requests when limits are exceeded.
     """
 
@@ -94,10 +96,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if category is None:
             return await call_next(request)
 
-        # Get tenant ID (set by auth middleware)
+        # Pre-auth rate limiting: tenant context is not yet resolved by AuthenticationMiddleware
         tenant_id = get_current_tenant()
         if tenant_id is None:
-            # If no tenant (before auth), use IP address as identifier
+            # Key request by client IP (or "anonymous" fallback)
             tenant_id = request.client.host or "anonymous"
 
         # Check rate limit

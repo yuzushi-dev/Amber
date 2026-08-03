@@ -8,7 +8,7 @@ Uses Wikipedia public domain content.
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,17 @@ from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
+
+
+def _get_tenant_id(request: Request) -> str:
+    """Extract tenant ID from request context (FastAPI request state or contextvar fallback)."""
+    tenant_id = getattr(request.state, "tenant_id", None) or get_current_tenant()
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: tenant context missing.",
+        )
+    return str(tenant_id)
 
 
 # --- Sample Data ---
@@ -197,7 +208,10 @@ class SeedResponse(BaseModel):
 
 @router.post("/seed-sample-data", response_model=ResponseSchema[SeedResponse])
 async def seed_sample_data(
-    request: SeedRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+    request: SeedRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Seed sample data for onboarding and demos.
@@ -212,7 +226,7 @@ async def seed_sample_data(
             detail=f"Unknown dataset '{request.dataset}'. Available: {list(SAMPLE_DATASETS.keys())}",
         )
 
-    tenant_id = get_current_tenant() or "default"
+    tenant_id = _get_tenant_id(http_request)
     dataset = SAMPLE_DATASETS[request.dataset]
 
     try:

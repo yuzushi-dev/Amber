@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ from src.core.admin_ops.domain.feedback import Feedback
 @pytest.mark.asyncio
 async def test_export_golden_dataset():
     """Test that the export endpoint streams valid JSONL for verified items."""
+    mock_request = SimpleNamespace(state=SimpleNamespace(tenant_id="tenant-export"))
 
     # Mock Database Session
     mock_db = AsyncMock()
@@ -37,10 +39,15 @@ async def test_export_golden_dataset():
     mock_result.scalars.return_value.all.return_value = fake_feedbacks
     mock_db.execute.return_value = mock_result
 
-    # Call Endpoint
-    response = await export_golden_dataset(format="jsonl", db=mock_db)
+    # Call Endpoint with request kwarg
+    response = await export_golden_dataset(format="jsonl", request=mock_request, db=mock_db)
 
     assert response.headers["content-type"] == "application/x-jsonlines"
+
+    # Verify query filtered on tenant_id
+    mock_db.execute.assert_called_once()
+    query_arg = mock_db.execute.call_args[0][0]
+    assert "tenant_id" in str(query_arg)
 
     # Collect streamed content
     content = ""

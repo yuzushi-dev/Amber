@@ -86,6 +86,7 @@ async def test_generate_uses_tenant_prompt_overrides():
     assert kwargs.get("system_prompt").startswith("CUSTOM_SYSTEM_PROMPT")
     assert "CUSTOM_USER_PROMPT" in kwargs.get("prompt")
     assert "Test Query" in kwargs.get("prompt")
+    assert kwargs.get("tenant_id") == "tenant-123"
 
 
 @pytest.mark.asyncio

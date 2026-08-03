@@ -15,12 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import build_vector_store_factory, platform
 from src.api.config import settings
+from src.api.deps import get_current_tenant_id
 from src.api.schemas.chunks import ChunkUpdate
 from src.core.database.session import get_db
 from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
 from src.core.ingestion.domain.document import Document
 from src.core.retrieval.application.embeddings_service import EmbeddingService
-from src.shared.context import get_current_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ async def get_document_chunks(
     document_id: str,
     limit: int = 50,
     offset: int = 0,
-    tenant_id: str = Depends(get_current_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db),
 ):
     """
@@ -99,7 +99,7 @@ async def update_chunk(
     document_id: str,
     chunk_id: str,
     update_data: ChunkUpdate,
-    tenant_id: str = Depends(get_current_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db),
 ):
     """
@@ -187,7 +187,7 @@ async def update_chunk(
 async def delete_chunk(
     document_id: str,
     chunk_id: str,
-    tenant_id: str = Depends(get_current_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(get_db),
 ):
     """

@@ -456,7 +456,7 @@ class GenerationService:
             else self.llm
         )
 
-        generate_kwargs: dict[str, Any] = {}
+        generate_kwargs: dict[str, Any] = {"tenant_id": tenant_id}
         if _thinking:
             generate_kwargs["extra_body"] = {"think": True}
 
