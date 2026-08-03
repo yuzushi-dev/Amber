@@ -183,7 +183,7 @@ def _patch_common(monkeypatch, factory, generation):
         return None
 
     async def retrieve(**_kwargs):
-        return SimpleNamespace(chunks=[{"chunk_id": "chunk-1", "score": 1.0}], cache_hit=False)
+        return SimpleNamespace(chunks=[{"chunk_id": "chunk-1", "score": 1.0}], cache_hit=False, reranking_ms=0.0)
 
     monkeypatch.setattr("src.api.deps._get_async_session_maker", lambda: factory)
     monkeypatch.setattr(

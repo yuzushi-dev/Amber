@@ -197,39 +197,43 @@ class QueryUseCase:
                 )
 
                 retrieval_ms = (time.perf_counter() - step_start) * 1000
-                query_metrics.retrieval_latency_ms = retrieval_ms
-                query_metrics.chunks_retrieved = len(retrieval_result.chunks)
-                query_metrics.cache_hit = retrieval_result.cache_hit
-                query_metrics.search_mode = retrieval_result.search_mode
-                query_metrics.router_latency_ms = retrieval_result.router_latency_ms
+                try:
+                    query_metrics.retrieval_latency_ms = retrieval_ms
+                    query_metrics.chunks_retrieved = len(retrieval_result.chunks)
+                    query_metrics.cache_hit = retrieval_result.cache_hit
+                    query_metrics.search_mode = retrieval_result.search_mode
+                    query_metrics.router_latency_ms = retrieval_result.router_latency_ms
+                    query_metrics.reranking_latency_ms = retrieval_result.reranking_ms
 
-                share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
-                query_metrics.local_hits = share_metrics["local_hits"]
-                query_metrics.shared_hits = share_metrics["shared_hits"]
-                query_metrics.acl_filtered_results = share_metrics["acl_filtered_results"]
+                    share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
+                    query_metrics.local_hits = share_metrics["local_hits"]
+                    query_metrics.shared_hits = share_metrics["shared_hits"]
+                    query_metrics.acl_filtered_results = share_metrics["acl_filtered_results"]
 
-                tax_metrics = self._extract_taxonomy_metrics(retrieval_result.trace)
-                if tax_metrics:
-                    logger.info(
-                        "taxonomy_routing query_id=%s edition=%s audience=%s "
-                        "broadening_stage=%s strict_count=%s",
-                        query_id,
-                        tax_metrics.get("inferred_edition"),
-                        tax_metrics.get("inferred_audience"),
-                        tax_metrics.get("broadening_stage"),
-                        tax_metrics.get("strict_candidate_count"),
-                    )
-
-                for rt in retrieval_result.trace:
-                    trace_steps.append(
-                        TraceStep(
-                            step=rt["step"],
-                            duration_ms=rt.get("duration_ms", 0),
-                            details={
-                                k: v for k, v in rt.items() if k not in ("step", "duration_ms")
-                            },
+                    tax_metrics = self._extract_taxonomy_metrics(retrieval_result.trace)
+                    if tax_metrics:
+                        logger.info(
+                            "taxonomy_routing query_id=%s edition=%s audience=%s "
+                            "broadening_stage=%s strict_count=%s",
+                            query_id,
+                            tax_metrics.get("inferred_edition"),
+                            tax_metrics.get("inferred_audience"),
+                            tax_metrics.get("broadening_stage"),
+                            tax_metrics.get("strict_candidate_count"),
                         )
-                    )
+
+                    for rt in retrieval_result.trace:
+                        trace_steps.append(
+                            TraceStep(
+                                step=rt["step"],
+                                duration_ms=rt.get("duration_ms", 0),
+                                details={
+                                    k: v for k, v in rt.items() if k not in ("step", "duration_ms")
+                                },
+                            )
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to populate query metrics from retrieval result: {e}")
 
                 # Step 3: Generation
                 step_start = time.perf_counter()
@@ -430,6 +434,7 @@ class QueryUseCase:
         metrics.model = result.model
         metrics.provider = result.provider
         metrics.sources_cited = len(result.sources)
+        metrics.chunks_used = getattr(result, "chunks_used", 0) or len(result.sources)
         metrics.answer_length = len(answer)
         metrics.operation = "rag_query"
         metrics.response = answer[:500] if len(answer) > 500 else answer

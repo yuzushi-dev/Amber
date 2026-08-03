@@ -68,6 +68,7 @@ class GenerationResult:
     input_tokens: int = 0
     output_tokens: int = 0
     context_tokens: int = 0
+    chunks_used: int = 0
     trace: list[dict[str, Any]] = field(default_factory=list)
     follow_up_questions: list[str] = field(default_factory=list)
     is_grounded: bool = True
@@ -106,6 +107,7 @@ class PreparedGenerationStream:
     tenant_id: str
     user_id: str | None
     tenant_config: dict[str, Any]
+    used_candidates_count: int = 0
 
 
 class GenerationService:
@@ -556,6 +558,7 @@ class GenerationService:
             input_tokens=llm_result.usage.input_tokens,
             output_tokens=llm_result.usage.output_tokens,
             context_tokens=context_result.tokens,
+            chunks_used=len(context_result.used_candidates),
             trace=trace if include_trace else [],
             follow_up_questions=self._generate_follow_ups(query, normalized_answer)
             if self.config.enable_follow_up
@@ -795,6 +798,7 @@ class GenerationService:
             tenant_id=tenant_id,
             user_id=user_id,
             tenant_config=dict(tenant_config),
+            used_candidates_count=len(ctx.used_candidates),
         )
 
     async def stream_prepared(self, prepared: PreparedGenerationStream) -> AsyncIterator[dict]:
