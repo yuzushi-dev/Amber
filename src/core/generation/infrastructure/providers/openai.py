@@ -12,6 +12,7 @@ import structlog
 
 from src.core.generation.infrastructure.providers.base import (
     AuthenticationError,
+    InvalidRequestError,
     BaseEmbeddingProvider,
     BaseLLMProvider,
     EmbeddingResult,
@@ -383,6 +384,18 @@ class OpenAILLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
+        elif (
+            "BadRequestError" in error_type
+            or "InvalidRequestError" in error_type
+            or "NotFoundError" in error_type
+            or "not found" in str(e).lower()
+            or "does not exist" in str(e).lower()
+        ):
+            raise InvalidRequestError(
+                f"OpenAI error: {e}",
+                provider=self.provider_name,
+                model=model,
+            )
         else:
             # Map other errors
             raise ProviderUnavailableError(
@@ -497,6 +510,18 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         elif "AuthenticationError" in error_type:
             raise AuthenticationError(
                 str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif (
+            "BadRequestError" in error_type
+            or "InvalidRequestError" in error_type
+            or "NotFoundError" in error_type
+            or "not found" in str(e).lower()
+            or "does not exist" in str(e).lower()
+        ):
+            raise InvalidRequestError(
+                f"Embedding error: {e}",
                 provider=self.provider_name,
                 model=model,
             )

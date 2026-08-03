@@ -413,7 +413,13 @@ class OllamaLLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
-        elif "BadRequestError" in error_type or "InvalidRequestError" in error_type:
+        elif (
+            "BadRequestError" in error_type
+            or "InvalidRequestError" in error_type
+            or "NotFoundError" in error_type
+            or "not found" in str(e).lower()
+            or "does not exist" in str(e).lower()
+        ):
             raise InvalidRequestError(
                 f"{str(e)}{error_body}",
                 provider=self.provider_name,
@@ -564,6 +570,18 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         elif "AuthenticationError" in error_type:
             raise AuthenticationError(
                 str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif (
+            "BadRequestError" in error_type
+            or "InvalidRequestError" in error_type
+            or "NotFoundError" in error_type
+            or "not found" in str(e).lower()
+            or "does not exist" in str(e).lower()
+        ):
+            raise InvalidRequestError(
+                f"Embedding error: {e}",
                 provider=self.provider_name,
                 model=model,
             )
