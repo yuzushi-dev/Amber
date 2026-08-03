@@ -165,23 +165,32 @@ async def list_chat_history(
             feedback_positive_by_conv.setdefault(req_id, is_positive)
         conversations_with_feedback = set(feedback_positive_by_conv.keys())
 
-        # Build key_name → group_name lookup
+        # Build api_key_id → group_name lookup. Keyed on the immutable API
+        # key id, not its name (issue #72): `conv.user_id` mirrors the
+        # caller-controlled X-User-ID header, which can be set to any
+        # string including an unrelated key's *name* — and key names are not
+        # even unique (ix_api_keys_name has unique=False), so a name-keyed
+        # lookup could attribute a conversation to the wrong group on a
+        # collision. `conv.api_key_id` is populated at write time from the
+        # authenticated key and is NULL on rows written before that column
+        # existed, which correctly yields "no group" below rather than a
+        # guess.
         from sqlalchemy import text as sa_text
         grp_result = await session.execute(sa_text("""
-            SELECT ak.name AS key_name, g.name AS group_name
+            SELECT ak.id AS key_id, g.name AS group_name
             FROM api_keys ak
             JOIN group_members gm ON gm.api_key_id = ak.id
             JOIN groups g ON g.id = gm.group_id
             WHERE g.is_active = true
         """))
-        key_to_group: dict[str, str] = {r.key_name: r.group_name for r in grp_result.fetchall()}
+        key_to_group: dict[str, str] = {r.key_id: r.group_name for r in grp_result.fetchall()}
 
         for conv in rows:
             metadata = conv.metadata_ or {}
             model = metadata.get("model", "default")
             has_feedback = conv.id in conversations_with_feedback
             feedback_positive = feedback_positive_by_conv.get(conv.id)
-            group_name = key_to_group.get(conv.user_id)
+            group_name = key_to_group.get(conv.api_key_id)
 
             conv_metrics = metrics_by_conv.get(conv.id, {})
             if conv_metrics.get("model"):

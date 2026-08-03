@@ -3,9 +3,15 @@ Unit tests for the security-relevant parts of `_load_conversation_history`
 (src/api/routes/query.py) and the `enable_multiturn_history_reinjection`
 feature-flag gate around it.
 
-`_load_conversation_history` had zero test coverage before this PR. These
-tests lock in: a missing conversation, a foreign tenant's conversation, a
-foreign user's conversation, and a persisted `metadata_` blob with no
+Ownership is gated on `api_key_id` (the authenticated caller identity set by
+the auth middleware), not on `user_id`/X-User-ID — the latter is a
+caller-controlled header. Before this file's fix (issue #72), gating on
+`user_id` let one authenticated caller read another user's conversation
+history by guessing `conversation_id` and sending an `X-User-ID` header
+equal to the victim's resolved identity. These tests lock in: a missing
+conversation, a foreign tenant's conversation, a foreign api_key's
+conversation, a legacy conversation with no recorded api_key_id, a caller
+with no resolvable api_key_id, and a persisted `metadata_` blob with no
 `history` key must all resolve to `[]` — never leak another caller's turns.
 A malformed turn (non-string `answer`) is also covered: today that fails
 open and discards the *whole* conversation's history for this call, not just
@@ -30,6 +36,8 @@ from src.core.generation.domain.memory_models import ConversationSummary
 
 TENANT = "tenant-1"
 USER = "user-1"
+API_KEY_ID = "key-abc-123"
+OTHER_API_KEY_ID = "key-xyz-789"
 
 
 class _FakeSession:
@@ -88,7 +96,17 @@ class _StreamSessionMaker:
 @pytest.mark.asyncio
 async def test_no_conversation_id_returns_empty_without_touching_session():
     session = _FakeSession(get_result=None)
-    result = await _load_conversation_history(session, None, TENANT, USER)
+    result = await _load_conversation_history(session, None, TENANT, API_KEY_ID)
+    assert result == []
+    assert session.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_no_api_key_id_returns_empty_without_touching_session():
+    """A caller with no resolvable authenticated identity must be denied
+    outright — never fall back to a permissive default."""
+    session = _FakeSession(get_result=None)
+    result = await _load_conversation_history(session, "conv-1", TENANT, None)
     assert result == []
     assert session.get_calls == []
 
@@ -96,7 +114,7 @@ async def test_no_conversation_id_returns_empty_without_touching_session():
 @pytest.mark.asyncio
 async def test_unknown_conversation_returns_empty():
     session = _FakeSession(get_result=None)
-    result = await _load_conversation_history(session, "missing-conv", TENANT, USER)
+    result = await _load_conversation_history(session, "missing-conv", TENANT, API_KEY_ID)
     assert result == []
 
 
@@ -104,31 +122,52 @@ async def test_unknown_conversation_returns_empty():
 async def test_other_tenant_conversation_is_not_leaked():
     summary = SimpleNamespace(
         tenant_id="someone-elses-tenant",
-        user_id=USER,
+        api_key_id=API_KEY_ID,
         metadata_={"history": [{"query": "q", "answer": "a"}]},
     )
     session = _FakeSession(get_result=summary)
-    result = await _load_conversation_history(session, "conv-1", TENANT, USER)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
     assert result == []
 
 
 @pytest.mark.asyncio
-async def test_other_user_conversation_is_not_leaked():
+async def test_other_api_key_conversation_is_not_leaked():
+    """The core #72 regression: a caller cannot read a conversation owned by
+    a different authenticated key, even within the same tenant."""
     summary = SimpleNamespace(
         tenant_id=TENANT,
-        user_id="someone-else",
+        api_key_id=OTHER_API_KEY_ID,
         metadata_={"history": [{"query": "q", "answer": "a"}]},
     )
     session = _FakeSession(get_result=summary)
-    result = await _load_conversation_history(session, "conv-1", TENANT, USER)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_conversation_with_no_api_key_id_is_not_leaked():
+    """A conversation written before the api_key_id column existed
+    (NULL) must fail closed on read — never treated as "no filter" or
+    silently matched to whichever caller asks first. Unlike the write-side
+    persistence functions, there is no adoption on read: reading has no
+    durable commitment to anchor an adoption to, so a legacy row simply
+    never has its history re-injected until an authenticated write claims
+    it."""
+    summary = SimpleNamespace(
+        tenant_id=TENANT,
+        api_key_id=None,
+        metadata_={"history": [{"query": "q", "answer": "a"}]},
+    )
+    session = _FakeSession(get_result=summary)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
     assert result == []
 
 
 @pytest.mark.asyncio
 async def test_metadata_without_history_key_returns_empty():
-    summary = SimpleNamespace(tenant_id=TENANT, user_id=USER, metadata_={})
+    summary = SimpleNamespace(tenant_id=TENANT, api_key_id=API_KEY_ID, metadata_={})
     session = _FakeSession(get_result=summary)
-    result = await _load_conversation_history(session, "conv-1", TENANT, USER)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
     assert result == []
 
 
@@ -139,7 +178,7 @@ async def test_malformed_turn_is_skipped_valid_turn_survives():
     while a well-formed turn next to it still comes through untouched."""
     summary = SimpleNamespace(
         tenant_id=TENANT,
-        user_id=USER,
+        api_key_id=API_KEY_ID,
         metadata_={
             "history": [
                 {"query": "q1", "answer": 12345},
@@ -148,7 +187,7 @@ async def test_malformed_turn_is_skipped_valid_turn_survives():
         },
     )
     session = _FakeSession(get_result=summary)
-    result = await _load_conversation_history(session, "conv-1", TENANT, USER)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
     assert result == [
         {"role": "user", "content": "q2"},
         {"role": "assistant", "content": "good"},
@@ -163,11 +202,11 @@ async def test_valid_conversation_reuses_injected_session():
     the fake) and that the ownership match returns the mapped messages."""
     summary = SimpleNamespace(
         tenant_id=TENANT,
-        user_id=USER,
+        api_key_id=API_KEY_ID,
         metadata_={"history": [{"query": "cosa e UMR", "answer": "User Mail Replica"}]},
     )
     session = _FakeSession(get_result=summary)
-    result = await _load_conversation_history(session, "conv-1", TENANT, USER)
+    result = await _load_conversation_history(session, "conv-1", TENANT, API_KEY_ID)
     assert result == [
         {"role": "user", "content": "cosa e UMR"},
         {"role": "assistant", "content": "User Mail Replica"},
@@ -359,7 +398,9 @@ async def test_flag_off_never_loads_conversation_history(monkeypatch):
     )
     http_request = SimpleNamespace(
         method="POST",
-        state=SimpleNamespace(tenant_id=TENANT, query_scopes=None, is_super_admin=False),
+        state=SimpleNamespace(
+            tenant_id=TENANT, query_scopes=None, is_super_admin=False, api_key_id=API_KEY_ID
+        ),
         headers={"X-User-ID": USER},
     )
 
@@ -396,7 +437,7 @@ async def test_flag_on_injects_history_into_retrieval(monkeypatch):
 
     summary = SimpleNamespace(
         tenant_id=TENANT,
-        user_id=USER,
+        api_key_id=API_KEY_ID,
         metadata_={
             "history": [
                 {"query": "cosa e UMR", "answer": "User Mail Replica"},
@@ -445,7 +486,9 @@ async def test_flag_on_injects_history_into_retrieval(monkeypatch):
     )
     http_request = SimpleNamespace(
         method="POST",
-        state=SimpleNamespace(tenant_id=TENANT, query_scopes=None, is_super_admin=False),
+        state=SimpleNamespace(
+            tenant_id=TENANT, query_scopes=None, is_super_admin=False, api_key_id=API_KEY_ID
+        ),
         headers={"X-User-ID": USER},
     )
 
@@ -465,3 +508,133 @@ async def test_flag_on_injects_history_into_retrieval(monkeypatch):
         {"role": "user", "content": "e le limitazioni?"},
         {"role": "assistant", "content": "Le limitazioni sono descritte qui"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_x_user_id_spoof_cannot_read_another_keys_history(monkeypatch):
+    """End-to-end regression for issue #72: an attacker authenticated with
+    their own API key (api_key_id=OTHER_API_KEY_ID) sends X-User-ID equal to
+    the victim's resolved identity and guesses the victim's conversation_id.
+    Under the pre-fix `user_id`-keyed ownership check this would match and
+    leak the victim's history into the attacker's retrieval context. Gating
+    on the authenticated api_key_id instead must deny it regardless of what
+    X-User-ID claims."""
+    from src.api.config import settings as api_settings
+
+    monkeypatch.setattr(
+        api_settings, "enable_multiturn_history_reinjection", True, raising=False
+    )
+
+    victim_summary = SimpleNamespace(
+        tenant_id=TENANT,
+        api_key_id=API_KEY_ID,  # victim's real authenticated identity
+        metadata_={"history": [{"query": "secret question", "answer": "secret answer"}]},
+    )
+
+    monkeypatch.setattr(
+        "src.core.retrieval.application.query.structured_query.structured_executor.try_execute",
+        AsyncMock(return_value=None),
+    )
+
+    retrieve_kwargs: dict = {}
+
+    async def fake_retrieve(**kwargs):
+        retrieve_kwargs.update(kwargs)
+        return SimpleNamespace(chunks=[{"score": 0.9}], cache_hit=False)
+
+    async def fake_generate_stream(**_kw):
+        yield {"event": "token", "data": "Hello"}
+        yield {"event": "sources", "data": []}
+        yield {"event": "done", "data": {"model": "test-model", "provider": "test-provider"}}
+
+    generation_service = SimpleNamespace(
+        generate_stream=fake_generate_stream,
+        _normalize_citations=lambda text: text,
+    )
+    retrieval_service = SimpleNamespace(retrieve=fake_retrieve)
+
+    monkeypatch.setattr(
+        "src.amber_platform.composition_root.build_retrieval_service",
+        lambda _session: retrieval_service,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.amber_platform.composition_root.build_generation_service",
+        lambda _session: generation_service,
+        raising=False,
+    )
+
+    request = QueryRequest(
+        query="what was that secret question about?",
+        options=QueryOptions(model="test-model"),
+        conversation_id="victims-conversation-id",
+    )
+    # Attacker: authenticated with their OWN key, but spoofs X-User-ID to
+    # equal whatever identity string the victim's row was saved under.
+    http_request = SimpleNamespace(
+        method="POST",
+        state=SimpleNamespace(
+            tenant_id=TENANT,
+            query_scopes=None,
+            is_super_admin=False,
+            api_key_id=OTHER_API_KEY_ID,
+        ),
+        headers={"X-User-ID": USER},
+    )
+
+    stream_session = _StreamSession(victim_summary)
+    monkeypatch.setattr(
+        "src.api.deps._get_async_session_maker", lambda: _StreamSessionMaker(stream_session)
+    )
+    response = await _query_stream_impl(http_request=http_request, request=request)
+
+    async for _chunk in response.body_iterator:
+        pass
+
+    assert "history" in retrieve_kwargs
+    assert retrieve_kwargs.get("history") is None, (
+        "Attacker with a spoofed X-User-ID must not receive the victim's conversation history"
+    )
+
+
+# =============================================================================
+# _resolve_owned_summary — shared write-path helper unit tests
+# =============================================================================
+
+
+def test_resolve_owned_summary_none_returns_none():
+    from src.api.routes.query import _resolve_owned_summary
+
+    assert _resolve_owned_summary(None, TENANT, API_KEY_ID) is None
+
+
+def test_resolve_owned_summary_foreign_tenant_returns_none():
+    from src.api.routes.query import _resolve_owned_summary
+
+    existing = SimpleNamespace(id="c1", tenant_id="other-tenant", api_key_id=API_KEY_ID)
+    assert _resolve_owned_summary(existing, TENANT, API_KEY_ID) is None
+
+
+def test_resolve_owned_summary_foreign_api_key_returns_none():
+    from src.api.routes.query import _resolve_owned_summary
+
+    existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=OTHER_API_KEY_ID)
+    assert _resolve_owned_summary(existing, TENANT, API_KEY_ID) is None
+
+
+def test_resolve_owned_summary_matching_key_returns_summary():
+    from src.api.routes.query import _resolve_owned_summary
+
+    existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=API_KEY_ID)
+    result = _resolve_owned_summary(existing, TENANT, API_KEY_ID)
+    assert result is existing
+    assert result.api_key_id == API_KEY_ID
+
+
+def test_resolve_owned_summary_legacy_row_adopts_api_key_id():
+    from src.api.routes.query import _resolve_owned_summary
+
+    existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=None)
+    result = _resolve_owned_summary(existing, TENANT, API_KEY_ID)
+    assert result is existing
+    assert result.api_key_id == API_KEY_ID
