@@ -772,7 +772,14 @@ class RetrievalService:
         trace = []
         top_k = top_k or self.config.top_k
         options = options or QueryOptions()
-        resolved_scopes = query_scopes or resolve_query_scopes(tenant_id)
+        if query_scopes is None:
+            initial_tenant_id = str(tenant_id or "default")
+            tenant_config = await self._get_effective_tenant_config(initial_tenant_id)
+            groups_enforced = bool((tenant_config or {}).get("groups_enforced", False))
+            resolved_scopes = resolve_query_scopes(initial_tenant_id, enforce_groups=groups_enforced)
+        else:
+            resolved_scopes = query_scopes
+            tenant_config = await self._get_effective_tenant_config(resolved_scopes.effective_tenant_id)
         resolved_tenant_id = resolved_scopes.effective_tenant_id
         if include_trace:
             trace.append(
@@ -781,9 +788,9 @@ class RetrievalService:
                     "effective_tenant_id": resolved_scopes.effective_tenant_id,
                     "vector_scopes": resolved_scopes.vector_scopes,
                     "graph_scopes": resolved_scopes.graph_scopes,
+                    "enforce_groups": resolved_scopes.enforce_groups,
                 }
             )
-        tenant_config = await self._get_effective_tenant_config(resolved_tenant_id)
 
         # Step 1: Contextual Rewriting
         processed_query = query
