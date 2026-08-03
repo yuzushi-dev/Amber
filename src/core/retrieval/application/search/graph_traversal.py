@@ -102,6 +102,7 @@ class GraphTraversalService:
                     content=r["content"],
                     score=0.7,  # Graph reasoning hits
                     source="graph",
+                    score_type="graph_prior",
                 )
                 for r in results
             ]

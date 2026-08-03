@@ -184,3 +184,42 @@ async def test_use_case_execute_populates_api_source_score_score_type_and_source
     assert src.score == 0.95
     assert getattr(src, "score_type", "cosine") == "cosine"
     assert getattr(src, "source", "vector") == "vector"
+
+
+@pytest.mark.asyncio
+async def test_retrieval_service_retrieve_preserves_score_type_and_source():
+    """RetrievalService.retrieve() must preserve score_type and source in chunk dicts."""
+    from src.core.retrieval.application.retrieval_service import RetrievalService
+    from src.core.retrieval.domain.ports.vector_store_port import SearchResult
+    from src.shared.kernel.models.query import SearchMode
+
+    svc = object.__new__(RetrievalService)
+    svc.config = SimpleNamespace(top_k=5, rerank_score_floor=None)
+    svc.tuning = MagicMock()
+    svc.tuning.get_effective_tenant_config = AsyncMock(return_value={})
+    svc.document_repository = MagicMock(list_visible_document_ids_by_taxonomy=AsyncMock(return_value=None))
+    svc.router = MagicMock(route=AsyncMock(return_value=SearchMode.BASIC))
+    svc._resolve_embedding_service = lambda cfg: MagicMock(embed_single=AsyncMock(return_value=[0.1]*768), model="m", provider=MagicMock(provider_name="p"))
+    svc.rewriter = MagicMock()
+    svc.circuit_breaker = MagicMock()
+    svc.result_cache = MagicMock(get=AsyncMock(return_value=None), set=AsyncMock())
+    svc.sparse_embedding = None
+    svc.reranker = None
+
+    async def fake_search_vector_targets(*args, **kwargs):
+        sr = SearchResult(
+            chunk_id="c1", document_id="d1", tenant_id="t1", score=0.91,
+            score_type="cosine", source="vector", metadata={"content": "sample text"},
+        )
+        return [sr], []
+
+    svc._search_vector_targets = fake_search_vector_targets
+    svc.reranker = None
+
+    res = await svc.retrieve("sample query", tenant_id="t1")
+
+    assert len(res.chunks) == 1
+    chunk = res.chunks[0]
+    assert chunk["score"] == 0.91
+    assert chunk["score_type"] == "cosine"
+    assert chunk["source"] == "vector"

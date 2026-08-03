@@ -1408,7 +1408,9 @@ class RetrievalService:
                                     chunk_id=original.chunk_id,
                                     document_id=original.document_id,
                                     tenant_id=original.tenant_id,
-                                    score=item.score,  # Use reranker score
+                                    score=item.score,
+                                    score_type="reranker",
+                                    source=getattr(original, "source", "vector"),
                                     metadata=original.metadata,
                                 )
                             )
@@ -1490,6 +1492,8 @@ class RetrievalService:
                     "chunk_id": r.chunk_id,
                     "document_id": r.document_id,
                     "score": float(r.score),
+                    "score_type": getattr(r, "score_type", "cosine"),
+                    "source": getattr(r, "source", "vector"),
                     "content": r.metadata.get("content", ""),
                 }
                 sub_chunks_to_cache.append(chunk_data)
@@ -1548,6 +1552,8 @@ class RetrievalService:
                             "content": chunk.content,
                             "metadata": chunk.metadata_,
                             "score": score,
+                            "score_type": "cosine",
+                            "source": "vector",
                         }
                     )
             return results
