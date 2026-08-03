@@ -559,7 +559,7 @@ def _resolve_owned_summary(
     if existing.api_key_id and existing.api_key_id != api_key_id:
         return None
     if not existing.api_key_id:
-        logger.info("Adopting legacy conversation summary %s for api_key %s", existing.id, api_key_id)
+        logger.info("Adopting legacy conversation summary %s", existing.id)
         existing.api_key_id = api_key_id
     return existing
 
