@@ -14,14 +14,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.api.config import settings as api_settings
+from src.api.schemas.query import QueryRequest
 from src.core.generation.application.generation_service import GenerationResult, GenerationService
 from src.core.generation.domain.provider_models import (
     GenerationResult as ProviderGenerationResult,
-    ProviderConfig,
+)
+from src.core.generation.domain.provider_models import (
     TokenUsage,
 )
 from src.core.retrieval.application.use_cases_query import QueryUseCase
-from src.api.schemas.query import QueryRequest
 from src.shared.kernel.runtime import configure_settings
 
 
