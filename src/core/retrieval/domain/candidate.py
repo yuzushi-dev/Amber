@@ -13,6 +13,7 @@ class Candidate:
     content: str
     score: float = 0.0
     source: Literal["vector", "graph", "community", "hybrid"] = "vector"
+    score_type: str = "cosine"
     document_id: str | None = None
     tenant_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -25,5 +26,6 @@ class Candidate:
             "content": self.content,
             "score": self.score,
             "source": self.source,
+            "score_type": self.score_type,
             "metadata": self.metadata,
         }

@@ -162,6 +162,8 @@ class Source(BaseModel):
     text: str = Field(..., description="Relevant text excerpt")
     score: float = Field(..., description="Relevance score (0-1)")
     page: int | None = Field(None, description="Page number if applicable")
+    score_type: str | None = Field("cosine", description="Type of score: cosine, ip, graph_prior, community_prior, rrf, reranker")
+    source: str | None = Field("vector", description="Source channel: vector, graph, community, hybrid")
 
 
 class TraceStep(BaseModel):

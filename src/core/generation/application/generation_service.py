@@ -50,6 +50,8 @@ class Source:
     content_preview: str  # First ~100 chars
     title: str | None = None
     score: float = 0.0
+    score_type: str = "cosine"
+    source: str = "vector"
 
 
 @dataclass
@@ -675,6 +677,9 @@ class GenerationService:
             # (e.g. document_id unresolved).
             fallback_title = chunk_metadata.get("document_title") or chunk_metadata.get("title") or "Untitled"
             content = c.get("content", "") if is_dict else getattr(c, "content", "")
+            score_val = c.get("score", 0.0) if is_dict else getattr(c, "score", 0.0)
+            score_type_val = c.get("score_type", "cosine") if is_dict else getattr(c, "score_type", "cosine")
+            source_val = c.get("source", "vector") if is_dict else getattr(c, "source", "vector")
             cited_sources.append(
                 {
                     "index": i + 1,
@@ -683,6 +688,9 @@ class GenerationService:
                     "title": doc_titles.get(document_id, fallback_title),
                     "content_preview": content[:150] + "...",
                     "text": content,
+                    "score": float(score_val or 0.0),
+                    "score_type": str(score_type_val or "cosine"),
+                    "source": str(source_val or "vector"),
                 }
             )
         prelude_events.append({"event": "sources", "data": cited_sources})
@@ -1015,6 +1023,9 @@ class GenerationService:
                     or "Untitled"
                 )
 
+                score_val = cand.get("score", 0.0) if isinstance(cand, dict) else getattr(cand, "score", 0.0)
+                score_type_val = cand.get("score_type", "cosine") if isinstance(cand, dict) else getattr(cand, "score_type", "cosine")
+                source_val = cand.get("source", "vector") if isinstance(cand, dict) else getattr(cand, "source", "vector")
                 sources.append(
                     Source(
                         index=i,
@@ -1022,6 +1033,9 @@ class GenerationService:
                         document_id=did,
                         content_preview=content[:100] + "..." if len(content) > 100 else content,
                         title=title,
+                        score=float(score_val or 0.0),
+                        score_type=str(score_type_val or "cosine"),
+                        source=str(source_val or "vector"),
                     )
                 )
         return sources
