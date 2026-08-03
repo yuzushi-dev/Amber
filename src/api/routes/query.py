@@ -1172,6 +1172,16 @@ async def _query_stream_impl(
                 cost_estimate = (input_tokens * pricing["input"] / 1000) + (
                     output_tokens * pricing["output"] / 1000
                 )
+                used_chunks_count = (
+                    getattr(phase.prepared_generation, "used_candidates_count", 0)
+                    if phase and phase.prepared_generation
+                    else len(collected_sources)
+                )
+                stream_rerank_latency_ms = 0.0
+                for rt in (retrieval_result.trace if retrieval_result else []):
+                    if isinstance(rt, dict) and rt.get("step") == "rerank":
+                        stream_rerank_latency_ms += float(rt.get("duration_ms", 0.0))
+
                 metrics = QueryMetrics(
                     query_id=query_id,
                     tenant_id=tenant_id,
@@ -1179,7 +1189,8 @@ async def _query_stream_impl(
                     operation="rag_query",
                     response=full_answer[:500],
                     chunks_retrieved=len(retrieval_result.chunks),
-                    chunks_used=len(retrieval_result.chunks),
+                    chunks_used=used_chunks_count,
+                    reranking_latency_ms=stream_rerank_latency_ms,
                     cache_hit=retrieval_result.cache_hit,
                     tokens_used=input_tokens + output_tokens,
                     output_tokens=output_tokens,

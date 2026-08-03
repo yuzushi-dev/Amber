@@ -202,6 +202,7 @@ class QueryUseCase:
                 query_metrics.cache_hit = retrieval_result.cache_hit
                 query_metrics.search_mode = retrieval_result.search_mode
                 query_metrics.router_latency_ms = retrieval_result.router_latency_ms
+                query_metrics.reranking_latency_ms = self._extract_reranking_latency_ms(retrieval_result.trace)
 
                 share_metrics = self._extract_share_metrics(tenant_id, retrieval_result.trace)
                 query_metrics.local_hits = share_metrics["local_hits"]
@@ -419,6 +420,14 @@ class QueryUseCase:
                     "strict_candidate_count": step.get("strict_candidate_count"),
                 }
         return None
+    @staticmethod
+    def _extract_reranking_latency_ms(retrieval_trace: list[dict] | None) -> float:
+        """Extract total reranking duration in ms from the retrieval trace."""
+        total_ms = 0.0
+        for step in retrieval_trace or []:
+            if isinstance(step, dict) and step.get("step") == "rerank":
+                total_ms += float(step.get("duration_ms", 0.0))
+        return total_ms
 
     def _update_metrics_from_generation(self, metrics, result, answer):
         metrics.tokens_used = result.tokens_used
@@ -428,6 +437,7 @@ class QueryUseCase:
         metrics.model = result.model
         metrics.provider = result.provider
         metrics.sources_cited = len(result.sources)
+        metrics.chunks_used = getattr(result, "chunks_used", 0) or len(result.sources)
         metrics.answer_length = len(answer)
         metrics.operation = "rag_query"
         metrics.response = answer[:500] if len(answer) > 500 else answer
