@@ -10,11 +10,19 @@ configuration error and must fail fast without tripping circuit breakers.
 import pytest
 
 from src.api.config import settings as api_settings
-from src.core.generation.domain.provider_models import InvalidRequestError, ProviderConfig
-from src.core.generation.domain.provider_models import ProviderUnavailableError
-from src.core.generation.infrastructure.providers.ollama import OllamaEmbeddingProvider, OllamaLLMProvider
-from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
-from src.core.generation.infrastructure.providers.openai import OpenAIEmbeddingProvider
+from src.core.generation.domain.provider_models import (
+    InvalidRequestError,
+    ProviderConfig,
+    ProviderUnavailableError,
+)
+from src.core.generation.infrastructure.providers.ollama import (
+    OllamaEmbeddingProvider,
+    OllamaLLMProvider,
+)
+from src.core.generation.infrastructure.providers.openai import (
+    OpenAIEmbeddingProvider,
+    OpenAILLMProvider,
+)
 from src.shared.kernel.runtime import configure_settings
 
 

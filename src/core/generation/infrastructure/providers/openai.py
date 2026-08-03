@@ -12,11 +12,11 @@ import structlog
 
 from src.core.generation.infrastructure.providers.base import (
     AuthenticationError,
-    InvalidRequestError,
     BaseEmbeddingProvider,
     BaseLLMProvider,
     EmbeddingResult,
     GenerationResult,
+    InvalidRequestError,
     ProviderConfig,
     ProviderUnavailableError,
     QuotaExceededError,
