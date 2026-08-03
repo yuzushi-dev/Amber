@@ -1138,9 +1138,12 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
             for i, sample in enumerate(dataset):
                 query = sample.get("query", sample.get("question", ""))
 
-                # 1. Execute Retrieval
+                # 1. Execute Retrieval (privileged background task: search all tenant documents)
+                from src.core.tenants.application.query_scopes import resolve_query_scopes
+
+                worker_scopes = resolve_query_scopes(tenant_id, enforce_groups=False)
                 retrieval_result = await retrieval_service.retrieve(
-                    query=query, tenant_id=tenant_id, top_k=5
+                    query=query, tenant_id=tenant_id, top_k=5, query_scopes=worker_scopes
                 )
 
                 # 2. Execute Generation
