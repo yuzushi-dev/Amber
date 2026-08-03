@@ -17,7 +17,7 @@ import pytest
 
 from src.api.config import settings as api_settings
 from src.core.retrieval.application.retrieval_service import RetrievalResult, RetrievalService
-from src.core.tenants.application.query_scopes import QueryScopes, resolve_query_scopes
+from src.core.tenants.application.query_scopes import resolve_query_scopes
 from src.shared.kernel.models.query import SearchMode
 from src.shared.kernel.runtime import configure_settings
 
