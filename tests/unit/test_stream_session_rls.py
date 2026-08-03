@@ -12,6 +12,7 @@ import pytest
 
 from src.api.deps import get_request_rls_context
 from src.api.routes.query import (
+    _load_conversation_history,
     _persist_agent_conversation,
     _prepare_stream_phase,
     _query_stream_impl,
@@ -157,7 +158,7 @@ class _BlockingAgent:
         return SimpleNamespace(answer="Agent answer", sources=[], trace=[])
 
 
-def _http_request(user_id: str = "user-a"):
+def _http_request(user_id: str = "user-a", api_key_id: str | None = "key-a"):
     return SimpleNamespace(
         method="POST",
         state=SimpleNamespace(
@@ -168,6 +169,7 @@ def _http_request(user_id: str = "user-a"):
             groups_enforced=True,
             query_scopes=None,
             is_super_admin=True,
+            api_key_id=api_key_id,
         ),
         headers={"X-User-ID": user_id},
     )
@@ -362,6 +364,7 @@ async def test_agent_same_tenant_other_user_is_not_sticky_or_mutated(monkeypatch
         id="conversation-1",
         tenant_id="tenant-a",
         user_id="user-b",
+        api_key_id="key-b",
         metadata_={"mode": "agent", "history": [{"query": "old", "answer": "private"}]},
     )
     factory = _TrackingSessionMaker(summaries_by_session={1: foreign_summary, 2: foreign_summary})
@@ -388,6 +391,7 @@ async def test_agent_same_tenant_other_user_is_not_sticky_or_mutated(monkeypatch
         conversation_id="conversation-1",
         tenant_id="tenant-a",
         user_id="user-a",
+        api_key_id="key-a",
         query="Continue the earlier conversation",
         answer="Should not be written",
         sources=[],
@@ -407,6 +411,7 @@ async def test_agent_same_user_conversation_is_updated(monkeypatch):
         id="conversation-1",
         tenant_id="tenant-a",
         user_id="user-a",
+        api_key_id="key-a",
         metadata_={"mode": "agent", "history": []},
     )
     factory = _TrackingSessionMaker(summaries_by_session={1: summary, 2: summary})
@@ -430,6 +435,7 @@ async def test_agent_same_user_conversation_is_updated(monkeypatch):
         conversation_id="conversation-1",
         tenant_id="tenant-a",
         user_id="user-a",
+        api_key_id="key-a",
         query="Continue the earlier conversation",
         answer="Valid answer",
         sources=[{"document_id": "document-1"}],
@@ -439,3 +445,44 @@ async def test_agent_same_user_conversation_is_updated(monkeypatch):
     assert persisted is True
     assert factory.sessions[1].added == [summary]
     assert summary.metadata_["answer"] == "Valid answer"
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_loads_history_with_api_key_id_not_spoofable_user_id(monkeypatch):
+    """_prepare_stream_phase's agent-mode branch must call _load_conversation_history
+    with the authenticated api_key_id, never with X-User-ID (issue #72/#30
+    reconciliation): a caller who sets X-User-ID to a victim's identity must not
+    get the victim's history re-injected into their own agent conversation.
+    """
+    factory = _TrackingSessionMaker()
+    generation = _PreparedGenerationService(())
+    _patch_common(monkeypatch, factory, generation)
+    monkeypatch.setattr("src.api.config.settings.enable_multiturn_history_reinjection", True, raising=False)
+
+    loaded_calls = []
+
+    async def fake_load_conversation_history(session, conv_id, tenant_id, api_key_id):
+        loaded_calls.append({"conv_id": conv_id, "tenant_id": tenant_id, "api_key_id": api_key_id})
+        return [{"role": "user", "content": "previous turn"}]
+
+    monkeypatch.setattr(
+        "src.api.routes.query._load_conversation_history", fake_load_conversation_history
+    )
+
+    request = QueryRequest(
+        query="Continue the earlier conversation",
+        options=QueryOptions(model="test", agent_mode=True),
+        conversation_id="conversation-1",
+    )
+    # X-User-ID is spoofed to look like a victim's identity; api_key_id is the
+    # caller's real, authenticated key and must be what gets used.
+    http_request = _http_request(user_id="victim-user-id", api_key_id="attacker-key")
+    phase = await _prepare_stream_phase(
+        http_request, request, get_request_rls_context(http_request)
+    )
+
+    assert phase.agent_mode is True
+    assert len(loaded_calls) == 1
+    assert loaded_calls[0]["api_key_id"] == "attacker-key"
+    assert loaded_calls[0]["conv_id"] == "conversation-1"
+    assert phase.conversation_history == [{"role": "user", "content": "previous turn"}]

@@ -459,7 +459,8 @@ class GenerationService:
         generate_kwargs: dict[str, Any] = {}
         if _thinking:
             generate_kwargs["extra_body"] = {"think": True}
-
+        if conversation_history:
+            generate_kwargs["history"] = conversation_history
         llm_result = await provider.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,

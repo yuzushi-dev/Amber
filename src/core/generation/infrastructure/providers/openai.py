@@ -141,7 +141,9 @@ class OpenAILLMProvider(BaseLLMProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-
+        history = kwargs.pop("history", None)
+        if history:
+            messages.extend(history)
         messages.append({"role": "user", "content": prompt})
 
         try:
