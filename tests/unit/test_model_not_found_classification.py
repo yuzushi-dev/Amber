@@ -105,3 +105,17 @@ def test_dns_host_not_found_connection_error_raises_provider_unavailable_error()
         provider._handle_error(err, model="llama3")
 
     assert exc_info.value.model == "llama3"
+
+
+def test_python_native_connection_error_raises_provider_unavailable_error():
+    """Native Python ConnectionError with 'not found' message must raise ProviderUnavailableError."""
+    provider = OllamaLLMProvider(
+        config=ProviderConfig(base_url="http://invalid-host:11434"),
+        use_capacity_limiter=False,
+    )
+
+    err = ConnectionError("DNS server not found for model endpoint")
+    with pytest.raises(ProviderUnavailableError) as exc_info:
+        provider._handle_error(err, model="llama3")
+
+    assert exc_info.value.model == "llama3"

@@ -362,7 +362,12 @@ class OpenAILLMProvider(BaseLLMProvider):
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
         # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
-        if "APIConnectionError" in error_type or "Timeout" in error_type:
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
             raise ProviderUnavailableError(
                 str(e),
                 provider=self.provider_name,
@@ -498,7 +503,12 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         error_type = type(e).__name__
 
         # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
-        if "APIConnectionError" in error_type or "Timeout" in error_type:
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
             raise ProviderUnavailableError(
                 str(e),
                 provider=self.provider_name,

@@ -401,7 +401,12 @@ class OllamaLLMProvider(BaseLLMProvider):
         logger.error(f"Ollama Error ({error_type}): {e}{error_body}")
 
         # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
-        if "APIConnectionError" in error_type or "Timeout" in error_type:
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
             raise ProviderUnavailableError(
                 str(e),
                 provider=self.provider_name,
@@ -422,9 +427,9 @@ class OllamaLLMProvider(BaseLLMProvider):
             )
         # 2. Permanent model / request invalid errors
         elif (
-            "BadRequestError" in error_type
-            or "InvalidRequestError" in error_type
-            or "NotFoundError" in error_type
+            "BadRequest" in error_type
+            or "InvalidRequest" in error_type
+            or "NotFound" in error_type
             or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
         ):
             raise InvalidRequestError(
@@ -432,6 +437,7 @@ class OllamaLLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
+        else:
             # Re-raise as generic provider error
             raise ProviderUnavailableError(
                 f"Unexpected error: {e}{error_body}",
@@ -561,7 +567,12 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         error_type = type(e).__name__
 
         # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
-        if "APIConnectionError" in error_type or "Timeout" in error_type:
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
             raise ProviderUnavailableError(
                 f"Cannot connect to Ollama at {self.config.base_url}: {e}",
                 provider=self.provider_name,
@@ -582,9 +593,9 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             )
         # 2. Permanent model / request invalid errors
         elif (
-            "BadRequestError" in error_type
-            or "InvalidRequestError" in error_type
-            or "NotFoundError" in error_type
+            "BadRequest" in error_type
+            or "InvalidRequest" in error_type
+            or "NotFound" in error_type
             or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
         ):
             raise InvalidRequestError(
@@ -592,6 +603,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 provider=self.provider_name,
                 model=model,
             )
+        else:
             raise ProviderUnavailableError(
                 f"Embedding error: {e}",
                 provider=self.provider_name,
