@@ -547,7 +547,7 @@ def _resolve_owned_summary(
     Adopting the first authenticated writer is a strict improvement (durable
     ownership from this point on) with no larger blast radius than today.
     """
-    if not existing or existing.tenant_id != tenant_id:
+    if not existing or not api_key_id or existing.tenant_id != tenant_id:
         return None
     if existing.api_key_id and existing.api_key_id != api_key_id:
         return None

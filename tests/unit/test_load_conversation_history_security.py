@@ -608,6 +608,14 @@ def test_resolve_owned_summary_none_returns_none():
     assert _resolve_owned_summary(None, TENANT, API_KEY_ID) is None
 
 
+
+def test_resolve_owned_summary_caller_none_returns_none():
+    """Unauthenticated caller (api_key_id is None) must never adopt or update a legacy row."""
+    from src.api.routes.query import _resolve_owned_summary
+
+    existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=None)
+    assert _resolve_owned_summary(existing, TENANT, None) is None
+
 def test_resolve_owned_summary_foreign_tenant_returns_none():
     from src.api.routes.query import _resolve_owned_summary
 
