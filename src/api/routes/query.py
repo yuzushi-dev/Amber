@@ -13,7 +13,10 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from inspect import isawaitable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.core.generation.domain.memory_models import ConversationSummary
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -69,6 +72,22 @@ def _get_user_id(request: Request) -> str:
             detail="Could not resolve user identity: provide X-User-ID or authenticate with a named API key.",
         )
     return user_id
+
+
+def _get_api_key_id(request: Request) -> str | None:
+    """Authenticated API-key identity: immutable, unspoofable, set by the auth
+    middleware for every valid key (`request.state.api_key_id`).
+
+    Unlike `_get_user_id()` above, this is never taken from a request header.
+    It is the correct ownership key for security-relevant decisions —
+    deciding whose conversation history gets re-injected into a retrieval
+    context, or which group an admin metrics row belongs to — because
+    `_get_user_id()`'s value (X-User-ID, or the API key *name* as fallback)
+    is exactly what a caller controls and can set to match another user's
+    stored identity. `None` here means no authenticated key could be
+    resolved; callers must treat that as "deny", not "no filter".
+    """
+    return getattr(request.state, "api_key_id", None)
 
 
 # =============================================================================
@@ -151,12 +170,21 @@ async def query(
 
         # Determine User ID (extract logic from previous implementation)
         user_id = _get_user_id(http_request)
+        api_key_id = _get_api_key_id(http_request)
+        conversation_history: list[dict] | None = None
+        from src.api.config import settings as history_settings
+
+        if history_settings.enable_multiturn_history_reinjection:
+            conversation_history = await _load_conversation_history(
+                session, request.conversation_id, tenant_id, api_key_id
+            )
 
         response = await use_case.execute(
             request=request,
             tenant_id=tenant_id,
             http_request_state=http_request.state,
             user_id=user_id,
+            conversation_history=conversation_history,
         )
 
         # Persist conversation summary in Postgres (mirrors streaming path).
@@ -198,10 +226,7 @@ async def query(
                         ConversationSummary, response.conversation_id
                     )
 
-                    # Ownership check: reject foreign-tenant summaries
-                    if existing_summary and existing_summary.tenant_id != tenant_id:
-                        existing_summary = None
-
+                    existing_summary = _resolve_owned_summary(existing_summary, tenant_id, api_key_id)
                     if existing_summary:
                         # UPDATE: append current turn to history[], refresh top-level fields
                         history = existing_summary.metadata_.get("history", [])
@@ -229,6 +254,7 @@ async def query(
                             id=response.conversation_id,
                             tenant_id=tenant_id,
                             user_id=user_id,
+                            api_key_id=api_key_id,
                             title=title_text,
                             summary=summary_text,
                             metadata_={
@@ -469,7 +495,7 @@ async def _load_conversation_history(
     session: AsyncSession,
     conversation_id: str | None,
     tenant_id: str,
-    user_id: str,
+    api_key_id: str | None,
     max_turns: int = 2,
 ) -> list[dict]:
     """Load prior turns of a conversation as {role, content} messages so the
@@ -478,23 +504,64 @@ async def _load_conversation_history(
     error (fail open — retrieval simply falls back to treating the query as
     standalone, i.e. today's behaviour).
 
+    Ownership is gated on the authenticated `api_key_id`
+    (`request.state.api_key_id`), not on `user_id`/X-User-ID: the latter is a
+    caller-controlled header, and gating a cross-request content injection on
+    it let one authenticated caller read another user's conversation history
+    by guessing `conversation_id` and sending an `X-User-ID` equal to the
+    victim's resolved identity (issue #72). A row written before this
+    ownership model existed carries `api_key_id=None` and never matches —
+    fail closed, no backfill; the row is still readable once a later
+    authenticated write adopts it (see the persistence functions below).
+
     Runs inside the stream's short pre-provider RLS phase, so the summary is
     read under all request GUCs and is detached before provider streaming
     begins."""
-    if not conversation_id:
+    if not conversation_id or not api_key_id:
         return []
     try:
         from src.core.generation.domain.memory_models import ConversationSummary
 
         summary = await session.get(ConversationSummary, conversation_id)
-        # Ownership check mirrors the save path: never leak another
-        # tenant's/user's conversation into this request's context.
-        if not summary or summary.tenant_id != tenant_id or summary.user_id != user_id:
+        if (
+            not summary
+            or summary.tenant_id != tenant_id
+            or not summary.api_key_id
+            or summary.api_key_id != api_key_id
+        ):
             return []
         return _history_turns_to_messages((summary.metadata_ or {}).get("history", []), max_turns)
     except Exception as e:
         logger.warning(f"Failed to load conversation history for rewrite: {e}")
         return []
+
+
+def _resolve_owned_summary(
+    existing: "ConversationSummary | None", tenant_id: str, api_key_id: str | None
+) -> "ConversationSummary | None":
+    """Ownership gate + legacy adoption shared by every ConversationSummary
+    write path (the non-stream `query()` handler, `_persist_rag_conversation`,
+    `_persist_agent_conversation`). Returns `existing` if the caller may
+    write to it — adopting it in place first if it is a legacy row with no
+    recorded `api_key_id` — or `None` if it must be treated as foreign (or
+    doesn't exist).
+
+    See `_load_conversation_history`'s docstring for why `api_key_id`
+    (authenticated, unspoofable) is the ownership key, not `user_id`/
+    X-User-ID. Adoption on write (not on read: see the docstring above) is
+    safe because a legacy row could already be updated by any same-tenant
+    caller before this function existed — no ownership check ran at all.
+    Adopting the first authenticated writer is a strict improvement (durable
+    ownership from this point on) with no larger blast radius than today.
+    """
+    if not existing or not api_key_id or existing.tenant_id != tenant_id:
+        return None
+    if existing.api_key_id and existing.api_key_id != api_key_id:
+        return None
+    if not existing.api_key_id:
+        logger.info("Adopting legacy conversation summary %s", existing.id)
+        existing.api_key_id = api_key_id
+    return existing
 
 
 @dataclass
@@ -506,6 +573,7 @@ class _StreamPrePhase:
     retrieval_result: Any | None
     prepared_generation: Any | None
     stream_user_id: str
+    api_key_id: str | None
     tenant_config_snapshot: dict[str, Any]
     conversation_history: list[dict] | None = None
 
@@ -528,6 +596,7 @@ async def _persist_rag_conversation(
     conversation_id: str,
     tenant_id: str,
     stream_user_id: str,
+    api_key_id: str | None,
     query: str,
     answer: str,
     sources: list[Any],
@@ -547,10 +616,12 @@ async def _persist_rag_conversation(
 
         async with request_rls_session(rls_context) as session:
             existing_summary = await session.get(ConversationSummary, conversation_id)
-            if existing_summary and (existing_summary.tenant_id != tenant_id or existing_summary.user_id != stream_user_id):
+            # See _load_conversation_history's docstring for the ownership
+            resolved = _resolve_owned_summary(existing_summary, tenant_id, api_key_id)
+            if existing_summary and not resolved:
                 logger.warning("Skipping foreign RAG conversation persistence: %s", conversation_id)
                 return
-
+            existing_summary = resolved
             if existing_summary:
                 history = existing_summary.metadata_.get("history", [])
                 history.append(
@@ -577,6 +648,7 @@ async def _persist_rag_conversation(
                     id=conversation_id,
                     tenant_id=tenant_id,
                     user_id=stream_user_id,
+                    api_key_id=api_key_id,
                     title=title_text,
                     summary=summary_text,
                     metadata_={
@@ -608,6 +680,7 @@ async def _persist_agent_conversation(
     conversation_id: str,
     tenant_id: str,
     user_id: str,
+    api_key_id: str | None,
     query: str,
     answer: str,
     sources: list[Any],
@@ -623,15 +696,13 @@ async def _persist_agent_conversation(
             "" if _looks_like_refusal(answer, sources) else answer[:200] + "..." if len(answer) > 200 else answer
         )
         title_text = query[:50] + "..." if len(query) > 50 else query
-
         async with request_rls_session(rls_context) as session:
             existing_summary = await session.get(ConversationSummary, conversation_id)
-            if existing_summary and (
-                existing_summary.tenant_id != tenant_id or existing_summary.user_id != user_id
-            ):
+            resolved = _resolve_owned_summary(existing_summary, tenant_id, api_key_id)
+            if existing_summary and not resolved:
                 logger.warning("Skipping foreign agent conversation persistence: %s", conversation_id)
                 return False
-
+            existing_summary = resolved
             if existing_summary:
                 history = existing_summary.metadata_.get("history", [])
                 history.append(
@@ -657,6 +728,7 @@ async def _persist_agent_conversation(
                     id=conversation_id,
                     tenant_id=tenant_id,
                     user_id=user_id,
+                    api_key_id=api_key_id,
                     title=title_text,
                     summary=summary_text,
                     metadata_={
@@ -702,6 +774,7 @@ async def _prepare_stream_phase(
 
     tenant_id = _get_tenant_id(http_request)
     stream_user_id = _get_user_id(http_request)
+    api_key_id = _get_api_key_id(http_request)
 
     async with request_rls_session(rls_context) as session:
         generation_service = build_generation_service(session)
@@ -716,10 +789,17 @@ async def _prepare_stream_phase(
 
                 existing_conv = await session.get(ConversationSummary, request.conversation_id)
                 if existing_conv and existing_conv.metadata_:
-                    # Ownership check: only allow sticky switch for caller's own conversation
+                    # Ownership check: only allow sticky switch for caller's own conversation.
+                    # api_key_id (unspoofable), not user_id/X-User-ID — see
+                    # _load_conversation_history's docstring. A legacy
+                    # conversation with no recorded api_key_id is treated as
+                    # foreign here (read-only decision, no adoption): unlike
+                    # the persistence functions, there is no write to anchor
+                    # an adoption to.
                     if (
                         existing_conv.tenant_id != tenant_id
-                        or existing_conv.user_id != stream_user_id
+                        or not existing_conv.api_key_id
+                        or existing_conv.api_key_id != api_key_id
                     ):
                         existing_conv = None  # ignore foreign conversations
                 if existing_conv and existing_conv.metadata_:
@@ -743,14 +823,22 @@ async def _prepare_stream_phase(
             tenant_config_snapshot = (
                 await snapshot_result if isawaitable(snapshot_result) else snapshot_result
             )
+            agent_history: list[dict] | None = None
+            from src.api.config import settings as history_settings
+
+            if history_settings.enable_multiturn_history_reinjection:
+                agent_history = await _load_conversation_history(
+                    session, request.conversation_id, tenant_id, api_key_id
+                )
             return _StreamPrePhase(
                 agent_mode=True,
                 generation_service=generation_service,
                 retrieval_result=None,
                 prepared_generation=None,
                 stream_user_id=stream_user_id,
+                api_key_id=api_key_id,
                 tenant_config_snapshot=dict(tenant_config_snapshot or {}),
-                conversation_history=None,
+                conversation_history=agent_history,
             )
 
         retrieval_service = build_retrieval_service(session)
@@ -797,7 +885,7 @@ async def _prepare_stream_phase(
 
         if history_settings.enable_multiturn_history_reinjection:
             conversation_history = await _load_conversation_history(
-                session, request.conversation_id, tenant_id, stream_user_id
+                session, request.conversation_id, tenant_id, api_key_id
             )
 
         try:
@@ -824,6 +912,7 @@ async def _prepare_stream_phase(
                 retrieval_result=map_exception_to_error_data(e),
                 prepared_generation=None,
                 stream_user_id=stream_user_id,
+                api_key_id=api_key_id,
                 tenant_config_snapshot={},
                 conversation_history=conversation_history,
             )
@@ -835,6 +924,7 @@ async def _prepare_stream_phase(
                 retrieval_result=retrieval_result,
                 prepared_generation=None,
                 stream_user_id=stream_user_id,
+                api_key_id=api_key_id,
                 tenant_config_snapshot={},
                 conversation_history=conversation_history,
             )
@@ -860,6 +950,7 @@ async def _prepare_stream_phase(
             retrieval_result=retrieval_result,
             prepared_generation=prepared_generation,
             stream_user_id=stream_user_id,
+            api_key_id=api_key_id,
             tenant_config_snapshot={},
             conversation_history=conversation_history,
         )
@@ -1012,7 +1103,9 @@ async def _query_stream_impl(
                     system_prompt=AGENT_SYSTEM_PROMPT,
                 )
                 agent_response = await agent.run(
-                    query=request.query, conversation_id=agent_conversation_id
+                    query=request.query,
+                    conversation_id=agent_conversation_id,
+                    conversation_history=phase.conversation_history,
                 )
                 agent_sources = getattr(agent_response, "sources", []) or []
                 agent_trace = getattr(agent_response, "trace", []) or []
@@ -1029,6 +1122,7 @@ async def _query_stream_impl(
                     conversation_id=agent_conversation_id,
                     tenant_id=tenant_id,
                     user_id=phase.stream_user_id,
+                    api_key_id=phase.api_key_id,
                     query=request.query,
                     answer=agent_response.answer,
                     sources=agent_sources,
@@ -1117,6 +1211,7 @@ async def _query_stream_impl(
                 conversation_id=final_conversation_id,
                 tenant_id=tenant_id,
                 stream_user_id=phase.stream_user_id,
+                api_key_id=phase.api_key_id,
                 query=request.query,
                 answer=full_answer,
                 sources=collected_sources,

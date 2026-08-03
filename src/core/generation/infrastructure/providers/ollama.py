@@ -157,6 +157,9 @@ class OllamaLLMProvider(BaseLLMProvider):
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        history = kwargs.pop("history", None)
+        if history:
+            messages.extend(history)
         messages.append({"role": "user", "content": prompt})
 
         # Add Ollama-native options via extra_body (skipped for cloud endpoints)

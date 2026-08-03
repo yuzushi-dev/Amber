@@ -58,6 +58,15 @@ class ConversationSummary(Base, TimestampMixin):
     )  # Usually the session_id / conversation_id
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # Authenticated API-key identity (immutable; ForeignKey("api_keys.id")
+    # enforced only in the migration, not here, to avoid a hard ORM
+    # relationship this model doesn't otherwise need). NULL on rows written
+    # before this column existed — see ADR note in the migration docstring
+    # for how reads/writes treat that case. This, not `user_id` (which
+    # mirrors the caller-controlled X-User-ID header), is the ownership key
+    # for security-relevant decisions: history re-injection and admin
+    # metrics group attribution.
+    api_key_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     title: Mapped[str] = mapped_column(String, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)

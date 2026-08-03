@@ -57,6 +57,7 @@ class QueryUseCase:
         tenant_id: str,
         http_request_state: Any = None,  # For permissions/context if needed, or extract needed data
         user_id: str = "",
+        conversation_history: list[dict] | None = None,
     ) -> QueryResponse | StructuredQueryResponse:
         """
         Execute the query pipeline.
@@ -151,7 +152,7 @@ class QueryUseCase:
             # ── End privilege checks ─────────────────────────────────────────
             try:
                 return await self._execute_agent(
-                    request, tenant_id, start_time, http_request_state
+                    request, tenant_id, start_time, http_request_state, conversation_history
                 )
             except HTTPException:
                 raise
@@ -192,7 +193,7 @@ class QueryUseCase:
                     top_k=max_chunks,
                     include_trace=include_trace,
                     options=request.options,
-                    history=None,
+                    history=conversation_history,
                     query_scopes=query_scopes,
                 )
 
@@ -246,6 +247,7 @@ class QueryUseCase:
                     gen_result = await self.generation_service.generate(
                         query=request.query,
                         candidates=retrieval_result.chunks,
+                        conversation_history=conversation_history,
                         include_trace=include_trace,
                         options={
                             "user_id": user_id,
@@ -324,6 +326,7 @@ class QueryUseCase:
         tenant_id: str,
         start_time: float,
         http_request_state: Any = None,
+        conversation_history: list[dict] | None = None,
     ):
         from src.core.generation.application.agent.orchestrator import AgentOrchestrator
         from src.core.generation.application.agent.prompts import AGENT_SYSTEM_PROMPT
@@ -361,7 +364,9 @@ class QueryUseCase:
         )
 
         agent_response = await agent.run(
-            query=request.query, conversation_id=request.conversation_id
+            query=request.query,
+            conversation_id=request.conversation_id,
+            conversation_history=conversation_history,
         )
 
         total_ms = (time.perf_counter() - start_time) * 1000
