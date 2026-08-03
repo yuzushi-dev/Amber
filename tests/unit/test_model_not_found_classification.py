@@ -11,8 +11,10 @@ import pytest
 
 from src.api.config import settings as api_settings
 from src.core.generation.domain.provider_models import InvalidRequestError, ProviderConfig
+from src.core.generation.domain.provider_models import ProviderUnavailableError
 from src.core.generation.infrastructure.providers.ollama import OllamaEmbeddingProvider, OllamaLLMProvider
 from src.core.generation.infrastructure.providers.openai import OpenAILLMProvider
+from src.core.generation.infrastructure.providers.openai import OpenAIEmbeddingProvider
 from src.shared.kernel.runtime import configure_settings
 
 
@@ -28,6 +30,9 @@ class FakeNotFoundError(Exception):
 
 class FakeModelNotFoundException(Exception):
     """Simulates a generic exception carrying 'model not found' in message."""
+    pass
+class FakeAPIConnectionError(Exception):
+    """Simulates an APIConnectionError (e.g. DNS / socket error)."""
     pass
 
 
@@ -78,3 +83,25 @@ def test_openai_llm_provider_model_not_found_raises_invalid_request_error():
         provider._handle_error(err, model="gpt-nonexistent")
 
     assert exc_info.value.model == "gpt-nonexistent"
+def test_openai_embedding_provider_model_not_found_raises_invalid_request_error():
+    provider = OpenAIEmbeddingProvider(config=ProviderConfig(api_key="test-key"))
+
+    err = FakeModelNotFoundException("The model `text-embedding-missing` does not exist")
+    with pytest.raises(InvalidRequestError) as exc_info:
+        provider._handle_error(err, model="text-embedding-missing")
+
+    assert exc_info.value.model == "text-embedding-missing"
+
+
+def test_dns_host_not_found_connection_error_raises_provider_unavailable_error():
+    """Transient connection errors containing 'host not found' must raise ProviderUnavailableError, NOT InvalidRequestError."""
+    provider = OllamaLLMProvider(
+        config=ProviderConfig(base_url="http://invalid-host:11434"),
+        use_capacity_limiter=False,
+    )
+
+    err = FakeAPIConnectionError("getaddrinfo failed: host not found")
+    with pytest.raises(ProviderUnavailableError) as exc_info:
+        provider._handle_error(err, model="llama3")
+
+    assert exc_info.value.model == "llama3"

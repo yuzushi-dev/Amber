@@ -361,8 +361,14 @@ class OpenAILLMProvider(BaseLLMProvider):
     def _handle_error(self, e: Exception, model: str) -> None:
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
-
-        if "RateLimitError" in error_type:
+        # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
+        if "APIConnectionError" in error_type or "Timeout" in error_type:
+            raise ProviderUnavailableError(
+                str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif "RateLimitError" in error_type:
             # Check for hard quota limits vs transient rate limits
             error_str = str(e).lower()
             if "insufficient_quota" in error_str or "billing" in error_str:
@@ -384,12 +390,12 @@ class OpenAILLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
+        # 2. Permanent model / request invalid errors
         elif (
             "BadRequestError" in error_type
             or "InvalidRequestError" in error_type
             or "NotFoundError" in error_type
-            or "not found" in str(e).lower()
-            or "does not exist" in str(e).lower()
+            or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
         ):
             raise InvalidRequestError(
                 f"OpenAI error: {e}",
@@ -491,7 +497,14 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
 
-        if "RateLimitError" in error_type:
+        # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
+        if "APIConnectionError" in error_type or "Timeout" in error_type:
+            raise ProviderUnavailableError(
+                str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif "RateLimitError" in error_type:
             # Check for hard quota limits vs transient rate limits
             error_str = str(e).lower()
             if "insufficient_quota" in error_str or "billing" in error_str:
@@ -513,12 +526,12 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 provider=self.provider_name,
                 model=model,
             )
+        # 2. Permanent model / request invalid errors
         elif (
             "BadRequestError" in error_type
             or "InvalidRequestError" in error_type
             or "NotFoundError" in error_type
-            or "not found" in str(e).lower()
-            or "does not exist" in str(e).lower()
+            or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
         ):
             raise InvalidRequestError(
                 f"Embedding error: {e}",
