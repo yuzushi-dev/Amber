@@ -400,7 +400,19 @@ class OllamaLLMProvider(BaseLLMProvider):
 
         logger.error(f"Ollama Error ({error_type}): {e}{error_body}")
 
-        if "RateLimitError" in error_type:
+        # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
+            raise ProviderUnavailableError(
+                str(e),
+                provider=self.provider_name,
+                model=model,
+            )
+        elif "RateLimitError" in error_type:
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,
@@ -413,15 +425,15 @@ class OllamaLLMProvider(BaseLLMProvider):
                 provider=self.provider_name,
                 model=model,
             )
-        elif "BadRequestError" in error_type or "InvalidRequestError" in error_type:
+        # 2. Permanent model / request invalid errors
+        elif (
+            "BadRequest" in error_type
+            or "InvalidRequest" in error_type
+            or "NotFound" in error_type
+            or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
+        ):
             raise InvalidRequestError(
                 f"{str(e)}{error_body}",
-                provider=self.provider_name,
-                model=model,
-            )
-        elif "APIConnectionError" in error_type or "Timeout" in error_type:
-            raise ProviderUnavailableError(
-                str(e),
                 provider=self.provider_name,
                 model=model,
             )
@@ -554,7 +566,19 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         """Convert OpenAI exceptions to provider exceptions."""
         error_type = type(e).__name__
 
-        if "RateLimitError" in error_type:
+        # 1. Connection and timeout errors MUST come first (transient, e.g. DNS "host not found")
+        if (
+            isinstance(e, (ConnectionError, TimeoutError))
+            or "Connection" in error_type
+            or "Connect" in error_type
+            or "Timeout" in error_type
+        ):
+            raise ProviderUnavailableError(
+                f"Cannot connect to Ollama at {self.config.base_url}: {e}",
+                provider=self.provider_name,
+                model=model,
+            )
+        elif "RateLimitError" in error_type:
             raise RateLimitError(
                 str(e),
                 provider=self.provider_name,
@@ -567,9 +591,15 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 provider=self.provider_name,
                 model=model,
             )
-        elif "APIConnectionError" in error_type or "Timeout" in error_type:
-            raise ProviderUnavailableError(
-                f"Cannot connect to Ollama at {self.config.base_url}: {e}",
+        # 2. Permanent model / request invalid errors
+        elif (
+            "BadRequest" in error_type
+            or "InvalidRequest" in error_type
+            or "NotFound" in error_type
+            or ("model" in str(e).lower() and ("not found" in str(e).lower() or "does not exist" in str(e).lower()))
+        ):
+            raise InvalidRequestError(
+                f"Embedding error: {e}",
                 provider=self.provider_name,
                 model=model,
             )
