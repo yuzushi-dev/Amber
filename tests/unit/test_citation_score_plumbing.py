@@ -14,11 +14,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.api.config import settings as api_settings
-from src.core.generation.application.generation_service import GenerationResult, GenerationService, Source
+from src.api.schemas.query import QueryOptions, QueryRequest
+from src.core.generation.application.generation_service import (
+    GenerationResult,
+    GenerationService,
+    Source,
+)
 from src.core.retrieval.application.use_cases_query import QueryUseCase
 from src.core.retrieval.domain.candidate import Candidate
-from src.api.schemas.query import QueryOptions, QueryRequest
-from src.shared.kernel.models.query import Source as ApiSource
 from src.shared.kernel.runtime import configure_settings
 
 
