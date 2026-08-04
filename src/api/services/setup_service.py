@@ -757,5 +757,5 @@ def get_setup_service() -> SetupService:
     if _setup_service is None:
         from src.api.config import settings
 
-        _setup_service = SetupService(redis_url=settings.redis_url)
+        _setup_service = SetupService(redis_url=settings.db.redis_url)
     return _setup_service
