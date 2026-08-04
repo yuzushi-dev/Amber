@@ -313,7 +313,17 @@ class QueryUseCase:
             trace=trace_steps if include_trace else None,
             timing=TimingInfo(
                 total_ms=round(total_ms, 2),
+                analysis_ms=(
+                    round(retrieval_result.router_latency_ms, 2)
+                    if retrieval_result.router_latency_ms
+                    else None
+                ),
                 retrieval_ms=round(retrieval_ms, 2),
+                reranking_ms=(
+                    round(retrieval_result.reranking_ms, 2)
+                    if retrieval_result.reranking_ms
+                    else None
+                ),
                 generation_ms=round(generation_ms, 2),
             ),
             conversation_id=request.conversation_id or query_id,

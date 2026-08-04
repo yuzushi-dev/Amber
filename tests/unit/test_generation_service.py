@@ -339,3 +339,106 @@ async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
     assert system_prompt.startswith('CUSTOM_SYSTEM_PROMPT')
     assert '## DOMAIN RULES' in system_prompt
     assert 'Always answer with domain context.' in system_prompt
+
+def test_is_synthetic_candidate_true_for_dict_with_synthetic_flag():
+    from src.core.generation.application.generation_service import _is_synthetic_candidate
+
+    candidate = {"chunk_id": "global_rule_0", "metadata": {"synthetic": True}}
+    assert _is_synthetic_candidate(candidate) is True
+
+
+def test_is_synthetic_candidate_false_for_real_chunk_dict():
+    from src.core.generation.application.generation_service import _is_synthetic_candidate
+
+    candidate = {"chunk_id": "c1", "content": "text", "metadata": {"title": "Doc 1"}}
+    assert _is_synthetic_candidate(candidate) is False
+
+
+def test_is_synthetic_candidate_handles_missing_and_none_metadata():
+    from src.core.generation.application.generation_service import _is_synthetic_candidate
+
+    assert _is_synthetic_candidate({"chunk_id": "c1"}) is False
+    assert _is_synthetic_candidate({"chunk_id": "c1", "metadata": None}) is False
+
+
+def test_is_synthetic_candidate_false_for_candidate_dataclass_without_synthetic():
+    from src.core.generation.application.generation_service import _is_synthetic_candidate
+    from src.core.retrieval.domain.candidate import Candidate
+
+    candidate = Candidate(chunk_id="c1", content="text")
+    assert _is_synthetic_candidate(candidate) is False
+
+
+@pytest.mark.asyncio
+async def test_generate_excludes_injected_global_rules_from_chunks_used():
+    """chunks_used must count only retrieval chunks, not injected rule
+    pseudo-candidates -- see issue #91 (chunks_used > chunks_retrieved)."""
+    mock_tenant_repo = AsyncMock(spec=TenantRepository)
+    mock_tenant = MagicMock()
+    mock_tenant.config = {}
+    mock_tenant_repo.get.return_value = mock_tenant
+
+    mock_llm = AsyncMock(spec=LLMProviderPort)
+    mock_llm.model_name = "mock-model"
+    mock_usage = MagicMock()
+    mock_usage.total_tokens = 100
+    mock_usage.input_tokens = 50
+    mock_usage.output_tokens = 50
+    mock_response = MagicMock(
+        content="Mock Response", text="Mock Response", usage=mock_usage, cost_estimate=0.0
+    )
+    mock_llm.generate.return_value = mock_response
+
+    mock_rules_service = AsyncMock()
+    mock_rules_service.get_active_rules.return_value = ["Always cite sources."]
+    mock_rules_service.build_system_prompt_addendum.return_value = "\n\n## DOMAIN RULES\n- Always cite sources.\n"
+
+    retrieved_chunks = [
+        {"chunk_id": "c1", "content": "chunk one", "document_id": "doc1", "score": 0.9},
+        {"chunk_id": "c2", "content": "chunk two", "document_id": "doc2", "score": 0.8},
+    ]
+
+    with (
+        patch(
+            "src.core.generation.application.generation_service.build_provider_factory"
+        ) as mock_build,
+        patch(
+            "src.core.generation.application.generation_service.ContextBuilder"
+        ) as MockContextBuilder,
+        patch(
+            "src.core.admin_ops.application.rules_service.get_rules_service",
+            return_value=mock_rules_service,
+        ),
+    ):
+        mock_factory = MagicMock()
+        mock_build.return_value = mock_factory
+        mock_factory.get_llm_provider.return_value = mock_llm
+
+        service = GenerationService(
+            tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
+        )
+        service.llm = mock_llm
+
+        captured_candidates: list = []
+
+        def fake_build(candidates, query=None):
+            from src.core.generation.application.context_builder import ContextResult
+
+            captured_candidates.extend(candidates)
+            return ContextResult(
+                content="Mock Context", tokens=10, used_candidates=list(candidates), dropped_candidates=[]
+            )
+
+        MockContextBuilder.return_value.build.side_effect = fake_build
+
+        result = await service.generate(
+            query="How to configure mailstore?",
+            candidates=list(retrieved_chunks),
+            options={"tenant_id": "tenant-123"},
+        )
+
+    # Sanity: confirm the 1 injected global-rule candidate really was packed
+    # alongside the 2 real chunks (3 total) -- otherwise the chunks_used == 2
+    # assertion below would pass by coincidence rather than by exclusion.
+    assert len(captured_candidates) == 3
+    assert result.chunks_used == 2

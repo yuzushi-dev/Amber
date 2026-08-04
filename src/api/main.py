@@ -305,11 +305,22 @@ async def lifespan(app: FastAPI):
                 head_rev = await asyncio.to_thread(check_alembic)
 
                 if head_rev:
-                    # Check DB version
+                    # Check DB version. Uses a freshly-scoped session, not the
+                    # `session` opened above for the bootstrap/embedding check
+                    # block (already closed by the time we get here) --
+                    # reusing a closed AsyncSession silently reopens a
+                    # connection on next use without ever closing it again,
+                    # leaking one idle-in-transaction backend for the life of
+                    # the process (one per api/api-canary container).
                     from sqlalchemy import text
 
-                    result = await session.execute(text("select version_num from alembic_version"))
-                    db_rev = result.scalar()
+                    from src.api.deps import _get_async_session_maker
+
+                    async with _get_async_session_maker()() as pg_check_session:
+                        result = await pg_check_session.execute(
+                            text("select version_num from alembic_version")
+                        )
+                        db_rev = result.scalar()
 
                     logger.info(f"Database Integrity: Code={head_rev}, DB={db_rev}")
 

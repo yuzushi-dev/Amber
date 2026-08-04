@@ -110,6 +110,22 @@ class PreparedGenerationStream:
     used_candidates_count: int = 0
 
 
+def _is_synthetic_candidate(candidate: Any) -> bool:
+    """True for pseudo-candidates injected for citation support (global
+    rules, memory facts) rather than retrieved from the knowledge base.
+
+    These are eligible for citation like any other candidate (existing,
+    intended behaviour -- do not filter them out of `used_candidates` or
+    `sources`), but they are not "chunks" and must not inflate the
+    `chunks_used` observability metric, which is meant to measure how many
+    of the *retrieved* chunks made it into the LLM context (see #91)."""
+    if isinstance(candidate, dict):
+        metadata = candidate.get("metadata") or {}
+    else:
+        metadata = getattr(candidate, "metadata", {}) or {}
+    return bool(metadata.get("synthetic"))
+
+
 class GenerationService:
     """
     LLM-based answer generation with context injection and groundedness checks.
@@ -311,6 +327,7 @@ class GenerationService:
                             "metadata": {
                                 "document_id": f"rule_doc_{idx}",
                                 "title": "Global Domain Rule",
+                                "synthetic": True,
                             },
                             "score": 2.0,
                         }
@@ -559,7 +576,9 @@ class GenerationService:
             input_tokens=llm_result.usage.input_tokens,
             output_tokens=llm_result.usage.output_tokens,
             context_tokens=context_result.tokens,
-            chunks_used=len(context_result.used_candidates),
+            chunks_used=sum(
+                1 for c in context_result.used_candidates if not _is_synthetic_candidate(c)
+            ),
             trace=trace if include_trace else [],
             follow_up_questions=self._generate_follow_ups(query, normalized_answer)
             if self.config.enable_follow_up
@@ -799,7 +818,9 @@ class GenerationService:
             tenant_id=tenant_id,
             user_id=user_id,
             tenant_config=dict(tenant_config),
-            used_candidates_count=len(ctx.used_candidates),
+            used_candidates_count=sum(
+                1 for c in ctx.used_candidates if not _is_synthetic_candidate(c)
+            ),
         )
 
     async def stream_prepared(self, prepared: PreparedGenerationStream) -> AsyncIterator[dict]:
