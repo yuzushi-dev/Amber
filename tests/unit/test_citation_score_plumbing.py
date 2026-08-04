@@ -227,3 +227,80 @@ async def test_retrieval_service_retrieve_preserves_score_type_and_source():
     assert chunk["score"] == 0.91
     assert chunk["score_type"] == "cosine"
     assert chunk["source"] == "vector"
+
+
+@pytest.mark.asyncio
+async def test_use_case_execute_defaults_include_sources_when_options_omitted():
+    """Regression test for issue #94.
+
+    A `QueryRequest` with no `options` at all (the common case for direct API
+    callers, as opposed to the frontend which always sends `options`) must
+    still populate `sources` — `QueryOptions.include_sources` defaults to
+    `True`, but `request.options` itself is `None` when omitted. The old code
+    checked `request.options and request.options.include_sources`, which
+    short-circuited on the `None` and silently dropped every source even
+    though generation had cited them correctly.
+    """
+    retrieval_service = MagicMock()
+    retrieval_service.retrieve = AsyncMock(
+        return_value=SimpleNamespace(
+            chunks=[{"chunk_id": "c1", "content": "text", "score": 0.95, "title": "Doc 1"}],
+            cache_hit=False,
+            search_mode="basic",
+            router_latency_ms=1.0,
+            reranking_ms=0.0,
+            trace=[],
+        )
+    )
+
+    gen_source = Source(
+        index=1,
+        chunk_id="c1",
+        document_id="d1",
+        content_preview="text",
+        title="Doc 1 Title",
+        score=0.95,
+        score_type="cosine",
+        source="vector",
+    )
+
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(
+        return_value=GenerationResult(
+            answer="Answer text [[Source: 1]]",
+            sources=[gen_source],
+            model="gpt-4o",
+            provider="openai",
+            latency_ms=25.0,
+            tokens_used=50,
+            cost_estimate=0.001,
+            follow_up_questions=[],
+            trace=[],
+        )
+    )
+
+    metrics_collector = MagicMock()
+    metrics_collector.track_query = MagicMock()
+
+    class FakeTrackQuery:
+        async def __aenter__(self):
+            return SimpleNamespace()
+
+        async def __aexit__(self, *args):
+            return False
+
+    metrics_collector.track_query.return_value = FakeTrackQuery()
+
+    uc = QueryUseCase(
+        retrieval_service=retrieval_service,
+        generation_service=generation_service,
+        metrics_collector=metrics_collector,
+    )
+
+    req = QueryRequest(query="test query")  # no `options` field at all
+    assert req.options is None
+
+    res = await uc.execute(request=req, tenant_id="tenant-1", user_id="user-1")
+
+    assert len(res.sources) == 1
+    assert res.sources[0].chunk_id == "c1"
