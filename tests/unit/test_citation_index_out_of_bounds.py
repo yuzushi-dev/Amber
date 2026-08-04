@@ -71,3 +71,58 @@ def test_map_sources_no_citations_is_noop():
 
     assert sources == []
     assert rewritten == answer
+
+
+def test_map_sources_expands_comma_grouped_citation_marker():
+    """Regression test for Issue #103.
+
+    The LLM sometimes groups several citations in one bracket, e.g.
+    "[[Source: 2, 4]]" instead of two separate "[[Source: 2]] [[Source: 4]]"
+    markers. The single-index regex used to detect and renumber citations
+    doesn't match that comma-separated form at all, so those indices were
+    silently dropped: never renumbered, never contributing to the returned
+    `sources` list, and left dangling in the answer text with their original
+    (pre-filter) indices.
+    """
+    svc = _service()
+    candidates = [_candidate(f"c{i}", f"d{i}") for i in range(1, 6)]  # 5 candidates
+    answer = "Fact A [[Source: 2, 4]]. Fact B [[Source: 1]]."
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    # All three cited candidates (1, 2, 4) come back, in ascending original order.
+    assert [s.chunk_id for s in sources] == ["c1", "c2", "c4"]
+
+    # The grouped marker is split and each half renumbered to the returned
+    # array's position -- no marker names an index past len(sources).
+    cited_in_text = {int(m) for m in CITATION_PATTERN.findall(rewritten)}
+    assert cited_in_text and max(cited_in_text) <= len(sources)
+    assert "Source: 2, 4" not in rewritten
+    assert "Source: 2," not in rewritten
+
+
+def test_map_sources_grouped_citation_strips_hallucinated_index():
+    """A comma-grouped marker mixing a valid and an out-of-range index must
+    keep the valid one and drop the hallucinated one, not leave it dangling."""
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    answer = "Fact A [[Source: 1, 9]]."
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [s.chunk_id for s in sources] == ["c1"]
+    assert "[[Source: 1]]" in rewritten
+    assert "Source: 9" not in rewritten
+
+
+def test_map_sources_grouped_citation_requires_source_keyword_or_double_bracket():
+    """A bare single-bracket comma list (e.g. numpy/pandas fancy indexing in
+    a code sample, "arr[0, 1]") must NOT be treated as a citation group."""
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    answer = "Use `arr[0, 1]` to select those elements. [[Source: 1]]"
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [s.chunk_id for s in sources] == ["c1"]
+    assert "arr[0, 1]" in rewritten
