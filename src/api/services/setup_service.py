@@ -125,11 +125,19 @@ class SetupService:
     # Package installation target directory - initialized in __init__
     PACKAGES_DIR: str = "/app/.packages"
 
+    # Redis key for the cross-replica setup-complete flag. Best-effort: a
+    # short socket timeout means a slow/unreachable Redis degrades to the
+    # in-memory-only flag (today's behaviour) rather than stalling requests.
+    _SETUP_COMPLETE_REDIS_KEY = "setup:complete"
+    _REDIS_TIMEOUT_SECONDS = 0.2
+
     def __init__(self, redis_url: str | None = None):
         self._init_packages_dir()
         self._features = {k: Feature(**{**v.__dict__}) for k, v in OPTIONAL_FEATURES.items()}
-        self._setup_complete = False
         self._redis_url = redis_url
+        self._redis_client_cache = None
+        self._redis_unavailable = False
+        self._setup_complete = self._read_setup_complete_from_redis() or False
         self._installation_lock = asyncio.Lock()
 
         # Ensure packages directory is in sys.path for dynamic imports
@@ -137,6 +145,56 @@ class SetupService:
 
         # Detect already installed features on init
         self._detect_installed_features()
+
+    def _redis_client(self):
+        """Best-effort sync Redis client, cached on the instance; None if
+        unavailable/misconfigured or if a prior attempt already failed.
+
+        Sync (not asyncio.Redis): this flag is read from a plain `def`
+        method (`get_setup_status`) called from both sync and async call
+        sites; a short socket timeout keeps a slow/unreachable Redis from
+        stalling the request instead of just losing cross-replica sync."""
+        if self._redis_client_cache is not None:
+            return self._redis_client_cache
+        if not self._redis_url or self._redis_unavailable:
+            return None
+        try:
+            import redis as redis_sync
+
+            self._redis_client_cache = redis_sync.from_url(
+                self._redis_url,
+                socket_timeout=self._REDIS_TIMEOUT_SECONDS,
+                socket_connect_timeout=self._REDIS_TIMEOUT_SECONDS,
+            )
+            return self._redis_client_cache
+        except Exception as e:
+            logger.debug(f"SetupService: Redis client unavailable: {e}")
+            self._redis_unavailable = True
+            return None
+
+    def _read_setup_complete_from_redis(self) -> bool | None:
+        """Best-effort GET; None (not False) means "unknown, keep current"."""
+        try:
+            client = self._redis_client()
+            if client is None:
+                return None
+            value = client.get(self._SETUP_COMPLETE_REDIS_KEY)
+            return value is not None and value.decode() == "true"
+        except Exception as e:
+            logger.debug(f"SetupService: Redis read failed: {e}")
+            self._redis_client_cache = None
+            return None
+
+    def _write_setup_complete_to_redis(self) -> None:
+        """Best-effort SET; failures never block mark_setup_complete()."""
+        try:
+            client = self._redis_client()
+            if client is None:
+                return
+            client.set(self._SETUP_COMPLETE_REDIS_KEY, "true")
+        except Exception as e:
+            logger.debug(f"SetupService: Redis write failed: {e}")
+            self._redis_client_cache = None
 
     def _init_packages_dir(self) -> None:
         """Determine proper packages directory based on environment."""
@@ -236,6 +294,12 @@ class SetupService:
 
     def get_setup_status(self) -> dict[str, Any]:
         """Return current setup status for UI."""
+        if not self._setup_complete:
+            # Best-effort refresh: another replica may have completed setup
+            # since this process's singleton was constructed.
+            redis_value = self._read_setup_complete_from_redis()
+            if redis_value:
+                self._setup_complete = True
         features_status = []
         for feature in self._features.values():
             features_status.append(
@@ -635,6 +699,7 @@ class SetupService:
     def mark_setup_complete(self) -> None:
         """Mark setup as complete (user skipped or finished)."""
         self._setup_complete = True
+        self._write_setup_complete_to_redis()
         logger.info("Setup marked as complete")
 
     async def check_required_services(self) -> dict[str, Any]:
@@ -690,5 +755,7 @@ def get_setup_service() -> SetupService:
     """Get or create the setup service singleton."""
     global _setup_service
     if _setup_service is None:
-        _setup_service = SetupService()
+        from src.api.config import settings
+
+        _setup_service = SetupService(redis_url=settings.redis_url)
     return _setup_service

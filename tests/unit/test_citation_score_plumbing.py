@@ -131,6 +131,7 @@ async def test_use_case_execute_populates_api_source_score_score_type_and_source
             cache_hit=False,
             search_mode="basic",
             router_latency_ms=1.0,
+            reranking_ms=0.0,
             trace=[],
         )
     )
