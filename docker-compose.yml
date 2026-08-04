@@ -32,7 +32,12 @@ services:
     # ports:            # Handled by deploy/nginx — see nginx service below.
     #   - "3000:3000"
     environment:
-      - VITE_API_TARGET=http://api:8000
+      # Route through nginx's api-routing block (deploy/nginx/conf.d/api.conf,
+      # internal port 80 -> published as :8000) instead of hitting the `api`
+      # container directly. nginx owns $api_upstream (deploy/cutover.sh), so
+      # this is what makes a canary cutover actually affect real browser
+      # traffic instead of only the ops-facing :8000 host port.
+      - VITE_API_TARGET=http://nginx:80
     volumes:
       - ./frontend:/app
       - /app/node_modules
