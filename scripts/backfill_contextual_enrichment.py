@@ -50,10 +50,24 @@ Postgres ``chunks.content``/``metadata`` are updated via ``UPDATE ... WHERE
 id = $n`` (never deleted/reinserted); Milvus is upserted by existing
 ``chunk_id`` (never dropped/recreated). Neo4j is not touched. The pre-
 enrichment text is preserved in ``metadata->>'original_content'`` (see
-``ContextualEnricher``), so a mistaken run can be reverted with a single
-``UPDATE`` restoring ``content``/stripping ``context_prefix`` -- keep a
-targeted snapshot of the touched rows before running with ``--write`` if you
-want an even simpler rollback path; see the issue #98 operational checklist.
+``ContextualEnricher``), so a mistaken run can be reverted -- keep a
+targeted snapshot of the touched rows before running with ``--write``
+(``CREATE TABLE issue_backup AS SELECT id, document_id, content, metadata
+FROM chunks WHERE tenant_id = $1 AND document_id = ANY($2) AND
+COALESCE(metadata->>'context_prefix', '') = ''`` -- set
+``app.current_tenant``/``app.is_super_admin`` first, ``chunks`` is
+RLS-protected). A full rollback is TWO steps, not one:
+
+1. Restore Postgres: ``UPDATE chunks c SET content = b.content, metadata =
+   b.metadata FROM issue_backup b WHERE c.id = b.id``. This alone is
+   NOT a full rollback -- Milvus still holds the enriched text's dense/
+   sparse vectors for those ``chunk_id``s, so retrieval would score
+   against text that no longer exists in the row.
+2. Re-sync Milvus: the restored rows are back in the unenriched set
+   (``context_prefix`` stripped), so re-running this script with
+   ``--all-unenriched --write`` (or the same ``--doc-ids-file``) re-embeds
+   and re-upserts them -- no separate tool needed, this is the same write
+   path exercised by a normal run.
 
 Run inside a CPU worker container, NOT ``amber2-api-1`` -- this script loads
 SPLADE (torch) for sparse embeddings, and running that a second time inside
