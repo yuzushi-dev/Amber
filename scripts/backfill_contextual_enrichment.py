@@ -63,11 +63,19 @@ RLS-protected). A full rollback is TWO steps, not one:
    NOT a full rollback -- Milvus still holds the enriched text's dense/
    sparse vectors for those ``chunk_id``s, so retrieval would score
    against text that no longer exists in the row.
-2. Re-sync Milvus: the restored rows are back in the unenriched set
-   (``context_prefix`` stripped), so re-running this script with
-   ``--all-unenriched --write`` (or the same ``--doc-ids-file``) re-embeds
-   and re-upserts them -- no separate tool needed, this is the same write
-   path exercised by a normal run.
+2. Re-sync Milvus depends on what "rolled back" should mean:
+   - To retry enrichment (e.g. after fixing the provider/model/prompt),
+     re-run this script with ``--all-unenriched --write`` (or the same
+     ``--doc-ids-file``): the restored rows are back in the unenriched
+     set (``context_prefix`` stripped), so this re-embeds and re-upserts
+     them -- but it calls the LLM again and lands the chunk back in an
+     ENRICHED state (with fresh, possibly different, generated text),
+     not the original pristine one.
+   - To actually land back in the pristine, unenriched, vector-synced
+     state (no LLM call), re-ingest the affected documents through the
+     normal ingestion pipeline so their chunks and vectors are
+     recomputed from the restored content from scratch. This script has
+     no re-embed-without-enriching mode.
 
 Run inside a CPU worker container, NOT ``amber2-api-1`` -- this script loads
 SPLADE (torch) for sparse embeddings, and running that a second time inside
