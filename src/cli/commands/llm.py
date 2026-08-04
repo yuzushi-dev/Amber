@@ -88,8 +88,12 @@ def set_step(
     temperature: float | None = typer.Option(None),
     seed: int | None = typer.Option(None),
     tenant_id: str = typer.Option("default"),
+    force: bool = typer.Option(
+        False, "--force", help="Save the override even if provider/model isn't in the model registry."
+    ),
 ) -> None:
     """Override LLM settings for a specific pipeline step."""
+    from src.core.generation.application.llm_steps import validate_llm_step_override
     from src.core.tenants.domain.tenant import Tenant
 
     override: dict[str, object] = {}
@@ -115,6 +119,22 @@ def set_step(
             steps = dict(config.get("llm_steps") or {})
             existing = dict(steps.get(step_id) or {})
             existing.update(override)
+
+            # Validate the MERGED result that will actually be persisted --
+            # not just this call's --provider/--model delta. A delta of
+            # --model alone, merged onto an already-stored --provider, can
+            # produce an invalid pair that neither value looks wrong in
+            # isolation for (issue #98).
+            registry_error = validate_llm_step_override(existing.get("provider"), existing.get("model"))
+            if registry_error:
+                if not force:
+                    raise typer.BadParameter(
+                        f"{registry_error} Pass --force to save this override anyway."
+                    )
+                console.print(
+                    f"[yellow]Warning:[/yellow] {registry_error} Saving anyway because --force was passed."
+                )
+
             steps[step_id] = existing
             config["llm_steps"] = steps
             tenant.config = config

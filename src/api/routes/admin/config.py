@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.api.config import settings
 from src.api.deps import verify_super_admin
@@ -72,12 +72,38 @@ class RetrievalWeights(BaseModel):
 
 
 class LLMStepOverride(BaseModel):
-    """Per-step LLM override settings."""
+    """Per-step LLM override settings.
+
+    Deliberately NOT validated against the model registry here: this class
+    is also used for `TenantConfigResponse.llm_steps`, i.e. reading back
+    whatever a tenant already has stored. Rejecting that on read would turn
+    any legacy/out-of-registry value into a 500 on the whole config
+    endpoint (GET and PUT, since PUT re-reads the config to respond) instead
+    of a value the operator can see and fix. See `LLMStepOverrideInput` for
+    the validated variant used on the write path.
+    """
 
     provider: str | None = None
     model: str | None = None
     temperature: float | None = None
     seed: int | None = None
+
+
+class LLMStepOverrideInput(LLMStepOverride):
+    """Write-path variant of `LLMStepOverride`: rejects a provider/model
+    pair that isn't in the model registry, so a retired or mistyped model
+    is caught at write time (see #84/#98) instead of weeks later at
+    inference time. Used only by `TenantConfigUpdate`, never by the
+    response model -- see `LLMStepOverride` for why."""
+
+    @model_validator(mode="after")
+    def validate_known_model(self) -> "LLMStepOverrideInput":
+        from src.core.generation.application.llm_steps import validate_llm_step_override
+
+        error = validate_llm_step_override(self.provider, self.model)
+        if error:
+            raise ValueError(error)
+        return self
 
 
 class TenantConfigResponse(BaseModel):
@@ -158,7 +184,7 @@ class TenantConfigUpdate(BaseModel):
     # Determinism Settings
     seed: int | None = None
     temperature: float | None = None
-    llm_steps: dict[str, "LLMStepOverride"] | None = None
+    llm_steps: dict[str, "LLMStepOverrideInput"] | None = None
 
     # Custom prompts (per-tenant overrides)
     rag_system_prompt: str | None = None

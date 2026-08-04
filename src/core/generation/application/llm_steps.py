@@ -297,3 +297,39 @@ def resolve_llm_step_config(
         temperature=temperature,
         seed=seed,
     )
+
+
+def validate_llm_step_override(provider: str | None, model: str | None) -> str | None:
+    """Return an error message if the provider/model override isn't known to
+    src.shared.model_registry, else None. Both being None (unset override)
+    is always valid -- nothing to check. `model` given alone (no explicit
+    provider -- e.g. a CLI/API caller overriding only the model of an
+    existing step) is checked against ALL known providers, since the
+    effective provider it will end up paired with is resolved elsewhere
+    (tenant_config/settings) and isn't visible here -- see callers for why
+    this alone isn't sufficient and the caller must also validate the
+    fully-merged (provider, model) pair it's about to persist.
+    """
+    if provider is None and model is None:
+        return None
+
+    from src.shared.model_registry import LLM_MODEL_TO_PROVIDERS, LLM_MODELS
+
+    if provider is None:
+        if model not in LLM_MODEL_TO_PROVIDERS:
+            return f"Unknown model '{model}': not found for any configured provider."
+        return None
+
+    provider_models = LLM_MODELS.get(provider)
+    if provider_models is None:
+        known_providers = ", ".join(sorted(LLM_MODELS))
+        return f"Unknown LLM provider '{provider}'. Known providers: {known_providers}."
+
+    if model is not None and model not in provider_models:
+        known_models = ", ".join(sorted(provider_models))
+        return (
+            f"Unknown model '{model}' for provider '{provider}'. "
+            f"Known models for '{provider}': {known_models}."
+        )
+
+    return None
