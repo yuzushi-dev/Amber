@@ -39,6 +39,30 @@ CITATION_NORMALIZE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Some LLM outputs group several citations in one bracket, e.g.
+# "[[Source: 6, 7]]" instead of two separate "[[Source: 6]] [[Source: 7]]"
+# markers. CITATION_NORMALIZE_PATTERN's single `(\d+)` group doesn't match
+# that comma-separated form at all, so those markers passed through
+# _normalize_citations untouched -- never renumbered, never stripped when
+# out-of-range, and never contributing to the returned `sources` list
+# (issue #103). This pattern detects the grouped form so it can be split
+# into one canonical marker per index before the main substitution runs.
+# Unlike CITATION_NORMALIZE_PATTERN, the opening delimiter here must be
+# either "[[" or a "["/"[[" with an explicit "source" keyword -- a bare
+# single-bracket comma list ("[1, 2]") is common in code samples (numpy/
+# pandas fancy indexing, e.g. `arr[0, 1]`) and must not be treated as a
+# citation.
+MULTI_CITATION_PATTERN = re.compile(
+    r"\[\[\s*(?:source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*)?(\d+(?:\s*,\s*\d+)+)\s*(?:\]\]|\])"
+    r"|\[\s*source(?:\s*:\s*id|\s*id|id)?\s*[: ]\s*(\d+(?:\s*,\s*\d+)+)\s*\]",
+    re.IGNORECASE,
+)
+
+
+def _expand_grouped_citation(match: re.Match) -> str:
+    indices = re.findall(r"\d+", match.group(1) or match.group(2))
+    return " ".join(f"[[Source: {i}]]" for i in indices)
+
 
 @dataclass
 class Source:
@@ -284,6 +308,7 @@ class GenerationService:
     def _normalize_citations(self, text: str) -> str:
         if not text:
             return text
+        text = MULTI_CITATION_PATTERN.sub(_expand_grouped_citation, text)
         return CITATION_NORMALIZE_PATTERN.sub(r"[[Source: \1]]", text)
 
     @trace_span("GenerationService.generate")
