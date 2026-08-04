@@ -30,6 +30,14 @@
 #
 #   4. Rollback if needed:
 #      bash deploy/cutover.sh --to live
+#
+# Resyncing prod to origin/main (e.g. after a code deploy):
+#   Always use the two-step form below. A bare `git checkout <sha>` (or any
+#   prior operation that detaches HEAD) means `git reset --hard origin/main`
+#   alone will NOT re-attach HEAD to `main` — it only moves whatever ref HEAD
+#   currently resolves to, so a detached HEAD stays detached (see issue #88).
+#      git checkout main && git reset --hard origin/main
+#   Verify with: git status --porcelain=v1 -b   (expect "## main...origin/main")
 
 set -euo pipefail
 
