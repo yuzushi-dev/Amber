@@ -99,3 +99,13 @@ def test_mark_setup_complete_survives_redis_set_failure():
     service.mark_setup_complete()  # must not raise
 
     assert service._setup_complete is True
+
+
+def test_get_setup_service_uses_settings_db_redis_url(monkeypatch):
+    import src.api.services.setup_service as setup_module
+    from src.api.config import settings
+
+    monkeypatch.setattr(setup_module, "_setup_service", None)
+    svc = setup_module.get_setup_service()
+    assert svc._redis_url == settings.db.redis_url
+    monkeypatch.setattr(setup_module, "_setup_service", None)
