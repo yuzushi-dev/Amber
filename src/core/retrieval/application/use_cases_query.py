@@ -20,6 +20,7 @@ from src.core.admin_ops.application.metrics.collector import MetricsCollector
 from src.core.generation.application.generation_service import GenerationService
 from src.core.retrieval.application.retrieval_service import RetrievalService
 from src.shared.kernel.models.query import (
+    QueryOptions,
     QueryRequest,
     QueryResponse,
     Source,
@@ -79,9 +80,14 @@ class QueryUseCase:
         if query_scopes is None:
             query_scopes = resolve_query_scopes(tenant_id)
 
-        # Options
-        include_trace = request.options.include_trace if request.options else False
-        max_chunks = request.options.max_chunks if request.options else 10
+        # Options — normalize once so an omitted `options` object still gets
+        # QueryOptions' field defaults (e.g. include_sources=True) instead of
+        # every callsite falling back to its own ad-hoc, easily-inconsistent
+        # default (see issue #94: this used to make `sources` empty whenever
+        # a caller posted a body with no `options` key at all).
+        options = request.options or QueryOptions()
+        include_trace = options.include_trace
+        max_chunks = options.max_chunks
         trace_steps: list[TraceStep] = []
 
         # 1. STRUCTURED QUERY CHECK
@@ -127,7 +133,7 @@ class QueryUseCase:
                 logger.debug(f"Structured query check failed, using RAG: {e}")
 
         # 2. AGENTIC MODE
-        if request.options and request.options.agent_mode:
+        if options.agent_mode:
             # ── Privilege checks (must be outside the broad except below) ──────
             # NOTE: flag-source drift — this path reads ENABLE_AGENT_MODE from raw
             # os.environ via _agent_flag(), while the SSE stream path reads the same
@@ -141,7 +147,7 @@ class QueryUseCase:
                     detail="Agent mode is disabled on this server.",
                 )
 
-            agent_role = request.options.agent_role if request.options else "knowledge"
+            agent_role = options.agent_role
             if agent_role == "maintainer":
                 is_super = getattr(http_request_state, "is_super_admin", False)
                 if not is_super:
@@ -192,7 +198,7 @@ class QueryUseCase:
                     document_ids=document_ids,
                     top_k=max_chunks,
                     include_trace=include_trace,
-                    options=request.options,
+                    options=options,
                     history=conversation_history,
                     query_scopes=query_scopes,
                 )
@@ -252,7 +258,7 @@ class QueryUseCase:
                         options={
                             "user_id": user_id,
                             "tenant_id": tenant_id,
-                            "model": request.options.model if request.options else None,
+                            "model": options.model,
                         },
                     )
 
@@ -309,7 +315,7 @@ class QueryUseCase:
 
         return QueryResponse(
             answer=answer,
-            sources=sources if (request.options and request.options.include_sources) else [],
+            sources=sources if options.include_sources else [],
             trace=trace_steps if include_trace else None,
             timing=TimingInfo(
                 total_ms=round(total_ms, 2),
