@@ -61,6 +61,52 @@ def test_validate_model_rejects_unknown_provider():
 
 
 # ---------------------------------------------------------------------------
+# _check_enricher_compatibility
+# ---------------------------------------------------------------------------
+
+
+def test_check_enricher_compatibility_passes_for_the_real_class():
+    """Regression guard: the script's own ContextualEnricher import must
+    stay compatible with the keywords this script calls it with."""
+    assert backfill._check_enricher_compatibility() is None
+
+
+def test_check_enricher_compatibility_detects_missing_with_failover(monkeypatch):
+    """Regression test for the version-skew crash this check exists to
+    catch: a --write run against a worker whose mounted contextual.py
+    predates the ``with_failover`` parameter must ABORT before any LLM
+    call or write, not crash mid-run after documents may already have
+    been enriched and written (this exact crash happened live: see the
+    issue #98 operational notes)."""
+
+    class _StaleEnricher:
+        async def enrich_chunks(self, chunks, document_text, *, tenant_config, settings):
+            ...
+
+    monkeypatch.setattr(backfill, "ContextualEnricher", _StaleEnricher)
+
+    error = backfill._check_enricher_compatibility()
+
+    assert error is not None
+    assert "with_failover" in error
+
+
+def test_check_enricher_compatibility_reports_every_missing_keyword(monkeypatch):
+    class _VeryStaleEnricher:
+        async def enrich_chunks(self, chunks, document_text):
+            ...
+
+    monkeypatch.setattr(backfill, "ContextualEnricher", _VeryStaleEnricher)
+
+    error = backfill._check_enricher_compatibility()
+
+    assert error is not None
+    assert "tenant_config" in error
+    assert "settings" in error
+    assert "with_failover" in error
+
+
+# ---------------------------------------------------------------------------
 # _reconstruct_documents
 # ---------------------------------------------------------------------------
 

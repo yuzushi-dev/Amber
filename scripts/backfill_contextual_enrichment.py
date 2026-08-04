@@ -82,6 +82,7 @@ Usage::
 """
 import argparse
 import asyncio
+import inspect
 import json
 import sys
 import time
@@ -103,6 +104,35 @@ from src.core.retrieval.infrastructure.vector_store.milvus import (  # noqa: E40
     MilvusVectorStore,
 )
 from src.shared.model_registry import LLM_MODELS  # noqa: E402
+
+
+def _check_enricher_compatibility() -> str | None:
+    """Return an error string if the imported ``ContextualEnricher.enrich_chunks``
+    doesn't accept every keyword this script calls it with, else None.
+
+    This exists because a prior run crashed with ``TypeError:
+    enrich_chunks() got an unexpected keyword argument 'with_failover'``:
+    the script was copied into a worker container ahead of the library
+    file (``contextual.py``) that adds the parameter it calls with. The
+    crash happened only during ``--write`` -- the dry-run path never calls
+    ``enrich_chunks`` at all, so it printed a clean plan and gave false
+    confidence that the whole pipeline was compatible. Checking the
+    signature unconditionally (dry-run included) turns that same
+    version-skew into a loud, pre-flight ABORT instead of a mid-run crash
+    discovered only after several documents may have already been
+    enriched and written.
+    """
+    sig = inspect.signature(ContextualEnricher.enrich_chunks)
+    required = {"tenant_config", "settings", "with_failover"}
+    missing = required - set(sig.parameters)
+    if missing:
+        return (
+            f"ContextualEnricher.enrich_chunks() is missing parameter(s) {sorted(missing)} "
+            f"that this script calls with (imported from {ContextualEnricher.__module__}). "
+            "The mounted src/ this worker is running is likely on a different version than "
+            "this script -- deploy/overlay the matching contextual.py before proceeding."
+        )
+    return None
 
 
 def _init_factory(s):
@@ -329,6 +359,11 @@ async def main():
         "reproducible after the fact",
     )
     args = ap.parse_args()
+
+    compat_error = _check_enricher_compatibility()
+    if compat_error:
+        print(f"ABORT: {compat_error}", flush=True)
+        raise SystemExit(1)
 
     if args.dump_ids and not args.all_unenriched:
         ap.error("--dump-ids requires --all-unenriched")
