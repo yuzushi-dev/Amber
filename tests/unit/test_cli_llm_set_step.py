@@ -9,6 +9,13 @@ from src.cli.commands.llm import app
 runner = CliRunner()
 
 
+def _out(result) -> str:
+    """Collapse whitespace/line-wraps in rich's terminal output so an
+    assertion doesn't depend on where a non-tty width happens to wrap a
+    long message."""
+    return " ".join(result.output.split())
+
+
 class _FakeTenant:
     def __init__(self):
         self.id = "default"
@@ -52,8 +59,8 @@ def test_set_step_rejects_unknown_model_without_force(monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert "gpt-retired-999" in result.output
-    assert "--force" in result.output
+    assert "gpt-retired-999" in _out(result)
+    assert "--force" in _out(result)
     assert tenant.config == {}
 
 
@@ -75,8 +82,8 @@ def test_set_step_accepts_unknown_model_with_force_and_warns(monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Warning" in result.output
-    assert "gpt-retired-999" in result.output
+    assert "Warning" in _out(result)
+    assert "gpt-retired-999" in _out(result)
     assert tenant.config["llm_steps"]["chat.generation"]["model"] == "gpt-retired-999"
 
 
@@ -111,8 +118,8 @@ def test_set_step_validates_merged_result_not_raw_delta(monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert "llama3" in result.output
-    assert "openai" in result.output
+    assert "llama3" in _out(result)
+    assert "openai" in _out(result)
     # The pre-existing provider must be untouched by the rejected write.
     assert tenant.config["llm_steps"]["chat.generation"] == {"provider": "openai"}
 

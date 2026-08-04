@@ -25,7 +25,8 @@ def show(tenant_id: str = typer.Option("default")) -> None:
             res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = res.scalar_one_or_none()
             if not tenant:
-                raise typer.BadParameter(f"Tenant {tenant_id} not found")
+                console.print(f"[red]Error:[/red] Tenant {tenant_id} not found")
+                raise typer.Exit(1)
             return dict(tenant.config or {})
 
     config = run(_load())
@@ -65,7 +66,8 @@ def set_default(
             res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = res.scalar_one_or_none()
             if not tenant:
-                raise typer.BadParameter(f"Tenant {tenant_id} not found")
+                console.print(f"[red]Error:[/red] Tenant {tenant_id} not found")
+                raise typer.Exit(1)
             config = dict(tenant.config or {})
             config["llm_provider"] = provider
             config["llm_model"] = model
@@ -114,7 +116,8 @@ def set_step(
             res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = res.scalar_one_or_none()
             if not tenant:
-                raise typer.BadParameter(f"Tenant {tenant_id} not found")
+                console.print(f"[red]Error:[/red] Tenant {tenant_id} not found")
+                raise typer.Exit(1)
             config = dict(tenant.config or {})
             steps = dict(config.get("llm_steps") or {})
             existing = dict(steps.get(step_id) or {})
@@ -128,9 +131,10 @@ def set_step(
             registry_error = validate_llm_step_override(existing.get("provider"), existing.get("model"))
             if registry_error:
                 if not force:
-                    raise typer.BadParameter(
-                        f"{registry_error} Pass --force to save this override anyway."
+                    console.print(
+                        f"[red]Error:[/red] {registry_error} Pass --force to save this override anyway."
                     )
+                    raise typer.Exit(1)
                 console.print(
                     f"[yellow]Warning:[/yellow] {registry_error} Saving anyway because --force was passed."
                 )
@@ -157,7 +161,8 @@ def clear_step(
             res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = res.scalar_one_or_none()
             if not tenant:
-                raise typer.BadParameter(f"Tenant {tenant_id} not found")
+                console.print(f"[red]Error:[/red] Tenant {tenant_id} not found")
+                raise typer.Exit(1)
             config = dict(tenant.config or {})
             steps = dict(config.get("llm_steps") or {})
             steps.pop(step_id, None)
@@ -183,7 +188,8 @@ def set_embedding(
             res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
             tenant = res.scalar_one_or_none()
             if not tenant:
-                raise typer.BadParameter(f"Tenant {tenant_id} not found")
+                console.print(f"[red]Error:[/red] Tenant {tenant_id} not found")
+                raise typer.Exit(1)
             config = dict(tenant.config or {})
             config["embedding_provider"] = provider
             config["embedding_model"] = model
