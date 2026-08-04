@@ -8,7 +8,15 @@ Fixes for Issue #98 over the previous version of this script:
    scope, provider/model, and collection and prints a per-document preview
    with zero LLM/embedding cost.
 2. Scoped by document. ``--doc-ids-file``/``--document-id`` select which
-   documents to touch; the query is filtered by ``document_id = ANY(...)``.
+   documents to touch (mutually exclusive with each other and with
+   ``--all-unenriched``); the query is filtered by ``document_id =
+   ANY(...)``. ``--all-unenriched`` instead resolves the full scope live
+   against Postgres (every READY document with an unenriched chunk) at run
+   time -- preferred over a hand-generated ``--doc-ids-file`` snapshot,
+   which can silently go stale between generation and a cost-bearing
+   ``--write`` run if ingestion completes more documents in between.
+   ``--dump-ids`` (with ``--all-unenriched``) records the resolved list to
+   a file so the run's exact scope stays auditable after the fact.
 3. No more "one --corpus file for the whole tenant". Each document's own
    text is reconstructed from ITS OWN chunks
    (``COALESCE(metadata->>'original_content', content)``, ordered by
@@ -65,6 +73,12 @@ Usage::
     # A single document, for canary verification before a full run.
     python3 scripts/backfill_contextual_enrichment.py --tenant default \\
         --collection amber_default --document-id doc_abc123 --write
+
+    # Full backfill scope resolved live against Postgres instead of a
+    # hand-generated file, with the resolved scope dumped for the record:
+    python3 scripts/backfill_contextual_enrichment.py --tenant default \\
+        --collection amber_default --all-unenriched --dump-ids /tmp/doc_ids_98_run.txt \\
+        --provider ollama_cloud --model gpt-oss:120b --write
 """
 import argparse
 import asyncio
@@ -137,6 +151,33 @@ def _load_doc_ids(path: str) -> list[str]:
             if line:
                 ids.append(line)
     return ids
+
+
+async def _load_all_unenriched_doc_ids(conn, tenant_id: str) -> list[str]:
+    """Resolve the full backfill scope live against Postgres: every READY
+    document for ``tenant_id`` that has at least one chunk missing (null,
+    absent, or empty-string) ``context_prefix`` -- matching the falsy check
+    ``not metadata.get("context_prefix")`` the enrichment plan itself uses,
+    so this can't disagree with that plan and skip a document whose only
+    unenriched chunks carry an empty-string prefix. Queried at run time
+    (not from a pre-generated file) so a document that finishes ingestion
+    -- or flips to READY -- after a snapshot was taken is never silently
+    left out of a ``--write`` run. Non-READY documents (e.g. FAILED) are
+    excluded: they're outside the backfill's scope regardless of chunk
+    state.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT c.document_id
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.tenant_id = $1 AND d.status = 'READY'
+          AND COALESCE(c.metadata->>'context_prefix', '') = ''
+        ORDER BY c.document_id
+        """,
+        tenant_id,
+    )
+    return [r["document_id"] for r in rows]
 
 
 def _validate_model(provider: str, model: str) -> str | None:
@@ -248,9 +289,17 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tenant", required=True)
     ap.add_argument("--collection", required=True)
-    ap.add_argument("--doc-ids-file", help="path to a file with one document ID per line")
-    ap.add_argument(
+    scope = ap.add_mutually_exclusive_group()
+    scope.add_argument("--doc-ids-file", help="path to a file with one document ID per line")
+    scope.add_argument(
         "--document-id", action="append", default=[], help="repeatable; scope to one document"
+    )
+    scope.add_argument(
+        "--all-unenriched",
+        action="store_true",
+        help="scope to every READY document in --tenant with at least one chunk missing "
+        "context_prefix, resolved by querying Postgres at run time -- use instead of "
+        "--doc-ids-file/--document-id to avoid running against a stale, hand-generated list",
     )
     ap.add_argument("--provider", default="ollama_cloud")
     ap.add_argument("--model", default="gpt-oss:120b")
@@ -273,13 +322,26 @@ async def main():
         "--force", action="store_true", help="proceed even if --model isn't in the model registry"
     )
     ap.add_argument("--write", action="store_true", help="required to actually enrich and persist")
+    ap.add_argument(
+        "--dump-ids",
+        help="with --all-unenriched, write the resolved document ID list to this path (one "
+        "per line) before enriching, so the --write run's exact scope is auditable and "
+        "reproducible after the fact",
+    )
     args = ap.parse_args()
+
+    if args.dump_ids and not args.all_unenriched:
+        ap.error("--dump-ids requires --all-unenriched")
 
     doc_ids = list(dict.fromkeys(args.document_id))  # de-dup, preserve order
     if args.doc_ids_file:
         doc_ids.extend(d for d in _load_doc_ids(args.doc_ids_file) if d not in doc_ids)
-    if not doc_ids:
-        print("no document IDs given (--doc-ids-file / --document-id); nothing to do", flush=True)
+    if not doc_ids and not args.all_unenriched:
+        print(
+            "no document IDs given (--doc-ids-file / --document-id / --all-unenriched); "
+            "nothing to do",
+            flush=True,
+        )
         return
 
     model_warning = _validate_model(args.provider, args.model)
@@ -305,6 +367,26 @@ async def main():
     conn = await asyncpg.connect(db_url)
     await conn.execute("SELECT set_config('app.current_tenant', $1, false)", args.tenant)
     await conn.execute("SELECT set_config('app.is_super_admin', 'true', false)")
+
+    if args.all_unenriched:
+        doc_ids = await _load_all_unenriched_doc_ids(conn, args.tenant)
+        if not doc_ids:
+            print(
+                "--all-unenriched: no READY document with an unenriched chunk found for "
+                f"tenant '{args.tenant}' at query time.",
+                flush=True,
+            )
+            await conn.close()
+            return
+        print(
+            f"--all-unenriched: resolved {len(doc_ids)} READY document(s) with unenriched "
+            "chunk(s) at query time (not a stale pre-generated list).",
+            flush=True,
+        )
+        if args.dump_ids:
+            with open(args.dump_ids, "w", encoding="utf-8") as f:
+                f.write("\n".join(doc_ids) + "\n")
+            print(f"--dump-ids: wrote {len(doc_ids)} document ID(s) to {args.dump_ids}", flush=True)
 
     active_collection = await conn.fetchval(
         "SELECT config->>'active_vector_collection' FROM tenants WHERE id = $1", args.tenant

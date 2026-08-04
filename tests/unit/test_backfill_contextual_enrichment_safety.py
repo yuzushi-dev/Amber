@@ -68,8 +68,12 @@ def test_validate_model_rejects_unknown_provider():
 class _FakeConn:
     def __init__(self, rows):
         self._rows = rows
+        self.last_query = None
+        self.last_args = None
 
-    async def fetch(self, _query, *_args):
+    async def fetch(self, query, *args):
+        self.last_query = query
+        self.last_args = args
         return self._rows
 
 
@@ -231,3 +235,72 @@ def test_probe_collection_reads_real_dimension_of_existing_collection():
 
     assert exists is True
     assert dimensions == 1536
+
+
+# ---------------------------------------------------------------------------
+# _load_all_unenriched_doc_ids
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_load_all_unenriched_doc_ids_returns_resolved_ids_in_order():
+    conn = _FakeConn([{"document_id": "doc_a"}, {"document_id": "doc_b"}])
+
+    ids = await backfill._load_all_unenriched_doc_ids(conn, "default")
+
+    assert ids == ["doc_a", "doc_b"]
+
+
+@pytest.mark.asyncio
+async def test_load_all_unenriched_doc_ids_empty_when_nothing_found():
+    conn = _FakeConn([])
+
+    ids = await backfill._load_all_unenriched_doc_ids(conn, "default")
+
+    assert ids == []
+
+
+@pytest.mark.asyncio
+async def test_load_all_unenriched_doc_ids_binds_tenant_as_parameter():
+    """Regression guard for issue #98 item 7: tenant id must be a bound
+    query parameter, never interpolated into the SQL string -- so this
+    live-resolution path can't reintroduce the injection-shaped mistake
+    the rest of the script was fixed to avoid."""
+    conn = _FakeConn([])
+
+    await backfill._load_all_unenriched_doc_ids(conn, "default")
+
+    assert conn.last_args == ("default",)
+    assert "default" not in conn.last_query
+
+
+@pytest.mark.asyncio
+async def test_load_all_unenriched_doc_ids_filters_ready_status_only():
+    """Must exclude non-READY (e.g. FAILED) documents -- confirmed against
+    prod: FAILED documents can carry chunks with no context_prefix that are
+    outside the backfill's intended scope, and including them made the
+    live-resolved count disagree with a snapshot list that filtered by
+    status correctly."""
+    conn = _FakeConn([])
+
+    await backfill._load_all_unenriched_doc_ids(conn, "default")
+
+    assert "d.status = 'READY'" in conn.last_query
+
+
+@pytest.mark.asyncio
+async def test_load_all_unenriched_doc_ids_predicate_matches_falsy_context_prefix_check():
+    """The enrichment plan treats a chunk as needing enrichment when
+    ``not metadata.get("context_prefix")`` -- i.e. missing, None, OR an
+    empty string. The live-resolution query must use the same
+    (COALESCE-to-empty) predicate, not a bare ``IS NULL``, or a document
+    whose only unenriched chunks carry an empty-string prefix would be
+    silently dropped from --all-unenriched's scope while still being
+    picked up by the per-document enrichment plan for any doc that IS
+    selected via another path."""
+    conn = _FakeConn([])
+
+    await backfill._load_all_unenriched_doc_ids(conn, "default")
+
+    assert "COALESCE(c.metadata->>'context_prefix', '') = ''" in conn.last_query
+    assert "IS NULL" not in conn.last_query
