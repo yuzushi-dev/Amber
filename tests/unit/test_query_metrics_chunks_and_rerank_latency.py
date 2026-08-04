@@ -205,7 +205,7 @@ async def test_generation_service_generate_sets_chunks_used():
     svc._resolve_provider_factory = MagicMock(return_value=None)
     svc._apply_complexity_routing = lambda **kwargs: (kwargs["llm_cfg"], "standard", False)
     svc._get_document_titles = AsyncMock(return_value={})
-    svc._map_sources = MagicMock(return_value=[])
+    svc._map_sources = MagicMock(return_value=("Provider response", []))
 
     mock_provider = MagicMock()
     mock_provider.generate = AsyncMock(

@@ -60,11 +60,11 @@ def test_map_sources_uses_db_titles_not_untitled():
                      metadata={"content": "body"})  # no document_title here
 
     # Without the DB map -> falls back to Untitled (old behaviour)
-    src_no_map = svc._map_sources("see [[Source: 1]]", [cand])
+    _rewritten_no_map, src_no_map = svc._map_sources("see [[Source: 1]]", [cand])
     assert src_no_map[0].title == "Untitled"
 
     # With the DB map -> real filename
-    src_with_map = svc._map_sources(
+    _rewritten_with_map, src_with_map = svc._map_sources(
         "see [[Source: 1]]", [cand], {"doc_abc": "Carbonio_2FA.html"}
     )
     assert src_with_map[0].title == "Carbonio_2FA.html"

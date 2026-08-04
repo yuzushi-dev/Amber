@@ -511,11 +511,11 @@ class GenerationService:
             except Exception as e:
                 logger.warning(f"Failed to trigger memory extraction: {e}")
 
-        # Step 4: Parse citations and map sources
-        normalized_answer = self._normalize_citations(llm_result.text)
+        # Step 4: Parse citations, map sources, and renumber markers so they
+        # match the (cited-only) `sources` array returned to the client.
         doc_titles = await self._get_document_titles(context_result.used_candidates)
-        cited_sources = self._map_sources(
-            normalized_answer, context_result.used_candidates, doc_titles
+        normalized_answer, cited_sources = self._map_sources(
+            llm_result.text, context_result.used_candidates, doc_titles
         )
 
         # Log response summary
@@ -1009,13 +1009,23 @@ class GenerationService:
 
     def _map_sources(
         self, answer: str, candidates: list[Any], doc_titles: dict[str, str] | None = None
-    ) -> list[Source]:
-        """Extract citations from text and map to candidates.
+    ) -> tuple[str, list[Source]]:
+        """Extract citations from text, map to candidates, and renumber markers.
 
         ``doc_titles`` is the document_id->filename map resolved from the DB
         (via ``_get_document_titles``); it is the authoritative title source.
         Vector-search candidates carry no ``document_title`` in ``metadata``, so
         without this map every cited source fell back to "Untitled".
+
+        The LLM cites sources by their 1-based position in the *full*
+        candidate list (see ContextBuilder's "[Source ID: N]" headers), but
+        only cited candidates are returned in ``sources``. Left untouched, a
+        marker like "[[Source: 8]]" would reference an index past the end of
+        the (shorter) returned array once uncited candidates are dropped.
+        Markers are rewritten to each source's final 1-based position in the
+        returned list; markers that don't resolve to any candidate
+        (hallucinated or out-of-range indices) are stripped rather than left
+        dangling.
         """
         doc_titles = doc_titles or {}
         normalized_answer = self._normalize_citations(answer)
@@ -1023,11 +1033,13 @@ class GenerationService:
         matches = re.findall(pattern, normalized_answer)
         # Fallback for old format [1] just in case
         if not matches:
-            matches = re.findall(r"\[(\d+)\]", normalized_answer)
+            pattern = r"\[(\d+)\]"
+            matches = re.findall(pattern, normalized_answer)
 
         cited_indices = {int(m) for m in matches}
 
-        sources = []
+        sources: list[Source] = []
+        original_to_new: dict[int, int] = {}
         for i, cand in enumerate(candidates, 1):
             if i in cited_indices:
                 if isinstance(cand, dict):
@@ -1052,9 +1064,12 @@ class GenerationService:
                 score_val = cand.get("score", 0.0) if isinstance(cand, dict) else getattr(cand, "score", 0.0)
                 score_type_val = cand.get("score_type", "cosine") if isinstance(cand, dict) else getattr(cand, "score_type", "cosine")
                 source_val = cand.get("source", "vector") if isinstance(cand, dict) else getattr(cand, "source", "vector")
+
+                new_index = len(sources) + 1
+                original_to_new[i] = new_index
                 sources.append(
                     Source(
-                        index=i,
+                        index=new_index,
                         chunk_id=cid,
                         document_id=did,
                         content_preview=content[:100] + "..." if len(content) > 100 else content,
@@ -1064,7 +1079,17 @@ class GenerationService:
                         source=str(source_val or "vector"),
                     )
                 )
-        return sources
+
+        def _renumber(match: "re.Match[str]") -> str:
+            new_index = original_to_new.get(int(match.group(1)))
+            return f"[[Source: {new_index}]]" if new_index is not None else ""
+
+        normalized_answer = re.sub(pattern, _renumber, normalized_answer)
+        # Tidy whitespace/punctuation spacing left behind by stripped markers.
+        normalized_answer = re.sub(r"[ \t]+([.,;:!?])", r"\1", normalized_answer)
+        normalized_answer = re.sub(r"[ \t]{2,}", " ", normalized_answer)
+
+        return normalized_answer, sources
 
     def _generate_follow_ups(self, query: str, answer: str) -> list[str]:
         """Simple rule-based follow-up generator."""

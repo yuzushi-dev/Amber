@@ -59,7 +59,7 @@ def test_map_sources_carries_score_score_type_and_source():
     )
     doc_titles = {"doc1": "Test Document Title"}
 
-    sources = svc._map_sources(
+    _rewritten, sources = svc._map_sources(
         answer="According to [[Source: 1]], testing works.",
         candidates=[cand1],
         doc_titles=doc_titles,
