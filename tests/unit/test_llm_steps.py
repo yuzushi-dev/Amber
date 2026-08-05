@@ -1,4 +1,7 @@
-from src.core.generation.application.llm_steps import resolve_llm_step_config
+from src.core.generation.application.llm_steps import (
+    resolve_llm_step_config,
+    validate_llm_step_override,
+)
 from src.shared.model_registry import DEFAULT_LLM_MODEL, LLM_MODELS
 
 
@@ -50,3 +53,47 @@ def test_resolve_llm_step_config_generation_model_fallback():
     )
 
     assert cfg.model == OPENAI_ALT
+
+
+def test_validate_llm_step_override_valid_pair_passes():
+    assert validate_llm_step_override("openai", OPENAI_DEFAULT) is None
+
+
+def test_validate_llm_step_override_both_none_passes():
+    assert validate_llm_step_override(None, None) is None
+
+
+def test_validate_llm_step_override_unknown_model_lists_alternatives():
+    error = validate_llm_step_override("openai", "gpt-retired-999")
+    assert error is not None
+    assert "gpt-retired-999" in error
+    assert "openai" in error
+    for known_model in LLM_MODELS["openai"]:
+        assert known_model in error
+
+
+def test_validate_llm_step_override_unknown_provider_lists_known_providers():
+    error = validate_llm_step_override("not-a-real-provider", "some-model")
+    assert error is not None
+    assert "not-a-real-provider" in error
+    for known_provider in LLM_MODELS:
+        assert known_provider in error
+
+
+def test_validate_llm_step_override_model_only_resolved_against_any_provider():
+    """Regression test for issue #98 (B2). A model-only override (no
+    provider given) must be checked against ALL known providers -- the
+    prior behavior ("provider is None => nothing to check") let an invalid
+    model slip through whenever it was merged with a provider from
+    elsewhere (tenant_config/settings, or an already-stored override)."""
+    assert validate_llm_step_override(None, OPENAI_DEFAULT) is None
+
+    error = validate_llm_step_override(None, "definitely-not-a-real-model")
+    assert error is not None
+    assert "definitely-not-a-real-model" in error
+
+
+def test_validate_llm_step_override_provider_only_passes():
+    """A provider-only override (no model given) has nothing to check --
+    the model comes from elsewhere."""
+    assert validate_llm_step_override("openai", None) is None

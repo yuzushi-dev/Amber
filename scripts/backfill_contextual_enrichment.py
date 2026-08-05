@@ -1,19 +1,110 @@
 #!/usr/bin/env python3
-"""Backfill contextual enrichment for an existing tenant corpus.
+"""Backfill contextual enrichment for chunks ingested before/without it.
 
-Re-runs the ContextualEnricher over chunks already in Postgres/Milvus (documents
-ingested BEFORE contextual enrichment existed), then re-embeds (dense + sparse)
-and upserts the enriched content. Run inside the API container::
+Fixes for Issue #98 over the previous version of this script:
 
-    python3 scripts/backfill_contextual_enrichment.py --tenant hotpotbig \
-        --collection amber_hotpotbig --corpus /tmp/hotpot250_corpus.md \
-        --provider ollama_cloud --model gpt-oss:120b
+1. Dry-run by default (like the sibling ``backfill_document_taxonomy.py``).
+   ``--write`` is required to make any change; the default run validates
+   scope, provider/model, and collection and prints a per-document preview
+   with zero LLM/embedding cost.
+2. Scoped by document. ``--doc-ids-file``/``--document-id`` select which
+   documents to touch (mutually exclusive with each other and with
+   ``--all-unenriched``); the query is filtered by ``document_id =
+   ANY(...)``. ``--all-unenriched`` instead resolves the full scope live
+   against Postgres (every READY document with an unenriched chunk) at run
+   time -- preferred over a hand-generated ``--doc-ids-file`` snapshot,
+   which can silently go stale between generation and a cost-bearing
+   ``--write`` run if ingestion completes more documents in between.
+   ``--dump-ids`` (with ``--all-unenriched``) records the resolved list to
+   a file so the run's exact scope stays auditable after the fact.
+3. No more "one --corpus file for the whole tenant". Each document's own
+   text is reconstructed from ITS OWN chunks
+   (``COALESCE(metadata->>'original_content', content)``, ordered by
+   ``index``) and used as the enrichment context for ONLY that document's
+   chunks. This removes the cross-document contamination the single-corpus
+   design had (including hallucinated context for chunks whose byte offsets
+   fell past a mismatched corpus file's length). Offsets are recomputed
+   against the reconstructed text FOR THE DURATION OF THE ENRICHMENT CALL
+   ONLY and restored to their original stored values before anything is
+   persisted -- the reconstruction is an approximation (chunking strips some
+   whitespace/separators) and must never overwrite the true extraction-time
+   offsets in Postgres/Milvus.
+4. No silent fallback to a paid provider. The LLM provider is built with
+   ``with_failover=False`` unless ``--allow-fallback`` is passed explicitly
+   -- a cost-bearing operation across many documents must not silently
+   escalate to a different, unbudgeted provider mid-run.
+5. Partial success is no longer indistinguishable from success. Each
+   document's enrichment yield is checked against ``--min-yield`` (default
+   0.9); a document falling below it aborts the whole run BEFORE any write
+   for that document, with the failure printed. (This is exactly the
+   silent-degradation shape that hid issue #84 for ~3 weeks.)
+6. Vector writes go through ``MilvusVectorStore.upsert_chunks`` instead of a
+   raw ``pymilvus.Collection.upsert()`` call, so the embedding-dimension
+   parity guard applies and the per-chunk dynamic metadata fields set at
+   ingestion time (``chunk.metadata_``) are preserved instead of being wiped
+   by a bare 6-field upsert.
+7. Tenant id is bound as a query parameter, not interpolated into the SQL
+   string.
 
-Note: Neo4j chunk text is NOT updated (graph search modes unaffected by the
-embedding-side enrichment; backbone consistency is by chunk id, not text).
+Postgres ``chunks.content``/``metadata`` are updated via ``UPDATE ... WHERE
+id = $n`` (never deleted/reinserted); Milvus is upserted by existing
+``chunk_id`` (never dropped/recreated). Neo4j is not touched. The pre-
+enrichment text is preserved in ``metadata->>'original_content'`` (see
+``ContextualEnricher``), so a mistaken run can be reverted -- keep a
+targeted snapshot of the touched rows before running with ``--write``
+(``CREATE TABLE issue_backup AS SELECT id, document_id, content, metadata
+FROM chunks WHERE tenant_id = $1 AND document_id = ANY($2) AND
+COALESCE(metadata->>'context_prefix', '') = ''`` -- set
+``app.current_tenant``/``app.is_super_admin`` first, ``chunks`` is
+RLS-protected). A full rollback is TWO steps, not one:
+
+1. Restore Postgres: ``UPDATE chunks c SET content = b.content, metadata =
+   b.metadata FROM issue_backup b WHERE c.id = b.id``. This alone is
+   NOT a full rollback -- Milvus still holds the enriched text's dense/
+   sparse vectors for those ``chunk_id``s, so retrieval would score
+   against text that no longer exists in the row.
+2. Re-sync Milvus depends on what "rolled back" should mean:
+   - To retry enrichment (e.g. after fixing the provider/model/prompt),
+     re-run this script with ``--all-unenriched --write`` (or the same
+     ``--doc-ids-file``): the restored rows are back in the unenriched
+     set (``context_prefix`` stripped), so this re-embeds and re-upserts
+     them -- but it calls the LLM again and lands the chunk back in an
+     ENRICHED state (with fresh, possibly different, generated text),
+     not the original pristine one.
+   - To actually land back in the pristine, unenriched, vector-synced
+     state (no LLM call), re-ingest the affected documents through the
+     normal ingestion pipeline so their chunks and vectors are
+     recomputed from the restored content from scratch. This script has
+     no re-embed-without-enriching mode.
+
+Run inside a CPU worker container, NOT ``amber2-api-1`` -- this script loads
+SPLADE (torch) for sparse embeddings, and running that a second time inside
+the API container risks host OOM under production RAM sizing.
+
+Usage::
+
+    # Preview only: validates scope/provider/model/collection, no LLM cost.
+    python3 scripts/backfill_contextual_enrichment.py --tenant default \\
+        --collection amber_default --doc-ids-file /tmp/doc_ids_98.txt
+
+    # Actually enrich and persist.
+    python3 scripts/backfill_contextual_enrichment.py --tenant default \\
+        --collection amber_default --doc-ids-file /tmp/doc_ids_98.txt \\
+        --provider ollama_cloud --model gpt-oss:120b --write
+
+    # A single document, for canary verification before a full run.
+    python3 scripts/backfill_contextual_enrichment.py --tenant default \\
+        --collection amber_default --document-id doc_abc123 --write
+
+    # Full backfill scope resolved live against Postgres instead of a
+    # hand-generated file, with the resolved scope dumped for the record:
+    python3 scripts/backfill_contextual_enrichment.py --tenant default \\
+        --collection amber_default --all-unenriched --dump-ids /tmp/doc_ids_98_run.txt \\
+        --provider ollama_cloud --model gpt-oss:120b --write
 """
 import argparse
 import asyncio
+import inspect
 import json
 import sys
 import time
@@ -30,6 +121,40 @@ configure_settings(_settings)
 
 from src.core.generation.infrastructure.providers.factory import init_providers  # noqa: E402
 from src.core.ingestion.application.chunking.contextual import ContextualEnricher  # noqa: E402
+from src.core.retrieval.infrastructure.vector_store.milvus import (  # noqa: E402
+    MilvusConfig,
+    MilvusVectorStore,
+)
+from src.shared.model_registry import LLM_MODELS  # noqa: E402
+
+
+def _check_enricher_compatibility() -> str | None:
+    """Return an error string if the imported ``ContextualEnricher.enrich_chunks``
+    doesn't accept every keyword this script calls it with, else None.
+
+    This exists because a prior run crashed with ``TypeError:
+    enrich_chunks() got an unexpected keyword argument 'with_failover'``:
+    the script was copied into a worker container ahead of the library
+    file (``contextual.py``) that adds the parameter it calls with. The
+    crash happened only during ``--write`` -- the dry-run path never calls
+    ``enrich_chunks`` at all, so it printed a clean plan and gave false
+    confidence that the whole pipeline was compatible. Checking the
+    signature unconditionally (dry-run included) turns that same
+    version-skew into a loud, pre-flight ABORT instead of a mid-run crash
+    discovered only after several documents may have already been
+    enriched and written.
+    """
+    sig = inspect.signature(ContextualEnricher.enrich_chunks)
+    required = {"tenant_config", "settings", "with_failover"}
+    missing = required - set(sig.parameters)
+    if missing:
+        return (
+            f"ContextualEnricher.enrich_chunks() is missing parameter(s) {sorted(missing)} "
+            f"that this script calls with (imported from {ContextualEnricher.__module__}). "
+            "The mounted src/ this worker is running is likely on a different version than "
+            "this script -- deploy/overlay the matching contextual.py before proceeding."
+        )
+    return None
 
 
 def _init_factory(s):
@@ -69,117 +194,429 @@ def _embed_dense(texts, base_url, model):
     return [row["embedding"] for row in d["data"]]
 
 
+def _load_doc_ids(path: str) -> list[str]:
+    """One document ID per line. Blank lines and '#'-led comments ignored."""
+    ids: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                ids.append(line)
+    return ids
+
+
+async def _load_all_unenriched_doc_ids(conn, tenant_id: str) -> list[str]:
+    """Resolve the full backfill scope live against Postgres: every READY
+    document for ``tenant_id`` that has at least one chunk missing (null,
+    absent, or empty-string) ``context_prefix`` -- matching the falsy check
+    ``not metadata.get("context_prefix")`` the enrichment plan itself uses,
+    so this can't disagree with that plan and skip a document whose only
+    unenriched chunks carry an empty-string prefix. Queried at run time
+    (not from a pre-generated file) so a document that finishes ingestion
+    -- or flips to READY -- after a snapshot was taken is never silently
+    left out of a ``--write`` run. Non-READY documents (e.g. FAILED) are
+    excluded: they're outside the backfill's scope regardless of chunk
+    state.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT c.document_id
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.tenant_id = $1 AND d.status = 'READY'
+          AND COALESCE(c.metadata->>'context_prefix', '') = ''
+        ORDER BY c.document_id
+        """,
+        tenant_id,
+    )
+    return [r["document_id"] for r in rows]
+
+
+def _validate_model(provider: str, model: str) -> str | None:
+    """Return a warning string if `model` isn't a known entry for `provider`
+    in the model registry, else None. Does not block by itself -- the caller
+    decides whether an unknown model requires --force."""
+    catalog = LLM_MODELS.get(provider, {})
+    if model not in catalog:
+        return (
+            f"model '{model}' is not in the model_registry catalog for provider "
+            f"'{provider}' (known: {sorted(catalog) or 'none'}). It may still work "
+            "(the registry lags real provider catalogs) but this is exactly the "
+            "unnoticed-retirement shape that caused issue #84 -- verify it's live "
+            "before running with --write, or pass --force to proceed anyway."
+        )
+    return None
+
+
+async def _reconstruct_documents(
+    conn, tenant_id: str, doc_ids: list[str]
+) -> dict[str, dict]:
+    """Group this tenant's chunks by document_id (ordered by index) and
+    rebuild each document's approximate original text by concatenating
+    ``COALESCE(original_content, content)`` -- so chunks that are already
+    enriched, or already carry some other prefix, contribute their
+    PRE-prefix text rather than feeding an already-generated prefix back
+    into the prompt for a sibling chunk's context.
+
+    Returns ``{document_id: {"text": str, "chunks": [chunk_row, ...]}}``
+    where each chunk_row carries recomputed ``start``/``end`` offsets into
+    ``text`` for enrichment-time use only (the true, stored
+    ``start_char``/``end_char`` are kept unmodified in ``metadata`` and must
+    never be overwritten by these).
+    """
+    rows = await conn.fetch(
+        """
+        SELECT id, document_id, content, metadata, index
+        FROM chunks
+        WHERE tenant_id = $1 AND document_id = ANY($2)
+        ORDER BY document_id, index
+        """,
+        tenant_id,
+        doc_ids,
+    )
+    docs: dict[str, dict] = {}
+    for r in rows:
+        meta = json.loads(r["metadata"]) if isinstance(r["metadata"], str) else dict(r["metadata"])
+        pristine = meta.get("original_content") or r["content"]
+        doc = docs.setdefault(r["document_id"], {"text": "", "chunks": []})
+        if doc["text"]:
+            doc["text"] += "\n\n"
+        start = len(doc["text"])
+        doc["text"] += pristine
+        end = len(doc["text"])
+        doc["chunks"].append(
+            {
+                "id": r["id"],
+                "document_id": r["document_id"],
+                "content": r["content"],
+                "metadata": meta,
+                "reconstructed_start": start,
+                "reconstructed_end": end,
+            }
+        )
+    return docs
+
+
+def _restore_original_offsets(chunk: SimpleNamespace, original: tuple) -> None:
+    """Undo the temporary start_char/end_char override applied for
+    enrichment (see ``_reconstruct_documents``), restoring the chunk's
+    metadata to whatever it stored before -- present value or absent key.
+    Must run before ANY persistence: the reconstructed offsets are only
+    valid as an approximate index into the in-memory re-concatenated
+    document text, never as the true extraction-time offsets.
+    """
+    orig_start, orig_end = original
+    if orig_start is None:
+        chunk.metadata_.pop("start_char", None)
+    else:
+        chunk.metadata_["start_char"] = orig_start
+    if orig_end is None:
+        chunk.metadata_.pop("end_char", None)
+    else:
+        chunk.metadata_["end_char"] = orig_end
+
+
+def _probe_collection(
+    milvus: dict, collection_name: str, vector_field_name: str
+) -> tuple[bool, int | None]:
+    """Check whether ``collection_name`` already exists in Milvus and, if
+    so, read its real vector dimension off the live schema -- so a
+    ``--collection`` typo aborts loudly instead of ``connect()`` silently
+    auto-creating an empty collection under that name (issue #98, and so
+    the embedding-dimension parity guard checks against reality instead of
+    a hardcoded default). Returns ``(exists, dimensions)``; ``dimensions``
+    is ``None`` if the collection exists but the vector field couldn't be
+    found in its schema.
+    """
+    if not milvus["utility"].has_collection(collection_name):
+        return False, None
+    dimensions = None
+    for field in milvus["Collection"](collection_name).schema.fields:
+        if field.name == vector_field_name:
+            dimensions = field.params.get("dim")
+    return True, dimensions
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tenant", required=True)
     ap.add_argument("--collection", required=True)
-    ap.add_argument("--corpus", required=True, help="path to the original extracted document text")
+    scope = ap.add_mutually_exclusive_group()
+    scope.add_argument("--doc-ids-file", help="path to a file with one document ID per line")
+    scope.add_argument(
+        "--document-id", action="append", default=[], help="repeatable; scope to one document"
+    )
+    scope.add_argument(
+        "--all-unenriched",
+        action="store_true",
+        help="scope to every READY document in --tenant with at least one chunk missing "
+        "context_prefix, resolved by querying Postgres at run time -- use instead of "
+        "--doc-ids-file/--document-id to avoid running against a stale, hand-generated list",
+    )
     ap.add_argument("--provider", default="ollama_cloud")
     ap.add_argument("--model", default="gpt-oss:120b")
     ap.add_argument("--embedding-model", default="nomic-embed-text")
     ap.add_argument("--concurrency", type=int, default=8)
-    ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--min-yield",
+        type=float,
+        default=0.9,
+        help="abort BEFORE writing a document's results if enriched/total falls below this",
+    )
+    ap.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="allow silent failover to other configured providers (may be paid) if --provider "
+        "errors; default is to fail loudly on that provider only, since cost is not "
+        "budgeted for whatever a fallback chain might escalate to",
+    )
+    ap.add_argument(
+        "--force", action="store_true", help="proceed even if --model isn't in the model registry"
+    )
+    ap.add_argument("--write", action="store_true", help="required to actually enrich and persist")
+    ap.add_argument(
+        "--dump-ids",
+        help="with --all-unenriched, write the resolved document ID list to this path (one "
+        "per line) before enriching, so the --write run's exact scope is auditable and "
+        "reproducible after the fact",
+    )
     args = ap.parse_args()
+
+    compat_error = _check_enricher_compatibility()
+    if compat_error:
+        print(f"ABORT: {compat_error}", flush=True)
+        raise SystemExit(1)
+
+    if args.dump_ids and not args.all_unenriched:
+        ap.error("--dump-ids requires --all-unenriched")
+
+    doc_ids = list(dict.fromkeys(args.document_id))  # de-dup, preserve order
+    if args.doc_ids_file:
+        doc_ids.extend(d for d in _load_doc_ids(args.doc_ids_file) if d not in doc_ids)
+    if not doc_ids and not args.all_unenriched:
+        print(
+            "no document IDs given (--doc-ids-file / --document-id / --all-unenriched); "
+            "nothing to do",
+            flush=True,
+        )
+        return
+
+    model_warning = _validate_model(args.provider, args.model)
+    if model_warning and not args.force:
+        print(f"ABORT: {model_warning}", flush=True)
+        print("(pass --force to proceed anyway)", flush=True)
+        raise SystemExit(1)
+    if model_warning:
+        print(f"WARNING (proceeding due to --force): {model_warning}", flush=True)
 
     s = get_settings()
     _init_factory(s)
-    # Usage logging inside the provider needs the DB configured (best-effort).
     try:
         from src.core.database.session import configure_database
 
         configure_database(database_url=s.db.app_database_url or s.db.database_url)
     except Exception:
         pass
-    corpus = open(args.corpus, encoding="utf-8").read()
 
     import asyncpg
 
     db_url = (s.db.database_url or "").replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
-    await conn.execute(f"SET app.current_tenant = '{args.tenant}'")
-    await conn.execute("SET app.is_super_admin = 'true'")
-    rows = await conn.fetch(
-        "SELECT id, document_id, content, metadata FROM chunks WHERE tenant_id = $1 ORDER BY index",
-        args.tenant,
-    )
-    if args.limit:
-        rows = rows[: args.limit]
-    print(f"chunks: {len(rows)}", flush=True)
+    await conn.execute("SELECT set_config('app.current_tenant', $1, false)", args.tenant)
+    await conn.execute("SELECT set_config('app.is_super_admin', 'true', false)")
 
-    chunk_objs = []
-    for r in rows:
-        meta = json.loads(r["metadata"]) if isinstance(r["metadata"], str) else dict(r["metadata"])
-        if meta.get("context_prefix"):
-            continue  # already enriched
-        chunk_objs.append(
-            SimpleNamespace(
-                id=r["id"], document_id=r["document_id"], content=r["content"], metadata_=meta
+    if args.all_unenriched:
+        doc_ids = await _load_all_unenriched_doc_ids(conn, args.tenant)
+        if not doc_ids:
+            print(
+                "--all-unenriched: no READY document with an unenriched chunk found for "
+                f"tenant '{args.tenant}' at query time.",
+                flush=True,
             )
+            await conn.close()
+            return
+        print(
+            f"--all-unenriched: resolved {len(doc_ids)} READY document(s) with unenriched "
+            "chunk(s) at query time (not a stale pre-generated list).",
+            flush=True,
         )
-    print(f"to enrich: {len(chunk_objs)}", flush=True)
-    if args.dry_run:
+        if args.dump_ids:
+            with open(args.dump_ids, "w", encoding="utf-8") as f:
+                f.write("\n".join(doc_ids) + "\n")
+            print(f"--dump-ids: wrote {len(doc_ids)} document ID(s) to {args.dump_ids}", flush=True)
+
+    active_collection = await conn.fetchval(
+        "SELECT config->>'active_vector_collection' FROM tenants WHERE id = $1", args.tenant
+    )
+    if active_collection and active_collection != args.collection:
+        print(
+            f"WARNING: --collection '{args.collection}' does not match this tenant's "
+            f"active_vector_collection '{active_collection}'. Writing to a collection "
+            "the tenant doesn't actually query is a wasted, expensive no-op.",
+            flush=True,
+        )
+
+    # Validated unconditionally (dry-run included, per the module docstring):
+    # fail loudly on a --collection typo instead of letting
+    # MilvusVectorStore.connect() silently CREATE a brand-new, empty
+    # collection under that name later during --write -- which would make
+    # the whole run a phantom write: Postgres gets the enriched content, the
+    # collection the tenant actually queries keeps its pristine vectors, and
+    # the script still prints success. Also read the real vector dimension
+    # off the existing collection so the embedding-dimension parity guard in
+    # upsert_chunks checks against reality, not MilvusConfig's 768 default.
+    from src.core.retrieval.infrastructure.vector_store.milvus import _get_milvus
+
+    _milvus = _get_milvus()
+    _milvus["connections"].connect(alias="default", host=s.db.milvus_host, port=s.db.milvus_port)
+    exists, milvus_dimensions = _probe_collection(_milvus, args.collection, MilvusVectorStore.FIELD_VECTOR)
+    if not exists:
+        print(
+            f"ABORT: Milvus collection '{args.collection}' does not exist. Refusing to "
+            "auto-create it here -- verify --collection against this tenant's "
+            "active_vector_collection and that ingestion has actually run for it.",
+            flush=True,
+        )
+        await conn.close()
+        raise SystemExit(1)
+    if milvus_dimensions is None:
+        print(f"ABORT: could not determine the vector dimension of collection '{args.collection}'.", flush=True)
+        await conn.close()
+        raise SystemExit(1)
+    print(f"Collection '{args.collection}' OK (dimension={milvus_dimensions}).", flush=True)
+    docs = await _reconstruct_documents(conn, args.tenant, doc_ids)
+    missing = set(doc_ids) - set(docs)
+    if missing:
+        print(
+            f"WARNING: {len(missing)} requested document ID(s) have no chunks: {sorted(missing)}",
+            flush=True,
+        )
+
+    print(f"\n{'document_id':<40} {'to_enrich':>10} {'total':>8} {'text_len':>10}")
+    plan: dict[str, list[dict]] = {}
+    for doc_id, doc in docs.items():
+        to_enrich = [c for c in doc["chunks"] if not c["metadata"].get("context_prefix")]
+        plan[doc_id] = to_enrich
+        print(f"{doc_id:<40} {len(to_enrich):>10} {len(doc['chunks']):>8} {len(doc['text']):>10}")
+    total_to_enrich = sum(len(v) for v in plan.values())
+    print(f"\n{total_to_enrich} chunk(s) across {sum(1 for v in plan.values() if v)} document(s) to enrich.")
+
+    if not args.write:
+        print("\nDRY-RUN: no LLM calls made, nothing written. Pass --write to execute.", flush=True)
         await conn.close()
         return
 
-    enricher = ContextualEnricher(max_concurrency=args.concurrency)
-    tenant_config = {
-        "llm_steps": {
-            "ingestion.chunk_context": {"provider": args.provider, "model": args.model}
-        }
-    }
-    t0 = time.time()
-    enriched_n = await enricher.enrich_chunks(
-        chunk_objs, corpus, tenant_config=tenant_config, settings=s
-    )
-    print(f"enriched {enriched_n}/{len(chunk_objs)} in {time.time()-t0:.0f}s", flush=True)
-
-    enriched = [c for c in chunk_objs if c.metadata_.get("context_prefix")]
-    if not enriched:
-        print("nothing enriched, abort before write", flush=True)
+    if total_to_enrich == 0:
+        print("nothing to enrich, exiting", flush=True)
         await conn.close()
         return
 
     from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 
+    enricher = ContextualEnricher(max_concurrency=args.concurrency)
+    tenant_config = {
+        "llm_steps": {"ingestion.chunk_context": {"provider": args.provider, "model": args.model}}
+    }
+
     sparse_svc = SparseEmbeddingService()
-    from pymilvus import Collection, connections
-
-    connections.connect(host=s.db.milvus_host, port=str(s.db.milvus_port))
-    col = Collection(args.collection)
-    col.load()
-
-    BATCH = 32
-    for i in range(0, len(enriched), BATCH):
-        batch = enriched[i : i + BATCH]
-        texts = [c.content for c in batch]
-        dense = _embed_dense(texts, s.ollama_base_url, args.embedding_model)
-        sparse = sparse_svc.embed_batch(texts)
-        col.upsert(
-            [
-                {
-                    "chunk_id": c.id,
-                    "document_id": c.document_id,
-                    "tenant_id": args.tenant,
-                    "content": c.content[:65530],
-                    "vector": d,
-                    "sparse_vector": sp or {1: 0.0001},
-                }
-                for c, d, sp in zip(batch, dense, sparse, strict=True)
-            ]
+    vector_store = MilvusVectorStore(
+        MilvusConfig(
+            host=s.db.milvus_host,
+            port=s.db.milvus_port,
+            collection_name=args.collection,
+            dimensions=milvus_dimensions,
         )
-        for c in batch:
-            await conn.execute(
-                "UPDATE chunks SET content = $1, metadata = $2::jsonb WHERE id = $3",
-                c.content,
-                json.dumps(c.metadata_),
-                c.id,
-            )
-        print(f"written {i + len(batch)}/{len(enriched)}  {time.time()-t0:.0f}s", flush=True)
+    )
+    await vector_store.connect()
 
-    col.flush()
+    t0 = time.time()
+    total_enriched = 0
+    for doc_id, to_enrich in plan.items():
+        if not to_enrich:
+            continue
+
+        # Recomputed offsets are for THIS enrichment call only -- restored to
+        # the original stored values below, before anything is persisted.
+        original_offsets = {c["id"]: (c["metadata"].get("start_char"), c["metadata"].get("end_char")) for c in to_enrich}
+        chunk_objs = [
+            SimpleNamespace(
+                id=c["id"],
+                document_id=c["document_id"],
+                content=c["content"],
+                metadata_={
+                    **c["metadata"],
+                    "start_char": c["reconstructed_start"],
+                    "end_char": c["reconstructed_end"],
+                },
+            )
+            for c in to_enrich
+        ]
+        doc_text = docs[doc_id]["text"]
+        enriched_n = await enricher.enrich_chunks(
+            chunk_objs,
+            doc_text,
+            tenant_config=tenant_config,
+            settings=s,
+            with_failover=args.allow_fallback,
+        )
+        for chunk in chunk_objs:
+            _restore_original_offsets(chunk, original_offsets[chunk.id])
+
+        yield_ratio = enriched_n / len(chunk_objs)
+        print(f"{doc_id}: enriched {enriched_n}/{len(chunk_objs)} ({yield_ratio:.0%})", flush=True)
+        if yield_ratio < args.min_yield:
+            print(
+                f"ABORT before writing '{doc_id}': yield {yield_ratio:.0%} is below "
+                f"--min-yield {args.min_yield:.0%}. No chunks for this or any later "
+                "document were written. Check the 'Chunk contextualization failed' "
+                "warnings above for the cause, then re-run once fixed.",
+                flush=True,
+            )
+            await conn.close()
+            raise SystemExit(1)
+
+        enriched_chunks = [c for c in chunk_objs if c.metadata_.get("context_prefix")]
+        if not enriched_chunks:
+            continue
+
+        BATCH = 32
+        for i in range(0, len(enriched_chunks), BATCH):
+            batch = enriched_chunks[i : i + BATCH]
+            texts = [c.content for c in batch]
+            dense = _embed_dense(texts, s.ollama_base_url, args.embedding_model)
+            sparse = sparse_svc.embed_batch(texts)
+            await vector_store.upsert_chunks(
+                [
+                    {
+                        "chunk_id": c.id,
+                        "document_id": c.document_id,
+                        "tenant_id": args.tenant,
+                        "content": c.content[:65530],
+                        "embedding": d,
+                        "sparse_vector": sp or {1: 0.0001},
+                        # Restore the ingestion-time dynamic metadata fields
+                        # (filters/taxonomy/etc.) that a bare 6-field upsert
+                        # would otherwise wipe, plus the context_prefix /
+                        # original_content this enrichment pass just added.
+                        **c.metadata_,
+                    }
+                    for c, d, sp in zip(batch, dense, sparse, strict=True)
+                ]
+            )
+            for c in batch:
+                await conn.execute(
+                    "UPDATE chunks SET content = $1, metadata = $2::jsonb WHERE id = $3",
+                    c.content,
+                    json.dumps(c.metadata_),
+                    c.id,
+                )
+        total_enriched += len(enriched_chunks)
+
     await conn.close()
-    print("done", flush=True)
+    print(
+        f"done: {total_enriched}/{total_to_enrich} chunks enriched and written in {time.time()-t0:.0f}s",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

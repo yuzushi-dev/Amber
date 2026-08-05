@@ -89,10 +89,19 @@ class ContextualEnricher:
         *,
         tenant_config: dict[str, Any],
         settings: Any,
+        with_failover: bool = True,
     ) -> int:
         """
         Enrich ``chunks`` (domain Chunk objects) in place. Returns the number of
         chunks actually enriched. Failures leave the chunk untouched.
+
+        ``with_failover`` controls whether the resolved provider may silently
+        escalate to a different (possibly paid) provider on error, per
+        ``ProviderFactory.get_llm_provider``. Ingestion (the normal caller)
+        keeps the default ``True`` for resilience; a cost-bearing bulk
+        backfill across many documents should pass ``False`` so a failure on
+        the configured provider is visible instead of silently billing a
+        different one.
         """
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.core.generation.infrastructure.providers.base import ProviderTier
@@ -107,6 +116,7 @@ class ContextualEnricher:
             provider_name=llm_config.provider,
             model=llm_config.model,
             tier=ProviderTier.ECONOMY,
+            with_failover=with_failover,
         )
 
         semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -128,13 +138,18 @@ class ContextualEnricher:
             if not context:
                 return
             meta["context_prefix"] = context
-            meta["original_content"] = chunk.content
+            # setdefault, not assign: re-running enrichment on an already
+            # -prefixed chunk (idempotent retry, or a future second prefixing
+            # mechanism sharing this key) must never clobber the pristine text
+            # already saved here -- that would make it unrecoverable.
+            meta.setdefault("original_content", chunk.content)
             chunk.metadata_ = dict(meta)
             chunk.content = f"{context}\n\n{chunk.content}"
             enriched += 1
 
         await asyncio.gather(*(_one(c) for c in chunks))
-        logger.info(
+        log = logger.warning if enriched < len(chunks) else logger.info
+        log(
             "Contextual enrichment: %d/%d chunks enriched (model=%s)",
             enriched,
             len(chunks),
