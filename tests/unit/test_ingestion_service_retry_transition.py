@@ -65,7 +65,12 @@ class FakeDocumentRepository:
         return True
 
     async def save(self, document: StubDocument) -> None:
-        self.saved.append(document)
+        # Snapshot the fields the tests inspect: get() always returns the
+        # same mutable StubDocument, so storing the reference itself would
+        # make every entry in `saved` alias the object's FINAL state.
+        self.saved.append(
+            StubDocument(status=document.status, error_message=document.error_message)
+        )
 
 
 class FakeUnitOfWork:
@@ -132,6 +137,35 @@ async def test_process_document_cas_uses_actual_prior_status(prior_status):
     assert repo.saved[-1].status == DocumentStatus.FAILED
     error_data = json.loads(repo.saved[-1].error_message)
     assert "sentinel-stop-after-guard" in json.dumps(error_data)
+
+
+@pytest.mark.asyncio
+async def test_process_document_clears_stale_error_message_on_retry():
+    """A retry must clear the previous attempt's error_message as soon as the
+    transition guard passes, not only on eventual success - otherwise a
+    document that later lands in NEEDS_REVIEW (or fails for an unrelated
+    reason) keeps showing a stale error from a prior, unrelated failure."""
+    document = StubDocument(
+        id="doc_3",
+        tenant_id="tenant-1",
+        status=DocumentStatus.FAILED,
+        storage_path="tenant-1/doc_3/file.txt",
+        filename="file.txt",
+        metadata_={},
+        error_message=json.dumps({"code": "processing_error", "message": "stale"}),
+    )
+    repo = FakeDocumentRepository(document)
+    service = make_service(repo, FakeUnitOfWork())
+
+    with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
+        await service.process_document("doc_3")
+
+    assert len(repo.saved) == 2
+    # First save, right after the guard: clears the stale error.
+    assert repo.saved[0].error_message is None
+    # Second save, from the exception handler: records the NEW failure.
+    assert repo.saved[1].status == DocumentStatus.FAILED
+    assert "sentinel-stop-after-guard" in repo.saved[1].error_message
 
 
 @pytest.mark.asyncio

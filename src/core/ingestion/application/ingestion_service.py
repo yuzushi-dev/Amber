@@ -442,6 +442,17 @@ class IngestionService:
         # Refresh local object to match DB
         document = await self.document_repository.get(document_id)
 
+        # Clear any error state left over from a prior failed attempt now that
+        # a fresh retry has begun. Done once here (not per terminal branch)
+        # so it covers every possible outcome of this attempt - READY,
+        # NEEDS_REVIEW, or a fresh FAILED (which unconditionally overwrites
+        # this again in the exception handler below) - rather than only the
+        # READY path, which would leave a stale error visible on a document
+        # that lands in NEEDS_REVIEW instead.
+        if document.error_message is not None:
+            document.error_message = None
+            await self.document_repository.save(document)
+
         tenant_config: dict[str, Any] = {}
         if self.tenant_repository:
             try:
