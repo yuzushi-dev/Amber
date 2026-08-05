@@ -82,6 +82,85 @@ class IngestionService:
         self.graph_processor = GraphProcessor()
         self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
 
+    async def _cleanup_failed_document_artifacts(self, document: Document) -> None:
+        """
+        Best-effort removal of partial Milvus vectors and Neo4j graph data left
+        behind by a document that failed mid-pipeline.
+
+        Called from the `-> FAILED` exception handler in `process_document` so a
+        later same-`document_id` retry (`TransitionManager` allows
+        `FAILED -> INGESTED`/`FAILED -> EXTRACTING`) never inherits stale
+        chunks/entities from the failed attempt. Milvus and Neo4j are cleaned
+        independently so a failure in one does not skip the other. This method
+        never raises: a cleanup failure must never mask the original ingestion
+        error or block persistence of the FAILED status.
+        """
+        if self.vector_store:
+            try:
+                deleted = await self.vector_store.delete_by_document(
+                    document.id, document.tenant_id
+                )
+                logger.info(
+                    f"FAILED cleanup: removed {deleted} Milvus vector(s) for {document.id}"
+                )
+            except Exception as vec_err:
+                logger.warning(
+                    f"FAILED cleanup: Milvus delete failed for {document.id}: {vec_err}"
+                )
+
+        if self.neo4j_client:
+            try:
+                collect_cypher = """
+                MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})-[:MENTIONS]->(e:Entity)
+                WHERE NOT EXISTS {
+                    MATCH (other:Chunk)-[:MENTIONS]->(e)
+                    WHERE other.document_id <> $document_id
+                }
+                MATCH (e)-[:BELONGS_TO]->(comm:Community)
+                RETURN collect(DISTINCT comm.id) AS ids
+                """
+                rows = await self.neo4j_client.execute_read(
+                    collect_cypher,
+                    {"document_id": document.id, "tenant_id": document.tenant_id},
+                )
+                affected_community_ids = rows[0]["ids"] if rows else []
+
+                delete_cypher = """
+                MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+                OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
+                WITH collect(DISTINCT c) AS chunks, collect(DISTINCT e) AS entities
+                FOREACH (ch IN chunks | DETACH DELETE ch)
+                WITH entities
+                UNWIND entities AS entity
+                WITH DISTINCT entity
+                WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
+                DETACH DELETE entity
+                """
+                await self.neo4j_client.execute_write(
+                    delete_cypher,
+                    {"document_id": document.id, "tenant_id": document.tenant_id},
+                )
+
+                if affected_community_ids:
+                    stale_cypher = """
+                    MATCH (comm:Community {tenant_id: $tenant_id})
+                    WHERE comm.id IN $ids
+                      AND EXISTS { (:Entity)-[:BELONGS_TO]->(comm) }
+                    SET comm.is_stale = true
+                    """
+                    await self.neo4j_client.execute_write(
+                        stale_cypher,
+                        {"tenant_id": document.tenant_id, "ids": affected_community_ids},
+                    )
+
+                logger.info(
+                    f"FAILED cleanup: removed Neo4j graph chunks/entities for {document.id}"
+                )
+            except Exception as graph_err:
+                logger.warning(
+                    f"FAILED cleanup: Neo4j delete failed for {document.id}: {graph_err}"
+                )
+
     async def register_document(
         self,
         tenant_id: str,
@@ -1154,6 +1233,14 @@ class IngestionService:
 
                     await self.document_repository.save(document)
                     await self.unit_of_work.commit()
+
+                    # Best-effort cleanup of partial Milvus/Neo4j artifacts left by this
+                    # failed run. A same-document_id retry is a valid transition
+                    # (TransitionManager: FAILED -> INGESTED/EXTRACTING); without this,
+                    # a retry that produces fewer chunks than the failed attempt leaves
+                    # stale chunks/entities behind (chunk drift, orphan-entity pollution
+                    # in graph traversal and community summaries). Never raises.
+                    await self._cleanup_failed_document_artifacts(document)
             except Exception as inner_err:
                 logger.error(f"Failed to update error state for {document_id}: {inner_err}")
             raise
