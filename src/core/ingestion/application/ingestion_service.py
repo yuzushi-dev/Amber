@@ -406,16 +406,24 @@ class IngestionService:
         # Set tenant context for this background task
         set_current_tenant(document.tenant_id)
 
-        # 2. Check State & Transition (INGESTED -> EXTRACTING)
+        # 2. Check State & Transition (validated prior state -> EXTRACTING).
+        # The state machine documents several retry paths into EXTRACTING
+        # (FAILED, NEEDS_REVIEW, READY), not just the initial INGESTED start.
+        # The CAS guard below must key off the ACTUAL prior status that was
+        # just validated, not a hardcoded INGESTED - otherwise every retry
+        # transition passes validation but silently no-ops here because the
+        # persisted row is never in the 'ingested' state (bug found while
+        # retrying issue #106's no-graph-twin documents in prod).
+        prior_status = document.status
         try:
-            TransitionManager.validate_transition(document.status, DocumentStatus.EXTRACTING)
+            TransitionManager.validate_transition(prior_status, DocumentStatus.EXTRACTING)
         except InvalidTransitionError as e:
             logger.warning(
                 f"Invalid status transition for {document_id}: {e}. Skipping."
             )
             return
         updated = await self.document_repository.update_status(
-            document_id, DocumentStatus.EXTRACTING, old_status=DocumentStatus.INGESTED
+            document_id, DocumentStatus.EXTRACTING, old_status=prior_status
         )
 
         if not updated:
@@ -423,7 +431,8 @@ class IngestionService:
             document = await self.document_repository.get(document_id)
             logger.warning(
                 f"Skipping processing for {document_id}: "
-                f"Status is {document.status} (expected INGESTED)"
+                f"Status changed to {document.status} concurrently "
+                f"(expected {prior_status})"
             )
             return
 
