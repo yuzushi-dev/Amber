@@ -389,7 +389,7 @@ class IngestionService:
         )
         return existing_doc
 
-    async def process_document(self, document_id: str):
+    async def process_document(self, document_id: str, force: bool = False) -> None:
         """
         Orchestrate the document ingestion pipeline.
         """
@@ -406,16 +406,45 @@ class IngestionService:
         # Set tenant context for this background task
         set_current_tenant(document.tenant_id)
 
-        # 2. Check State & Transition (INGESTED -> EXTRACTING)
+        # 2. Check State & Transition (validated prior state -> EXTRACTING).
+        # The state machine documents several retry paths into EXTRACTING
+        # (FAILED, NEEDS_REVIEW, READY), not just the initial INGESTED start.
+        # The CAS guard below must key off the ACTUAL prior status that was
+        # just validated, not a hardcoded INGESTED - otherwise every retry
+        # transition passes validation but silently no-ops here because the
+        # persisted row is never in the 'ingested' state (bug found while
+        # retrying issue #106's no-graph-twin documents in prod).
+        prior_status = document.status
         try:
-            TransitionManager.validate_transition(document.status, DocumentStatus.EXTRACTING)
+            TransitionManager.validate_transition(prior_status, DocumentStatus.EXTRACTING)
         except InvalidTransitionError as e:
             logger.warning(
                 f"Invalid status transition for {document_id}: {e}. Skipping."
             )
             return
+
+        # READY means this document already completed the pipeline and is
+        # serving live retrieval traffic. The state machine allows
+        # READY -> EXTRACTING (for a deliberate, explicit reprocess), but this
+        # method is also the target of automatic Celery dispatch. With
+        # task_acks_late + task_reject_on_worker_lost, a worker that dies after
+        # the pipeline already completed but before its ack reaches the broker
+        # causes the exact same call to be redelivered. Without this guard that
+        # redelivery would silently re-run the full pipeline (re-extract/chunk/
+        # embed, wipe+rewrite Milvus/Neo4j) against a document currently being
+        # read. Every known caller that wants a real reprocess (recovery.py's
+        # stale-document sweep, migration_service.py's embedding migration)
+        # already resets status to INGESTED before dispatching, so this guard
+        # does not affect them - only an explicit force=True caller reprocesses
+        # a READY document.
+        if prior_status == DocumentStatus.READY and not force:
+            logger.warning(
+                f"Document {document_id} is already READY; skipping automatic "
+                "reprocessing (pass force=True for an explicit reprocess)."
+            )
+            return
         updated = await self.document_repository.update_status(
-            document_id, DocumentStatus.EXTRACTING, old_status=DocumentStatus.INGESTED
+            document_id, DocumentStatus.EXTRACTING, old_status=prior_status
         )
 
         if not updated:
@@ -423,7 +452,8 @@ class IngestionService:
             document = await self.document_repository.get(document_id)
             logger.warning(
                 f"Skipping processing for {document_id}: "
-                f"Status is {document.status} (expected INGESTED)"
+                f"Status changed to {document.status} concurrently "
+                f"(expected {prior_status})"
             )
             return
 
@@ -432,6 +462,17 @@ class IngestionService:
 
         # Refresh local object to match DB
         document = await self.document_repository.get(document_id)
+
+        # Clear any error state left over from a prior failed attempt now that
+        # a fresh retry has begun. Done once here (not per terminal branch)
+        # so it covers every possible outcome of this attempt - READY,
+        # NEEDS_REVIEW, or a fresh FAILED (which unconditionally overwrites
+        # this again in the exception handler below) - rather than only the
+        # READY path, which would leave a stale error visible on a document
+        # that lands in NEEDS_REVIEW instead.
+        if document.error_message is not None:
+            document.error_message = None
+            await self.document_repository.save(document)
 
         tenant_config: dict[str, Any] = {}
         if self.tenant_repository:

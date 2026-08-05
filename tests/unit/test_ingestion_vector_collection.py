@@ -125,6 +125,7 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         keywords=[],
         chunks=[],
         created_at=datetime.now(UTC),
+        error_message=None,
     )
 
     class TenantRepo:
