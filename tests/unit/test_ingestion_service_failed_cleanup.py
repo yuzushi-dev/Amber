@@ -32,6 +32,10 @@ def _stub_heavy_init_components(monkeypatch):
 
 class StubDocument:
     def __init__(self, **kwargs) -> None:
+        # Real `Document` always has `error_message` (normally None); this
+        # file's StubDocument predates process_document's post-#110 stale
+        # error clearing, which reads it unconditionally.
+        self.error_message = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
