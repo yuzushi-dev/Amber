@@ -389,7 +389,7 @@ class IngestionService:
         )
         return existing_doc
 
-    async def process_document(self, document_id: str):
+    async def process_document(self, document_id: str, force: bool = False) -> None:
         """
         Orchestrate the document ingestion pipeline.
         """
@@ -420,6 +420,27 @@ class IngestionService:
         except InvalidTransitionError as e:
             logger.warning(
                 f"Invalid status transition for {document_id}: {e}. Skipping."
+            )
+            return
+
+        # READY means this document already completed the pipeline and is
+        # serving live retrieval traffic. The state machine allows
+        # READY -> EXTRACTING (for a deliberate, explicit reprocess), but this
+        # method is also the target of automatic Celery dispatch. With
+        # task_acks_late + task_reject_on_worker_lost, a worker that dies after
+        # the pipeline already completed but before its ack reaches the broker
+        # causes the exact same call to be redelivered. Without this guard that
+        # redelivery would silently re-run the full pipeline (re-extract/chunk/
+        # embed, wipe+rewrite Milvus/Neo4j) against a document currently being
+        # read. Every known caller that wants a real reprocess (recovery.py's
+        # stale-document sweep, migration_service.py's embedding migration)
+        # already resets status to INGESTED before dispatching, so this guard
+        # does not affect them - only an explicit force=True caller reprocesses
+        # a READY document.
+        if prior_status == DocumentStatus.READY and not force:
+            logger.warning(
+                f"Document {document_id} is already READY; skipping automatic "
+                "reprocessing (pass force=True for an explicit reprocess)."
             )
             return
         updated = await self.document_repository.update_status(

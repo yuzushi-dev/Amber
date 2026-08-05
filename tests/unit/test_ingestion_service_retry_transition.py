@@ -13,6 +13,16 @@ no-op'd, because the persisted row was never actually in the
 'ingested' state. Found while retrying issue #106's no-graph-twin
 documents in prod: two FAILED documents stayed FAILED across repeated
 retry attempts with no error surfaced anywhere.
+
+Follow-up: fixing the CAS to key off the real prior status also opened a
+second bug - READY -> EXTRACTING is a valid transition, but this method is
+also the target of automatic Celery dispatch, which can redeliver the same
+call after a document already reached READY (task_acks_late +
+task_reject_on_worker_lost: a worker dying after the pipeline finished but
+before its ack lands causes redelivery). Without an explicit `force` gate,
+that redelivery would silently re-run the full pipeline against a document
+already serving live retrieval traffic. `force=False` (default) makes READY
+a no-op; `force=True` is reserved for a deliberate, explicit reprocess.
 """
 
 import json
@@ -107,7 +117,6 @@ def make_service(document_repository, unit_of_work) -> service_module.IngestionS
     [
         DocumentStatus.INGESTED,
         DocumentStatus.FAILED,
-        DocumentStatus.READY,
         DocumentStatus.NEEDS_REVIEW,
     ],
 )
@@ -137,6 +146,54 @@ async def test_process_document_cas_uses_actual_prior_status(prior_status):
     assert repo.saved[-1].status == DocumentStatus.FAILED
     error_data = json.loads(repo.saved[-1].error_message)
     assert "sentinel-stop-after-guard" in json.dumps(error_data)
+
+
+@pytest.mark.asyncio
+async def test_process_document_skips_ready_without_force():
+    """READY means the document already completed the pipeline and is
+    serving live retrieval traffic. Automatic Celery redelivery (see module
+    docstring) must no-op against it instead of silently re-running the full
+    pipeline."""
+    document = StubDocument(
+        id="doc_4",
+        tenant_id="tenant-1",
+        status=DocumentStatus.READY,
+        storage_path="tenant-1/doc_4/file.txt",
+        filename="file.txt",
+        metadata_={},
+    )
+    repo = FakeDocumentRepository(document)
+    service = make_service(repo, FakeUnitOfWork())
+
+    await service.process_document("doc_4")
+
+    assert repo.update_status_calls == []
+    assert repo.saved == []
+    assert document.status == DocumentStatus.READY
+
+
+@pytest.mark.asyncio
+async def test_process_document_reprocesses_ready_with_explicit_force():
+    """An explicit, deliberate reprocess (force=True) must still reach the
+    pipeline for a READY document - the guard only blocks the implicit
+    automatic-dispatch path, not a caller that genuinely wants a reprocess."""
+    document = StubDocument(
+        id="doc_5",
+        tenant_id="tenant-1",
+        status=DocumentStatus.READY,
+        storage_path="tenant-1/doc_5/file.txt",
+        filename="file.txt",
+        metadata_={},
+    )
+    repo = FakeDocumentRepository(document)
+    service = make_service(repo, FakeUnitOfWork())
+
+    with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
+        await service.process_document("doc_5", force=True)
+
+    assert repo.update_status_calls == [
+        ("doc_5", DocumentStatus.EXTRACTING, DocumentStatus.READY)
+    ]
 
 
 @pytest.mark.asyncio
