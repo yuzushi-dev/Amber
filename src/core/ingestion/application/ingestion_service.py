@@ -128,11 +128,11 @@ class IngestionService:
                 delete_cypher = """
                 MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
                 OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
-                WITH c, collect(DISTINCT e) AS entities
-                DETACH DELETE c
+                WITH collect(DISTINCT c) AS chunks, collect(DISTINCT e) AS entities
+                FOREACH (ch IN chunks | DETACH DELETE ch)
                 WITH entities
                 UNWIND entities AS entity
-                WITH entity
+                WITH DISTINCT entity
                 WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
                 DETACH DELETE entity
                 """

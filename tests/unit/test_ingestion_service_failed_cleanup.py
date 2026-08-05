@@ -100,11 +100,40 @@ async def test_cleanup_deletes_milvus_vectors_and_neo4j_graph_data():
     # Two writes expected: the chunk/entity delete, then the stale-marking write.
     assert len(neo4j_client.writes) == 2
     delete_query, delete_params = neo4j_client.writes[0]
-    assert "DETACH DELETE c" in delete_query
+    assert "DETACH DELETE ch" in delete_query
     assert delete_params == {"document_id": "doc_1", "tenant_id": "tenant-1"}
     stale_query, stale_params = neo4j_client.writes[1]
     assert "is_stale = true" in stale_query
     assert stale_params == {"tenant_id": "tenant-1", "ids": ["comm_1", "comm_2"]}
+
+
+@pytest.mark.asyncio
+async def test_delete_cypher_aggregates_document_wide_before_deleting():
+    """
+    Regression guard for a bug found and fixed on the prod #106 graph backfill:
+    grouping `WITH c, collect(DISTINCT e) AS entities` (c non-aggregated) produces
+    one row PER CHUNK, so an entity mentioned by two chunks of the SAME document
+    could still see a live MENTIONS edge from the other, not-yet-deleted chunk's
+    row when the orphan check ran, leaving it undeleted despite having zero
+    mentions once the whole document's chunks were actually gone. The fix
+    aggregates chunks and entities into single document-wide lists (both sides
+    of the WITH aggregated, no grouping key) and deletes all chunks via FOREACH
+    before any orphan check runs.
+    """
+    vector_store = FakeVectorStore()
+    neo4j_client = FakeNeo4jClient()
+    service = make_service(vector_store=vector_store, neo4j_client=neo4j_client)
+    document = StubDocument(id="doc_multi", tenant_id="tenant-1")
+
+    await service._cleanup_failed_document_artifacts(document)
+
+    delete_query = neo4j_client.writes[0][0]
+    assert "collect(DISTINCT c)" in delete_query
+    assert "collect(DISTINCT e)" in delete_query
+    assert "FOREACH" in delete_query
+    # No leftover per-chunk grouping: the old buggy form aggregated only `e`
+    # while leaving `c` as a bare grouping key.
+    assert "WITH c, collect(DISTINCT e)" not in delete_query
 
 
 @pytest.mark.asyncio
