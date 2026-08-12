@@ -6,6 +6,7 @@ Application layer use cases for document operations.
 These contain the business logic extracted from route handlers.
 """
 
+import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ class UploadDocumentResult:
     document_id: str
     status: str
     is_duplicate: bool
+    action: str
     message: str
 
 
@@ -181,6 +183,11 @@ class UploadDocumentUseCase:
                 request.shared_with_tenant_ids
             )
 
+        content_hash = hashlib.sha256(request.content).hexdigest()
+        existing_content_match = await self._document_repository.find_by_content_hash(
+            request.tenant_id, content_hash
+        )
+
         # Register document
         from src.core.ingestion.application.ingestion_service import IngestionService
         from src.core.state.machine import DocumentStatus
@@ -214,19 +221,26 @@ class UploadDocumentUseCase:
                 actor=request.share_actor,
             )
 
-        # Dispatch async processing if new document
-        is_duplicate = document.status != DocumentStatus.INGESTED
-        if not is_duplicate:
+        retry_requested = existing_content_match is not None and document.status in {
+            DocumentStatus.FAILED,
+            DocumentStatus.NEEDS_REVIEW,
+        }
+        is_duplicate = existing_content_match is not None or document.status != DocumentStatus.INGESTED
+        if retry_requested or not is_duplicate:
             if self._task_dispatcher:
                 await self._task_dispatcher.dispatch(
                     "src.workers.tasks.process_document", args=[document.id, request.tenant_id]
                 )
+                action = "retry_queued" if retry_requested else "accepted"
             else:
                 # No dispatcher - this is a test or sync execution scenario
                 # Caller must handle processing separately
                 logger.warning(
                     "No TaskDispatcher available, document not queued for async processing"
                 )
+                action = "retry_not_queued" if retry_requested else "accepted"
+        else:
+            action = "deduplicated"
 
         # Invalidate stats cache so numbers update immediately on frontend
         try:
@@ -242,9 +256,13 @@ class UploadDocumentUseCase:
             document_id=document.id,
             status=document.status.value,
             is_duplicate=is_duplicate,
-            message="Document accepted for processing"
-            if not is_duplicate
-            else "Document deduplicated",
+            action=action,
+            message={
+                "accepted": "Document accepted for processing",
+                "retry_queued": "Document reprocessing queued",
+                "retry_not_queued": "Document retry requested but no worker dispatcher is available",
+                "deduplicated": "Document deduplicated",
+            }[action],
         )
 
 

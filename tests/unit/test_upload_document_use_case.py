@@ -6,6 +6,7 @@ from src.core.ingestion.application.use_cases_documents import (
     UploadDocumentRequest,
     UploadDocumentUseCase,
 )
+from src.core.state.machine import DocumentStatus
 
 
 class FakeRepo:
@@ -24,6 +25,24 @@ class FakeRepo:
     async def save(self, document):
         self.saved.append(document)
         return document
+
+
+class ExistingDocumentRepo(FakeRepo):
+    def __init__(self, document) -> None:
+        super().__init__()
+        self.document = document
+
+    async def find_by_content_hash(self, *_args, **_kwargs):
+        return self.document
+
+
+class FakeTaskDispatcher:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def dispatch(self, task_name, args=None, kwargs=None):
+        self.calls.append((task_name, args, kwargs))
+        return "task-1"
 
 
 class FakeUoW:
@@ -170,3 +189,81 @@ async def test_upload_use_case_invalidates_tenant_stats_cache(monkeypatch):
         "admin:stats:database:tenant-cache",
         "admin:stats:vectors:tenant-cache",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [DocumentStatus.FAILED, DocumentStatus.NEEDS_REVIEW])
+async def test_reupload_retries_failed_document_and_reports_action(monkeypatch, status):
+    monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
+    monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
+    monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
+    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
+    monkeypatch.setattr(service_module, "Document", StubDocument)
+    _stub_cache_delete(monkeypatch)
+
+    existing = StubDocument(id="doc-failed", status=status)
+    repo = ExistingDocumentRepo(existing)
+    dispatcher = FakeTaskDispatcher()
+    use_case = UploadDocumentUseCase(
+        document_repository=repo,
+        tenant_repository=repo,
+        unit_of_work=FakeUoW(),
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=dispatcher,
+        event_dispatcher=None,
+    )
+
+    result = await use_case.execute(
+        UploadDocumentRequest(
+            tenant_id="tenant",
+            filename="file.txt",
+            content=b"failed-content",
+            content_type="text/plain",
+        )
+    )
+
+    assert result.action == "retry_queued"
+    assert result.is_duplicate is True
+    assert dispatcher.calls == [
+        ("src.workers.tasks.process_document", ["doc-failed", "tenant"], None)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reupload_ready_document_is_reported_as_deduplicated_without_retry(monkeypatch):
+    monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
+    monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
+    monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
+    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
+    monkeypatch.setattr(service_module, "Document", StubDocument)
+    _stub_cache_delete(monkeypatch)
+
+    dispatcher = FakeTaskDispatcher()
+    use_case = UploadDocumentUseCase(
+        document_repository=ExistingDocumentRepo(
+            StubDocument(id="doc-ready", status=DocumentStatus.READY)
+        ),
+        tenant_repository=None,
+        unit_of_work=FakeUoW(),
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=dispatcher,
+        event_dispatcher=None,
+    )
+
+    result = await use_case.execute(
+        UploadDocumentRequest(
+            tenant_id="tenant",
+            filename="file.txt",
+            content=b"ready-content",
+            content_type="text/plain",
+        )
+    )
+
+    assert result.action == "deduplicated"
+    assert dispatcher.calls == []

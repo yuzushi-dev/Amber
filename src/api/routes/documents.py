@@ -265,6 +265,7 @@ class DocumentUploadResponse(BaseModel):
     document_id: str
     status: str
     events_url: str
+    action: str
     message: str
 
 
@@ -440,6 +441,7 @@ async def upload_document(
         document_id=result.document_id,
         status=result.status,
         events_url=events_url,
+        action=result.action,
         message=result.message,
     )
 
