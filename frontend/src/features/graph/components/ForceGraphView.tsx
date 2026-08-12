@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import ForceGraph3D from 'react-force-graph-3d';
 import { useGraphForce } from '../hooks/useGraphForce';
@@ -47,11 +47,11 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
     const style = typeof document !== 'undefined'
         ? getComputedStyle(document.documentElement)
         : null;
-    const readVar = (name: string, fallback: string) => {
+    const readVar = useCallback((name: string, fallback: string) => {
         if (!style) return fallback;
         const value = style.getPropertyValue(name).trim();
         return value ? `hsl(${value})` : fallback;
-    };
+    }, [style]);
     const readVarAlpha = (name: string, alpha: number, fallback: string) => {
         if (!style) return fallback;
         const value = style.getPropertyValue(name).trim();
@@ -85,7 +85,7 @@ const ForceGraphView: React.FC<ForceGraphViewProps> = ({
             })),
             links: data.links
         };
-    }, [data, isDark]);
+    }, [data, isDark, readVar]);
 
     const commonProps = {
         graphData: processedData,

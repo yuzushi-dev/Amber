@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Database, ShieldCheck, ShieldAlert, Loader2, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +25,7 @@ export const DatabaseSetup: React.FC<DatabaseSetupProps> = ({ onComplete, apiBas
 
     const addLog = (msg: string) => setLogs(prev => [...prev, `> ${msg}`]);
 
-    const checkStatus = async () => {
+    const checkStatus = useCallback(async () => {
         try {
             const apiKey = localStorage.getItem('api_key') || '';
             const response = await fetch(`${apiBaseUrl}/api/v1/setup/db/status`, {
@@ -44,7 +44,7 @@ export const DatabaseSetup: React.FC<DatabaseSetupProps> = ({ onComplete, apiBas
             });
             setIsLoading(false);
         }
-    };
+    }, [apiBaseUrl]);
 
     useEffect(() => {
         if (!hasInitialized.current) {
@@ -52,7 +52,7 @@ export const DatabaseSetup: React.FC<DatabaseSetupProps> = ({ onComplete, apiBas
             addLog('Checking system core integrity...');
             checkStatus();
         }
-    }, []);
+    }, [checkStatus]);
 
     const handleMigrate = async () => {
         setIsMigrating(true);
