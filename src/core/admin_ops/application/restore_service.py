@@ -96,11 +96,7 @@ class RestoreService:
             return None
         link = await self.session.get(ApiKeyTenant, (api_key_id, tenant_id))
         if link is None:
-            logger.warning(
-                "Dropping unavailable API-key owner %s while restoring tenant %s",
-                api_key_id,
-                tenant_id,
-            )
+            logger.warning("Dropping unavailable API-key owner while restoring tenant")
             return None
         return api_key_id
 
