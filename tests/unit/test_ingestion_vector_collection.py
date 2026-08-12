@@ -107,6 +107,36 @@ class CaptureVectorStoreFactory:
         raise CaptureFactoryError("stop")
 
 
+def test_milvus_payload_rejects_short_dense_embeddings():
+    service = object.__new__(service_module.IngestionService)
+    chunks = [SimpleNamespace(id="c1", document_id="doc-1", content="one", metadata_={}),
+              SimpleNamespace(id="c2", document_id="doc-1", content="two", metadata_={})]
+
+    with pytest.raises(ValueError, match="[Dd]ense embedding cardinality"):
+        service._build_milvus_data(chunks, [[0.1]], [{}, {}], "tenant-1")
+
+
+def test_milvus_payload_rejects_short_sparse_embeddings():
+    service = object.__new__(service_module.IngestionService)
+    chunks = [SimpleNamespace(id="c1", document_id="doc-1", content="one", metadata_={}),
+              SimpleNamespace(id="c2", document_id="doc-1", content="two", metadata_={})]
+
+    with pytest.raises(ValueError, match="[Ss]parse embedding cardinality"):
+        service._build_milvus_data(chunks, [[0.1], [0.2]], [{}], "tenant-1")
+
+
+def test_milvus_payload_accepts_empty_sparse_vectors_for_each_chunk():
+    service = object.__new__(service_module.IngestionService)
+    chunks = [SimpleNamespace(id="c1", document_id="doc-1", content="one", metadata_={}),
+              SimpleNamespace(id="c2", document_id="doc-1", content="two", metadata_={})]
+
+    payload = service._build_milvus_data(
+        chunks, [[0.1], [0.2]], [{}, {}], "tenant-1"
+    )
+
+    assert [row["chunk_id"] for row in payload] == ["c1", "c2"]
+
+
 @pytest.mark.asyncio
 async def test_ingestion_uses_active_vector_collection(monkeypatch):
     document = SimpleNamespace(

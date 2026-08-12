@@ -11,7 +11,7 @@ from src.core.generation.application.prompts.entity_extraction import (
     ExtractionResult,
     ExtractionUsage,
 )
-from src.core.graph.application.processor import GraphProcessor
+from src.core.graph.application.processor import GraphProcessingResult, GraphProcessor
 
 
 def _chunk(chunk_id: str, document_id: str, content: str):
@@ -45,10 +45,47 @@ async def test_processor_flow():
 
         processor = GraphProcessor(graph_extractor=mock_extractor)
 
-        await processor.process_chunks(chunks, "tenant_1")
+        result = await processor.process_chunks(chunks, "tenant_1")
 
         assert mock_extractor.extract.call_count == 2
         assert mock_writer.write_extraction_result.call_count == 2
+        assert result == GraphProcessingResult(total_chunks=2)
+
+
+@pytest.mark.asyncio
+async def test_processor_returns_failed_chunk_ids_without_aborting_successful_chunks():
+    mock_extractor = AsyncMock()
+    mock_extractor.extract.side_effect = [
+        ExtractionResult(
+            entities=[ExtractedEntity(name="E1", type="CONCEPT", description="D1")],
+            relationships=[],
+        ),
+        RuntimeError("graph extraction failed"),
+    ]
+
+    with patch("src.core.graph.application.processor.graph_writer") as mock_writer:
+        mock_writer.write_extraction_result = AsyncMock()
+        processor = GraphProcessor(graph_extractor=mock_extractor)
+        result = await processor.process_chunks(
+            [
+                _chunk(
+                    "c1",
+                    "d1",
+                    "First chunk is long enough for graph extraction and persistence tests.",
+                ),
+                _chunk(
+                    "c2",
+                    "d1",
+                    "Second chunk is long enough for graph extraction and persistence tests.",
+                ),
+            ],
+            "tenant_1",
+        )
+
+    assert result.total_chunks == 2
+    assert result.failed_chunk_ids == ["c2"]
+    assert result.error_count == 1
+    mock_writer.write_extraction_result.assert_awaited_once()
 
 
 @pytest.mark.asyncio

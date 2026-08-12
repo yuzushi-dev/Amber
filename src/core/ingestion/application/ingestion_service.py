@@ -8,6 +8,7 @@ Service for handling document ingestion, registration, and file management.
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import os
 import time
@@ -18,7 +19,7 @@ from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
 from src.core.generation.application.llm_steps import resolve_llm_step_config
 from src.core.graph.application.enrichment import GraphEnricher
-from src.core.graph.application.processor import GraphProcessor
+from src.core.graph.application.processor import GraphProcessingResult, GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
 from src.core.ingestion.domain.document import Document
@@ -82,7 +83,11 @@ class IngestionService:
         self.graph_processor = GraphProcessor()
         self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
 
-    async def _cleanup_failed_document_artifacts(self, document: Document) -> None:
+    async def _cleanup_failed_document_artifacts(
+        self,
+        document: Document,
+        vector_store: VectorStorePort | None = None,
+    ) -> None:
         """
         Best-effort removal of partial Milvus vectors and Neo4j graph data left
         behind by a document that failed mid-pipeline.
@@ -95,9 +100,10 @@ class IngestionService:
         never raises: a cleanup failure must never mask the original ingestion
         error or block persistence of the FAILED status.
         """
-        if self.vector_store:
+        cleanup_vector_store = vector_store if vector_store is not None else self.vector_store
+        if cleanup_vector_store:
             try:
-                deleted = await self.vector_store.delete_by_document(
+                deleted = await cleanup_vector_store.delete_by_document(
                     document.id, document.tenant_id
                 )
                 logger.info(
@@ -160,6 +166,97 @@ class IngestionService:
                 logger.warning(
                     f"FAILED cleanup: Neo4j delete failed for {document.id}: {graph_err}"
                 )
+
+    @staticmethod
+    def _build_milvus_data(
+        chunks: list[Any],
+        embeddings: list[list[float]],
+        sparse_embeddings: list[dict[str, float] | None],
+        tenant_id: str,
+    ) -> list[dict[str, Any]]:
+        """Build a complete Milvus payload, rejecting cardinality drift."""
+        expected = len(chunks)
+        if len(embeddings) != expected:
+            raise ValueError(
+                "Dense embedding cardinality mismatch: "
+                f"expected {expected}, received {len(embeddings)}"
+            )
+        if len(sparse_embeddings) != expected:
+            raise ValueError(
+                "Sparse embedding cardinality mismatch: "
+                f"expected {expected}, received {len(sparse_embeddings)}"
+            )
+
+        payload: list[dict[str, Any]] = []
+        for chunk, embedding, sparse_embedding in zip(
+            chunks, embeddings, sparse_embeddings, strict=True
+        ):
+            data: dict[str, Any] = {
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "tenant_id": tenant_id,
+                "content": chunk.content[:65530],
+                "embedding": embedding,
+            }
+            if sparse_embedding is not None:
+                data["sparse_vector"] = sparse_embedding
+            if chunk.metadata_:
+                data.update(chunk.metadata_)
+            payload.append(data)
+        return payload
+
+    async def _mark_graph_sync_partial(
+        self,
+        document: Document,
+        graph_result: GraphProcessingResult,
+    ) -> None:
+        """Persist review state while retaining successful graph writes."""
+        failed_chunk_ids = list(graph_result.failed_chunk_ids)
+        visible_failed_ids = sorted(failed_chunk_ids)[:20]
+        error_data = {
+            "code": "graph_sync_partial_failure",
+            "message": (
+                f"Graph sync failed for {len(failed_chunk_ids)} of "
+                f"{graph_result.total_chunks} chunks"
+            ),
+            "total_chunks": graph_result.total_chunks,
+            "failed_chunk_count": len(failed_chunk_ids),
+            "failed_chunk_ids": visible_failed_ids,
+        }
+        document.error_message = json.dumps(error_data)
+        metadata = dict(document.metadata_ or {})
+        metadata.update(
+            {
+                "graphSyncStatus": "partial",
+                "graphSyncFailedChunkCount": len(failed_chunk_ids),
+                "graphSyncFailedChunkIds": visible_failed_ids,
+            }
+        )
+        document.metadata_ = metadata
+
+        TransitionManager.validate_transition(document.status, DocumentStatus.NEEDS_REVIEW)
+        await self.document_repository.update_status(
+            document.id,
+            DocumentStatus.NEEDS_REVIEW,
+            old_status=document.status,
+        )
+        document.status = DocumentStatus.NEEDS_REVIEW
+        await self.document_repository.save(document)
+        await self.unit_of_work.commit()
+        await self.event_dispatcher.emit_state_change(
+            StateChangeEvent(
+                document_id=document.id,
+                old_status=DocumentStatus.GRAPH_SYNC,
+                new_status=DocumentStatus.NEEDS_REVIEW,
+                tenant_id=document.tenant_id,
+                details={
+                    "progress": 95,
+                    "reason": error_data["code"],
+                    "failed_chunk_count": len(failed_chunk_ids),
+                    "failed_chunk_ids": visible_failed_ids,
+                },
+            )
+        )
 
     async def register_document(
         self,
@@ -562,6 +659,7 @@ class IngestionService:
             except Exception as e:
                 logger.warning(f"Failed to load tenant config for ingestion: {e}")
 
+        cleanup_vector_store = self.vector_store
         try:
             # 3. Get File from Storage
             # MinIO get_file returns bytes (handled inside wrapper)
@@ -881,6 +979,7 @@ class IngestionService:
                 else:
                     logger.debug("Using provided vector store")
                     vector_store = self.vector_store
+                cleanup_vector_store = vector_store
 
                 # Re-process cleanup: delete stale Milvus vectors and Neo4j chunk nodes
                 # from any previous ingestion run before writing new ones.  On first-time
@@ -967,7 +1066,22 @@ class IngestionService:
                 )
                 logger.debug("embed_texts returned")
 
-                # Log Aggregated Ingestion Metrics
+                sparse_embeddings = []
+                try:
+                    sparse_embeddings = sparse_service.embed_batch(chunk_contents)
+                except Exception as e:
+                    logger.warning(f"Failed to generate sparse embeddings: {e}")
+                    # Fallback to empty sparse vectors to satisfy schema
+                    sparse_embeddings = [{} for _ in chunks_to_process]
+
+                milvus_data = self._build_milvus_data(
+                    chunks_to_process,
+                    embeddings,
+                    sparse_embeddings,
+                    document.tenant_id,
+                )
+
+                # Log success only after both dense and sparse cardinality checks pass.
                 try:
                     from src.core.admin_ops.application.metrics.collector import MetricsCollector
                     from src.shared.identifiers import generate_query_id
@@ -988,31 +1102,6 @@ class IngestionService:
                         qm.conversation_id = document.filename
                 except Exception as e:
                     logger.error(f"Failed to log aggregated ingestion metrics: {e}")
-
-                sparse_embeddings = []
-                try:
-                    sparse_embeddings = sparse_service.embed_batch(chunk_contents)
-                except Exception as e:
-                    logger.warning(f"Failed to generate sparse embeddings: {e}")
-                    # Fallback to empty sparse vectors to satisfy schema
-                    sparse_embeddings = [{} for _ in chunks_to_process]
-
-                milvus_data = []
-                for chunk, emb, sparse_emb in zip(
-                    chunks_to_process, embeddings, sparse_embeddings, strict=False
-                ):
-                    data = {
-                        "chunk_id": chunk.id,
-                        "document_id": chunk.document_id,
-                        "tenant_id": document.tenant_id,
-                        "content": chunk.content[:65530],
-                        "embedding": emb,
-                    }
-                    if sparse_emb is not None:
-                        data["sparse_vector"] = sparse_emb
-                    if chunk.metadata_:
-                        data.update(chunk.metadata_)
-                    milvus_data.append(data)
 
                 await vector_store.upsert_chunks(milvus_data)
 
@@ -1114,13 +1203,16 @@ class IngestionService:
 
                 get_provider_factory()
                 if chunks_to_process:
-                    await self.graph_processor.process_chunks(
+                    graph_result = await self.graph_processor.process_chunks(
                         chunks_to_process,
                         document.tenant_id,
                         filename=document.filename,
                         tenant_config=tenant_config,
                         progress_callback=_on_graph_progress,
                     )
+                    if isinstance(graph_result, GraphProcessingResult) and graph_result.failed_chunk_ids:
+                        await self._mark_graph_sync_partial(document, graph_result)
+                        return
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
                 raise
@@ -1240,7 +1332,10 @@ class IngestionService:
                     # a retry that produces fewer chunks than the failed attempt leaves
                     # stale chunks/entities behind (chunk drift, orphan-entity pollution
                     # in graph traversal and community summaries). Never raises.
-                    await self._cleanup_failed_document_artifacts(document)
+                    await self._cleanup_failed_document_artifacts(
+                        document,
+                        vector_store=cleanup_vector_store,
+                    )
             except Exception as inner_err:
                 logger.error(f"Failed to update error state for {document_id}: {inner_err}")
             raise

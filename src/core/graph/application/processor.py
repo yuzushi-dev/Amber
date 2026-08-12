@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from src.core.graph.application.concurrency_governor import ConcurrencyGovernor
@@ -14,6 +15,18 @@ if TYPE_CHECKING:
     from src.core.ingestion.domain.chunk import Chunk
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class GraphProcessingResult:
+    """Bounded outcome of processing a document's graph chunks."""
+
+    total_chunks: int
+    failed_chunk_ids: list[str] = field(default_factory=list)
+
+    @property
+    def error_count(self) -> int:
+        return len(self.failed_chunk_ids)
 
 
 class GraphProcessor:
@@ -33,12 +46,12 @@ class GraphProcessor:
         filename: str = None,
         tenant_config: dict[str, Any] | None = None,
         progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
-    ):
+    ) -> GraphProcessingResult:
         """
         Process a list of chunks to extract and write graph data.
         """
         if not chunks:
-            return
+            return GraphProcessingResult(total_chunks=0)
 
         tenant_config = tenant_config or {}
         document_started = time.perf_counter()
@@ -90,6 +103,7 @@ class GraphProcessor:
         total_rels = 0
         cache_hits = 0
         chunk_errors = 0
+        failed_chunk_ids: list[str] = []
 
         total_chunks = len(chunks)
         chunks_completed = 0
@@ -205,6 +219,7 @@ class GraphProcessor:
 
             except Exception as e:
                 chunk_errors += 1
+                failed_chunk_ids.append(chunk.id)
                 chunk_metrics["error"] = str(e)
                 logger.error(f"Graph processing failed for chunk {chunk.id}: {e}")
             finally:
@@ -247,6 +262,7 @@ class GraphProcessor:
                     "tokens_total": total_tokens,
                     "cache_hits": cache_hits,
                     "chunk_errors": chunk_errors,
+                    "failed_chunk_ids": sorted(failed_chunk_ids)[:20],
                 },
                 sort_keys=True,
             ),
@@ -279,6 +295,10 @@ class GraphProcessor:
             logger.error(f"Failed to log aggregated graph metrics: {e}")
 
         logger.info(f"Completed graph processing for {len(chunks)} chunks")
+        return GraphProcessingResult(
+            total_chunks=total_chunks,
+            failed_chunk_ids=sorted(failed_chunk_ids),
+        )
 
 
 graph_processor = GraphProcessor()

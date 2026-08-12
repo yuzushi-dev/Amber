@@ -63,6 +63,7 @@ class TransitionManager:
         DocumentStatus.GRAPH_SYNC: {
             DocumentStatus.READY,
             DocumentStatus.FAILED,
+            DocumentStatus.NEEDS_REVIEW,
         },
         DocumentStatus.READY: {
             DocumentStatus.INGESTED,  # Allow re-ingestion/reset

@@ -199,6 +199,17 @@ async def test_cleanup_noop_when_stores_are_none():
     await service._cleanup_failed_document_artifacts(document)
 
 
+@pytest.mark.asyncio
+async def test_cleanup_can_use_the_attempt_vector_store_from_a_factory():
+    attempt_store = FakeVectorStore()
+    service = make_service(vector_store=None, neo4j_client=None)
+    document = StubDocument(id="doc_factory", tenant_id="tenant-1")
+
+    await service._cleanup_failed_document_artifacts(document, vector_store=attempt_store)
+
+    assert attempt_store.delete_calls == [("doc_factory", "tenant-1")]
+
+
 class FakeDocumentRepositoryForFailure:
     """Drives process_document to the FAILED exception handler via a storage error."""
 
