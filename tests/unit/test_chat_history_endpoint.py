@@ -22,8 +22,8 @@ def _make_conversation(id: str, tenant_id: str, user_id: str, title: str):
 
 
 @pytest.mark.asyncio
-async def test_history_scoped_to_user_and_tenant():
-    """list_history must filter by both tenant_id and user_id."""
+async def test_history_scoped_to_api_key_and_tenant():
+    """list_history must filter by authenticated api_key_id and tenant_id."""
     from src.api.routes.chat import list_history
 
     conversations = [
@@ -38,7 +38,8 @@ async def test_history_scoped_to_user_and_tenant():
     mock_session.scalar.return_value = 2
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = "user-a"
+    mock_request.headers.get.return_value = "forged-user"
+    mock_request.state.api_key_id = "key-a"
     mock_request.state.api_key_name = ""
 
     response = await list_history(
@@ -53,11 +54,12 @@ async def test_history_scoped_to_user_and_tenant():
     assert len(response.conversations) == 2
     assert all(c.tenant_id == "t1" for c in response.conversations)
 
-    # Verify the DB query included tenant + user filters
+    # Verify the DB query included tenant + authenticated API-key filters.
     executed_query = mock_session.execute.call_args_list[-1][0][0]
     compiled = str(executed_query.compile(compile_kwargs={"literal_binds": True}))
     assert "t1" in compiled
-    assert "user-a" in compiled
+    assert "key-a" in compiled
+    assert "forged-user" not in compiled
 
 
 @pytest.mark.asyncio
@@ -75,7 +77,8 @@ async def test_history_returns_query_text_and_preview():
     mock_session.scalar.return_value = 1
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = "u1"
+    mock_request.headers.get.return_value = "forged-user"
+    mock_request.state.api_key_id = "key-u1"
     mock_request.state.api_key_name = ""
 
     response = await list_history(
@@ -89,15 +92,15 @@ async def test_history_returns_query_text_and_preview():
 
 
 @pytest.mark.asyncio
-async def test_history_missing_user_id_raises_401():
-    """If no user identity can be resolved, the endpoint must reject with 401."""
+async def test_history_missing_api_key_id_raises_401():
+    """If no authenticated API-key principal is present, the endpoint must reject."""
     from fastapi import HTTPException
 
     from src.api.routes.chat import list_history
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = ""
-    mock_request.state.api_key_name = ""
+    mock_request.headers.get.return_value = "victim-user"
+    del mock_request.state.api_key_id
 
     with pytest.raises(HTTPException) as exc_info:
         await list_history(

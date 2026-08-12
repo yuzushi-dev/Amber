@@ -32,8 +32,8 @@ async def test_memory_context_includes_user_facts():
     manager.get_user_facts = AsyncMock(return_value=[_make_fact("User works with Acme Mail")])
     manager.get_recent_summaries = AsyncMock(return_value=[])
 
-    facts = await manager.get_user_facts("t1", "u1", limit=5)
-    summaries = await manager.get_recent_summaries("t1", "u1", limit=3)
+    facts = await manager.get_user_facts("t1", "u1", limit=5, api_key_id="key-1")
+    summaries = await manager.get_recent_summaries("t1", "u1", limit=3, api_key_id="key-1")
 
     formatted_facts = "\n".join([f"- {f.content}" for f in facts])
     formatted_summaries = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
@@ -64,7 +64,7 @@ async def test_memory_context_excludes_cross_session_summaries():
         ]
     )
 
-    summaries = await manager.get_recent_summaries("t1", "u1", limit=3)
+    summaries = await manager.get_recent_summaries("t1", "u1", limit=3, api_key_id="key-1")
 
     # The generation service must NOT inject past summaries into new sessions
     _ = "\n".join([f"- {s.title}: {s.summary}" for s in summaries])
@@ -92,7 +92,7 @@ async def test_generation_service_memory_context_no_cross_session_summaries(monk
         mock_mm.get_recent_summaries = AsyncMock(return_value=mock_summaries)
 
         # Simulate the memory context building logic (as it should be after fix)
-        facts = await mock_mm.get_user_facts("t1", "u1", limit=5)
+        facts = await mock_mm.get_user_facts("t1", "u1", limit=5, api_key_id="key-1")
         formatted_facts = "\n".join([f"- {f.content}" for f in facts])
 
         # Fixed: do NOT call get_recent_summaries or inject its result

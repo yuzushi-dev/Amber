@@ -22,6 +22,7 @@ class Feedback(Base, TimestampMixin):
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     tenant_id = Column(String, index=True, nullable=False)
     request_id = Column(String, index=True, nullable=False)
+    api_key_id = Column(String, index=True, nullable=True)
 
     # Feedback metrics
     score = Column(Float)  # 1.0 for positive, 0.0 for negative (or custom range)

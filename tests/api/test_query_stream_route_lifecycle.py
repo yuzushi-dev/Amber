@@ -113,6 +113,7 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
     @app.middleware("http")
     async def authenticated_request(request: Request, call_next):
         request.state.tenant_id = "tenant-a"
+        request.state.api_key_id = "key-a"
         request.state.permissions = []
         request.state.group_ids = []
         request.state.tenant_role = "user"

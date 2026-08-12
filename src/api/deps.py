@@ -183,7 +183,6 @@ async def verify_tenant_admin(request: Request):
     """
     is_super_admin = getattr(request.state, "is_super_admin", False)
     tenant_role = getattr(request.state, "tenant_role", None)
-
     if is_super_admin:
         return  # Super Admin has all Tenant Admin rights
 

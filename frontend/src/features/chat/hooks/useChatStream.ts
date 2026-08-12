@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useChatStore } from '../store'
 import { v4 as uuidv4 } from 'uuid'
+import { toast } from 'sonner'
 
 interface StreamState {
     isStreaming: boolean
@@ -277,6 +278,10 @@ export function useChatStream() {
 
             case 'status':
                 // Optional log
+                break
+
+            case 'warning':
+                toast.warning(String(parseJSON(data)))
                 break
 
             case 'sources':

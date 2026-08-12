@@ -74,6 +74,15 @@ def test_get_feedback_source_has_tenant_filter():
     )
 
 
+def test_get_feedback_source_has_api_key_owner_filter():
+    """Feedback reads must use the authenticated API-key owner."""
+    import src.api.routes.feedback as feedback_module
+
+    source = inspect.getsource(feedback_module.get_feedback)
+    assert "Feedback.api_key_id == api_key_id" in source
+    assert "owner_summary.api_key_id != api_key_id" in source
+
+
 def test_get_feedback_raises_without_tenant():
     """
     get_feedback must raise 401 when tenant_id is absent from request state.
@@ -123,6 +132,16 @@ def test_export_service_source_scopes_conversation_by_tenant():
     source = inspect.getsource(ExportService.generate_single_conversation_zip)
     assert "ConversationSummary.tenant_id == tenant_id" in source, (
         "generate_single_conversation_zip: conversation query not scoped to tenant_id."
+    )
+
+
+def test_export_service_source_scopes_conversation_by_api_key():
+    """Single-conversation exports must use the authenticated API-key owner."""
+    from src.core.admin_ops.application.export_service import ExportService
+
+    source = inspect.getsource(ExportService.generate_single_conversation_zip)
+    assert "ConversationSummary.api_key_id == api_key_id" in source, (
+        "generate_single_conversation_zip: conversation query not scoped to api_key_id."
     )
 
 

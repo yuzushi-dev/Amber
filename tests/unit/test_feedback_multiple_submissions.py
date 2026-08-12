@@ -7,6 +7,7 @@ Rules:
 - VERIFIED/REJECTED records are never modified; a new PENDING record is created
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,11 +33,14 @@ def _make_existing_feedback(
     )
 
 
-def _mock_db_with_existing(existing: Feedback | None):
+def _mock_db_with_existing(existing: Feedback | None, owner_api_key_id: str | None = "key-1"):
     mock_db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none = MagicMock(return_value=existing)
-    mock_db.execute.return_value = mock_result
+    owner_result = MagicMock()
+    owner = None if owner_api_key_id is None else SimpleNamespace(api_key_id=owner_api_key_id)
+    owner_result.scalar_one_or_none = MagicMock(return_value=owner)
+    feedback_result = MagicMock()
+    feedback_result.scalar_one_or_none = MagicMock(return_value=existing)
+    mock_db.execute.side_effect = [owner_result, feedback_result]
     # session.add() is synchronous in SQLAlchemy (even async sessions)
     mock_db.add = MagicMock()
     return mock_db
@@ -53,6 +57,7 @@ async def test_same_polarity_updates_existing_pending():
 
     mock_request = MagicMock()
     mock_request.state.tenant_id = "t1"
+    mock_request.state.api_key_id = "key-1"
 
     data = FeedbackCreate(
         request_id="req-1",
@@ -85,6 +90,7 @@ async def test_polarity_flip_deletes_old_creates_new():
 
     mock_request = MagicMock()
     mock_request.state.tenant_id = "t1"
+    mock_request.state.api_key_id = "key-1"
 
     data = FeedbackCreate(
         request_id="req-1",
@@ -117,6 +123,7 @@ async def test_no_existing_feedback_creates_new():
 
     mock_request = MagicMock()
     mock_request.state.tenant_id = "t1"
+    mock_request.state.api_key_id = "key-1"
 
     data = FeedbackCreate(request_id="req-new", is_positive=True, score=1.0)
 
@@ -142,6 +149,7 @@ async def test_verified_feedback_always_creates_new():
 
     mock_request = MagicMock()
     mock_request.state.tenant_id = "t1"
+    mock_request.state.api_key_id = "key-1"
 
     data = FeedbackCreate(request_id="req-1", is_positive=True, score=1.0, comment="Re-confirm")
 
@@ -157,3 +165,72 @@ async def test_verified_feedback_always_creates_new():
     new_feedback = mock_db.add.call_args[0][0]
     assert new_feedback.golden_status == "PENDING"
     assert new_feedback.comment == "Re-confirm"
+    assert new_feedback.api_key_id == "key-1"
+
+
+@pytest.mark.asyncio
+async def test_orphan_feedback_request_is_still_accepted():
+    """No-result/error responses may not have a persisted conversation row yet."""
+    from src.api.routes.feedback import FeedbackCreate, create_feedback
+
+    mock_db = _mock_db_with_existing(None, owner_api_key_id=None)
+    mock_db.refresh = AsyncMock()
+    request = MagicMock()
+    request.state.tenant_id = "t1"
+    request.state.api_key_id = "key-1"
+
+    with patch("src.api.routes.feedback._get_rate_limiter_instance") as mock_rl:
+        mock_rl.return_value.check = AsyncMock(return_value=MagicMock(allowed=True))
+        await create_feedback(
+            data=FeedbackCreate(request_id="client-request", is_positive=False),
+            request=request,
+            db=mock_db,
+        )
+
+    mock_db.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_feedback_rejects_conversation_owned_by_another_api_key():
+    from fastapi import HTTPException
+
+    from src.api.routes.feedback import FeedbackCreate, create_feedback
+
+    mock_db = _mock_db_with_existing(None, owner_api_key_id="other-key")
+    request = MagicMock()
+    request.state.tenant_id = "t1"
+    request.state.api_key_id = "key-1"
+
+    with patch("src.api.routes.feedback._get_rate_limiter_instance") as mock_rl:
+        mock_rl.return_value.check = AsyncMock(return_value=MagicMock(allowed=True))
+        with pytest.raises(HTTPException) as exc_info:
+            await create_feedback(
+                data=FeedbackCreate(request_id="foreign-conversation", is_positive=True),
+                request=request,
+                db=mock_db,
+            )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_orphan_feedback_can_be_read_by_its_api_key():
+    from src.api.routes.feedback import get_feedback
+
+    feedback = _make_existing_feedback(request_id="client-request")
+    mock_db = AsyncMock()
+    owner_result = MagicMock()
+    owner_result.scalar_one_or_none.return_value = None
+    feedback_result = MagicMock()
+    feedback_result.scalars.return_value.all.return_value = [feedback]
+    mock_db.execute.side_effect = [owner_result, feedback_result]
+    mock_db.scalar.return_value = 1
+
+    request = MagicMock()
+    request.state.tenant_id = "t1"
+    request.state.api_key_id = "key-1"
+
+    response = await get_feedback("client-request", request, db=mock_db)
+
+    assert response.data["total"] == 1
+    assert response.data["items"][0].request_id == "client-request"

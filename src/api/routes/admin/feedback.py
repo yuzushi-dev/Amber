@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db
@@ -50,8 +50,12 @@ async def get_pending_feedback(
         select(Feedback, ConversationSummary)
         .outerjoin(
             ConversationSummary,
-            func.json_extract_path_text(Feedback.metadata_json, "session_id")
-            == ConversationSummary.id,
+            and_(
+                func.json_extract_path_text(Feedback.metadata_json, "session_id")
+                == ConversationSummary.id,
+                Feedback.tenant_id == ConversationSummary.tenant_id,
+                Feedback.api_key_id == ConversationSummary.api_key_id,
+            ),
         )
         .where(Feedback.golden_status.in_(["NONE", "PENDING"]))
         .order_by(Feedback.created_at.desc())

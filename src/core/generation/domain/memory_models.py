@@ -29,6 +29,9 @@ class UserFact(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # Authenticated API-key identity. NULL is retained only for legacy/admin
+    # imported rows and is never eligible for user-facing memory reads.
+    api_key_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
@@ -39,7 +42,10 @@ class UserFact(Base, TimestampMixin):
     )
 
     # Index for retrieval by user within a tenant
-    __table_args__ = (Index("ix_user_facts_tenant_user", "tenant_id", "user_id"),)
+    __table_args__ = (
+        Index("ix_user_facts_tenant_user", "tenant_id", "user_id"),
+        Index("ix_user_facts_tenant_api_key", "tenant_id", "api_key_id"),
+    )
 
     def __repr__(self) -> str:
         return f"<UserFact(id={self.id}, user={self.user_id}, content={self.content[:20]}...)>"

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_super_admin, verify_tenant_admin
@@ -155,6 +155,14 @@ async def list_chat_history(
         conv_ids = [conv.id for conv in rows]
         feedback_query = (
             select(Feedback.request_id, Feedback.is_positive)
+            .join(
+                ConversationSummary,
+                and_(
+                    Feedback.request_id == ConversationSummary.id,
+                    Feedback.tenant_id == ConversationSummary.tenant_id,
+                    Feedback.api_key_id == ConversationSummary.api_key_id,
+                ),
+            )
             .where(Feedback.request_id.in_(conv_ids))
             .order_by(Feedback.created_at.desc())
         )
@@ -325,7 +333,15 @@ async def get_conversation_detail(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Check if conversation has feedback
-    feedback_query = select(Feedback).where(Feedback.request_id == conv_id).limit(1)
+    feedback_query = (
+        select(Feedback)
+        .where(
+            Feedback.request_id == conv_id,
+            Feedback.tenant_id == conv.tenant_id,
+            Feedback.api_key_id == conv.api_key_id,
+        )
+        .limit(1)
+    )
     feedback_result = await session.execute(feedback_query)
     feedback_row = feedback_result.scalar_one_or_none()
     has_feedback = feedback_row is not None

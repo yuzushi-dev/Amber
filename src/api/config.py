@@ -483,7 +483,9 @@ class Settings(BaseSettings):
         description=(
             "When True, redact query/response content for conversations that have no user "
             "feedback attached. Defaults to False so admins see full chat history unless an "
-            "operator explicitly opts in to redaction."
+            "operator explicitly opts in to redaction. This setting applies only to the "
+            "super-admin chat-history display endpoints; tenant-admin retention and exports "
+            "are separate privileged full-content operations."
         ),
     )
 

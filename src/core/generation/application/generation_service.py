@@ -130,6 +130,7 @@ class PreparedGenerationStream:
     query: str
     tenant_id: str
     user_id: str | None
+    api_key_id: str | None
     tenant_config: dict[str, Any]
     used_candidates_count: int = 0
 
@@ -371,9 +372,10 @@ class GenerationService:
         # Step 1.5: Retrieve Memory (Facts & Summaries)
         memory_context = ""
         user_id = options.get("user_id") if options else None
+        api_key_id = options.get("api_key_id") if options else None
         tenant_id = options.get("tenant_id") if options else "default"
 
-        if user_id:
+        if user_id and api_key_id:
             try:
                 # Parallel fetch for facts and summaries
                 # For MVP, we do it sequentially or just use gather if we were fully async optimized here
@@ -382,7 +384,9 @@ class GenerationService:
 
                 # Long-term user facts only — cross-session summaries are intentionally
                 # excluded to prevent context bleed across separate conversations (ZTD-1820).
-                facts = await memory_manager.get_user_facts(tenant_id, user_id, limit=5)
+                facts = await memory_manager.get_user_facts(
+                    tenant_id, user_id, limit=5, api_key_id=api_key_id
+                )
                 formatted_facts = "\n".join([f"- {f.content}" for f in facts])
 
                 # Inject as candidates for citation support
@@ -518,7 +522,7 @@ class GenerationService:
         )
 
         # Step 3.5: Trigger Async Memory Extraction
-        if user_id and llm_result.text:
+        if user_id and api_key_id and llm_result.text:
             try:
                 import asyncio
 
@@ -529,6 +533,7 @@ class GenerationService:
                     memory_extractor.extract_and_save_facts(
                         tenant_id=tenant_id,
                         user_id=user_id,
+                        api_key_id=api_key_id,
                         text=query,
                         tenant_config=tenant_config,
                     )
@@ -675,17 +680,18 @@ class GenerationService:
         # Step 2: Retrieve Memory (Facts & Summaries)
         memory_context = ""
         user_id = options.get("user_id") if options else None
+        api_key_id = options.get("api_key_id") if options else None
         tenant_id = options.get("tenant_id") if options else "default"
 
         logger.debug(f"Generation - User ID: {user_id}, Tenant: {tenant_id}")
 
-        if user_id:
+        if user_id and api_key_id:
             try:
                 from src.core.generation.application.memory.manager import memory_manager
 
                 # Long-term user facts only — cross-session summaries excluded (ZTD-1820).
                 facts = await memory_manager.get_user_facts(
-                    tenant_id, user_id, limit=5, session=session
+                    tenant_id, user_id, limit=5, session=session, api_key_id=api_key_id
                 )
                 logger.debug(f"Generation - Retrieved {len(facts)} facts for user {user_id}")
 
@@ -842,6 +848,7 @@ class GenerationService:
             query=query,
             tenant_id=tenant_id,
             user_id=user_id,
+            api_key_id=api_key_id,
             tenant_config=dict(tenant_config),
             used_candidates_count=sum(
                 1 for c in ctx.used_candidates if not _is_synthetic_candidate(c)
@@ -873,7 +880,7 @@ class GenerationService:
             raise
 
         # Step 5.5: Trigger Async Memory Extraction
-        if prepared.user_id and full_answer:
+        if prepared.user_id and prepared.api_key_id and full_answer:
             try:
                 import asyncio
 
@@ -883,6 +890,7 @@ class GenerationService:
                     memory_extractor.extract_and_save_facts(
                         tenant_id=prepared.tenant_id,
                         user_id=prepared.user_id,
+                        api_key_id=prepared.api_key_id,
                         text=prepared.query,
                         tenant_config=prepared.tenant_config,
                     )

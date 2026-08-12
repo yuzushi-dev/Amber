@@ -9,14 +9,14 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.amber_platform.composition_root import platform
-from src.api.deps import get_current_tenant_id, get_db_session
+from src.api.deps import get_current_tenant_id, get_db_session, verify_tenant_admin
 from src.core.admin_ops.application.export_service import ExportService
 from src.core.admin_ops.domain.export_job import ExportJob, ExportStatus
 from src.core.generation.domain.memory_models import ConversationSummary
@@ -24,6 +24,17 @@ from src.core.generation.domain.memory_models import ConversationSummary
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/export", tags=["export"])
+
+
+def _get_api_key_id(request: Request) -> str:
+    """Return the authenticated API-key principal used for single exports."""
+    api_key_id = getattr(request.state, "api_key_id", None)
+    if not api_key_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required: authenticated API key missing.",
+        )
+    return str(api_key_id)
 
 
 # =============================================================================
@@ -62,6 +73,7 @@ class StartExportResponse(BaseModel):
 @router.get("/conversation/{conversation_id}")
 async def export_conversation(
     conversation_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
@@ -75,11 +87,14 @@ async def export_conversation(
 
     This is a synchronous operation - the ZIP is generated and streamed directly.
     """
-    # Verify conversation exists and belongs to tenant
+    api_key_id = _get_api_key_id(request)
+
+    # Verify conversation exists and belongs to the authenticated API key.
     result = await session.execute(
         select(ConversationSummary)
         .where(ConversationSummary.id == conversation_id)
         .where(ConversationSummary.tenant_id == tenant_id)
+        .where(ConversationSummary.api_key_id == api_key_id)
     )
     conversation = result.scalar_one_or_none()
 
@@ -90,7 +105,9 @@ async def export_conversation(
         storage = platform.minio_client
         export_service = ExportService(session, storage)
 
-        zip_bytes = await export_service.generate_single_conversation_zip(conversation_id, tenant_id)
+        zip_bytes = await export_service.generate_single_conversation_zip(
+            conversation_id, tenant_id, api_key_id
+        )
 
         # Generate filename
         safe_title = "".join(
@@ -111,7 +128,11 @@ async def export_conversation(
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.post("/all", response_model=StartExportResponse)
+@router.post(
+    "/all",
+    response_model=StartExportResponse,
+    dependencies=[Depends(verify_tenant_admin)],
+)
 async def start_export_all(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(get_current_tenant_id),
@@ -157,7 +178,11 @@ async def start_export_all(
     )
 
 
-@router.get("/job/{job_id}", response_model=ExportJobResponse)
+@router.get(
+    "/job/{job_id}",
+    response_model=ExportJobResponse,
+    dependencies=[Depends(verify_tenant_admin)],
+)
 async def get_export_job_status(
     job_id: str,
     session: AsyncSession = Depends(get_db_session),
@@ -192,7 +217,7 @@ async def get_export_job_status(
     return response
 
 
-@router.get("/job/{job_id}/download")
+@router.get("/job/{job_id}/download", dependencies=[Depends(verify_tenant_admin)])
 async def download_export(
     job_id: str,
     session: AsyncSession = Depends(get_db_session),
@@ -240,7 +265,7 @@ async def download_export(
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.delete("/job/{job_id}")
+@router.delete("/job/{job_id}", dependencies=[Depends(verify_tenant_admin)])
 async def cancel_export_job(
     job_id: str,
     session: AsyncSession = Depends(get_db_session),

@@ -3,7 +3,7 @@ Security tests for Task 5: remove fail-open tenant/user fallbacks.
 
 Verifies that:
 - _get_tenant_id raises HTTP 401 when request.state.tenant_id is absent
-- _get_user_id raises HTTP 400 when X-User-ID header is absent
+- chat history ownership raises HTTP 401 when the authenticated API key is absent
 - graph_editor.get_current_user_tenant_id raises HTTP 401 when missing
 - use_cases_query.execute no longer has a "default_user" sentinel
 """
@@ -118,16 +118,15 @@ def test_query_get_user_id_returns_value_when_present():
     assert result == "user-abc-123"
 
 
-def test_chat_get_user_id_raises_401_when_no_identity_available():
-    """chat.py _get_user_id must raise 401 when neither X-User-ID nor api_key_name is available."""
-    from src.api.routes.chat import _get_user_id
+def test_chat_get_api_key_id_raises_401_when_missing():
+    """chat.py history ownership must require the authenticated API key principal."""
+    from src.api.routes.chat import _get_api_key_id
 
     req = MagicMock()
-    req.headers = {}
-    del req.state.api_key_name
+    del req.state.api_key_id
 
     with pytest.raises(HTTPException) as exc_info:
-        _get_user_id(req)
+        _get_api_key_id(req)
     assert exc_info.value.status_code == 401
 
 

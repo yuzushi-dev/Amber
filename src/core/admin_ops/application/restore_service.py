@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.admin_ops.domain.api_key import ApiKeyTenant
 from src.core.admin_ops.domain.backup_job import BackupSchedule, BackupScope, RestoreMode
 from src.core.admin_ops.domain.global_rule import GlobalRule
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
@@ -54,7 +55,13 @@ class RestoreResult:
         self.documents_restored = 0
         self.conversations_restored = 0
         self.facts_restored = 0
+        self.conversations_without_owner = 0
+        self.facts_without_owner = 0
         self.errors: list[str] = []
+
+    @property
+    def unowned_items(self) -> int:
+        return self.conversations_without_owner + self.facts_without_owner
 
     @property
     def total_items(self) -> int:
@@ -82,6 +89,20 @@ class RestoreService:
         self.storage = storage
         self.graph_client = graph_client
         self.vector_store_factory = vector_store_factory
+
+    async def _resolve_api_key_id(self, api_key_id: str | None, tenant_id: str) -> str | None:
+        """Keep an ownership ID only when it is linked to the restore tenant."""
+        if not api_key_id:
+            return None
+        link = await self.session.get(ApiKeyTenant, (api_key_id, tenant_id))
+        if link is None:
+            logger.warning(
+                "Dropping unavailable API-key owner %s while restoring tenant %s",
+                api_key_id,
+                tenant_id,
+            )
+            return None
+        return api_key_id
 
     async def validate_backup(self, backup_path: str) -> BackupManifest:
         """
@@ -188,13 +209,16 @@ class RestoreService:
                     update_progress()
 
                     # 3. Conversations
-                    result.conversations_restored = await self._restore_conversations(
+                    (
+                        result.conversations_restored,
+                        result.conversations_without_owner,
+                    ) = await self._restore_conversations(
                         zf, target_tenant_id, mode
                     )
                     update_progress()
 
                     # 4. User Facts
-                    result.facts_restored = await self._restore_user_facts(
+                    result.facts_restored, result.facts_without_owner = await self._restore_user_facts(
                         zf, target_tenant_id, mode
                     )
                     update_progress()
@@ -246,6 +270,13 @@ class RestoreService:
                 update_progress()
 
                 await self.session.commit()
+
+            if result.unowned_items:
+                logger.warning(
+                    "Restored %s conversations / %s facts with no recoverable owner",
+                    result.conversations_without_owner,
+                    result.facts_without_owner,
+                )
 
         except Exception as e:
             logger.error(f"Restore failed: {e}")
@@ -394,12 +425,13 @@ class RestoreService:
 
     async def _restore_conversations(
         self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode
-    ) -> int:
+    ) -> tuple[int, int]:
         """Restore conversations from backup."""
         count = 0
+        without_owner = 0
 
         if "conversations/conversations.json" not in zf.namelist():
-            return 0
+            return 0, 0
 
         data = json.loads(zf.read("conversations/conversations.json"))
 
@@ -414,10 +446,16 @@ class RestoreService:
                 if existing.scalar_one_or_none():
                     continue
 
+            api_key_id = await self._resolve_api_key_id(
+                conv_data.get("api_key_id"), tenant_id
+            )
+            if api_key_id is None:
+                without_owner += 1
             conv = ConversationSummary(
                 id=conv_id,
                 tenant_id=tenant_id,
                 user_id=conv_data.get("user_id"),
+                api_key_id=api_key_id,
                 title=conv_data.get("title"),
                 summary=conv_data.get("summary"),
                 metadata_=conv_data.get("metadata", {}),
@@ -427,16 +465,17 @@ class RestoreService:
 
         await self.session.flush()
 
-        return count
+        return count, without_owner
 
     async def _restore_user_facts(
         self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode
-    ) -> int:
+    ) -> tuple[int, int]:
         """Restore user facts from backup."""
         count = 0
+        without_owner = 0
 
         if "memory/user_facts.json" not in zf.namelist():
-            return 0
+            return 0, 0
 
         data = json.loads(zf.read("memory/user_facts.json"))
 
@@ -451,10 +490,16 @@ class RestoreService:
                 if existing.scalar_one_or_none():
                     continue
 
+            api_key_id = await self._resolve_api_key_id(
+                fact_data.get("api_key_id"), tenant_id
+            )
+            if api_key_id is None:
+                without_owner += 1
             fact = UserFact(
                 id=fact_id,
                 tenant_id=tenant_id,
                 user_id=fact_data.get("user_id"),
+                api_key_id=api_key_id,
                 content=fact_data.get("content"),
                 importance=fact_data.get("importance", 0.5),
                 metadata_=fact_data.get("metadata", {}),
@@ -464,7 +509,7 @@ class RestoreService:
 
         await self.session.flush()
 
-        return count
+        return count, without_owner
 
     async def _restore_global_rules(
         self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode

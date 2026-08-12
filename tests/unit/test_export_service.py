@@ -78,7 +78,9 @@ class TestExportService:
 
         service = ExportService(mock_session, mock_storage)
 
-        zip_bytes = await service.generate_single_conversation_zip("conv_123", tenant_id="tenant_1")
+        zip_bytes = await service.generate_single_conversation_zip(
+            "conv_123", tenant_id="tenant_1", api_key_id="key_1"
+        )
 
         # Verify ZIP is valid and has expected files
         assert len(zip_bytes) > 0
@@ -113,7 +115,9 @@ class TestExportService:
         service = ExportService(mock_session, mock_storage)
 
         with pytest.raises(ValueError, match="Conversation .* not found"):
-            await service.generate_single_conversation_zip("nonexistent_conv", tenant_id="tenant_1")
+            await service.generate_single_conversation_zip(
+                "nonexistent_conv", tenant_id="tenant_1", api_key_id="key_1"
+            )
 
     @pytest.mark.asyncio
     async def test_generate_single_conversation_zip_with_documents(
@@ -140,7 +144,9 @@ class TestExportService:
 
         service = ExportService(mock_session, mock_storage)
 
-        zip_bytes = await service.generate_single_conversation_zip("conv_123", tenant_id="tenant_1")
+        zip_bytes = await service.generate_single_conversation_zip(
+            "conv_123", tenant_id="tenant_1", api_key_id="key_1"
+        )
 
         # Verify document folder exists
         zip_buffer = io.BytesIO(zip_bytes)
@@ -177,7 +183,9 @@ class TestExportService:
         service = ExportService(mock_session, mock_storage)
 
         # Should not raise - just logs warning and adds placeholder
-        zip_bytes = await service.generate_single_conversation_zip("conv_123", tenant_id="tenant_1")
+        zip_bytes = await service.generate_single_conversation_zip(
+            "conv_123", tenant_id="tenant_1", api_key_id="key_1"
+        )
 
         assert len(zip_bytes) > 0
 
@@ -210,7 +218,9 @@ class TestExportService:
 
         service = ExportService(mock_session, mock_storage)
 
-        zip_bytes = await service.generate_single_conversation_zip("conv_456", tenant_id="tenant_1")
+        zip_bytes = await service.generate_single_conversation_zip(
+            "conv_456", tenant_id="tenant_1", api_key_id="key_1"
+        )
 
         zip_buffer = io.BytesIO(zip_bytes)
         with zipfile.ZipFile(zip_buffer, "r") as zf:

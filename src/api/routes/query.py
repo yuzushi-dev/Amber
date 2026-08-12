@@ -194,7 +194,7 @@ async def query(
         # broad `except Exception` below turns that into the generic "unable to
         # process your query" fallback - i.e. every structured query on this
         # endpoint fails, with the real reason only visible in the logs.
-        if user_id and getattr(response, "conversation_id", None):
+        if user_id and api_key_id and getattr(response, "conversation_id", None):
             try:
                 from sqlalchemy.orm.attributes import flag_modified
 
@@ -226,8 +226,16 @@ async def query(
                         ConversationSummary, response.conversation_id
                     )
 
-                    existing_summary = _resolve_owned_summary(existing_summary, tenant_id, api_key_id)
-                    if existing_summary:
+                    resolved_summary = _resolve_owned_summary(
+                        existing_summary, tenant_id, api_key_id
+                    )
+                    if existing_summary and not resolved_summary:
+                        logger.warning(
+                            "Skipping foreign or legacy non-stream conversation persistence: %s",
+                            response.conversation_id,
+                        )
+                    elif resolved_summary:
+                        existing_summary = resolved_summary
                         # UPDATE: append current turn to history[], refresh top-level fields
                         history = existing_summary.metadata_.get("history", [])
                         history.append(
@@ -511,8 +519,7 @@ async def _load_conversation_history(
     by guessing `conversation_id` and sending an `X-User-ID` equal to the
     victim's resolved identity (issue #72). A row written before this
     ownership model existed carries `api_key_id=None` and never matches —
-    fail closed, no backfill; the row is still readable once a later
-    authenticated write adopts it (see the persistence functions below).
+    fail closed, with no backfill or adoption.
 
     Runs inside the stream's short pre-provider RLS phase, so the summary is
     read under all request GUCs and is detached before provider streaming
@@ -539,28 +546,20 @@ async def _load_conversation_history(
 def _resolve_owned_summary(
     existing: "ConversationSummary | None", tenant_id: str, api_key_id: str | None
 ) -> "ConversationSummary | None":
-    """Ownership gate + legacy adoption shared by every ConversationSummary
-    write path (the non-stream `query()` handler, `_persist_rag_conversation`,
-    `_persist_agent_conversation`). Returns `existing` if the caller may
-    write to it — adopting it in place first if it is a legacy row with no
-    recorded `api_key_id` — or `None` if it must be treated as foreign (or
-    doesn't exist).
+    """Ownership gate shared by every ConversationSummary write path.
+
+    Returns `existing` only when its tenant and authenticated API-key owner
+    both match; legacy rows with no recorded owner remain inaccessible.
 
     See `_load_conversation_history`'s docstring for why `api_key_id`
     (authenticated, unspoofable) is the ownership key, not `user_id`/
-    X-User-ID. Adoption on write (not on read: see the docstring above) is
-    safe because a legacy row could already be updated by any same-tenant
-    caller before this function existed — no ownership check ran at all.
-    Adopting the first authenticated writer is a strict improvement (durable
-    ownership from this point on) with no larger blast radius than today.
+    X-User-ID. A legacy row has no trustworthy principal to adopt, so treating
+    it as foreign is the only fail-closed policy.
     """
     if not existing or not api_key_id or existing.tenant_id != tenant_id:
         return None
-    if existing.api_key_id and existing.api_key_id != api_key_id:
+    if existing.api_key_id != api_key_id:
         return None
-    if not existing.api_key_id:
-        logger.info("Adopting legacy conversation summary %s", existing.id)
-        existing.api_key_id = api_key_id
     return existing
 
 
@@ -603,6 +602,10 @@ async def _persist_rag_conversation(
     quality: dict[str, Any] | None,
 ) -> None:
     """Fail softly, but always reload a threaded conversation under post-stream RLS."""
+    if not api_key_id:
+        logger.warning("Skipping RAG conversation persistence without authenticated API key")
+        return
+
     try:
         from sqlalchemy.orm.attributes import flag_modified
 
@@ -687,6 +690,10 @@ async def _persist_agent_conversation(
     tools_used: list[str],
 ) -> bool:
     """Persist an agent turn after the provider finishes, without cross-tenant writes."""
+    if not api_key_id:
+        logger.warning("Skipping agent conversation persistence without authenticated API key")
+        return False
+
     try:
         from sqlalchemy.orm.attributes import flag_modified
 
@@ -756,7 +763,7 @@ async def _persist_agent_conversation(
             return True
     except Exception as e:
         logger.error("Failed to save AGENT conversation history: %s", e)
-        return None
+        return False
 
 
 async def _prepare_stream_phase(
@@ -793,9 +800,8 @@ async def _prepare_stream_phase(
                     # api_key_id (unspoofable), not user_id/X-User-ID — see
                     # _load_conversation_history's docstring. A legacy
                     # conversation with no recorded api_key_id is treated as
-                    # foreign here (read-only decision, no adoption): unlike
-                    # the persistence functions, there is no write to anchor
-                    # an adoption to.
+                    # foreign in both read and write paths because there is
+                    # no trustworthy owner to reconstruct.
                     if (
                         existing_conv.tenant_id != tenant_id
                         or not existing_conv.api_key_id
@@ -939,6 +945,7 @@ async def _prepare_stream_phase(
                 options={
                     "user_id": stream_user_id,
                     "tenant_id": tenant_id,
+                    "api_key_id": api_key_id,
                     "model": request.options.model if request.options else None,
                 },
                 session=session,
@@ -1129,8 +1136,10 @@ async def _query_stream_impl(
                     tools_used=tools_actually_called,
                 )
                 if persisted is False:
-                    yield f"event: error\ndata: {json.dumps('Conversation not found')}\n\n"
-                    return
+                    yield (
+                        "event: warning\ndata: "
+                        f"{json.dumps('Turn was not saved to history')}\n\n"
+                    )
 
                 answer_text = agent_response.answer or ""
                 for chunk in re.findall(r"\S+|\s+", answer_text):
@@ -1195,6 +1204,7 @@ async def _query_stream_impl(
                     options={
                         "user_id": phase.stream_user_id,
                         "tenant_id": tenant_id,
+                        "api_key_id": phase.api_key_id,
                         "model": request.options.model if request.options else None,
                     },
                 )

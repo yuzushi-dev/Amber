@@ -45,6 +45,8 @@ class MemoryExtractor:
         text: str,
         metadata: dict[str, Any] | None = None,
         tenant_config: dict[str, Any] | None = None,
+        *,
+        api_key_id: str,
     ) -> list[str]:
         """
         Analyze text (usually a user query) for permanent user facts.
@@ -59,7 +61,7 @@ class MemoryExtractor:
         Returns:
             List of extracted facts (strings)
         """
-        if not text or len(text) < 10:
+        if not text or len(text) < 10 or not api_key_id:
             return []
 
         # 1. Scrub PII before sending to LLM
@@ -126,7 +128,11 @@ class MemoryExtractor:
             for fact in facts:
                 if isinstance(fact, str) and len(fact) > 5:
                     await memory_manager.add_user_fact(
-                        tenant_id=tenant_id, user_id=user_id, content=fact, metadata=metadata
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        content=fact,
+                        metadata=metadata,
+                        api_key_id=api_key_id,
                     )
                     saved_facts.append(fact)
 
@@ -149,6 +155,8 @@ class MemoryExtractor:
         messages: list[dict[str, str]],
         title: str | None = None,
         tenant_config: dict[str, Any] | None = None,
+        *,
+        api_key_id: str,
     ) -> str | None:
         """
         Summarize a conversation history and save it.
@@ -230,6 +238,7 @@ class MemoryExtractor:
                 title=final_title,
                 summary=summary,
                 metadata={"message_count": len(messages)},
+                api_key_id=api_key_id,
             )
             logger.info(f"Saved conversation summary for {conversation_id}")
 
