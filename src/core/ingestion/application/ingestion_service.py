@@ -13,6 +13,7 @@ import os
 import time
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
@@ -21,7 +22,10 @@ from src.core.graph.application.enrichment import GraphEnricher
 from src.core.graph.application.processor import GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import (
+    Document,
+    DocumentGeneration,
+)
 from src.core.ingestion.domain.ports.content_extractor import (
     ContentExtractorPort,
     get_content_extractor,
@@ -345,47 +349,42 @@ class IngestionService:
             logger.error(f"Failed to upload file to storage: {e}")
             raise
 
-        previous_status = existing_doc.status
-
         updated_metadata = dict(existing_doc.metadata_ or {})
         updated_metadata.update({"original_filename": filename, "content_type": content_type})
         if metadata_:
             updated_metadata.update(metadata_)
 
-        existing_doc.content_hash = content_hash
-        # filename must follow the new content: it is what get_titles_by_ids()
-        # reads to label sources in answers, so leaving the old name here would
-        # cite updated content under its previous title. Relevant when the match
-        # came from source_url and the source renamed the page.
-        existing_doc.filename = filename
-        existing_doc.storage_path = storage_path
-        existing_doc.status = DocumentStatus.INGESTED
-        existing_doc.error_message = None
-        existing_doc.metadata_ = updated_metadata
-
-        await self.document_repository.save(existing_doc)
-
-        # The row now points at the new content, so any cached answer built from
-        # the old chunks is wrong from this moment - not from whenever the
-        # reprocess happens to finish, and regardless of whether it finishes at
-        # all. See _invalidate_result_cache.
-        await self._invalidate_result_cache(
-            tenant_id, f"{existing_doc.id} content replaced", loud=True
+        generation = DocumentGeneration(
+            id=uuid4().hex,
+            document_id=existing_doc.id,
+            tenant_id=tenant_id,
+            filename=filename,
+            content_hash=content_hash,
+            storage_path=storage_path,
+            metadata_=updated_metadata,
+            domain=getattr(existing_doc, "domain", None),
+            summary=getattr(existing_doc, "summary", None),
+            document_type=getattr(existing_doc, "document_type", None),
+            keywords=list(getattr(existing_doc, "keywords", None) or []),
+            hashtags=list(getattr(existing_doc, "hashtags", None) or []),
         )
+        await self.document_repository.save_generation(generation)
+        existing_doc.pending_generation_id = generation.id
+        await self.document_repository.save(existing_doc)
 
         await self.event_dispatcher.emit_state_change(
             StateChangeEvent(
                 document_id=existing_doc.id,
-                old_status=previous_status,
-                new_status=DocumentStatus.INGESTED,
+                old_status=existing_doc.status,
+                new_status=existing_doc.status,
                 tenant_id=tenant_id,
-                details={"filename": filename, "replaced": True},
+                details={"filename": filename, "replacement_staged": True},
             )
         )
 
         logger.info(
             f"Replaced document content in place: {filename} (ID: {existing_doc.id}, "
-            f"previous status: {getattr(previous_status, 'value', previous_status)})"
+            f"generation: {generation.id})"
         )
         return existing_doc
 
@@ -415,12 +414,11 @@ class IngestionService:
         # persisted row is never in the 'ingested' state (bug found while
         # retrying issue #106's no-graph-twin documents in prod).
         prior_status = document.status
+        preserve_published = prior_status == DocumentStatus.READY
         try:
             TransitionManager.validate_transition(prior_status, DocumentStatus.EXTRACTING)
         except InvalidTransitionError as e:
-            logger.warning(
-                f"Invalid status transition for {document_id}: {e}. Skipping."
-            )
+            logger.warning(f"Invalid status transition for {document_id}: {e}. Skipping.")
             return
 
         # READY means this document already completed the pipeline and is
@@ -437,15 +435,40 @@ class IngestionService:
         # already resets status to INGESTED before dispatching, so this guard
         # does not affect them - only an explicit force=True caller reprocesses
         # a READY document.
-        if prior_status == DocumentStatus.READY and not force:
+        pending_generation_id = getattr(document, "pending_generation_id", None)
+        if preserve_published and not force and not pending_generation_id:
             logger.warning(
                 f"Document {document_id} is already READY; skipping automatic "
                 "reprocessing (pass force=True for an explicit reprocess)."
             )
             return
-        updated = await self.document_repository.update_status(
-            document_id, DocumentStatus.EXTRACTING, old_status=prior_status
-        )
+        generation = None
+        if pending_generation_id:
+            generation = await self.document_repository.get_generation(pending_generation_id)
+        if generation is None:
+            generation = DocumentGeneration(
+                id=uuid4().hex,
+                document_id=document.id,
+                tenant_id=document.tenant_id,
+                filename=document.filename,
+                content_hash=document.content_hash,
+                storage_path=document.storage_path,
+                metadata_=dict(document.metadata_ or {}),
+                domain=getattr(document, "domain", None),
+                summary=getattr(document, "summary", None),
+                document_type=getattr(document, "document_type", None),
+                keywords=list(getattr(document, "keywords", None) or []),
+                hashtags=list(getattr(document, "hashtags", None) or []),
+            )
+            await self.document_repository.save_generation(generation)
+            document.pending_generation_id = generation.id
+            await self.document_repository.save(document)
+
+        updated = True
+        if not preserve_published:
+            updated = await self.document_repository.update_status(
+                document_id, DocumentStatus.EXTRACTING, old_status=prior_status
+            )
 
         if not updated:
             # Re-fetch to see why
@@ -462,6 +485,7 @@ class IngestionService:
 
         # Refresh local object to match DB
         document = await self.document_repository.get(document_id)
+        processing_status = DocumentStatus.EXTRACTING
 
         # Clear any error state left over from a prior failed attempt now that
         # a fresh retry has begun. Done once here (not per terminal branch)
@@ -470,7 +494,7 @@ class IngestionService:
         # this again in the exception handler below) - rather than only the
         # READY path, which would leave a stale error visible on a document
         # that lands in NEEDS_REVIEW instead.
-        if document.error_message is not None:
+        if not preserve_published and document.error_message is not None:
             document.error_message = None
             await self.document_repository.save(document)
 
@@ -486,7 +510,7 @@ class IngestionService:
         try:
             # 3. Get File from Storage
             # MinIO get_file returns bytes (handled inside wrapper)
-            file_content = self.storage.get_file(document.storage_path)
+            file_content = self.storage.get_file(generation.storage_path)
 
             # 4. Extract Content (Fallback Chain)
             import mimetypes
@@ -494,10 +518,10 @@ class IngestionService:
             # Use stored content_type from upload metadata first,
             # then fall back to mimetypes.guess_type() (which returns None for .md files)
             stored_ct = None
-            if document.metadata_ and isinstance(document.metadata_, dict):
-                stored_ct = document.metadata_.get("content_type")
+            if generation.metadata_ and isinstance(generation.metadata_, dict):
+                stored_ct = generation.metadata_.get("content_type")
 
-            mime_type, _ = mimetypes.guess_type(document.filename)
+            mime_type, _ = mimetypes.guess_type(generation.filename)
             if stored_ct and stored_ct != "application/octet-stream":
                 mime_type = stored_ct
             elif not mime_type:
@@ -505,7 +529,7 @@ class IngestionService:
 
             extractor = self.content_extractor or get_content_extractor()
             extraction_result = await extractor.extract(
-                file_content=file_content, mime_type=mime_type, filename=document.filename
+                file_content=file_content, mime_type=mime_type, filename=generation.filename
             )
 
             # 4b. Quality Gate: check extraction result against configured thresholds.
@@ -517,9 +541,7 @@ class IngestionService:
             page_count = (
                 extraction_result.metadata.get("page_count") if extraction_result.metadata else None
             )
-            content_density = (
-                content_length / page_count if page_count and page_count > 0 else None
-            )
+            content_density = content_length / page_count if page_count and page_count > 0 else None
 
             quality_failures = []
             if extraction_result.confidence < extraction_settings.min_ocr_confidence:
@@ -548,13 +570,17 @@ class IngestionService:
                     f"Setting status to NEEDS_REVIEW."
                 )
                 TransitionManager.validate_transition(
-                    document.status, DocumentStatus.NEEDS_REVIEW
+                    processing_status, DocumentStatus.NEEDS_REVIEW
                 )
-                await self.document_repository.update_status(
-                    document.id, DocumentStatus.NEEDS_REVIEW
-                )
+                if preserve_published:
+                    await self.document_repository.mark_generation_failed(generation.id, reason)
+                    document.pending_generation_id = None
+                    await self.document_repository.save(document)
+                else:
+                    await self.document_repository.update_status(
+                        document.id, DocumentStatus.NEEDS_REVIEW
+                    )
                 await self.unit_of_work.commit()
-                document.status = DocumentStatus.NEEDS_REVIEW
                 await self.event_dispatcher.emit_state_change(
                     StateChangeEvent(
                         document_id=document.id,
@@ -567,10 +593,13 @@ class IngestionService:
                 return
 
             # 5. Classify Domain (Stage 1.4)
-            TransitionManager.validate_transition(document.status, DocumentStatus.CLASSIFYING)
-            await self.document_repository.update_status(document.id, DocumentStatus.CLASSIFYING)
-            await self.unit_of_work.commit()
-            document.status = DocumentStatus.CLASSIFYING
+            TransitionManager.validate_transition(processing_status, DocumentStatus.CLASSIFYING)
+            if not preserve_published:
+                await self.document_repository.update_status(
+                    document.id, DocumentStatus.CLASSIFYING
+                )
+                await self.unit_of_work.commit()
+            processing_status = DocumentStatus.CLASSIFYING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -595,13 +624,13 @@ class IngestionService:
                 f"Classified document {document_id} as {domain.value}. Strategy: {strategy.name}"
             )
 
-            document.domain = domain.value
+            generation.domain = domain.value
 
             # Metadata: Initial population (Clean Schema)
             # We preserve internal technical fields (content_type, mime_type) for system use
             # but present a cleaner view for the user.
 
-            file_ext = document.filename.split(".")[-1] if "." in document.filename else ""
+            file_ext = generation.filename.split(".")[-1] if "." in generation.filename else ""
             fmt = "PDF" if file_ext.lower() == "pdf" else file_ext.upper()
 
             # Format creation date DD/MM/YYYY
@@ -612,27 +641,30 @@ class IngestionService:
 
             # Merge over existing metadata: reprocessing must not drop fields
             # set out-of-band (taxonomy routing, sync/source info, shares).
-            _preserved_metadata = dict(document.metadata_ or {})
-            _preserved_metadata.update({
-                "title": document.filename.rsplit(".", 1)[0],
-                "format": fmt,
-                "pageCount": extraction_result.metadata.get("page_count")
-                if extraction_result.metadata
-                else None,
-                "creationDate": created_date,
-                "uploadTime": upload_time,
-                # Technical preservation
-                "content_type": mime_type,
-                "mime_type": mime_type,
-                "file_size": len(file_content),
-            })
-            document.metadata_ = _preserved_metadata
+            _preserved_metadata = dict(generation.metadata_ or {})
+            _preserved_metadata.update(
+                {
+                    "title": generation.filename.rsplit(".", 1)[0],
+                    "format": fmt,
+                    "pageCount": extraction_result.metadata.get("page_count")
+                    if extraction_result.metadata
+                    else None,
+                    "creationDate": created_date,
+                    "uploadTime": upload_time,
+                    # Technical preservation
+                    "content_type": mime_type,
+                    "mime_type": mime_type,
+                    "file_size": len(file_content),
+                }
+            )
+            generation.metadata_ = _preserved_metadata
 
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
-            TransitionManager.validate_transition(document.status, DocumentStatus.CHUNKING)
-            await self.document_repository.update_status(document.id, DocumentStatus.CHUNKING)
-            await self.unit_of_work.commit()
-            document.status = DocumentStatus.CHUNKING
+            TransitionManager.validate_transition(processing_status, DocumentStatus.CHUNKING)
+            if not preserve_published:
+                await self.document_repository.update_status(document.id, DocumentStatus.CHUNKING)
+                await self.unit_of_work.commit()
+            processing_status = DocumentStatus.CHUNKING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -651,7 +683,7 @@ class IngestionService:
             chunker = SemanticChunker(strategy)
             chunk_data_list = chunker.chunk(
                 extraction_result.content,
-                document_title=document.filename,
+                document_title=generation.filename,
                 metadata=extraction_result.metadata,
             )
 
@@ -660,9 +692,10 @@ class IngestionService:
             chunks_to_process = []
             for cd in chunk_data_list:
                 chunk = Chunk(
-                    id=generate_chunk_id(document.id, cd.index),
+                    id=generate_chunk_id(f"doc_{generation.id[:16]}", cd.index),
                     tenant_id=document.tenant_id,
                     document_id=document.id,
+                    generation_id=generation.id,
                     index=cd.index,
                     content=cd.content,
                     tokens=cd.token_count,
@@ -701,14 +734,14 @@ class IngestionService:
                 except Exception as e:
                     logger.warning(f"Contextual enrichment skipped (error): {e}")
 
-            document.chunks = chunks_to_process
-            await self.document_repository.save(document)
+            await self.document_repository.save_chunks(chunks_to_process)
 
             # 8. Generate Embeddings and Store in Milvus
-            TransitionManager.validate_transition(document.status, DocumentStatus.EMBEDDING)
-            await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
-            await self.unit_of_work.commit()
-            document.status = DocumentStatus.EMBEDDING
+            TransitionManager.validate_transition(processing_status, DocumentStatus.EMBEDDING)
+            if not preserve_published:
+                await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
+                await self.unit_of_work.commit()
+            processing_status = DocumentStatus.EMBEDDING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -728,6 +761,7 @@ class IngestionService:
                     get_provider_factory,
                 )
                 from src.core.retrieval.application.embeddings_service import EmbeddingService
+
                 tenant_obj = await self.tenant_repository.get(document.tenant_id)
                 t_config = tenant_obj.config if tenant_obj and tenant_obj.config else {}
 
@@ -764,6 +798,7 @@ class IngestionService:
                         EMBEDDING_MODELS,
                         embedding_supports_dimensions,
                     )
+
                     model_info = EMBEDDING_MODELS.get(res_prov or "", {}).get(res_model, {})
                     model_native_dims = model_info.get("dimensions")
                     # Only enforce when asking for a reduced (non-native) dimension.
@@ -791,6 +826,7 @@ class IngestionService:
                 from src.core.retrieval.application.sparse_embeddings_service import (
                     SparseEmbeddingService,
                 )
+
                 sparse_service = SparseEmbeddingService()
 
                 active_collection = resolve_active_vector_collection(document.tenant_id, t_config)
@@ -802,42 +838,6 @@ class IngestionService:
                 else:
                     logger.debug("Using provided vector store")
                     vector_store = self.vector_store
-
-                # Re-process cleanup: delete stale Milvus vectors and Neo4j chunk nodes
-                # from any previous ingestion run before writing new ones.  On first-time
-                # ingestion this is a no-op (nothing to delete).
-                if vector_store is not None:
-                    try:
-                        deleted_count = await vector_store.delete_by_document(
-                            document.id, document.tenant_id
-                        )
-                        logger.info(
-                            f"Pre-ingest cleanup: removed {deleted_count} stale Milvus vectors "
-                            f"for document {document.id} (tenant {document.tenant_id})"
-                        )
-                    except Exception as _vs_del_err:
-                        logger.warning(
-                            f"Failed to delete stale Milvus vectors for {document.id}: "
-                            f"{_vs_del_err} (continuing)"
-                        )
-
-                try:
-                    await self.neo4j_client.execute_write(
-                        """
-                        MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
-                        DETACH DELETE c
-                        """,
-                        {"document_id": document.id, "tenant_id": document.tenant_id},
-                    )
-                    logger.info(
-                        f"Pre-ingest cleanup: removed stale Neo4j chunk nodes "
-                        f"for document {document.id} (tenant {document.tenant_id})"
-                    )
-                except Exception as _neo_del_err:
-                    logger.warning(
-                        f"Failed to delete stale Neo4j chunk nodes for {document.id}: "
-                        f"{_neo_del_err} (continuing)"
-                    )
 
                 logger.info(
                     f"RESOLVED EMBEDDING CONFIG | Document: {document.id} | Tenant: {document.tenant_id}"
@@ -854,16 +854,18 @@ class IngestionService:
 
                 # Capture Embedding Metadata
                 # Re-assign dict to trigger SQLAlchemy JSONB change tracking
-                meta_update = document.metadata_ or {}
+                meta_update = generation.metadata_ or {}
                 meta_update["embeddingModel"] = f"{res_prov} {res_model}"
                 meta_update["vectorStore"] = active_collection
-                document.metadata_ = dict(meta_update)
+                generation.metadata_ = dict(meta_update)
 
                 if vector_store is None:
                     raise RuntimeError("Vector store not configured")
 
                 chunk_contents = [c.content for c in chunks_to_process]
-                logger.debug('Calling embed_texts chunks=%d model=%s', len(chunk_contents), res_model)
+                logger.debug(
+                    "Calling embed_texts chunks=%d model=%s", len(chunk_contents), res_model
+                )
 
                 # Callback for granular progress (60->70%)
                 async def _on_embedding_progress(completed: int, total: int):
@@ -877,14 +879,18 @@ class IngestionService:
                             old_status=DocumentStatus.EMBEDDING,
                             new_status=DocumentStatus.EMBEDDING,
                             tenant_id=document.tenant_id,
-                            details={"progress": progress, "chunks_completed": completed, "total_chunks": total},
+                            details={
+                                "progress": progress,
+                                "chunks_completed": completed,
+                                "total_chunks": total,
+                            },
                         )
                     )
 
                 embeddings, stats = await embedding_service.embed_texts(
                     chunk_contents,
                     metadata={"document_id": document.id},
-                    progress_callback=_on_embedding_progress
+                    progress_callback=_on_embedding_progress,
                 )
                 logger.debug("embed_texts returned")
 
@@ -896,7 +902,7 @@ class IngestionService:
 
                     m_settings = get_settings()
                     m_collector = MetricsCollector(redis_url=m_settings.db.redis_url)
-                    m_label = f"Ingestion: {document.filename} ({len(chunks_to_process)} chunks)"
+                    m_label = f"Ingestion: {generation.filename} ({len(chunks_to_process)} chunks)"
 
                     async with m_collector.track_query(
                         generate_query_id(), document.tenant_id, m_label
@@ -906,7 +912,7 @@ class IngestionService:
                         qm.cost_estimate = stats.total_cost
                         qm.response = f"Generated {len(chunks_to_process)} embeddings. Tokens: {stats.total_tokens}, Cost: ${stats.total_cost:.4f}"
                         qm.success = True
-                        qm.conversation_id = document.filename
+                        qm.conversation_id = generation.filename
                 except Exception as e:
                     logger.error(f"Failed to log aggregated ingestion metrics: {e}")
 
@@ -926,6 +932,7 @@ class IngestionService:
                         "chunk_id": chunk.id,
                         "document_id": chunk.document_id,
                         "tenant_id": document.tenant_id,
+                        "generation_id": generation.id,
                         "content": chunk.content[:65530],
                         "embedding": emb,
                     }
@@ -943,7 +950,6 @@ class IngestionService:
                 # But since we batch upsert here at the end, the "embedding generation" is the long part.
                 # If we passed a callback to embed_texts, we could get 60->70 updates.
 
-
                 for chunk in chunks_to_process:
                     chunk.embedding_status = EmbeddingStatus.COMPLETED
 
@@ -952,6 +958,7 @@ class IngestionService:
                         "id": c.id,
                         "document_id": c.document_id,
                         "tenant_id": document.tenant_id,
+                        "generation_id": generation.id,
                         "content": c.content,
                     }
                     for c in chunks_to_process
@@ -960,11 +967,12 @@ class IngestionService:
                     await self.neo4j_client.execute_write(
                         """
                         UNWIND $batch as row
-                        MERGE (c:Chunk {id: row.id})
+                        MERGE (c:Chunk {id: row.id, generation_id: row.generation_id})
                         ON CREATE SET
                             c.document_id = row.document_id,
                             c.tenant_id = row.tenant_id,
                             c.content = row.content,
+                            c.is_published = false,
                             c.created_at = timestamp()
                         """,
                         {"batch": chunk_params},
@@ -995,10 +1003,11 @@ class IngestionService:
                         logger.warning(f"Failed to disconnect Milvus: {disconnect_error}")
 
             # 9. Build Knowledge Graph
-            TransitionManager.validate_transition(document.status, DocumentStatus.GRAPH_SYNC)
-            await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
-            await self.unit_of_work.commit()
-            document.status = DocumentStatus.GRAPH_SYNC
+            TransitionManager.validate_transition(processing_status, DocumentStatus.GRAPH_SYNC)
+            if not preserve_published:
+                await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
+                await self.unit_of_work.commit()
+            processing_status = DocumentStatus.GRAPH_SYNC
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
                     document_id=document.id,
@@ -1028,7 +1037,7 @@ class IngestionService:
                             details={
                                 "progress": progress,
                                 "chunks_completed": completed,
-                                "total_chunks": total
+                                "total_chunks": total,
                             },
                         )
                     )
@@ -1038,7 +1047,8 @@ class IngestionService:
                     await self.graph_processor.process_chunks(
                         chunks_to_process,
                         document.tenant_id,
-                        filename=document.filename,
+                        filename=generation.filename,
+                        generation_id=generation.id,
                         tenant_config=tenant_config,
                         progress_callback=_on_graph_progress,
                     )
@@ -1056,31 +1066,31 @@ class IngestionService:
                 chunk_contents = [c.content for c in chunks_to_process[:10]]
                 enrichment = await summarizer.extract_summary(
                     chunks=chunk_contents,
-                    document_title=document.filename,
+                    document_title=generation.filename,
                     tenant_config=tenant_config,
                 )
-                document.summary = enrichment.get("summary", "")
-                document.document_type = enrichment.get("document_type", "other")
-                document.hashtags = enrichment.get("hashtags", [])
-                document.keywords = enrichment.get("keywords", [])
-                if domain and domain.value and domain.value not in document.keywords:
-                    document.keywords.append(domain.value)
+                generation.summary = enrichment.get("summary", "")
+                generation.document_type = enrichment.get("document_type", "other")
+                generation.hashtags = enrichment.get("hashtags", [])
+                generation.keywords = enrichment.get("keywords", [])
+                if domain and domain.value and domain.value not in generation.keywords:
+                    generation.keywords.append(domain.value)
 
                 # Surface enrichment failures instead of silently shipping an empty
                 # summary. extract_summary swallows LLM/parse errors and returns an
                 # empty result tagged with `enrichment_error`; flag it on the document
                 # (visible in metadata/UI + logs) without failing the whole pipeline.
                 enrichment_error = enrichment.get("enrichment_error")
-                if enrichment_error or not (document.summary or "").strip():
+                if enrichment_error or not (generation.summary or "").strip():
                     logger.warning(
                         f"Document enrichment produced no summary for {document_id} "
                         f"(reason: {enrichment_error or 'empty result'})"
                     )
-                    enr_meta = document.metadata_ or {}
+                    enr_meta = generation.metadata_ or {}
                     enr_meta["enrichmentStatus"] = "failed" if enrichment_error else "empty"
                     if enrichment_error:
                         enr_meta["enrichmentError"] = str(enrichment_error)[:300]
-                    document.metadata_ = dict(enr_meta)
+                    generation.metadata_ = dict(enr_meta)
 
                 # Capture LLM Metadata
                 try:
@@ -1090,9 +1100,9 @@ class IngestionService:
                         settings=self.settings
                         or get_settings(),  # fallback if self.settings is None
                     )
-                    meta_update = document.metadata_ or {}
+                    meta_update = generation.metadata_ or {}
                     meta_update["llmModel"] = f"{llm_cfg.provider} {llm_cfg.model}"
-                    document.metadata_ = dict(meta_update)
+                    generation.metadata_ = dict(meta_update)
                 except Exception as e:
                     logger.warning(f"Failed to resolve LLM config for metadata: {e}")
 
@@ -1107,17 +1117,30 @@ class IngestionService:
                 minutes, secs = divmod(int(duration_seconds), 60)
                 duration_str = f"{minutes}m {secs}s" if minutes > 0 else f"{secs}s"
 
-                meta_update = document.metadata_ or {}
+                meta_update = generation.metadata_ or {}
                 meta_update["uploadDuration"] = duration_str
-                document.metadata_ = dict(meta_update)
+                generation.metadata_ = dict(meta_update)
             except Exception as e:
                 logger.warning(f"Failed to set upload duration: {e}")
 
             # 11. Update Document Status -> READY
-            TransitionManager.validate_transition(document.status, DocumentStatus.READY)
-            await self.document_repository.update_status(document.id, DocumentStatus.READY)
+            TransitionManager.validate_transition(processing_status, DocumentStatus.READY)
+            await self.document_repository.save_generation(generation)
+            published = await self.document_repository.publish_generation(document.id, generation)
+            if not published:
+                raise RuntimeError("document generation lost pending ownership before publish")
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.READY
+
+            try:
+                await self.neo4j_client.publish_document_generation(
+                    document.id, document.tenant_id, generation.id
+                )
+            except Exception as graph_publish_error:
+                logger.error(
+                    "Postgres published generation %s but Neo4j promotion failed: %s",
+                    generation.id,
+                    graph_publish_error,
+                )
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -1139,7 +1162,6 @@ class IngestionService:
             try:
                 document = await self.document_repository.get(document_id)
                 if document:
-                    document.status = DocumentStatus.FAILED
                     # Use shared error mapping for structured persistence
                     try:
                         import json
@@ -1147,12 +1169,22 @@ class IngestionService:
                         from src.shared.error_handling import map_exception_to_error_data
 
                         error_data = map_exception_to_error_data(e)
-                        document.error_message = json.dumps(error_data)
+                        error_message = json.dumps(error_data)
                     except Exception as map_err:
                         logger.error(f"Failed to map error for {document_id}: {map_err}")
-                        document.error_message = f"{type(e).__name__}: {str(e)}"
+                        error_message = f"{type(e).__name__}: {str(e)}"
 
-                    await self.document_repository.save(document)
+                    await self.document_repository.mark_generation_failed(
+                        generation.id, error_message
+                    )
+                    if preserve_published:
+                        if document.pending_generation_id == generation.id:
+                            document.pending_generation_id = None
+                            await self.document_repository.save(document)
+                    else:
+                        document.status = DocumentStatus.FAILED
+                        document.error_message = error_message
+                        await self.document_repository.save(document)
                     await self.unit_of_work.commit()
 
             except Exception as inner_err:

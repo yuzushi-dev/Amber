@@ -111,6 +111,12 @@ class DocumentGeneration(Base, TimestampMixin):
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     storage_path: Mapped[str] = mapped_column(String, nullable=False)
     filename: Mapped[str] = mapped_column(String, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}", nullable=False)
+    domain: Mapped[str | None] = mapped_column(String, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    keywords: Mapped[list] = mapped_column(JSONB, server_default="[]", nullable=False)
+    hashtags: Mapped[list] = mapped_column(JSONB, server_default="[]", nullable=False)
     status: Mapped[str] = mapped_column(
         String, default=DocumentGenerationStatus.STAGING.value, nullable=False, index=True
     )

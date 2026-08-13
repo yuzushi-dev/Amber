@@ -110,6 +110,34 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.flush()
         return document
 
+    async def save_generation(self, generation: DocumentGeneration) -> DocumentGeneration:
+        self._session.add(generation)
+        await self._session.flush()
+        return generation
+
+    async def get_generation(self, generation_id: str) -> DocumentGeneration | None:
+        return await self._session.get(DocumentGeneration, generation_id)
+
+    async def save_chunks(self, chunks: list[Chunk]) -> None:
+        self._session.add_all(chunks)
+        await self._session.flush()
+
+    async def mark_generation_failed(self, generation_id: str, error_message: str) -> None:
+        from sqlalchemy import update
+
+        await self._session.execute(
+            update(DocumentGeneration)
+            .where(
+                DocumentGeneration.id == generation_id,
+                DocumentGeneration.status == DocumentGenerationStatus.STAGING.value,
+            )
+            .values(
+                status=DocumentGenerationStatus.FAILED.value,
+                error_message=error_message,
+            )
+        )
+        await self._session.flush()
+
     async def delete(self, document: Document) -> None:
         """Delete a document."""
         await self._session.delete(document)
@@ -272,21 +300,15 @@ class PostgresDocumentRepository(DocumentRepository):
                     Document.tenant_id == owner_tenant_id,
                 )
             )
-            doc_grant_subq = (
-                select(GroupDocumentAccess.document_id)
-                .where(
-                    GroupDocumentAccess.group_id.in_(group_ids),
-                    GroupDocumentAccess.is_deny == False,  # noqa: E712
-                    GroupDocumentAccess.tenant_id == owner_tenant_id,
-                )
+            doc_grant_subq = select(GroupDocumentAccess.document_id).where(
+                GroupDocumentAccess.group_id.in_(group_ids),
+                GroupDocumentAccess.is_deny == False,  # noqa: E712
+                GroupDocumentAccess.tenant_id == owner_tenant_id,
             )
-            deny_subq = (
-                select(GroupDocumentAccess.document_id)
-                .where(
-                    GroupDocumentAccess.group_id.in_(group_ids),
-                    GroupDocumentAccess.is_deny == True,  # noqa: E712
-                    GroupDocumentAccess.tenant_id == owner_tenant_id,
-                )
+            deny_subq = select(GroupDocumentAccess.document_id).where(
+                GroupDocumentAccess.group_id.in_(group_ids),
+                GroupDocumentAccess.is_deny == True,  # noqa: E712
+                GroupDocumentAccess.tenant_id == owner_tenant_id,
             )
             stmt = select(Document.id).where(
                 Document.tenant_id == owner_tenant_id,
@@ -494,9 +516,7 @@ class PostgresDocumentRepository(DocumentRepository):
         )
         return list(result.scalars().all())
 
-    async def publish_generation(
-        self, document_id: str, generation: DocumentGeneration
-    ) -> bool:
+    async def publish_generation(self, document_id: str, generation: DocumentGeneration) -> bool:
         """Publish only if this generation still owns the pending pointer."""
         from sqlalchemy import update
 
@@ -512,6 +532,12 @@ class PostgresDocumentRepository(DocumentRepository):
                 content_hash=generation.content_hash,
                 storage_path=generation.storage_path,
                 filename=generation.filename,
+                metadata_=generation.metadata_,
+                domain=generation.domain,
+                summary=generation.summary,
+                document_type=generation.document_type,
+                keywords=generation.keywords,
+                hashtags=generation.hashtags,
                 status=DocumentStatus.READY,
                 error_message=None,
             )
@@ -619,9 +645,7 @@ class PostgresDocumentRepository(DocumentRepository):
                 stmt = stmt.where(_edition_col == edition)
 
         if audience is not None:
-            stmt = stmt.where(
-                Document.metadata_["taxonomy"]["audience"].astext == audience
-            )
+            stmt = stmt.where(Document.metadata_["taxonomy"]["audience"].astext == audience)
 
         if source_family is not None:
             stmt = stmt.where(

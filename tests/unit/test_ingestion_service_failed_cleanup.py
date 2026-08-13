@@ -30,6 +30,8 @@ class StubDocument:
         # file's StubDocument predates process_document's post-#110 stale
         # error clearing, which reads it unconditionally.
         self.error_message = None
+        self.pending_generation_id = None
+        self.content_hash = "test-hash"
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -89,16 +91,30 @@ class FakeDocumentRepositoryForFailure:
     def __init__(self, document: StubDocument) -> None:
         self.document = document
         self.saved: list[Any] = []
+        self.generation = None
 
     async def get(self, document_id: str):
         return self.document
 
-    async def update_status(self, document_id: str, status: str, old_status: str | None = None) -> bool:
+    async def update_status(
+        self, document_id: str, status: str, old_status: str | None = None
+    ) -> bool:
         self.document.status = status
         return True
 
     async def save(self, document) -> None:
         self.saved.append(document)
+
+    async def save_generation(self, generation):
+        self.generation = generation
+        return generation
+
+    async def get_generation(self, generation_id):
+        return self.generation if self.generation and self.generation.id == generation_id else None
+
+    async def mark_generation_failed(self, generation_id, error_message):
+        self.generation.status = "failed"
+        self.generation.error_message = error_message
 
 
 class FakeUnitOfWork:
@@ -119,7 +135,9 @@ async def test_process_document_failure_preserves_existing_artifacts(monkeypatch
         status=DocumentStatus.INGESTED,
         storage_path="tenant-1/doc_7/file.txt",
         filename="file.txt",
+        content_hash="hash-7",
         metadata_={},
+        pending_generation_id=None,
     )
     vector_store = FakeVectorStore()
     neo4j_client = FakeNeo4jClient()

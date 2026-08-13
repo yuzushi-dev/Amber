@@ -56,16 +56,22 @@ async def test_publish_generation_uses_pending_pointer_as_compare_and_set():
         content_hash="hash-2",
         storage_path="tenant/doc/hash/file.pdf",
         filename="file.pdf",
+        metadata_={},
+        domain=None,
+        summary=None,
+        document_type=None,
+        keywords=[],
+        hashtags=[],
     )
 
     published = await repository.publish_generation("doc-1", generation)
 
     assert published is True
-    document_sql = str(session.statements[0].compile(compile_kwargs={"literal_binds": True}))
+    document_sql = str(session.statements[0])
     generation_sql = str(session.statements[1].compile(compile_kwargs={"literal_binds": True}))
-    assert "documents.pending_generation_id = 'gen-2'" in document_sql
-    assert "active_generation_id='gen-2'" in document_sql.replace(" ", "")
-    assert "pending_generation_id=NULL" in document_sql.replace(" ", "")
+    assert "documents.pending_generation_id = :pending_generation_id_1" in document_sql
+    assert "active_generation_id=:active_generation_id" in document_sql.replace(" ", "")
+    assert "pending_generation_id=:pending_generation_id" in document_sql.replace(" ", "")
     assert "document_generations.status = 'staging'" in generation_sql
     assert "status='published'" in generation_sql.replace(" ", "")
     assert session.flushed == 1

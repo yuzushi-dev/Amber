@@ -26,6 +26,7 @@ class StubDocument:
     """Bypasses the real SQLAlchemy Document model; just an attribute bag."""
 
     def __init__(self, **kwargs) -> None:
+        self.pending_generation_id = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -80,6 +81,8 @@ class InMemoryDocumentRepository:
         # Simulate tables with ON DELETE CASCADE FKs on document_id.
         self.document_shares: dict[str, list[str]] = {}
         self.group_document_access: dict[str, list[str]] = {}
+        self.generations = {}
+        self.staging_chunks = []
 
     def seed(self, document: StubDocument) -> None:
         self.rows[document.id] = document
@@ -109,6 +112,21 @@ class InMemoryDocumentRepository:
     async def save(self, document):
         self.rows[document.id] = document
         return document
+
+    async def save_generation(self, generation):
+        self.generations[generation.id] = generation
+        return generation
+
+    async def get_generation(self, generation_id):
+        return self.generations.get(generation_id)
+
+    async def save_chunks(self, chunks):
+        self.staging_chunks.extend(chunks)
+
+    async def mark_generation_failed(self, generation_id, error_message):
+        generation = self.generations[generation_id]
+        generation.status = "failed"
+        generation.error_message = error_message
 
     async def delete(self, document) -> None:
         # Mirrors ON DELETE CASCADE: deleting the document row also wipes
@@ -209,7 +227,8 @@ async def test_register_document_replaces_on_filename_match_with_changed_content
     expected_hash = hashlib.sha256(new_content).hexdigest()
 
     assert new_doc.id == "doc_old0000000001", "the existing document's id must be preserved"
-    assert new_doc.content_hash == expected_hash
+    assert new_doc.content_hash == "hash_of_old_content"
+    assert repo.generations[new_doc.pending_generation_id].content_hash == expected_hash
 
     matching_rows = [
         d for d in repo.rows.values() if d.tenant_id == "t1" and d.filename == "report.pdf"
@@ -268,9 +287,8 @@ async def test_register_document_source_url_takes_priority_over_filename(monkeyp
     )
 
     assert replaced.id == "doc_url0000000001"
-    # filename must follow the new content: get_titles_by_ids() reads this column
-    # to label sources, so a stale name would cite updated content wrongly.
-    assert replaced.filename == "new_title.html"
+    assert replaced.filename == "old_title.html"
+    assert repo1.generations[replaced.pending_generation_id].filename == "new_title.html"
     rows_for_source = [
         d
         for d in repo1.rows.values()
@@ -359,7 +377,7 @@ class RaisingVectorStoreFactory:
 
 
 @pytest.mark.asyncio
-async def test_reprocess_replace_purges_stale_postgres_chunks(monkeypatch):
+async def test_failed_reprocess_preserves_published_postgres_chunks(monkeypatch):
     """register_document (replace) + process_document: a document that had
     10 stale chunks ends up with exactly the 3 chunks produced from the new
     content - not 10 (stale never removed) and not 13 (appended instead of
@@ -444,13 +462,8 @@ async def test_reprocess_replace_purges_stale_postgres_chunks(monkeypatch):
     with pytest.raises(_StopPipeline):
         await service.process_document("doc_reprocess00001")
 
-    assert len(existing.chunks) == 3, (
-        f"expected exactly 3 chunks after reprocess, got {len(existing.chunks)}"
-    )
-    new_chunk_ids = {c.id for c in existing.chunks}
-    assert new_chunk_ids.isdisjoint({c.id for c in old_chunks}), (
-        "old chunk rows must be replaced, not kept alongside the new ones"
-    )
+    assert existing.chunks == old_chunks
+    assert len(repo.staging_chunks) == 3
 
 
 @pytest.mark.asyncio
@@ -494,15 +507,16 @@ async def test_replace_writes_a_new_object_key_instead_of_overwriting(monkeypatc
         "the original bytes are unrecoverable and a provisioned copy in another "
         "tenant would silently change content"
     )
-    assert written_keys == [new_doc.storage_path]
-    assert new_doc.storage_path != old_key
+    staged = repo.generations[new_doc.pending_generation_id]
+    assert written_keys == [staged.storage_path]
+    assert staged.storage_path != old_key
     # The key is derived from the new content, so any future re-replace also
     # lands somewhere new.
-    assert hashlib.sha256(new_content).hexdigest()[:12] in new_doc.storage_path
+    assert hashlib.sha256(new_content).hexdigest()[:12] in staged.storage_path
 
 
 @pytest.mark.asyncio
-async def test_replace_invalidates_the_result_cache_immediately(monkeypatch):
+async def test_replace_keeps_published_result_cache_until_publish(monkeypatch):
     """A replace must drop the tenant's cached answers at replace time.
 
     The cache-hit path does not consult document status: _fetch_chunks_by_ids
@@ -552,10 +566,7 @@ async def test_replace_invalidates_the_result_cache_immediately(monkeypatch):
         content_type="application/pdf",
     )
 
-    assert invalidated == ["t1"], (
-        "replace must invalidate the tenant result cache before the reprocess, "
-        "otherwise a cache hit serves pre-replace chunk text under the new filename"
-    )
+    assert invalidated == []
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,8 @@ def _stub_heavy_init_components(monkeypatch):
 class StubDocument:
     def __init__(self, **kwargs) -> None:
         self.error_message = None
+        self.pending_generation_id = None
+        self.content_hash = "test-hash"
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -63,6 +65,7 @@ class FakeDocumentRepository:
         self._document = document
         self.update_status_calls: list[tuple[str, str, str | None]] = []
         self.saved: list[StubDocument] = []
+        self.generation = None
 
     async def get(self, document_id: str) -> StubDocument:
         return self._document
@@ -81,6 +84,17 @@ class FakeDocumentRepository:
         self.saved.append(
             StubDocument(status=document.status, error_message=document.error_message)
         )
+
+    async def save_generation(self, generation):
+        self.generation = generation
+        return generation
+
+    async def get_generation(self, generation_id):
+        return self.generation if self.generation and self.generation.id == generation_id else None
+
+    async def mark_generation_failed(self, generation_id, error_message):
+        self.generation.status = "failed"
+        self.generation.error_message = error_message
 
 
 class FakeUnitOfWork:
@@ -191,9 +205,9 @@ async def test_process_document_reprocesses_ready_with_explicit_force():
     with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
         await service.process_document("doc_5", force=True)
 
-    assert repo.update_status_calls == [
-        ("doc_5", DocumentStatus.EXTRACTING, DocumentStatus.READY)
-    ]
+    assert repo.update_status_calls == []
+    assert document.status == DocumentStatus.READY
+    assert repo.generation.status == "failed"
 
 
 @pytest.mark.asyncio
@@ -217,12 +231,12 @@ async def test_process_document_clears_stale_error_message_on_retry():
     with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
         await service.process_document("doc_3")
 
-    assert len(repo.saved) == 2
-    # First save, right after the guard: clears the stale error.
-    assert repo.saved[0].error_message is None
-    # Second save, from the exception handler: records the NEW failure.
-    assert repo.saved[1].status == DocumentStatus.FAILED
-    assert "sentinel-stop-after-guard" in repo.saved[1].error_message
+    assert len(repo.saved) == 3
+    # Second save, right after the guard: clears the stale error.
+    assert repo.saved[1].error_message is None
+    # Final save, from the exception handler: records the NEW failure.
+    assert repo.saved[2].status == DocumentStatus.FAILED
+    assert "sentinel-stop-after-guard" in repo.saved[2].error_message
 
 
 @pytest.mark.asyncio

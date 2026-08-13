@@ -19,6 +19,22 @@ class DocumentRepository(Protocol):
         """Save a new document or update an existing one."""
         ...
 
+    async def save_generation(self, generation: DocumentGeneration) -> DocumentGeneration:
+        """Persist a document artifact generation without publishing it."""
+        ...
+
+    async def get_generation(self, generation_id: str) -> DocumentGeneration | None:
+        """Retrieve one artifact generation."""
+        ...
+
+    async def save_chunks(self, chunks: list[Chunk]) -> None:
+        """Persist staging chunks without replacing published chunks."""
+        ...
+
+    async def mark_generation_failed(self, generation_id: str, error_message: str) -> None:
+        """Mark only the staging generation failed."""
+        ...
+
     async def delete(self, document: Document) -> None:
         """Delete a document."""
         ...
@@ -95,16 +111,13 @@ class DocumentRepository(Protocol):
         """Retrieve only chunks from each document's published generation."""
         ...
 
-    async def publish_generation(
-        self, document_id: str, generation: DocumentGeneration
-    ) -> bool:
+    async def publish_generation(self, document_id: str, generation: DocumentGeneration) -> bool:
         """Atomically publish the document's expected pending generation."""
         ...
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
         ...
-
 
     async def get_folder_name(self, folder_id: str) -> str | None:
         """Return the display name of a folder by its ID, or None if not found."""
