@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from src.core.cache import decorators as cache_decorators
 from src.core.ingestion.application import ingestion_service as service_module
@@ -287,3 +288,113 @@ async def test_changed_ready_document_dispatches_staged_generation(monkeypatch):
     assert dispatcher.calls == [
         ("src.workers.tasks.process_document", ["doc-existing", "tenant"], None)
     ]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_upload_integrity_error_falls_back_to_winner(monkeypatch):
+    """Two concurrent uploads of identical content for the same tenant race
+    past the check-then-act `find_by_content_hash` lookup. The DB-level
+    `uq_documents_tenant_content_hash` constraint lets only one insert win;
+    the loser must see a clean "deduplicated" result instead of an
+    unhandled IntegrityError/500.
+    """
+    _stub_cache_delete(monkeypatch)
+    _stub_ingestion_components(monkeypatch)
+
+    async def _direct_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(service_module.asyncio, "to_thread", _direct_to_thread)
+
+    winner = _existing_document(DocumentStatus.INGESTED)
+
+    class RaceRepo(FakeRepo):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lookup_calls = 0
+
+        async def find_by_content_hash(self, *_args, **_kwargs):
+            self.lookup_calls += 1
+            # Call 1: UploadDocumentUseCase's own pre-insert check.
+            # Call 2: IngestionService.register_document's internal dedup
+            #         check. Both happen before either concurrent request
+            #         has committed, so neither sees the winner yet.
+            if self.lookup_calls <= 2:
+                return None
+            # Call 3: the post-rollback fallback lookup, after `save()`
+            # below raises - by now the concurrent request has committed
+            # the same (tenant_id, content_hash) row.
+            return winner
+
+        async def save(self, document):
+            raise IntegrityError(
+                "INSERT INTO documents ...",
+                {},
+                Exception(
+                    "duplicate key value violates unique constraint "
+                    '"uq_documents_tenant_content_hash"'
+                ),
+            )
+
+    repo = RaceRepo()
+    dispatcher = FakeTaskDispatcher()
+    uow = FakeUoW()
+    use_case = UploadDocumentUseCase(
+        document_repository=repo,
+        tenant_repository=repo,
+        unit_of_work=uow,
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=dispatcher,
+        event_dispatcher=None,
+    )
+
+    result = await use_case.execute(
+        UploadDocumentRequest("tenant", "file.txt", b"content", "text/plain")
+    )
+
+    assert repo.lookup_calls == 3
+    assert result.document_id == winner.id
+    assert result.is_duplicate is True
+    # Winner is already INGESTED, so the loser must not re-dispatch processing.
+    assert dispatcher.calls == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_upload_integrity_error_reraises_when_no_winner_found(monkeypatch):
+    """If the IntegrityError was not actually the content-hash race (e.g. the
+    winning row is not yet visible, or it's a different constraint), the
+    fallback lookup finds nothing and the original error must propagate
+    rather than being silently swallowed.
+    """
+    _stub_cache_delete(monkeypatch)
+    _stub_ingestion_components(monkeypatch)
+
+    async def _direct_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(service_module.asyncio, "to_thread", _direct_to_thread)
+
+    class AlwaysFailRepo(FakeRepo):
+        async def save(self, document):
+            raise IntegrityError("INSERT INTO documents ...", {}, Exception("duplicate key"))
+
+    repo = AlwaysFailRepo()
+    use_case = UploadDocumentUseCase(
+        document_repository=repo,
+        tenant_repository=repo,
+        unit_of_work=FakeUoW(),
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=FakeTaskDispatcher(),
+        event_dispatcher=None,
+    )
+
+    with pytest.raises(IntegrityError):
+        await use_case.execute(
+            UploadDocumentRequest("tenant", "file.txt", b"content", "text/plain")
+        )

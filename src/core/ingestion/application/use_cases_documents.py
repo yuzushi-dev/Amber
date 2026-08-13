@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import magic  # python-magic for server-side MIME detection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
@@ -183,8 +184,9 @@ class UploadDocumentUseCase:
                 )
             )
 
+        content_hash = hashlib.sha256(request.content).hexdigest()
         existing_content_match = await self._document_repository.find_by_content_hash(
-            request.tenant_id, hashlib.sha256(request.content).hexdigest()
+            request.tenant_id, content_hash
         )
 
         # Register document
@@ -201,17 +203,42 @@ class UploadDocumentUseCase:
             vector_store_factory=self._vector_store_factory,
             event_dispatcher=self._event_dispatcher,
         )
-        document = await service.register_document(
-            tenant_id=request.tenant_id,
-            filename=request.filename,
-            file_content=request.content,
-            content_type=request.content_type,
-            metadata_=request.metadata,
-            folder_id=request.folder_id,
-        )
+        try:
+            document = await service.register_document(
+                tenant_id=request.tenant_id,
+                filename=request.filename,
+                file_content=request.content,
+                content_type=request.content_type,
+                metadata_=request.metadata,
+                folder_id=request.folder_id,
+            )
+        except IntegrityError:
+            # Lost the (tenant_id, content_hash) race enforced by
+            # uq_documents_tenant_content_hash: a concurrent upload of the
+            # same content for this tenant committed first. Roll back this
+            # attempt and fall back to the now-committed row instead of
+            # letting the IntegrityError propagate as an unhandled 500.
+            await self._unit_of_work.rollback()
+            document = await self._document_repository.find_by_content_hash(
+                request.tenant_id, content_hash
+            )
+            if document is None:
+                raise
+            existing_content_match = document
 
         # Commit transaction before dispatching async processing
-        await self._unit_of_work.commit()
+        try:
+            await self._unit_of_work.commit()
+        except IntegrityError:
+            # Same race, surfaced at commit time instead of at flush time
+            # depending on transaction/isolation timing.
+            await self._unit_of_work.rollback()
+            document = await self._document_repository.find_by_content_hash(
+                request.tenant_id, content_hash
+            )
+            if document is None:
+                raise
+            existing_content_match = document
 
         if normalized_share_targets:
             await self._document_sharing_service.add_shares(

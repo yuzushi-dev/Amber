@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,9 @@ class Document(Base, TimestampMixin):
     """
 
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "content_hash", name="uq_documents_tenant_content_hash"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     tenant_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
