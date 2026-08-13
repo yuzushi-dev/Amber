@@ -27,16 +27,22 @@ class GraphWriter:
         chunk_id: str,
         tenant_id: str,
         filename: str | None,
+        generation_id: str | None,
         entities_param: list[dict[str, Any]],
     ) -> tuple[str, dict[str, Any]]:
+        chunk_identity = (
+            "{id: $chunk_id, document_id: $document_id, generation_id: $generation_id}"
+            if generation_id is not None
+            else "{id: $chunk_id}"
+        )
         query = f"""
         // 1. Ensure Context (Document & Chunk)
         MERGE (d:{NodeLabel.Document.value} {{id: $document_id}})
         ON CREATE SET d.tenant_id = $tenant_id, d.filename = $filename
         ON MATCH SET d.filename = CASE WHEN d.filename IS NULL THEN $filename ELSE d.filename END
 
-        MERGE (c:{NodeLabel.Chunk.value} {{id: $chunk_id}})
-        ON CREATE SET c.document_id = $document_id, c.tenant_id = $tenant_id
+        MERGE (c:{NodeLabel.Chunk.value} {chunk_identity})
+        ON CREATE SET c.tenant_id = $tenant_id, c.is_published = $generation_id IS NULL
 
         MERGE (d)-[:{RelationshipType.HAS_CHUNK.value}]->(c)
         """
@@ -58,6 +64,7 @@ class GraphWriter:
             "chunk_id": chunk_id,
             "tenant_id": tenant_id,
             "filename": filename,
+            "generation_id": generation_id,
             "entities": entities_param,
         }
         return query, params
@@ -67,6 +74,8 @@ class GraphWriter:
         *,
         relationships: list[Any],
         tenant_id: str,
+        document_id: str,
+        generation_id: str | None,
     ) -> list[tuple[str, dict[str, Any]]]:
         rels_by_type: dict[str, list[dict[str, Any]]] = {}
         for rel in relationships:
@@ -79,16 +88,27 @@ class GraphWriter:
             UNWIND $batch as rel
             MATCH (s:{NodeLabel.Entity.value} {{name: rel.source, tenant_id: $tenant_id}})
             MATCH (t:{NodeLabel.Entity.value} {{name: rel.target, tenant_id: $tenant_id}})
-            MERGE (s)-[r:`{r_type}`]->(t)
+            MERGE (s)-[r:`{r_type}` {"{document_id: $document_id, generation_id: $generation_id}" if generation_id is not None else ""}]->(t)
             ON CREATE SET
                 r.description = rel.description,
                 r.weight = rel.weight,
                 r.tenant_id = $tenant_id,
                 r.created_at = timestamp()
+                {", r.is_staging = true" if generation_id is not None else ""}
             ON MATCH SET
                 r.weight = rel.weight
             """
-            statements.append((rel_query, {"batch": rel_batch, "tenant_id": tenant_id}))
+            statements.append(
+                (
+                    rel_query,
+                    {
+                        "batch": rel_batch,
+                        "tenant_id": tenant_id,
+                        "document_id": document_id,
+                        "generation_id": generation_id,
+                    },
+                )
+            )
         return statements
 
     async def write_extraction_result(
@@ -98,6 +118,7 @@ class GraphWriter:
         tenant_id: str,
         result: ExtractionResult,
         filename: str = None,
+        generation_id: str | None = None,
     ):
         """
         Persist extraction results for a single chunk.
@@ -126,11 +147,14 @@ class GraphWriter:
             chunk_id=chunk_id,
             tenant_id=tenant_id,
             filename=filename,
+            generation_id=generation_id,
             entities_param=entities_param,
         )
         relationship_queries = self._build_relationship_queries(
             relationships=result.relationships,
             tenant_id=tenant_id,
+            document_id=document_id,
+            generation_id=generation_id,
         )
         graph_client = get_graph_client()
 
@@ -152,6 +176,8 @@ class GraphWriter:
 
             # Trigger community staleness (Phase 4.3)
             try:
+                if generation_id is not None:
+                    return
                 from src.core.graph.application.communities.lifecycle import (
                     CommunityLifecycleManager,
                 )

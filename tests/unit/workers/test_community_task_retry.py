@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -178,3 +179,79 @@ async def test_embedding_resume_keeps_checkpoint_when_setup_fails():
             await _process_communities_async("tenant-1", resume_from="embedding")
 
     assert error.value.resume_from == "embedding"
+
+
+@pytest.mark.asyncio
+async def test_full_community_run_activates_generation_only_after_embedding():
+    settings = MagicMock()
+    settings.db.database_url = "postgresql://test"
+    settings.db.redis_url = "redis://test"
+    settings.default_embedding_provider = "openai"
+    settings.default_embedding_model = "text-embedding-3-small"
+    settings.embedding_dimensions = 1536
+    settings.community_summarization_concurrency = 1
+    platform = MagicMock()
+    platform.neo4j_client.execute_read = AsyncMock(return_value=[])
+    platform.neo4j_client.close = AsyncMock()
+    tuning_service = MagicMock()
+    tuning_service.get_effective_tenant_config = AsyncMock(return_value={})
+    provider_factory = MagicMock()
+    provider_factory.get_embedding_provider.return_value = MagicMock(provider_name="openai")
+    detector = MagicMock()
+    detector.detect_communities = AsyncMock(
+        return_value={"status": "success", "community_count": 1, "generation_id": "gen-1"}
+    )
+    detector.activate_generation = AsyncMock()
+    detector.discard_generation = AsyncMock()
+    summarizer = MagicMock()
+    summarizer.summarize_all_stale = AsyncMock()
+    embedding_service = MagicMock()
+    embedding_service.sync_stale_communities = AsyncMock(
+        return_value=SimpleNamespace(
+            ready=1,
+            candidates=1,
+            skipped_current=0,
+            embedded=1,
+            batches=1,
+            cancelled=False,
+        )
+    )
+
+    with (
+        patch("src.amber_platform.composition_root.platform", platform),
+        patch(
+            "src.amber_platform.composition_root.build_vector_store_factory",
+            return_value=lambda *_args, **_kwargs: MagicMock(),
+        ),
+        patch("src.api.config.settings", settings),
+        patch("src.shared.kernel.runtime.configure_settings"),
+        patch("src.core.database.session.configure_database"),
+        patch(
+            "src.core.admin_ops.application.tuning_service.TuningService",
+            return_value=tuning_service,
+        ),
+        patch("src.core.database.session.get_session_maker"),
+        patch(
+            "src.core.generation.infrastructure.providers.factory.ProviderFactory",
+            return_value=provider_factory,
+        ),
+        patch(
+            "src.core.graph.application.communities.leiden.CommunityDetector",
+            return_value=detector,
+        ),
+        patch(
+            "src.core.graph.application.communities.summarizer.CommunitySummarizer",
+            return_value=summarizer,
+        ),
+        patch("src.core.retrieval.application.embeddings_service.EmbeddingService"),
+        patch(
+            "src.core.graph.application.communities.embeddings.CommunityEmbeddingService",
+            return_value=embedding_service,
+        ),
+    ):
+        result = await _process_communities_async("tenant-1")
+
+    assert result["status"] == "success"
+    assert summarizer.summarize_all_stale.await_args.kwargs["generation_id"] == "gen-1"
+    detector.activate_generation.assert_awaited_once_with("tenant-1", "gen-1")
+    detector.discard_generation.assert_not_awaited()

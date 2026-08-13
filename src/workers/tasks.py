@@ -396,6 +396,8 @@ async def _process_communities_async(
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     next_phase = resume_from
+    generation_id = None
+    detector = None
     try:
         # 1. Detection or the pre-existing incremental update.
         detect_res = {"status": "skipped_by_checkpoint", "community_count": 0}
@@ -419,6 +421,7 @@ async def _process_communities_async(
                     max_levels=settings.leiden_max_levels,
                     seed=settings.leiden_seed,
                 )
+                generation_id = detect_res.get("generation_id")
 
                 if detect_res["status"] == "skipped":
                     return detect_res
@@ -476,6 +479,7 @@ async def _process_communities_async(
                 tenant_id,
                 tenant_config=tenant_config,
                 concurrency=int(concurrency),
+                generation_id=generation_id,
             )
         else:
             logger.info("Resuming community task for tenant %s from embedding", tenant_id)
@@ -535,11 +539,15 @@ async def _process_communities_async(
         # compared locally because Neo4j does not provide a portable SHA-256 function.
         query = """
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
+        WHERE ($generation_id IS NOT NULL OR coalesce(c.active, true) = true)
+          AND ($generation_id IS NULL OR c.generation_id = $generation_id)
         RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title,
                c.summary as summary, c.embedding_content_hash as embedding_content_hash,
                c.embedding_resync_run_id as embedding_resync_run_id
         """
-        ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+        ready_comms = await platform.neo4j_client.execute_read(
+            query, {"tenant_id": tenant_id, "generation_id": generation_id}
+        )
         embedding_provider_name = str(
             getattr(embedding_provider, "provider_name", None) or t_embedding_provider or "unknown"
         )
@@ -566,6 +574,8 @@ async def _process_communities_async(
         )
 
         if sync_stats.cancelled:
+            if generation_id and detector is not None:
+                await detector.discard_generation(tenant_id, generation_id)
             return {
                 "status": "cancelled",
                 "tenant_id": tenant_id,
@@ -573,6 +583,9 @@ async def _process_communities_async(
                 "communities_embedded": sync_stats.embedded,
                 "communities_skipped_current": sync_stats.skipped_current,
             }
+
+        if generation_id and detector is not None:
+            await detector.activate_generation(tenant_id, generation_id)
 
         return {
             "status": "success",
@@ -586,6 +599,17 @@ async def _process_communities_async(
             "embedding_resync_run_id": force_full_resync_id,
         }
     except Exception as e:
+        if generation_id and detector is not None:
+            try:
+                await detector.discard_generation(tenant_id, generation_id)
+            except Exception as cleanup_error:
+                logger.error(
+                    "Failed to discard community generation %s for tenant %s: %s",
+                    generation_id,
+                    tenant_id,
+                    cleanup_error,
+                )
+            next_phase = "detection"
         raise CommunityPhaseError(next_phase, e) from e
     finally:
         # Close Neo4j connection to prevent event loop conflicts
@@ -854,7 +878,8 @@ async def _count_pending_docs_async(tenant_id: str) -> int:
                 text(
                     "SELECT count(*) FROM documents "
                     "WHERE tenant_id = :tid "
-                    "AND status IN ('INGESTED','EXTRACTING','CLASSIFYING','CHUNKING','EMBEDDING','GRAPH_SYNC')"
+                    "AND (status IN ('INGESTED','EXTRACTING','CLASSIFYING','CHUNKING','EMBEDDING','GRAPH_SYNC') "
+                    "OR pending_generation_id IS NOT NULL OR processing_attempt_id IS NOT NULL)"
                 ),
                 {"tid": tenant_id},
             )
@@ -909,6 +934,12 @@ async def _mark_document_failed(document_id: str, error: str, tenant_id: str = "
             document = result.scalars().first()
 
             if document:
+                if document.active_generation_id:
+                    logger.warning(
+                        "Keeping published document %s READY after replacement failure",
+                        document_id,
+                    )
+                    return
                 document.status = DocumentStatus.FAILED
                 await session.commit()
                 _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)

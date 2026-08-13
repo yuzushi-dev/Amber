@@ -1,11 +1,15 @@
 import time
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.ingestion.domain.chunk import Chunk
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import (
+    Document,
+    DocumentGeneration,
+    DocumentGenerationStatus,
+)
 from src.core.ingestion.domain.document_share import (
     DocumentShare,
     DocumentVisibilityStatus,
@@ -105,6 +109,34 @@ class PostgresDocumentRepository(DocumentRepository):
         self._session.add(document)
         await self._session.flush()
         return document
+
+    async def save_generation(self, generation: DocumentGeneration) -> DocumentGeneration:
+        self._session.add(generation)
+        await self._session.flush()
+        return generation
+
+    async def get_generation(self, generation_id: str) -> DocumentGeneration | None:
+        return await self._session.get(DocumentGeneration, generation_id)
+
+    async def save_chunks(self, chunks: list[Chunk]) -> None:
+        self._session.add_all(chunks)
+        await self._session.flush()
+
+    async def mark_generation_failed(self, generation_id: str, error_message: str) -> None:
+        from sqlalchemy import update
+
+        await self._session.execute(
+            update(DocumentGeneration)
+            .where(
+                DocumentGeneration.id == generation_id,
+                DocumentGeneration.status == DocumentGenerationStatus.STAGING.value,
+            )
+            .values(
+                status=DocumentGenerationStatus.FAILED.value,
+                error_message=error_message,
+            )
+        )
+        await self._session.flush()
 
     async def delete(self, document: Document) -> None:
         """Delete a document."""
@@ -268,21 +300,15 @@ class PostgresDocumentRepository(DocumentRepository):
                     Document.tenant_id == owner_tenant_id,
                 )
             )
-            doc_grant_subq = (
-                select(GroupDocumentAccess.document_id)
-                .where(
-                    GroupDocumentAccess.group_id.in_(group_ids),
-                    GroupDocumentAccess.is_deny == False,  # noqa: E712
-                    GroupDocumentAccess.tenant_id == owner_tenant_id,
-                )
+            doc_grant_subq = select(GroupDocumentAccess.document_id).where(
+                GroupDocumentAccess.group_id.in_(group_ids),
+                GroupDocumentAccess.is_deny == False,  # noqa: E712
+                GroupDocumentAccess.tenant_id == owner_tenant_id,
             )
-            deny_subq = (
-                select(GroupDocumentAccess.document_id)
-                .where(
-                    GroupDocumentAccess.group_id.in_(group_ids),
-                    GroupDocumentAccess.is_deny == True,  # noqa: E712
-                    GroupDocumentAccess.tenant_id == owner_tenant_id,
-                )
+            deny_subq = select(GroupDocumentAccess.document_id).where(
+                GroupDocumentAccess.group_id.in_(group_ids),
+                GroupDocumentAccess.is_deny == True,  # noqa: E712
+                GroupDocumentAccess.tenant_id == owner_tenant_id,
             )
             stmt = select(Document.id).where(
                 Document.tenant_id == owner_tenant_id,
@@ -450,7 +476,11 @@ class PostgresDocumentRepository(DocumentRepository):
         return list(result.scalars().all())
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        old_status: str | None = None,
+        attempt_id: str | None = None,
     ) -> bool:
         """Atomic update of document status."""
         from sqlalchemy import update
@@ -460,6 +490,8 @@ class PostgresDocumentRepository(DocumentRepository):
         stmt = update(Document).where(Document.id == document_id)
         if old_status:
             stmt = stmt.where(Document.status == old_status)
+        if attempt_id is not None:
+            stmt = stmt.where(Document.processing_attempt_id == attempt_id)
 
         stmt = stmt.values(status=status)
 
@@ -467,15 +499,114 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.flush()
         return result.rowcount > 0
 
+    async def claim_processing_attempt(
+        self,
+        document_id: str,
+        attempt_id: str,
+        old_status: str,
+        pending_generation_id: str | None,
+    ) -> bool:
+        from sqlalchemy import update
+
+        stmt = update(Document).where(
+            Document.id == document_id,
+            Document.status == old_status,
+            Document.processing_attempt_id.is_(None),
+        )
+        if pending_generation_id is None:
+            stmt = stmt.where(Document.pending_generation_id.is_(None))
+        else:
+            stmt = stmt.where(Document.pending_generation_id == pending_generation_id)
+        result = await self._session.execute(stmt.values(processing_attempt_id=attempt_id))
+        await self._session.flush()
+        return result.rowcount == 1
+
+    async def release_processing_attempt(self, document_id: str, attempt_id: str) -> bool:
+        from sqlalchemy import update
+
+        result = await self._session.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.processing_attempt_id == attempt_id,
+            )
+            .values(processing_attempt_id=None)
+        )
+        await self._session.flush()
+        return result.rowcount == 1
+
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
-        """Retrieve chunks by IDs."""
+        """Retrieve chunks visible through the document's published generation."""
         from src.core.ingestion.domain.chunk import Chunk
 
         if not chunk_ids:
             return []
 
-        result = await self._session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
+        result = await self._session.execute(
+            select(Chunk)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(
+                Chunk.id.in_(chunk_ids),
+                or_(
+                    and_(
+                        Document.active_generation_id.is_(None),
+                        Chunk.generation_id.is_(None),
+                    ),
+                    Chunk.generation_id == Document.active_generation_id,
+                ),
+            )
+        )
         return list(result.scalars().all())
+
+    async def publish_generation(
+        self, document_id: str, generation: DocumentGeneration, attempt_id: str
+    ) -> bool:
+        """Publish only if this generation still owns the pending pointer."""
+        from sqlalchemy import update
+
+        document_result = await self._session.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.pending_generation_id == generation.id,
+                Document.processing_attempt_id == attempt_id,
+            )
+            .values(
+                active_generation_id=generation.id,
+                pending_generation_id=None,
+                processing_attempt_id=None,
+                content_hash=generation.content_hash,
+                storage_path=generation.storage_path,
+                filename=generation.filename,
+                metadata_=generation.metadata_,
+                domain=generation.domain,
+                summary=generation.summary,
+                document_type=generation.document_type,
+                keywords=generation.keywords,
+                hashtags=generation.hashtags,
+                status=DocumentStatus.READY,
+                error_message=None,
+            )
+        )
+        if document_result.rowcount != 1:
+            return False
+
+        generation_result = await self._session.execute(
+            update(DocumentGeneration)
+            .where(
+                DocumentGeneration.id == generation.id,
+                DocumentGeneration.document_id == document_id,
+                DocumentGeneration.status == DocumentGenerationStatus.STAGING.value,
+            )
+            .values(
+                status=DocumentGenerationStatus.PUBLISHED.value,
+                published_at=func.now(),
+            )
+        )
+        if generation_result.rowcount != 1:
+            raise RuntimeError("pending document generation is not publishable")
+        await self._session.flush()
+        return True
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
@@ -560,9 +691,7 @@ class PostgresDocumentRepository(DocumentRepository):
                 stmt = stmt.where(_edition_col == edition)
 
         if audience is not None:
-            stmt = stmt.where(
-                Document.metadata_["taxonomy"]["audience"].astext == audience
-            )
+            stmt = stmt.where(Document.metadata_["taxonomy"]["audience"].astext == audience)
 
         if source_family is not None:
             stmt = stmt.where(
@@ -571,4 +700,3 @@ class PostgresDocumentRepository(DocumentRepository):
 
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-

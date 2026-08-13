@@ -21,14 +21,30 @@ async def test_process_document_handles_quota_exceeded():
     mock_doc = MagicMock()
     mock_doc.id = "doc_123"
     mock_doc.status = DocumentStatus.INGESTED
+    mock_doc.pending_generation_id = None
+    mock_doc.processing_attempt_id = None
+    mock_doc.content_hash = "hash"
+    mock_doc.metadata_ = {}
+    mock_doc.filename = "file.txt"
+    mock_doc.storage_path = "tenant/doc_123/file.txt"
     document_repo.get.return_value = mock_doc
 
     # Simulate status updates so validate_transition sees the correct current status
-    async def _update_status(doc_id, status, old_status=None):
+    async def _update_status(doc_id, status, old_status=None, attempt_id=None):
         mock_doc.status = status
         return True
 
+    async def _claim(_doc_id, attempt_id, _old_status, _pending_generation_id):
+        mock_doc.processing_attempt_id = attempt_id
+        return True
+
+    async def _release(_doc_id, _attempt_id):
+        mock_doc.processing_attempt_id = None
+        return True
+
     document_repo.update_status.side_effect = _update_status
+    document_repo.claim_processing_attempt.side_effect = _claim
+    document_repo.release_processing_attempt.side_effect = _release
 
     # Patch dependencies
     # Patch global import (used in __init__)

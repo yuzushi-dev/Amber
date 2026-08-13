@@ -6,6 +6,7 @@ Application layer use cases for document operations.
 These contain the business logic extracted from route handlers.
 """
 
+import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -154,12 +155,11 @@ class UploadDocumentUseCase:
             if detected_mime not in ALLOWED_MIMES:
                 logger.warning(
                     "MIME validation failed: detected=%s, declared=%s, filename=%s",
-                    detected_mime, declared_mime, request.filename
+                    detected_mime,
+                    declared_mime,
+                    request.filename,
                 )
-                raise ValueError(
-                    f"Unsupported file type: {detected_mime}. "
-                    f"Upload rejected."
-                )
+                raise ValueError(f"Unsupported file type: {detected_mime}. Upload rejected.")
         except ImportError:
             logger.warning("python-magic not installed; skipping MIME validation")
         except Exception as e:
@@ -177,9 +177,15 @@ class UploadDocumentUseCase:
                 raise ValueError("Default tenant admin privileges required for shared uploads")
             if self._document_sharing_service is None:
                 raise ValueError("Document sharing service unavailable")
-            normalized_share_targets = await self._document_sharing_service.validate_target_tenant_ids(
-                request.shared_with_tenant_ids
+            normalized_share_targets = (
+                await self._document_sharing_service.validate_target_tenant_ids(
+                    request.shared_with_tenant_ids
+                )
             )
+
+        existing_content_match = await self._document_repository.find_by_content_hash(
+            request.tenant_id, hashlib.sha256(request.content).hexdigest()
+        )
 
         # Register document
         from src.core.ingestion.application.ingestion_service import IngestionService
@@ -214,9 +220,15 @@ class UploadDocumentUseCase:
                 actor=request.share_actor,
             )
 
-        # Dispatch async processing if new document
-        is_duplicate = document.status != DocumentStatus.INGESTED
-        if not is_duplicate:
+        retry_requested = existing_content_match is not None and document.status in {
+            DocumentStatus.FAILED,
+            DocumentStatus.NEEDS_REVIEW,
+        }
+        replacement_staged = bool(getattr(document, "pending_generation_id", None))
+        is_new = existing_content_match is None and document.status == DocumentStatus.INGESTED
+        should_dispatch = retry_requested or replacement_staged or is_new
+        is_duplicate = not is_new
+        if should_dispatch:
             if self._task_dispatcher:
                 await self._task_dispatcher.dispatch(
                     "src.workers.tasks.process_document", args=[document.id, request.tenant_id]
@@ -243,7 +255,7 @@ class UploadDocumentUseCase:
             status=document.status.value,
             is_duplicate=is_duplicate,
             message="Document accepted for processing"
-            if not is_duplicate
+            if should_dispatch
             else "Document deduplicated",
         )
 
@@ -408,7 +420,9 @@ class DeleteDocumentUseCase:
                     {"tenant_id": tenant_id, "ids": affected_community_ids},
                 )
                 marked = rows[0]["marked"] if rows else 0
-                logger.info(f"Marked {marked} communities stale after deleting {request.document_id}")
+                logger.info(
+                    f"Marked {marked} communities stale after deleting {request.document_id}"
+                )
 
         except Exception as e:
             logger.warning(f"Failed to delete graph data for document {request.document_id}: {e}")
@@ -744,9 +758,7 @@ async def resolve_graph_document_id(session: AsyncSession, document_id: str) -> 
     # Temporarily switch to the default tenant context for the cross-tenant lookup.
     original_tenant = row.tenant_id
     try:
-        await session.execute(
-            _text("SELECT set_config('app.current_tenant', 'default', false)")
-        )
+        await session.execute(_text("SELECT set_config('app.current_tenant', 'default', false)"))
         canonical_id = (
             await session.execute(
                 _select(_Document.id)

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from src.core.cache import decorators as cache_decorators
@@ -6,6 +8,7 @@ from src.core.ingestion.application.use_cases_documents import (
     UploadDocumentRequest,
     UploadDocumentUseCase,
 )
+from src.core.state.machine import DocumentStatus
 
 
 class FakeRepo:
@@ -24,6 +27,32 @@ class FakeRepo:
     async def save(self, document):
         self.saved.append(document)
         return document
+
+
+class ExistingRepo(FakeRepo):
+    def __init__(self, document, *, exact_match: bool) -> None:
+        super().__init__()
+        self.document = document
+        self.exact_match = exact_match
+        self.generations = []
+
+    async def find_by_content_hash(self, *_args, **_kwargs):
+        return self.document if self.exact_match else None
+
+    async def find_by_filename(self, *_args, **_kwargs):
+        return None if self.exact_match else self.document
+
+    async def save_generation(self, generation):
+        self.generations.append(generation)
+        return generation
+
+
+class FakeTaskDispatcher:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def dispatch(self, task_name, args=None, kwargs=None):
+        self.calls.append((task_name, args, kwargs))
 
 
 class FakeUoW:
@@ -81,6 +110,46 @@ def _stub_cache_delete(monkeypatch):
         return True
 
     monkeypatch.setattr(cache_decorators, "delete_cache", _delete_cache)
+
+
+def _stub_ingestion_components(monkeypatch):
+    monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
+    monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
+    monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
+    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
+
+
+def _existing_document(status: DocumentStatus):
+    return SimpleNamespace(
+        id="doc-existing",
+        tenant_id="tenant",
+        filename="file.txt",
+        content_hash="old-hash",
+        storage_path="tenant/doc-existing/file.txt",
+        status=status,
+        source_url=None,
+        metadata_={},
+        pending_generation_id=None,
+        domain=None,
+        summary=None,
+        document_type=None,
+        keywords=[],
+        hashtags=[],
+    )
+
+
+def _upload_case(repo, dispatcher):
+    return UploadDocumentUseCase(
+        document_repository=repo,
+        tenant_repository=repo,
+        unit_of_work=FakeUoW(),
+        storage=FakeStorage(),
+        max_size_bytes=1024,
+        graph_client=FakeGraphClient(),
+        vector_store=None,
+        task_dispatcher=dispatcher,
+        event_dispatcher=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -169,4 +238,52 @@ async def test_upload_use_case_invalidates_tenant_stats_cache(monkeypatch):
     assert deleted_keys == [
         "admin:stats:database:tenant-cache",
         "admin:stats:vectors:tenant-cache",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_exact_reupload_retries_failed_document(monkeypatch):
+    _stub_cache_delete(monkeypatch)
+    _stub_ingestion_components(monkeypatch)
+    repo = ExistingRepo(_existing_document(DocumentStatus.FAILED), exact_match=True)
+    dispatcher = FakeTaskDispatcher()
+
+    await _upload_case(repo, dispatcher).execute(
+        UploadDocumentRequest("tenant", "file.txt", b"content", "text/plain")
+    )
+
+    assert dispatcher.calls == [
+        ("src.workers.tasks.process_document", ["doc-existing", "tenant"], None)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_exact_reupload_does_not_reprocess_ready_document(monkeypatch):
+    _stub_cache_delete(monkeypatch)
+    _stub_ingestion_components(monkeypatch)
+    repo = ExistingRepo(_existing_document(DocumentStatus.READY), exact_match=True)
+    dispatcher = FakeTaskDispatcher()
+
+    await _upload_case(repo, dispatcher).execute(
+        UploadDocumentRequest("tenant", "file.txt", b"content", "text/plain")
+    )
+
+    assert dispatcher.calls == []
+
+
+@pytest.mark.asyncio
+async def test_changed_ready_document_dispatches_staged_generation(monkeypatch):
+    _stub_cache_delete(monkeypatch)
+    _stub_ingestion_components(monkeypatch)
+    repo = ExistingRepo(_existing_document(DocumentStatus.READY), exact_match=False)
+    dispatcher = FakeTaskDispatcher()
+
+    await _upload_case(repo, dispatcher).execute(
+        UploadDocumentRequest("tenant", "file.txt", b"changed", "text/plain")
+    )
+
+    assert repo.document.status == DocumentStatus.READY
+    assert repo.document.pending_generation_id == repo.generations[0].id
+    assert dispatcher.calls == [
+        ("src.workers.tasks.process_document", ["doc-existing", "tenant"], None)
     ]

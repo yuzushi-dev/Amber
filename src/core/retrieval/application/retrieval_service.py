@@ -469,7 +469,7 @@ class RetrievalService:
                 query_vector=query_vector,
                 tenant_id=target.tenant_id,
                 document_ids=target.document_ids,
-                limit=limit,
+                limit=limit * 3,
                 score_threshold=self.config.score_threshold,
                 filters=filters,
                 collection_name=target.collection_name,
@@ -486,7 +486,42 @@ class RetrievalService:
             )
 
         merged_results.sort(key=lambda candidate: candidate.score, reverse=True)
-        return merged_results, target_trace
+        visible_results = await self._filter_unpublished_generation_results(merged_results)
+        return visible_results[:limit], target_trace
+
+    async def _filter_unpublished_generation_results(self, results: list[Any]) -> list[Any]:
+        """Keep only chunks visible through each document's published generation."""
+        if not results:
+            return results
+
+        def result_generation_id(result: Any) -> str | None:
+            generation_id = getattr(result, "generation_id", None)
+            metadata = getattr(result, "metadata", None) or {}
+            return generation_id if generation_id is not None else metadata.get("generation_id")
+
+        if not any(result_generation_id(result) is not None for result in results):
+            return results
+
+        get_chunks = getattr(self.document_repository, "get_chunks", None)
+        if not callable(get_chunks):
+            return [result for result in results if result_generation_id(result) is None]
+
+        try:
+            visible_chunks = await get_chunks([result.chunk_id for result in results])
+        except Exception as exc:
+            logger.warning("Could not validate vector result generations: %s", exc)
+            return [result for result in results if result_generation_id(result) is None]
+
+        visible_generations = {
+            chunk.id: getattr(chunk, "generation_id", None) for chunk in visible_chunks
+        }
+
+        return [
+            result
+            for result in results
+            if result.chunk_id in visible_generations
+            and result_generation_id(result) == visible_generations[result.chunk_id]
+        ]
 
 
     async def _search_vector_targets_hybrid(
@@ -520,7 +555,7 @@ class RetrievalService:
                 sparse_vector=sparse_vector,
                 tenant_id=target.tenant_id,
                 document_ids=target.document_ids,
-                limit=limit,
+                limit=limit * 3,
                 filters=filters,
                 collection_name=target.collection_name,
                 exclude_document_ids=target.exclude_document_ids,
@@ -537,7 +572,8 @@ class RetrievalService:
             )
 
         merged_results.sort(key=lambda candidate: candidate.score, reverse=True)
-        return merged_results, target_trace
+        visible_results = await self._filter_unpublished_generation_results(merged_results)
+        return visible_results[:limit], target_trace
 
     async def _resolve_graph_targets(
         self,
@@ -1419,8 +1455,11 @@ class RetrievalService:
                                     tenant_id=original.tenant_id,
                                     score=item.score,
                                     score_type="reranker",
-                                    source=getattr(original, "source", "vector"),
-                                    metadata=original.metadata,
+                                source=getattr(original, "source", "vector"),
+                                metadata=original.metadata,
+                                generation_id=getattr(
+                                    original, "generation_id", original.metadata.get("generation_id")
+                                ),
                                 )
                             )
 

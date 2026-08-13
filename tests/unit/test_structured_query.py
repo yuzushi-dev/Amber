@@ -164,8 +164,9 @@ class TestCypherGenerator:
         )
         cypher, params = generator.generate(intent, "tenant_abc")
 
-        assert "MATCH (e:Entity)" in cypher
-        assert "count(e)" in cypher
+        assert "MATCH (e:Entity)<-[:MENTIONS]-(c:Chunk)" in cypher
+        assert "coalesce(c.is_published, true) = true" in cypher
+        assert "count(DISTINCT e)" in cypher
         assert params["tenant_id"] == "tenant_abc"
 
     def test_invalid_query_type_raises(self, generator):

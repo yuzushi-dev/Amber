@@ -24,7 +24,7 @@ from src.core.admin_ops.domain.backup_job import BackupSchedule, BackupScope
 from src.core.admin_ops.domain.global_rule import GlobalRule
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 from src.core.graph.domain.ports.graph_client import GraphClientPort
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import Document, DocumentGeneration
 from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.vector_store import VectorStoreFactory
@@ -87,6 +87,8 @@ class BackupService:
             # 1. Documents metadata
             await self._add_documents_metadata(zf, tenant_id)
             update_progress()
+
+            await self._add_document_generations(zf, tenant_id)
 
             # 2. Folders structure
             await self._add_folders(zf, tenant_id)
@@ -176,6 +178,8 @@ class BackupService:
                     "mime_type": doc.metadata_.get("mime_type"),
                     "file_size": doc.metadata_.get("file_size"),
                     "status": doc.status,
+                    "active_generation_id": doc.active_generation_id,
+                    "pending_generation_id": doc.pending_generation_id,
                     "metadata": doc.metadata_ or {},
                     "created_at": doc.created_at.isoformat() if doc.created_at else None,
                     "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
@@ -184,6 +188,36 @@ class BackupService:
 
         zf.writestr("documents/metadata.json", json.dumps(data, indent=2))
         logger.info(f"Added {len(data)} document metadata entries")
+
+    async def _add_document_generations(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
+        """Export versioned document artifacts as JSON."""
+        result = await self.session.execute(
+            select(DocumentGeneration).where(DocumentGeneration.tenant_id == tenant_id)
+        )
+        generations = result.scalars().all()
+        data = [
+            {
+                "id": generation.id,
+                "document_id": generation.document_id,
+                "content_hash": generation.content_hash,
+                "storage_path": generation.storage_path,
+                "filename": generation.filename,
+                "metadata": generation.metadata_ or {},
+                "domain": generation.domain,
+                "summary": generation.summary,
+                "document_type": generation.document_type,
+                "keywords": generation.keywords or [],
+                "hashtags": generation.hashtags or [],
+                "status": generation.status,
+                "error_message": generation.error_message,
+                "published_at": generation.published_at.isoformat()
+                if generation.published_at
+                else None,
+            }
+            for generation in generations
+        ]
+        zf.writestr("documents/generations.json", json.dumps(data, indent=2))
+        logger.info(f"Added {len(data)} document generations")
 
     async def _add_folders(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export folder structure as JSON."""
@@ -207,21 +241,39 @@ class BackupService:
         """Export original document files from storage."""
         result = await self.session.execute(select(Document).where(Document.tenant_id == tenant_id))
         documents = result.scalars().all()
+        sources: dict[str, str] = {}
 
         for doc in documents:
-            if not doc.storage_path:
+            if not doc.storage_path or doc.storage_path in sources:
                 continue
             try:
                 file_bytes = self.storage.get_file(doc.storage_path)
-                # Preserve folder structure: documents/files/{folder_id or root}/{filename}
-                folder_path = doc.folder_id if doc.folder_id else "root"
-                zf.writestr(f"documents/files/{folder_path}/{doc.filename}", file_bytes)
+                archive_path = f"documents/files/documents/{doc.id}/{doc.filename}"
+                zf.writestr(archive_path, file_bytes)
+                sources[doc.storage_path] = archive_path
             except Exception as e:
                 logger.warning(f"Could not retrieve file for document {doc.id}: {e}")
                 zf.writestr(
                     f"documents/files/{doc.folder_id or 'root'}/{doc.filename}.missing.txt",
                     f"File not found: {doc.storage_path}\nError: {str(e)}",
                 )
+
+        result = await self.session.execute(
+            select(DocumentGeneration).where(DocumentGeneration.tenant_id == tenant_id)
+        )
+        for generation in result.scalars().all():
+            if not generation.storage_path or generation.storage_path in sources:
+                continue
+            archive_path = (
+                f"documents/files/generations/{generation.id}/{generation.filename or 'source'}"
+            )
+            try:
+                zf.writestr(archive_path, self.storage.get_file(generation.storage_path))
+                sources[generation.storage_path] = archive_path
+            except Exception as e:
+                logger.warning("Could not retrieve source for generation %s: %s", generation.id, e)
+
+        zf.writestr("documents/files/sources.json", json.dumps(sources, indent=2))
 
     async def _add_conversations(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export conversation summaries as JSON."""
@@ -428,6 +480,7 @@ class BackupService:
                 {
                     "id": chunk.id,
                     "document_id": chunk.document_id,
+                    "generation_id": chunk.generation_id,
                     "index": chunk.index,
                     "tokens": chunk.tokens,
                     "content": chunk.content,

@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from src.core.graph.application.concurrency_governor import ConcurrencyGovernor
@@ -14,6 +15,18 @@ if TYPE_CHECKING:
     from src.core.ingestion.domain.chunk import Chunk
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class GraphProcessingResult:
+    total_chunks: int
+    failed_chunk_ids: list[str] = field(default_factory=list)
+
+    def raise_if_partial(self) -> None:
+        if self.failed_chunk_ids:
+            raise RuntimeError(
+                f"Graph sync failed for {len(self.failed_chunk_ids)} of {self.total_chunks} chunks"
+            )
 
 
 class GraphProcessor:
@@ -31,14 +44,15 @@ class GraphProcessor:
         chunks: list["Chunk"],
         tenant_id: str,
         filename: str = None,
+        generation_id: str | None = None,
         tenant_config: dict[str, Any] | None = None,
         progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
-    ):
+    ) -> GraphProcessingResult:
         """
         Process a list of chunks to extract and write graph data.
         """
         if not chunks:
-            return
+            return GraphProcessingResult(total_chunks=0)
 
         tenant_config = tenant_config or {}
         document_started = time.perf_counter()
@@ -90,6 +104,7 @@ class GraphProcessor:
         total_rels = 0
         cache_hits = 0
         chunk_errors = 0
+        failed_chunk_ids: list[str] = []
 
         total_chunks = len(chunks)
         chunks_completed = 0
@@ -159,7 +174,9 @@ class GraphProcessor:
                     wait_started = time.perf_counter()
                     async with sem:
                         extract_started = time.perf_counter()
-                        chunk_metrics["extract_wait_ms"] = int((extract_started - wait_started) * 1000)
+                        chunk_metrics["extract_wait_ms"] = int(
+                            (extract_started - wait_started) * 1000
+                        )
 
                         result = await extractor.extract(
                             chunk.content,
@@ -170,7 +187,9 @@ class GraphProcessor:
                             chunk_number=chunk_number,
                             total_chunks=total_chunks,
                         )
-                        chunk_metrics["extract_ms"] = int((time.perf_counter() - extract_started) * 1000)
+                        chunk_metrics["extract_ms"] = int(
+                            (time.perf_counter() - extract_started) * 1000
+                        )
 
                 if result.usage:
                     total_tokens += result.usage.total_tokens
@@ -194,22 +213,28 @@ class GraphProcessor:
                 # Keep writes out of the LLM semaphore so the next extraction can start immediately.
                 if result.entities:
                     write_started = time.perf_counter()
-                    await self.writer.write_extraction_result(
-                        document_id=chunk.document_id,
-                        chunk_id=chunk.id,
-                        tenant_id=tenant_id,
-                        result=result,
-                        filename=filename,
-                    )
+                    write_kwargs = {
+                        "document_id": chunk.document_id,
+                        "chunk_id": chunk.id,
+                        "tenant_id": tenant_id,
+                        "result": result,
+                        "filename": filename,
+                    }
+                    if generation_id is not None:
+                        write_kwargs["generation_id"] = generation_id
+                    await self.writer.write_extraction_result(**write_kwargs)
                     chunk_metrics["write_ms"] = int((time.perf_counter() - write_started) * 1000)
 
             except Exception as e:
                 chunk_errors += 1
+                failed_chunk_ids.append(chunk.id)
                 chunk_metrics["error"] = str(e)
                 logger.error(f"Graph processing failed for chunk {chunk.id}: {e}")
             finally:
                 chunk_metrics["total_ms"] = int((time.perf_counter() - chunk_started) * 1000)
-                logger.info("graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True))
+                logger.info(
+                    "graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True)
+                )
 
                 chunks_completed += 1
                 if progress_callback:
@@ -279,6 +304,10 @@ class GraphProcessor:
             logger.error(f"Failed to log aggregated graph metrics: {e}")
 
         logger.info(f"Completed graph processing for {len(chunks)} chunks")
+        return GraphProcessingResult(
+            total_chunks=total_chunks,
+            failed_chunk_ids=sorted(failed_chunk_ids),
+        )
 
 
 graph_processor = GraphProcessor()

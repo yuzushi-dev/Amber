@@ -361,9 +361,7 @@ class Neo4jClient:
         ORDER BY n.name
         LIMIT $limit
         """
-        orphans = await self.execute_read(
-            orphans_q, {"tenant_id": tenant_id, "limit": limit}
-        )
+        orphans = await self.execute_read(orphans_q, {"tenant_id": tenant_id, "limit": limit})
 
         leaves_q = """
         MATCH (n:Entity {tenant_id: $tenant_id})-[r]-(:Entity {tenant_id: $tenant_id})
@@ -386,9 +384,7 @@ class Neo4jClient:
         ORDER BY members DESC
         LIMIT $limit
         """
-        dense = await self.execute_read(
-            dense_q, {"tenant_id": tenant_id, "limit": min(limit, 20)}
-        )
+        dense = await self.execute_read(dense_q, {"tenant_id": tenant_id, "limit": min(limit, 20)})
 
         # Duplicate candidates: entities whose names collide case-insensitively
         # (e.g. "Postgres" vs "postgres"). Entities are MERGE'd by exact name so
@@ -400,9 +396,7 @@ class Neo4jClient:
         RETURN names[0] AS a, names[1] AS b
         LIMIT $limit
         """
-        dups = await self.execute_read(
-            dup_q, {"tenant_id": tenant_id, "limit": min(limit, 50)}
-        )
+        dups = await self.execute_read(dup_q, {"tenant_id": tenant_id, "limit": min(limit, 50)})
 
         return {
             "orphans": [dict(r) for r in orphans],
@@ -496,6 +490,60 @@ class Neo4jClient:
         except Exception as e:
             logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
             raise
+
+    async def delete_document_generation(
+        self, document_id: str, tenant_id: str, generation_id: str
+    ) -> int:
+        """Delete only the Chunk nodes written for one staging generation."""
+        query = """
+        MATCH (c:Chunk)
+        WHERE c.document_id = $document_id
+          AND c.tenant_id = $tenant_id
+          AND c.generation_id = $generation_id
+        WITH collect(c) AS chunks, count(c) AS deleted
+        FOREACH (chunk IN chunks | DETACH DELETE chunk)
+        RETURN deleted
+        """
+        result = await self.execute_write(
+            query,
+            {
+                "document_id": document_id,
+                "tenant_id": tenant_id,
+                "generation_id": generation_id,
+            },
+        )
+        return int(result[0]["deleted"]) if result else 0
+
+    async def publish_document_generation(
+        self, document_id: str, tenant_id: str, generation_id: str
+    ) -> None:
+        """Expose graph artifacts only after Postgres publishes the generation."""
+        await self.execute_write(
+            """
+            MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id,
+                            generation_id: $generation_id})
+            SET c.is_published = true
+            WITH c
+            OPTIONAL MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NULL OR old.generation_id <> $generation_id
+            SET old.is_published = false
+            WITH count(c) AS ignored
+            OPTIONAL MATCH ()-[old_rel {document_id: $document_id,
+                                      tenant_id: $tenant_id}]->()
+            WHERE old_rel.generation_id IS NOT NULL
+              AND old_rel.generation_id <> $generation_id
+            SET old_rel.is_staging = true
+            WITH count(old_rel) AS ignored_rel
+            MATCH ()-[r {document_id: $document_id, tenant_id: $tenant_id,
+                         generation_id: $generation_id}]->()
+            SET r.is_staging = false
+            """,
+            {
+                "document_id": document_id,
+                "tenant_id": tenant_id,
+                "generation_id": generation_id,
+            },
+        )
 
     async def prune_orphans(
         self, valid_doc_ids: list[str], valid_chunk_ids: list[str]

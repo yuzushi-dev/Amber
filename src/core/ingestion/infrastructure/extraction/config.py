@@ -75,5 +75,14 @@ class ExtractionSettings(BaseSettings):
             )
         return values
 
+    @model_validator(mode="after")
+    def reject_unimplemented_mistral_ocr(self) -> "ExtractionSettings":
+        if self.mistral_ocr_enabled:
+            raise ValueError(
+                "Mistral OCR is not available: keep MISTRAL_OCR_ENABLED=false "
+                "until its API flow is implemented and contract-tested."
+            )
+        return self
+
 
 extraction_settings = ExtractionSettings()

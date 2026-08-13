@@ -48,6 +48,7 @@ class GraphSearcher:
         query = f"""
         MATCH (e:Entity)-[:MENTIONS]-(c:Chunk)
         WHERE e.id IN $entity_ids AND e.tenant_id = $tenant_id
+          AND coalesce(c.is_published, true) = true
         {acl_clause}
         {exclusion_clause}
         RETURN DISTINCT c.id as chunk_id, c.content as content, c.document_id as document_id
@@ -110,7 +111,9 @@ class GraphSearcher:
         query = f"""
         MATCH (start:Chunk)-[:MENTIONS]-(e:Entity)-[:MENTIONS]-(neighbor:Chunk)
         WHERE start.id IN $chunk_ids AND start.tenant_id = $tenant_id
+          AND coalesce(start.is_published, true) = true
           AND NOT neighbor.id IN $chunk_ids
+          AND coalesce(neighbor.is_published, true) = true
           {acl_clause}
           {exclusion_clause}
         RETURN DISTINCT neighbor.id as chunk_id, neighbor.content as content, neighbor.document_id as document_id

@@ -12,8 +12,8 @@ from src.core.admin_ops.application.restore_service import RestoreService
 from src.core.admin_ops.domain.backup_job import BackupSchedule, BackupScope, RestoreMode
 from src.core.admin_ops.domain.global_rule import GlobalRule
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
-from src.core.ingestion.domain.chunk import EmbeddingStatus
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
+from src.core.ingestion.domain.document import Document, DocumentGeneration
 from src.core.ingestion.domain.folder import Folder
 from src.core.state.machine import DocumentStatus
 from src.core.tenants.domain.tenant import Tenant
@@ -68,19 +68,221 @@ async def mock_vector_store_factory():
 
 @pytest_asyncio.fixture
 async def backup_service(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory):
-    return BackupService(
-        mock_session, mock_storage, mock_graph_client, mock_vector_store_factory
-    )
+    return BackupService(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory)
 
 
 @pytest_asyncio.fixture
 async def restore_service(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory):
-    return RestoreService(
-        mock_session, mock_storage, mock_graph_client, mock_vector_store_factory
-    )
+    return RestoreService(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory)
 
 
 # --- Tests for BackupService ---
+
+
+@pytest.mark.asyncio
+async def test_generation_metadata_backup_and_restore_round_trip(
+    backup_service, restore_service, mock_session
+):
+    document = Document(
+        id="doc-1",
+        tenant_id="tenant-1",
+        filename="source.pdf",
+        content_hash="document-hash",
+        storage_path="documents/source.pdf",
+        active_generation_id="generation-published",
+        pending_generation_id="generation-staging",
+        metadata_={},
+    )
+    generation = DocumentGeneration(
+        id="generation-published",
+        document_id="doc-1",
+        tenant_id="tenant-1",
+        content_hash="generation-hash",
+        storage_path="documents/generation/source.pdf",
+        filename="source.pdf",
+        status="published",
+        metadata_={"page_count": 2},
+        domain="legal",
+        summary="summary",
+        document_type="contract",
+        keywords=["agreement"],
+        hashtags=["#legal"],
+        published_at=datetime(2026, 8, 13, tzinfo=UTC),
+    )
+    chunk = Chunk(
+        id="chunk-1",
+        tenant_id="tenant-1",
+        document_id="doc-1",
+        generation_id="generation-published",
+        index=0,
+        tokens=3,
+        content="content",
+        metadata_={},
+        embedding_status=EmbeddingStatus.COMPLETED,
+    )
+
+    result = MagicMock()
+    result.scalars.return_value.all.side_effect = [[document], [generation], [chunk]]
+    mock_session.execute.return_value = result
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        await backup_service._add_documents_metadata(zf, "tenant-1")
+        await backup_service._add_document_generations(zf, "tenant-1")
+        await backup_service._add_chunks_table(zf, "tenant-1")
+
+    with zipfile.ZipFile(buffer, "r") as zf:
+        document_data = json.loads(zf.read("documents/metadata.json"))[0]
+        generation_data = json.loads(zf.read("documents/generations.json"))[0]
+        chunk_data = json.loads(zf.read("ingestion/chunks.json"))[0]
+        assert document_data["active_generation_id"] == "generation-published"
+        assert document_data["pending_generation_id"] == "generation-staging"
+        assert generation_data["id"] == "generation-published"
+        assert generation_data["metadata"] == {"page_count": 2}
+        assert chunk_data["generation_id"] == "generation-published"
+
+        mock_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_session.add = MagicMock()
+        await restore_service._restore_documents(zf, "tenant-1", RestoreMode.MERGE)
+        await restore_service._restore_document_generations(zf, "tenant-1", RestoreMode.MERGE)
+        await restore_service._restore_chunks(zf, "tenant-1", RestoreMode.MERGE)
+
+    restored = [call.args[0] for call in mock_session.add.call_args_list]
+    restored_document = next(item for item in restored if isinstance(item, Document))
+    restored_generation = next(item for item in restored if isinstance(item, DocumentGeneration))
+    restored_chunk = next(item for item in restored if isinstance(item, Chunk))
+    assert restored_document.active_generation_id == "generation-published"
+    assert restored_document.pending_generation_id == "generation-staging"
+    assert restored_generation.id == "generation-published"
+    assert restored_generation.metadata_ == {"page_count": 2}
+    assert restored_generation.domain == "legal"
+    assert restored_generation.summary == "summary"
+    assert restored_generation.document_type == "contract"
+    assert restored_generation.keywords == ["agreement"]
+    assert restored_generation.hashtags == ["#legal"]
+    assert restored_generation.published_at == datetime(2026, 8, 13, tzinfo=UTC)
+    assert restored_chunk.generation_id == "generation-published"
+
+
+@pytest.mark.asyncio
+async def test_backup_includes_each_generation_source_once(
+    backup_service, mock_session, mock_storage
+):
+    document = Document(
+        id="doc-1",
+        tenant_id="tenant-1",
+        filename="source.pdf",
+        storage_path="documents/source.pdf",
+        metadata_={},
+    )
+    shared_generation = DocumentGeneration(
+        id="generation-shared",
+        document_id=document.id,
+        tenant_id=document.tenant_id,
+        content_hash="shared-hash",
+        storage_path=document.storage_path,
+        filename=document.filename,
+        metadata_={},
+    )
+    other_generation = DocumentGeneration(
+        id="generation-other",
+        document_id=document.id,
+        tenant_id=document.tenant_id,
+        content_hash="other-hash",
+        storage_path="documents/generation/other.pdf",
+        filename="other.pdf",
+        metadata_={},
+    )
+    result = MagicMock()
+    result.scalars.return_value.all.side_effect = [
+        [document],
+        [shared_generation, other_generation],
+    ]
+    mock_session.execute.return_value = result
+    mock_storage.get_file.side_effect = lambda path: path.encode()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        await backup_service._add_document_files(zf, "tenant-1")
+
+    assert mock_storage.get_file.call_args_list == [
+        (("documents/source.pdf",), {}),
+        (("documents/generation/other.pdf",), {}),
+    ]
+    with zipfile.ZipFile(buffer, "r") as zf:
+        sources = json.loads(zf.read("documents/files/sources.json"))
+        assert sources == {
+            "documents/source.pdf": "documents/files/documents/doc-1/source.pdf",
+            "documents/generation/other.pdf": "documents/files/generations/generation-other/other.pdf",
+        }
+        assert zf.read(sources["documents/source.pdf"]) == b"documents/source.pdf"
+        assert (
+            zf.read(sources["documents/generation/other.pdf"]) == b"documents/generation/other.pdf"
+        )
+
+
+@pytest.mark.asyncio
+async def test_backup_uses_unique_entries_for_duplicate_document_filenames(
+    backup_service, mock_session, mock_storage
+):
+    documents = [
+        Document(
+            id=f"doc-{index}",
+            tenant_id="tenant-1",
+            filename="source.pdf",
+            storage_path=f"documents/{index}/source.pdf",
+            metadata_={},
+        )
+        for index in (1, 2)
+    ]
+    result = MagicMock()
+    result.scalars.return_value.all.side_effect = [documents, []]
+    mock_session.execute.return_value = result
+    mock_storage.get_file.side_effect = lambda path: path.encode()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        await backup_service._add_document_files(zf, "tenant-1")
+
+    with zipfile.ZipFile(buffer, "r") as zf:
+        sources = json.loads(zf.read("documents/files/sources.json"))
+        assert len(set(sources.values())) == 2
+        assert zf.read(sources["documents/1/source.pdf"]) == b"documents/1/source.pdf"
+        assert zf.read(sources["documents/2/source.pdf"]) == b"documents/2/source.pdf"
+
+
+@pytest.mark.asyncio
+async def test_restore_restores_generation_sources_from_backup_manifest(
+    restore_service, mock_session, mock_storage
+):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(
+            "documents/files/sources.json",
+            json.dumps(
+                {
+                    "documents/source.pdf": "documents/files/root/source.pdf",
+                    "documents/generation/other.pdf": "documents/files/generations/generation-other/other.pdf",
+                }
+            ),
+        )
+        zf.writestr("documents/files/root/source.pdf", b"source")
+        zf.writestr("documents/files/generations/generation-other/other.pdf", b"other")
+
+    with zipfile.ZipFile(buffer, "r") as zf:
+        await restore_service._restore_document_files(zf, "tenant-1")
+
+    uploads = [call.kwargs for call in mock_storage.upload_file.call_args_list]
+    assert [upload["object_name"] for upload in uploads] == [
+        "documents/source.pdf",
+        "documents/generation/other.pdf",
+    ]
+    assert [upload["data"].read() for upload in uploads] == [b"source", b"other"]
+    assert [upload["content_type"] for upload in uploads] == [
+        "application/octet-stream",
+        "application/octet-stream",
+    ]
+    assert mock_session.execute.await_count == 0
 
 
 @pytest.mark.asyncio
@@ -141,6 +343,9 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
     result_mock_folders = MagicMock()
     result_mock_folders.scalars.return_value.all.return_value = [folder]
 
+    result_mock_generations = MagicMock()
+    result_mock_generations.scalars.return_value.all.return_value = []
+
     result_mock_conv = MagicMock()
     result_mock_conv.scalars.return_value.all.return_value = [conv]
 
@@ -155,17 +360,21 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
 
     # BackupService:
     # 1. _add_documents_metadata -> select(Document)
-    # 2. _add_folders -> select(Folder)
-    # 3. _add_document_files -> select(Document)
-    # 4. _add_conversations -> select(ConversationSummary)
-    # 5. _add_user_facts -> select(UserFact)
-    # 6. _add_chunks_table -> select(Chunk)
-    # 7. _add_vectors -> select(Tenant)
+    # 2. _add_document_generations -> select(DocumentGeneration)
+    # 3. _add_folders -> select(Folder)
+    # 4. _add_document_files -> select(Document)
+    # 5. _add_document_files -> select(DocumentGeneration)
+    # 6. _add_conversations -> select(ConversationSummary)
+    # 7. _add_user_facts -> select(UserFact)
+    # 8. _add_chunks_table -> select(Chunk)
+    # 9. _add_vectors -> select(Tenant)
 
     mock_session.execute.side_effect = [
         result_mock_docs,  # Metadata
+        result_mock_generations,  # Document generations
         result_mock_folders,  # Folders
         result_mock_docs,  # Files
+        result_mock_generations,  # Generation files
         result_mock_conv,  # Conversations
         result_mock_facts,  # Facts
         result_mock_chunks,  # Chunks
@@ -206,9 +415,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         assert "folders/folders.json" in namelist
         assert "conversations/conversations.json" in namelist
         assert "memory/user_facts.json" in namelist
-        assert (
-            "documents/files/root/test.pdf" in namelist
-        )  # Should use 'root' as folder_id is None in mock if not set
+        assert "documents/files/documents/doc_1/test.pdf" in namelist
 
         # Verify metadata content
         meta_json = json.loads(zf.read("documents/metadata.json"))

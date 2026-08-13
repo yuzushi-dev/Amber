@@ -1,7 +1,7 @@
 from typing import Protocol
 
 from src.core.ingestion.domain.chunk import Chunk
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import Document, DocumentGeneration
 from src.core.ingestion.domain.document_share import VisibleDocument
 
 
@@ -17,6 +17,22 @@ class DocumentRepository(Protocol):
 
     async def save(self, document: Document) -> Document:
         """Save a new document or update an existing one."""
+        ...
+
+    async def save_generation(self, generation: DocumentGeneration) -> DocumentGeneration:
+        """Persist a document artifact generation without publishing it."""
+        ...
+
+    async def get_generation(self, generation_id: str) -> DocumentGeneration | None:
+        """Retrieve one artifact generation."""
+        ...
+
+    async def save_chunks(self, chunks: list[Chunk]) -> None:
+        """Persist staging chunks without replacing published chunks."""
+        ...
+
+    async def mark_generation_failed(self, generation_id: str, error_message: str) -> None:
+        """Mark only the staging generation failed."""
         ...
 
     async def delete(self, document: Document) -> None:
@@ -77,7 +93,11 @@ class DocumentRepository(Protocol):
         ...
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        old_status: str | None = None,
+        attempt_id: str | None = None,
     ) -> bool:
         """Atomic update of document status.
 
@@ -91,14 +111,33 @@ class DocumentRepository(Protocol):
         """
         ...
 
+    async def claim_processing_attempt(
+        self,
+        document_id: str,
+        attempt_id: str,
+        old_status: str,
+        pending_generation_id: str | None,
+    ) -> bool:
+        """Claim one document attempt only if no worker currently owns it."""
+        ...
+
+    async def release_processing_attempt(self, document_id: str, attempt_id: str) -> bool:
+        """Release the attempt only if it still owns the document."""
+        ...
+
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
-        """Retrieve chunks by IDs."""
+        """Retrieve only chunks from each document's published generation."""
+        ...
+
+    async def publish_generation(
+        self, document_id: str, generation: DocumentGeneration, attempt_id: str
+    ) -> bool:
+        """Atomically publish the document's expected pending generation."""
         ...
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
         ...
-
 
     async def get_folder_name(self, folder_id: str) -> str | None:
         """Return the display name of a folder by its ID, or None if not found."""
@@ -119,4 +158,3 @@ class DocumentRepository(Protocol):
         (match any) for dual-edition queries.
         """
         ...
-
