@@ -26,7 +26,7 @@ from src.core.admin_ops.domain.global_rule import GlobalRule
 from src.core.generation.domain.memory_models import ConversationSummary, UserFact
 from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.ingestion.domain.chunk import Chunk, EmbeddingStatus
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import Document, DocumentGeneration
 from src.core.ingestion.domain.folder import Folder
 from src.core.ingestion.domain.ports.storage import StoragePort
 from src.core.ingestion.domain.ports.vector_store import VectorStoreFactory
@@ -202,21 +202,21 @@ class RestoreService:
                     result.documents_restored = await self._restore_documents(
                         zf, target_tenant_id, mode
                     )
+                    await self._restore_document_generations(zf, target_tenant_id, mode)
                     update_progress()
 
                     # 3. Conversations
                     (
                         result.conversations_restored,
                         result.conversations_without_owner,
-                    ) = await self._restore_conversations(
-                        zf, target_tenant_id, mode
-                    )
+                    ) = await self._restore_conversations(zf, target_tenant_id, mode)
                     update_progress()
 
                     # 4. User Facts
-                    result.facts_restored, result.facts_without_owner = await self._restore_user_facts(
-                        zf, target_tenant_id, mode
-                    )
+                    (
+                        result.facts_restored,
+                        result.facts_without_owner,
+                    ) = await self._restore_user_facts(zf, target_tenant_id, mode)
                     update_progress()
 
                     # 5. Configs & Schedules
@@ -308,9 +308,7 @@ class RestoreService:
             # In MERGE mode, skip if exists within this tenant
             if mode == RestoreMode.MERGE:
                 existing = await self.session.execute(
-                    select(Folder).where(
-                        Folder.id == folder_id, Folder.tenant_id == tenant_id
-                    )
+                    select(Folder).where(Folder.id == folder_id, Folder.tenant_id == tenant_id)
                 )
                 if existing.scalar_one_or_none():
                     continue
@@ -344,9 +342,7 @@ class RestoreService:
             # In MERGE mode, skip if exists within this tenant
             if mode == RestoreMode.MERGE:
                 existing = await self.session.execute(
-                    select(Document).where(
-                        Document.id == doc_id, Document.tenant_id == tenant_id
-                    )
+                    select(Document).where(Document.id == doc_id, Document.tenant_id == tenant_id)
                 )
                 if existing.scalar_one_or_none():
                     continue
@@ -363,6 +359,8 @@ class RestoreService:
                 folder_id=doc_data.get("folder_id"),
                 storage_path=doc_data.get("storage_path"),
                 status=doc_data.get("status", "pending"),
+                active_generation_id=doc_data.get("active_generation_id"),
+                pending_generation_id=doc_data.get("pending_generation_id"),
                 metadata_=metadata,
             )
             self.session.add(doc)
@@ -370,6 +368,48 @@ class RestoreService:
 
         await self.session.flush()
 
+        return count
+
+    async def _restore_document_generations(
+        self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode
+    ) -> int:
+        """Restore versioned document artifacts when present in the backup."""
+        if "documents/generations.json" not in zf.namelist():
+            return 0
+
+        count = 0
+        for generation_data in json.loads(zf.read("documents/generations.json")):
+            generation_id = generation_data.get("id")
+            if mode == RestoreMode.MERGE:
+                existing = await self.session.execute(
+                    select(DocumentGeneration).where(DocumentGeneration.id == generation_id)
+                )
+                if existing.scalar_one_or_none():
+                    continue
+
+            generation = DocumentGeneration(
+                id=generation_id,
+                document_id=generation_data.get("document_id"),
+                tenant_id=tenant_id,
+                content_hash=generation_data.get("content_hash"),
+                storage_path=generation_data.get("storage_path"),
+                filename=generation_data.get("filename"),
+                metadata_=generation_data.get("metadata", {}),
+                domain=generation_data.get("domain"),
+                summary=generation_data.get("summary"),
+                document_type=generation_data.get("document_type"),
+                keywords=generation_data.get("keywords", []),
+                hashtags=generation_data.get("hashtags", []),
+                status=generation_data.get("status", "staging"),
+                error_message=generation_data.get("error_message"),
+                published_at=datetime.fromisoformat(generation_data["published_at"])
+                if generation_data.get("published_at")
+                else None,
+            )
+            self.session.add(generation)
+            count += 1
+
+        await self.session.flush()
         return count
 
     async def _restore_document_files(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
@@ -442,9 +482,7 @@ class RestoreService:
                 if existing.scalar_one_or_none():
                     continue
 
-            api_key_id = await self._resolve_api_key_id(
-                conv_data.get("api_key_id"), tenant_id
-            )
+            api_key_id = await self._resolve_api_key_id(conv_data.get("api_key_id"), tenant_id)
             if api_key_id is None:
                 without_owner += 1
             conv = ConversationSummary(
@@ -486,9 +524,7 @@ class RestoreService:
                 if existing.scalar_one_or_none():
                     continue
 
-            api_key_id = await self._resolve_api_key_id(
-                fact_data.get("api_key_id"), tenant_id
-            )
+            api_key_id = await self._resolve_api_key_id(fact_data.get("api_key_id"), tenant_id)
             if api_key_id is None:
                 without_owner += 1
             fact = UserFact(
@@ -616,6 +652,7 @@ class RestoreService:
                 id=chunk_id,
                 tenant_id=tenant_id,
                 document_id=chunk_data.get("document_id"),
+                generation_id=chunk_data.get("generation_id"),
                 index=chunk_data.get("index", 0),
                 tokens=chunk_data.get("tokens", 0),
                 content=chunk_data.get("content"),
@@ -627,9 +664,7 @@ class RestoreService:
         await self.session.flush()
         logger.info(f"Restored {len(data)} chunks")
 
-    async def _restore_vectors(
-        self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode
-    ) -> int:
+    async def _restore_vectors(self, zf: zipfile.ZipFile, tenant_id: str, mode: RestoreMode) -> int:
         """Restore vectors to Milvus. Returns the number of vectors imported."""
         from src.core.tenants.application.active_vector_collection import (
             resolve_active_vector_collection,
