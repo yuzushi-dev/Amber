@@ -10,14 +10,38 @@ from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
 class FakeDocumentRepository:
     def __init__(self, document):
         self._document = document
+        self._generation = None
 
     async def get(self, document_id):
         return self._document
 
-    async def update_status(self, document_id, status, old_status=None):
+    async def update_status(self, document_id, status, old_status=None, attempt_id=None):
         # Track status so validate_transition sees the correct current state
         self._document.status = status
         return True
+
+    async def claim_processing_attempt(
+        self, document_id, attempt_id, old_status, pending_generation_id
+    ):
+        self._document.processing_attempt_id = attempt_id
+        return True
+
+    async def release_processing_attempt(self, document_id, attempt_id):
+        self._document.processing_attempt_id = None
+        return True
+
+    async def save_generation(self, generation):
+        self._generation = generation
+        return generation
+
+    async def get_generation(self, generation_id):
+        return self._generation
+
+    async def save_chunks(self, chunks):
+        return None
+
+    async def mark_generation_failed(self, generation_id, error_message):
+        self._generation.status = "failed"
 
     async def save(self, document):
         return None
@@ -126,6 +150,8 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
         chunks=[],
         created_at=datetime.now(UTC),
         error_message=None,
+        pending_generation_id=None,
+        processing_attempt_id=None,
     )
 
     class TenantRepo:

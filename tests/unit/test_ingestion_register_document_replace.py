@@ -27,6 +27,7 @@ class StubDocument:
 
     def __init__(self, **kwargs) -> None:
         self.pending_generation_id = None
+        self.processing_attempt_id = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -128,6 +129,22 @@ class InMemoryDocumentRepository:
         generation.status = "failed"
         generation.error_message = error_message
 
+    async def claim_processing_attempt(
+        self, document_id, attempt_id, old_status, pending_generation_id
+    ):
+        document = self.rows[document_id]
+        if document.processing_attempt_id is not None:
+            return False
+        document.processing_attempt_id = attempt_id
+        return True
+
+    async def release_processing_attempt(self, document_id, attempt_id):
+        document = self.rows[document_id]
+        if document.processing_attempt_id != attempt_id:
+            return False
+        document.processing_attempt_id = None
+        return True
+
     async def delete(self, document) -> None:
         # Mirrors ON DELETE CASCADE: deleting the document row also wipes
         # whatever "references" it via document_id.
@@ -142,9 +159,11 @@ class InMemoryDocumentRepository:
     async def get(self, document_id):
         return self.rows.get(document_id)
 
-    async def update_status(self, document_id, status, old_status=None) -> bool:
+    async def update_status(self, document_id, status, old_status=None, attempt_id=None) -> bool:
         doc = self.rows.get(document_id)
         if doc is None:
+            return False
+        if attempt_id is not None and doc.processing_attempt_id != attempt_id:
             return False
         doc.status = status
         return True
