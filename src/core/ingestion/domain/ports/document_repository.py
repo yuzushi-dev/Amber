@@ -1,7 +1,7 @@
 from typing import Protocol
 
 from src.core.ingestion.domain.chunk import Chunk
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import Document, DocumentGeneration
 from src.core.ingestion.domain.document_share import VisibleDocument
 
 
@@ -92,7 +92,13 @@ class DocumentRepository(Protocol):
         ...
 
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
-        """Retrieve chunks by IDs."""
+        """Retrieve only chunks from each document's published generation."""
+        ...
+
+    async def publish_generation(
+        self, document_id: str, generation: DocumentGeneration
+    ) -> bool:
+        """Atomically publish the document's expected pending generation."""
         ...
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
@@ -119,4 +125,3 @@ class DocumentRepository(Protocol):
         (match any) for dual-edition queries.
         """
         ...
-

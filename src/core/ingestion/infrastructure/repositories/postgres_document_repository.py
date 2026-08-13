@@ -1,11 +1,15 @@
 import time
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.ingestion.domain.chunk import Chunk
-from src.core.ingestion.domain.document import Document
+from src.core.ingestion.domain.document import (
+    Document,
+    DocumentGeneration,
+    DocumentGenerationStatus,
+)
 from src.core.ingestion.domain.document_share import (
     DocumentShare,
     DocumentVisibilityStatus,
@@ -468,14 +472,69 @@ class PostgresDocumentRepository(DocumentRepository):
         return result.rowcount > 0
 
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
-        """Retrieve chunks by IDs."""
+        """Retrieve chunks visible through the document's published generation."""
         from src.core.ingestion.domain.chunk import Chunk
 
         if not chunk_ids:
             return []
 
-        result = await self._session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
+        result = await self._session.execute(
+            select(Chunk)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(
+                Chunk.id.in_(chunk_ids),
+                or_(
+                    and_(
+                        Document.active_generation_id.is_(None),
+                        Chunk.generation_id.is_(None),
+                    ),
+                    Chunk.generation_id == Document.active_generation_id,
+                ),
+            )
+        )
         return list(result.scalars().all())
+
+    async def publish_generation(
+        self, document_id: str, generation: DocumentGeneration
+    ) -> bool:
+        """Publish only if this generation still owns the pending pointer."""
+        from sqlalchemy import update
+
+        document_result = await self._session.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.pending_generation_id == generation.id,
+            )
+            .values(
+                active_generation_id=generation.id,
+                pending_generation_id=None,
+                content_hash=generation.content_hash,
+                storage_path=generation.storage_path,
+                filename=generation.filename,
+                status=DocumentStatus.READY,
+                error_message=None,
+            )
+        )
+        if document_result.rowcount != 1:
+            return False
+
+        generation_result = await self._session.execute(
+            update(DocumentGeneration)
+            .where(
+                DocumentGeneration.id == generation.id,
+                DocumentGeneration.document_id == document_id,
+                DocumentGeneration.status == DocumentGenerationStatus.STAGING.value,
+            )
+            .values(
+                status=DocumentGenerationStatus.PUBLISHED.value,
+                published_at=func.now(),
+            )
+        )
+        if generation_result.rowcount != 1:
+            raise RuntimeError("pending document generation is not publishable")
+        await self._session.flush()
+        return True
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
@@ -571,4 +630,3 @@ class PostgresDocumentRepository(DocumentRepository):
 
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-
