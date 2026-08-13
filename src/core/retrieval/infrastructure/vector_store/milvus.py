@@ -97,6 +97,27 @@ class MilvusVectorStore:
     FIELD_CONTENT = "content"
     FIELD_METADATA = "metadata"
 
+    # HNSW search param `ef` (search-time candidate list size). Milvus rejects
+    # a search where `ef` is not larger than the requested `limit`/k
+    # (error: "ef(X) should be larger than k(Y)"), so this must never be a
+    # bare constant - it has to scale with the actual limit requested by the
+    # caller. `_HNSW_EF_MARGIN` keeps `ef` strictly greater than `limit`
+    # (not just equal) so we stay on the right side of that check.
+    _HNSW_EF_FLOOR = 128
+    _HNSW_EF_MARGIN = 32
+
+    @classmethod
+    def _hnsw_ef(cls, limit: int) -> int:
+        """Compute a safe HNSW `ef` search param for a given result `limit`.
+
+        Milvus requires `ef` > `limit` (k). Returns the larger of the
+        historical default floor (128) and `limit + margin`, so requests for
+        more results than the old fixed `ef=128` (e.g. top_k/max_chunks up to
+        150+) no longer fail with
+        'ef(128) should be larger than k(150)'.
+        """
+        return max(cls._HNSW_EF_FLOOR, limit + cls._HNSW_EF_MARGIN)
+
     def __init__(self, config: MilvusConfig | None = None):
         self.config = config or MilvusConfig()
         # Sanitize collection name (Milvus does not allow hyphens)
@@ -478,7 +499,7 @@ class MilvusVectorStore:
         # Search parameters
         search_params = {
             "metric_type": self.config.metric_type,
-            "params": {"ef": 128},  # HNSW search param
+            "params": {"ef": self._hnsw_ef(limit)},  # HNSW search param, scaled to limit
         }
 
         import asyncio
@@ -833,7 +854,10 @@ class MilvusVectorStore:
         dense_req = milvus["AnnSearchRequest"](
             data=[dense_vector],
             anns_field=self.FIELD_VECTOR,
-            param={"metric_type": self.config.metric_type, "params": {"ef": 128}},
+            param={
+                "metric_type": self.config.metric_type,
+                "params": {"ef": self._hnsw_ef(limit)},
+            },
             limit=limit,
             expr=filter_expr,
         )
