@@ -37,6 +37,12 @@ class Chunk(Base):
     document_id: Mapped[str] = mapped_column(
         String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    generation_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("document_generations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-based index in the document
 
     content: Mapped[str] = mapped_column(Text, nullable=False)

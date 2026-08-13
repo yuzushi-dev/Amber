@@ -5,6 +5,8 @@ Document Model
 Database model for stored documents.
 """
 
+from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
@@ -38,6 +40,8 @@ class Document(Base, TimestampMixin):
     storage_path: Mapped[str] = mapped_column(
         String, nullable=False
     )  # Path in Object Storage (MinIO)
+    active_generation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    pending_generation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     status: Mapped[DocumentStatus] = mapped_column(
         SQLEnum(DocumentStatus), default=DocumentStatus.INGESTED, nullable=False
@@ -86,3 +90,29 @@ class Document(Base, TimestampMixin):
 
     def __repr__(self):
         return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"
+
+
+class DocumentGenerationStatus(StrEnum):
+    STAGING = "staging"
+    PUBLISHED = "published"
+    FAILED = "failed"
+
+
+class DocumentGeneration(Base, TimestampMixin):
+    """Versioned source and artifact set for one document processing attempt."""
+
+    __tablename__ = "document_generations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, default=DocumentGenerationStatus.STAGING.value, nullable=False, index=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(nullable=True)
