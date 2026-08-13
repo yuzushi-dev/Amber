@@ -5,6 +5,7 @@ Milvus Vector Store
 Vector storage and retrieval using Milvus.
 """
 
+import json
 import logging
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
@@ -586,8 +587,11 @@ class MilvusVectorStore:
         await self.connect()
 
         # quote IDs for expression
-        quoted_ids = [f'"{cid}"' for cid in chunk_ids]
-        expr = f'{self.FIELD_CHUNK_ID} in [{", ".join(quoted_ids)}] && {self.FIELD_TENANT_ID} == "{tenant_id}"'
+        quoted_ids = [json.dumps(cid) for cid in chunk_ids]
+        expr = (
+            f'{self.FIELD_CHUNK_ID} in [{", ".join(quoted_ids)}] && '
+            f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}"
+        )
 
         try:
             result = self._collection.delete(expr=expr)
@@ -612,8 +616,8 @@ class MilvusVectorStore:
         await self.connect()
 
         expr = (
-            f'{self.FIELD_DOCUMENT_ID} == "{document_id}" && '
-            f'{self.FIELD_TENANT_ID} == "{tenant_id}"'
+            f"{self.FIELD_DOCUMENT_ID} == {json.dumps(document_id)} && "
+            f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}"
         )
 
         try:
@@ -632,7 +636,7 @@ class MilvusVectorStore:
         """Delete all chunks for a tenant."""
         await self.connect()
 
-        expr = f'{self.FIELD_TENANT_ID} == "{tenant_id}"'
+        expr = f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}"
 
         try:
             result = self._collection.delete(expr=expr)

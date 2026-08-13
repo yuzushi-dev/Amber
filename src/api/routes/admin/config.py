@@ -601,6 +601,29 @@ async def update_tenant_config(tenant_id: str, update: TenantConfigUpdate, reque
                 if key == "llm_model":
                     new_config["generation_model"] = value
 
+            from src.core.generation.application.llm_model_resolver import (
+                resolve_tenant_llm_model,
+            )
+            from src.core.generation.application.llm_steps import validate_llm_step_override
+
+            effective_provider = (
+                new_config.get("llm_provider") or settings.default_llm_provider or "openai"
+            )
+            effective_model, _ = resolve_tenant_llm_model(
+                new_config,
+                settings,
+                context="admin_config",
+            )
+            error = validate_llm_step_override(effective_provider, effective_model)
+            if error:
+                raise HTTPException(status_code=422, detail=error)
+            for step_id, override in (new_config.get("llm_steps") or {}).items():
+                provider = override.get("provider") or effective_provider
+                model = override.get("model") or effective_model
+                error = validate_llm_step_override(provider, model)
+                if error:
+                    raise HTTPException(status_code=422, detail=f"{step_id}: {error}")
+
             tenant.config = new_config
 
         async with async_session_maker() as session:
