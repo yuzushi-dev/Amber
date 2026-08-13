@@ -364,11 +364,12 @@ class DeleteDocumentUseCase:
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
             OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
             OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
-            WITH d, c, collect(DISTINCT e) AS entities
-            DETACH DELETE d, c
+            WITH d, collect(DISTINCT c) AS chunks, collect(DISTINCT e) AS entities
+            DETACH DELETE d
+            FOREACH (ch IN chunks | DETACH DELETE ch)
             WITH entities
             UNWIND entities AS entity
-            WITH entity
+            WITH DISTINCT entity
             WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
             DETACH DELETE entity
             """
@@ -429,7 +430,14 @@ class DeleteDocumentUseCase:
                 logger.info(f"Marked {marked} communities stale after deleting {request.document_id}")
 
         except Exception as e:
-            logger.warning(f"Failed to delete graph data for document {request.document_id}: {e}")
+            logger.warning(
+                "graph_document_cleanup_failed",
+                extra={
+                    "document_id": request.document_id,
+                    "tenant_id": tenant_id,
+                    "error": str(e),
+                },
+            )
 
         # 3. Delete from Milvus
         try:
