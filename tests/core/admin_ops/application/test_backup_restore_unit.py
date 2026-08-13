@@ -212,13 +212,43 @@ async def test_backup_includes_each_generation_source_once(
     with zipfile.ZipFile(buffer, "r") as zf:
         sources = json.loads(zf.read("documents/files/sources.json"))
         assert sources == {
-            "documents/source.pdf": "documents/files/root/source.pdf",
+            "documents/source.pdf": "documents/files/documents/doc-1/source.pdf",
             "documents/generation/other.pdf": "documents/files/generations/generation-other/other.pdf",
         }
         assert zf.read(sources["documents/source.pdf"]) == b"documents/source.pdf"
         assert (
             zf.read(sources["documents/generation/other.pdf"]) == b"documents/generation/other.pdf"
         )
+
+
+@pytest.mark.asyncio
+async def test_backup_uses_unique_entries_for_duplicate_document_filenames(
+    backup_service, mock_session, mock_storage
+):
+    documents = [
+        Document(
+            id=f"doc-{index}",
+            tenant_id="tenant-1",
+            filename="source.pdf",
+            storage_path=f"documents/{index}/source.pdf",
+            metadata_={},
+        )
+        for index in (1, 2)
+    ]
+    result = MagicMock()
+    result.scalars.return_value.all.side_effect = [documents, []]
+    mock_session.execute.return_value = result
+    mock_storage.get_file.side_effect = lambda path: path.encode()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        await backup_service._add_document_files(zf, "tenant-1")
+
+    with zipfile.ZipFile(buffer, "r") as zf:
+        sources = json.loads(zf.read("documents/files/sources.json"))
+        assert len(set(sources.values())) == 2
+        assert zf.read(sources["documents/1/source.pdf"]) == b"documents/1/source.pdf"
+        assert zf.read(sources["documents/2/source.pdf"]) == b"documents/2/source.pdf"
 
 
 @pytest.mark.asyncio
@@ -385,9 +415,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         assert "folders/folders.json" in namelist
         assert "conversations/conversations.json" in namelist
         assert "memory/user_facts.json" in namelist
-        assert (
-            "documents/files/root/test.pdf" in namelist
-        )  # Should use 'root' as folder_id is None in mock if not set
+        assert "documents/files/documents/doc_1/test.pdf" in namelist
 
         # Verify metadata content
         meta_json = json.loads(zf.read("documents/metadata.json"))

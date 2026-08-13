@@ -129,6 +129,7 @@ class GlobalSearchService:
             WHERE com.id IN $community_ids
               AND com.tenant_id = $tenant_id
               AND coalesce(com.active, true) = true
+              AND coalesce(c.is_published, true) = true
             WITH com.id AS community_id, d.id AS doc_id, count(e) AS entity_count
             ORDER BY entity_count DESC
             WITH community_id, collect(doc_id)[0] AS primary_doc_id

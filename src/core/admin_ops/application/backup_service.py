@@ -248,8 +248,7 @@ class BackupService:
                 continue
             try:
                 file_bytes = self.storage.get_file(doc.storage_path)
-                # Preserve folder structure: documents/files/{folder_id or root}/{filename}
-                archive_path = f"documents/files/{doc.folder_id or 'root'}/{doc.filename}"
+                archive_path = f"documents/files/documents/{doc.id}/{doc.filename}"
                 zf.writestr(archive_path, file_bytes)
                 sources[doc.storage_path] = archive_path
             except Exception as e:

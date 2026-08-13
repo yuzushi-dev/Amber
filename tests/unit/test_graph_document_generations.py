@@ -149,6 +149,8 @@ async def test_graph_publish_hides_all_other_document_generations():
     await client.publish_document_generation("doc-1", "tenant-1", "gen-new")
 
     query, _ = client.execute_write.await_args.args
-    assert "old.generation_id IS NOT NULL" in query
-    assert "old.generation_id <> $generation_id" in query
+    assert "old.generation_id IS NULL OR old.generation_id <> $generation_id" in query
     assert "SET old.is_published = false" in query
+    assert "old_rel.generation_id IS NOT NULL" in query
+    assert "old_rel.generation_id <> $generation_id" in query
+    assert "SET old_rel.is_staging = true" in query

@@ -525,9 +525,15 @@ class Neo4jClient:
             SET c.is_published = true
             WITH c
             OPTIONAL MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
-            WHERE old.generation_id IS NOT NULL AND old.generation_id <> $generation_id
+            WHERE old.generation_id IS NULL OR old.generation_id <> $generation_id
             SET old.is_published = false
             WITH count(c) AS ignored
+            OPTIONAL MATCH ()-[old_rel {document_id: $document_id,
+                                      tenant_id: $tenant_id}]->()
+            WHERE old_rel.generation_id IS NOT NULL
+              AND old_rel.generation_id <> $generation_id
+            SET old_rel.is_staging = true
+            WITH count(old_rel) AS ignored_rel
             MATCH ()-[r {document_id: $document_id, tenant_id: $tenant_id,
                          generation_id: $generation_id}]->()
             SET r.is_staging = false

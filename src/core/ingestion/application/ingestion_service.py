@@ -1009,17 +1009,6 @@ class IngestionService:
                         {"batch": chunk_params},
                     )
 
-                try:
-                    self.graph_enricher.vector_store = vector_store
-                    for data in milvus_data:
-                        await self.graph_enricher.create_similarity_edges(
-                            chunk_id=data["chunk_id"],
-                            embedding=data["embedding"],
-                            tenant_id=document.tenant_id,
-                        )
-                except Exception as e:
-                    logger.error(f"Similarity edge generation failed: {e}")
-
             except Exception as e:
                 logger.error(f"Embedding generation/storage failed for document {document_id}: {e}")
                 for chunk in chunks_to_process:

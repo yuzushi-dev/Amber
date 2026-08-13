@@ -169,27 +169,31 @@ class CypherGenerator:
             RETURN count(d) as count
         """,
         StructuredQueryType.LIST_ENTITIES: """
-            MATCH (e:Entity)
+            MATCH (e:Entity)<-[:MENTIONS]-(c:Chunk)
             WHERE e.tenant_id = $tenant_id
-            RETURN e.id as id, e.name as name, e.type as type,
+              AND coalesce(c.is_published, true) = true
+            RETURN DISTINCT e.id as id, e.name as name, e.type as type,
                    e.description as description
             ORDER BY e.name
             LIMIT $limit
         """,
         StructuredQueryType.COUNT_ENTITIES: """
-            MATCH (e:Entity)
+            MATCH (e:Entity)<-[:MENTIONS]-(c:Chunk)
             WHERE e.tenant_id = $tenant_id
-            RETURN count(e) as count
+              AND coalesce(c.is_published, true) = true
+            RETURN count(DISTINCT e) as count
         """,
         StructuredQueryType.LIST_ENTITY_TYPES: """
-            MATCH (e:Entity)
+            MATCH (e:Entity)<-[:MENTIONS]-(c:Chunk)
             WHERE e.tenant_id = $tenant_id
-            RETURN DISTINCT e.type as type, count(e) as count
+              AND coalesce(c.is_published, true) = true
+            RETURN e.type as type, count(DISTINCT e) as count
             ORDER BY count DESC
         """,
         StructuredQueryType.LIST_RELATIONSHIPS: """
             MATCH (e1:Entity)-[r]->(e2:Entity)
             WHERE e1.tenant_id = $tenant_id
+              AND coalesce(r.is_staging, false) = false
               AND NOT type(r) IN ['BELONGS_TO', 'PARENT_OF', 'MENTIONS']
             RETURN e1.name as source, type(r) as relationship, e2.name as target,
                    r.description as description
@@ -198,15 +202,19 @@ class CypherGenerator:
         StructuredQueryType.COUNT_CHUNKS: """
             MATCH (c:Chunk)
             WHERE c.tenant_id = $tenant_id
+              AND coalesce(c.is_published, true) = true
             RETURN count(c) as count
         """,
         StructuredQueryType.DOCUMENT_STATS: """
             MATCH (d:Document {tenant_id: $tenant_id})
             WITH count(d) as docs
             OPTIONAL MATCH (c:Chunk {tenant_id: $tenant_id})
+            WHERE coalesce(c.is_published, true) = true
             WITH docs, count(c) as chunks
-            OPTIONAL MATCH (e:Entity {tenant_id: $tenant_id})
-            RETURN docs as document_count, chunks as chunk_count, count(e) as entity_count
+            OPTIONAL MATCH (e:Entity {tenant_id: $tenant_id})<-[:MENTIONS]-(ec:Chunk)
+            WHERE coalesce(ec.is_published, true) = true
+            RETURN docs as document_count, chunks as chunk_count,
+                   count(DISTINCT e) as entity_count
         """,
     }
 

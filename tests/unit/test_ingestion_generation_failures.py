@@ -102,6 +102,7 @@ def test_process_document_never_performs_document_wide_predelete():
 
     assert ".delete_by_document(" not in source
     assert "DETACH DELETE c" not in source
+    assert ".create_similarity_edges(" not in source
 
 
 @pytest.mark.asyncio
