@@ -91,6 +91,7 @@ class MilvusVectorStore:
     FIELD_CHUNK_ID = "chunk_id"
     FIELD_DOCUMENT_ID = "document_id"
     FIELD_TENANT_ID = "tenant_id"
+    FIELD_GENERATION_ID = "generation_id"
     FIELD_VECTOR = "vector"
     FIELD_SPARSE_VECTOR = "sparse_vector"
     FIELD_CONTENT = "content"
@@ -487,6 +488,7 @@ class MilvusVectorStore:
             self.FIELD_CHUNK_ID,
             self.FIELD_DOCUMENT_ID,
             self.FIELD_TENANT_ID,
+            self.FIELD_GENERATION_ID,
             self.FIELD_CONTENT,
         ]
 
@@ -530,6 +532,7 @@ class MilvusVectorStore:
                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
                             score=hit.score,
                             metadata=meta,
+                            generation_id=hit.entity.get(self.FIELD_GENERATION_ID),
                         )
                     )
 
@@ -630,6 +633,33 @@ class MilvusVectorStore:
 
         except Exception as e:
             logger.error(f"Failed to delete chunks: {e}")
+            raise
+
+    async def delete_by_generation(
+        self,
+        document_id: str,
+        tenant_id: str,
+        generation_id: str,
+    ) -> int:
+        """Delete only one unpublished document generation."""
+        await self.connect()
+
+        expr = " && ".join(
+            (
+                f"{self.FIELD_DOCUMENT_ID} == {json.dumps(document_id)}",
+                f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}",
+                f"{self.FIELD_GENERATION_ID} == {json.dumps(generation_id)}",
+            )
+        )
+
+        try:
+            result = self._collection.delete(expr=expr)
+            self._collection.flush()
+            count = result.delete_count if hasattr(result, "delete_count") else 0
+            logger.info("Deleted %d chunks for document generation %s", count, generation_id)
+            return count
+        except Exception as e:
+            logger.error("Failed to delete document generation chunks: %s", e)
             raise
 
     async def delete_by_tenant(self, tenant_id: str) -> int:
@@ -846,6 +876,7 @@ class MilvusVectorStore:
                 self.FIELD_CHUNK_ID,
                 self.FIELD_DOCUMENT_ID,
                 self.FIELD_TENANT_ID,
+                self.FIELD_GENERATION_ID,
                 self.FIELD_CONTENT,
             ]
 
@@ -887,6 +918,7 @@ class MilvusVectorStore:
                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
                             score=hit.score,
                             metadata=meta,
+                            generation_id=hit.entity.get(self.FIELD_GENERATION_ID),
                         )
                     )
             return search_results

@@ -51,7 +51,10 @@ class VectorSearcher:
                     content=r.metadata.get("content", ""),
                     score=r.score,
                     source="vector",
-                    metadata=r.metadata,
+                    metadata={
+                        **r.metadata,
+                        **({"generation_id": r.generation_id} if r.generation_id is not None else {}),
+                    },
                 )
                 for r in results
             ]
@@ -104,7 +107,10 @@ class VectorSearcher:
                     content=r.metadata.get("content", ""),
                     score=r.score,
                     source="hybrid",
-                    metadata=r.metadata,
+                    metadata={
+                        **r.metadata,
+                        **({"generation_id": r.generation_id} if r.generation_id is not None else {}),
+                    },
                 )
                 for r in results
             ]

@@ -13,6 +13,7 @@ class SearchResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     score_type: str = "cosine"
     source: str = "vector"
+    generation_id: str | None = None
 
 
 class VectorStorePort(Protocol):
@@ -67,6 +68,12 @@ class VectorStorePort(Protocol):
 
     async def upsert_chunks(self, chunks_data: list[dict[str, Any]]) -> None:
         """Upsert chunks with embeddings."""
+        ...
+
+    async def delete_by_generation(
+        self, document_id: str, tenant_id: str, generation_id: str
+    ) -> int:
+        """Delete chunks belonging to one unpublished document generation."""
         ...
 
     async def disconnect(self) -> None:
