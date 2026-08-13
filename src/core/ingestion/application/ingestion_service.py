@@ -924,23 +924,13 @@ class IngestionService:
                     # Fallback to empty sparse vectors to satisfy schema
                     sparse_embeddings = [{} for _ in chunks_to_process]
 
-                milvus_data = []
-                for chunk, emb, sparse_emb in zip(
-                    chunks_to_process, embeddings, sparse_embeddings, strict=False
-                ):
-                    data = {
-                        "chunk_id": chunk.id,
-                        "document_id": chunk.document_id,
-                        "tenant_id": document.tenant_id,
-                        "generation_id": generation.id,
-                        "content": chunk.content[:65530],
-                        "embedding": emb,
-                    }
-                    if sparse_emb is not None:
-                        data["sparse_vector"] = sparse_emb
-                    if chunk.metadata_:
-                        data.update(chunk.metadata_)
-                    milvus_data.append(data)
+                milvus_data = self._build_milvus_data(
+                    chunks_to_process,
+                    embeddings,
+                    sparse_embeddings,
+                    document.tenant_id,
+                    generation.id,
+                )
 
                 await vector_store.upsert_chunks(milvus_data)
 
@@ -1044,7 +1034,7 @@ class IngestionService:
 
                 get_provider_factory()
                 if chunks_to_process:
-                    await self.graph_processor.process_chunks(
+                    graph_result = await self.graph_processor.process_chunks(
                         chunks_to_process,
                         document.tenant_id,
                         filename=generation.filename,
@@ -1052,6 +1042,8 @@ class IngestionService:
                         tenant_config=tenant_config,
                         progress_callback=_on_graph_progress,
                     )
+                    if graph_result is not None:
+                        graph_result.raise_if_partial()
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
                 raise
@@ -1190,3 +1182,42 @@ class IngestionService:
             except Exception as inner_err:
                 logger.error(f"Failed to update error state for {document_id}: {inner_err}")
             raise
+
+    @staticmethod
+    def _build_milvus_data(
+        chunks: list[Any],
+        embeddings: list[list[float]],
+        sparse_embeddings: list[dict[str, float] | None],
+        tenant_id: str,
+        generation_id: str,
+    ) -> list[dict[str, Any]]:
+        expected = len(chunks)
+        if len(embeddings) != expected:
+            raise ValueError(
+                f"Dense embedding cardinality mismatch: expected {expected}, "
+                f"received {len(embeddings)}"
+            )
+        if len(sparse_embeddings) != expected:
+            raise ValueError(
+                f"Sparse embedding cardinality mismatch: expected {expected}, "
+                f"received {len(sparse_embeddings)}"
+            )
+
+        payload = []
+        for chunk, embedding, sparse_embedding in zip(
+            chunks, embeddings, sparse_embeddings, strict=True
+        ):
+            data = {
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "tenant_id": tenant_id,
+                "generation_id": generation_id,
+                "content": chunk.content[:65530],
+                "embedding": embedding,
+            }
+            if sparse_embedding is not None:
+                data["sparse_vector"] = sparse_embedding
+            if chunk.metadata_:
+                data.update(chunk.metadata_)
+            payload.append(data)
+        return payload
