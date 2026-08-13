@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from uuid import uuid4
 
 import igraph as ig
 import leidenalg
@@ -35,10 +36,7 @@ class CommunityDetector:
         """
         logger.info(f"Starting community detection for tenant {tenant_id}")
 
-        # 0. Clean up previous community graph so we start fresh each run.
-        #    Each Leiden run generates new UUID-based community IDs, so without
-        #    this step old nodes accumulate indefinitely.
-        await self._cleanup_old_communities(tenant_id)
+        generation_id = f"community-generation-{uuid4().hex}"
 
         # 1. Fetch L0 Graph (Entity-Entity)
         nodes, edges = await self._fetch_l0_graph(tenant_id)
@@ -52,13 +50,22 @@ class CommunityDetector:
         hierarchy = self._run_hierarchical_leiden(nodes, edges, resolution, max_levels, seed)
 
         # 3. Persist
-        await self._persist_communities(tenant_id, hierarchy)
+        try:
+            await self._persist_communities(tenant_id, hierarchy, generation_id)
+            await self._validate_generation(tenant_id, generation_id, len(hierarchy))
+        except Exception:
+            await self.discard_generation(tenant_id, generation_id)
+            raise
 
         count = len(hierarchy)
         logger.info(
             f"Detected and persisted {count} communities across levels for tenant {tenant_id}"
         )
-        return {"status": "success", "community_count": count}
+        return {
+            "status": "success",
+            "community_count": count,
+            "generation_id": generation_id,
+        }
 
     async def _fetch_l0_graph(
         self, tenant_id: str
@@ -312,7 +319,9 @@ class CommunityDetector:
 
         logger.info(f"Old community cleanup complete for tenant {tenant_id}")
 
-    async def _persist_communities(self, tenant_id: str, communities: list[dict[str, Any]]):
+    async def _persist_communities(
+        self, tenant_id: str, communities: list[dict[str, Any]], generation_id: str
+    ):
         """
         Writes community nodes and relationships to Neo4j.
         """
@@ -324,13 +333,15 @@ class CommunityDetector:
 
         query = """
         UNWIND $communities AS c
-        MERGE (comm:Community {id: c.id})
+        MERGE (comm:Community {id: c.id, tenant_id: $tenant_id, generation_id: $generation_id})
         ON CREATE SET
-            comm.tenant_id = $tenant_id,
             comm.level = c.level,
             comm.title = c.title,
             comm.created_at = datetime()
-        SET comm.updated_at = datetime()
+        SET comm.updated_at = datetime(),
+            comm.active = false,
+            comm.is_stale = true,
+            comm.status = 'pending'
 
         WITH comm, c
 
@@ -344,7 +355,11 @@ class CommunityDetector:
         // Link Child Communities (Level > 0)
         // Note: 'child_communities' is list of Community IDs (Level - 1)
         FOREACH (child_id IN c.child_communities |
-            MERGE (child:Community {id: child_id})
+            MERGE (child:Community {
+                id: child_id,
+                tenant_id: $tenant_id,
+                generation_id: $generation_id
+            })
             MERGE (comm)-[:PARENT_OF]->(child)
         )
         """
@@ -353,7 +368,65 @@ class CommunityDetector:
         batch_size = 100
         for i in range(0, len(communities), batch_size):
             batch = communities[i : i + batch_size]
-            await self.graph.execute_write(query, {"communities": batch, "tenant_id": tenant_id})
+            await self.graph.execute_write(
+                query,
+                {
+                    "communities": batch,
+                    "tenant_id": tenant_id,
+                    "generation_id": generation_id,
+                },
+            )
+
+    async def _validate_generation(
+        self, tenant_id: str, generation_id: str, expected_count: int
+    ) -> None:
+        result = await self.graph.execute_read(
+            """
+            MATCH (c:Community)
+            WHERE c.tenant_id = $tenant_id AND c.generation_id = $generation_id
+            OPTIONAL MATCH (c)-[:PARENT_OF]->(child:Community)
+            WITH count(DISTINCT c) AS community_count,
+                 count(CASE WHEN child IS NOT NULL
+                                  AND (child.tenant_id <> $tenant_id
+                                       OR child.generation_id <> $generation_id)
+                            THEN 1 END) AS invalid_links
+            RETURN community_count, invalid_links
+            """,
+            {"tenant_id": tenant_id, "generation_id": generation_id},
+        )
+        row = result[0] if result else {}
+        if row.get("community_count", 0) != expected_count or row.get("invalid_links", 0):
+            raise RuntimeError("Community generation validation failed")
+
+    async def activate_generation(self, tenant_id: str, generation_id: str) -> None:
+        result = await self.graph.execute_write(
+            """
+            MATCH (new:Community)
+            WHERE new.tenant_id = $tenant_id AND new.generation_id = $generation_id
+            WITH collect(new) AS staged
+            WHERE size(staged) > 0
+            OPTIONAL MATCH (old:Community)
+            WHERE old.tenant_id = $tenant_id
+              AND (old.generation_id IS NULL OR old.generation_id <> $generation_id)
+            WITH staged, collect(old) AS old_communities
+            FOREACH (old IN old_communities | SET old.active = false)
+            FOREACH (new IN staged | SET new.active = true)
+            RETURN size(staged) AS activated
+            """,
+            {"tenant_id": tenant_id, "generation_id": generation_id},
+        )
+        if not result or result[0].get("activated", 0) == 0:
+            raise RuntimeError(f"Community generation {generation_id} was not activated")
+
+    async def discard_generation(self, tenant_id: str, generation_id: str) -> None:
+        await self.graph.execute_write(
+            """
+            MATCH (c:Community)
+            WHERE c.tenant_id = $tenant_id AND c.generation_id = $generation_id
+            DETACH DELETE c
+            """,
+            {"tenant_id": tenant_id, "generation_id": generation_id},
+        )
 
     async def assign_orphans_and_mark_stale(self, tenant_id: str) -> dict[str, Any]:
         """

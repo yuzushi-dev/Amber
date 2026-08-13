@@ -62,6 +62,12 @@ class GlobalSearchService:
         if not reports:
             return {"candidates": []}
 
+        community_ids = [report.chunk_id for report in reports]
+        origins_map = await self._resolve_community_origins(community_ids, tenant_id)
+        reports = [report for report in reports if report.chunk_id in origins_map]
+        if not reports:
+            return {"candidates": []}
+
         # 2. Map Phase: Extract key points from each report
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.shared.kernel.runtime import get_settings
@@ -82,10 +88,7 @@ class GlobalSearchService:
         map_results = await asyncio.gather(*map_tasks)
 
         # 3. Resolve Original Documents
-        community_ids = [r.chunk_id for r in reports]
-        origins_map = await self._resolve_community_origins(community_ids, tenant_id)
-
-        # 4. Pack into Candidates
+        # 3. Pack into Candidates
         candidates = []
         for report, points in zip(reports, map_results, strict=True):
             if not points or points.strip() == "NONE":
@@ -95,20 +98,24 @@ class GlobalSearchService:
             if allowed_doc_ids is not None and origin_doc_id not in allowed_doc_ids:
                 continue
 
-            candidates.append({
-                "chunk_id": report.chunk_id,
-                "document_id": origin_doc_id,
-                "content": f"Community Summary Findings:\n{points}",
-                "score": float(report.score) if hasattr(report, "score") else 1.0,
-                "metadata": {
-                    "title": "Community Insight Context",
-                    "original_community": report.chunk_id
+            candidates.append(
+                {
+                    "chunk_id": report.chunk_id,
+                    "document_id": origin_doc_id,
+                    "content": f"Community Summary Findings:\n{points}",
+                    "score": float(report.score) if hasattr(report, "score") else 1.0,
+                    "metadata": {
+                        "title": "Community Insight Context",
+                        "original_community": report.chunk_id,
+                    },
                 }
-            })
+            )
 
         return {"candidates": candidates}
 
-    async def _resolve_community_origins(self, community_ids: list[str], tenant_id: str) -> dict[str, str]:
+    async def _resolve_community_origins(
+        self, community_ids: list[str], tenant_id: str
+    ) -> dict[str, str]:
         """
         Finds the primary underlying document for each community using Neo4j.
         Returns a mapping of {community_id: document_id}.
@@ -119,7 +126,9 @@ class GlobalSearchService:
         try:
             query = """
             MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(com:Community)
-            WHERE com.id IN $community_ids AND com.tenant_id = $tenant_id
+            WHERE com.id IN $community_ids
+              AND com.tenant_id = $tenant_id
+              AND coalesce(com.active, true) = true
             WITH com.id AS community_id, d.id AS doc_id, count(e) AS entity_count
             ORDER BY entity_count DESC
             WITH community_id, collect(doc_id)[0] AS primary_doc_id
@@ -127,11 +136,14 @@ class GlobalSearchService:
             """
 
             results = await self.neo4j_client.execute_read(
-                query,
-                {"community_ids": community_ids, "tenant_id": tenant_id}
+                query, {"community_ids": community_ids, "tenant_id": tenant_id}
             )
 
-            return {row["community_id"]: row["primary_doc_id"] for row in results if row.get("community_id")}
+            return {
+                row["community_id"]: row["primary_doc_id"]
+                for row in results
+                if row.get("community_id")
+            }
         except Exception as e:
             logger.warning(f"Failed to resolve community origins: {e}")
             return {}
