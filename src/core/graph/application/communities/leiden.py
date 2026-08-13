@@ -79,11 +79,14 @@ class CommunityDetector:
         # We use the 'name' property of Entity as the unique identifier (along with tenant_id)
         # Note: Entity nodes use (name, tenant_id) as their unique key, they don't have an 'id' property
         query = """
-        MATCH (s:Entity)
+        MATCH (s:Entity)<-[:MENTIONS]-(source_chunk:Chunk)
         WHERE s.tenant_id = $tenant_id
+          AND coalesce(source_chunk.is_published, true) = true
+        WITH DISTINCT s
         OPTIONAL MATCH (s)-[r]->(t:Entity)
         WHERE t.tenant_id = $tenant_id
           AND NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
+          AND coalesce(r.is_staging, false) = false
         RETURN s.name as source, t.name as target, type(r) as rel_type, properties(r) as props
         """
         results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
@@ -443,8 +446,17 @@ class CommunityDetector:
             """
             MATCH (e:Entity {tenant_id: $tid})
             WHERE NOT (e)-[:BELONGS_TO]->(:Community)
+              AND EXISTS {
+                MATCH (source_chunk:Chunk)-[:MENTIONS]->(e)
+                WHERE coalesce(source_chunk.is_published, true) = true
+              }
             OPTIONAL MATCH (e)-[r]-(neighbor:Entity {tenant_id: $tid})
             WHERE NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
+              AND coalesce(r.is_staging, false) = false
+              AND EXISTS {
+                MATCH (neighbor_chunk:Chunk)-[:MENTIONS]->(neighbor)
+                WHERE coalesce(neighbor_chunk.is_published, true) = true
+              }
             OPTIONAL MATCH (neighbor)-[:BELONGS_TO]->(c:Community {tenant_id: $tid, level: 0})
             WITH e, c, count(neighbor) AS score
             WHERE c IS NOT NULL
@@ -464,6 +476,10 @@ class CommunityDetector:
             """
             MATCH (e:Entity {tenant_id: $tid})
             WHERE NOT (e)-[:BELONGS_TO]->(:Community)
+              AND EXISTS {
+                MATCH (source_chunk:Chunk)-[:MENTIONS]->(e)
+                WHERE coalesce(source_chunk.is_published, true) = true
+              }
             RETURN count(e) AS unassigned
             """,
             {"tid": tenant_id},

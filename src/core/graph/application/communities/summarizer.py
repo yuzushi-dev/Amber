@@ -308,6 +308,10 @@ class CommunitySummarizer:
         entity_query = """
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE $generation_id IS NULL OR c.generation_id = $generation_id
+          AND EXISTS {
+            MATCH (visible_chunk:Chunk)-[:MENTIONS]->(e)
+            WHERE coalesce(visible_chunk.is_published, true) = true
+          }
         RETURN e.name as name, e.type as type, e.description as description
         """
 
@@ -318,6 +322,15 @@ class CommunitySummarizer:
               (e1)-[r]->(e2)
         WHERE ($generation_id IS NULL OR c.generation_id = $generation_id)
           AND NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
+          AND coalesce(r.is_staging, false) = false
+          AND EXISTS {
+            MATCH (source_chunk:Chunk)-[:MENTIONS]->(e1)
+            WHERE coalesce(source_chunk.is_published, true) = true
+          }
+          AND EXISTS {
+            MATCH (target_chunk:Chunk)-[:MENTIONS]->(e2)
+            WHERE coalesce(target_chunk.is_published, true) = true
+          }
         RETURN e1.name as source, e2.name as target, type(r) as type, r.description as description
         """
 
@@ -336,6 +349,7 @@ class CommunitySummarizer:
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE $generation_id IS NULL OR c.generation_id = $generation_id
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
+        WHERE coalesce(c_chunk.is_published, true) = true
         WITH DISTINCT c_chunk ORDER BY c_chunk.id LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """

@@ -241,21 +241,40 @@ class BackupService:
         """Export original document files from storage."""
         result = await self.session.execute(select(Document).where(Document.tenant_id == tenant_id))
         documents = result.scalars().all()
+        sources: dict[str, str] = {}
 
         for doc in documents:
-            if not doc.storage_path:
+            if not doc.storage_path or doc.storage_path in sources:
                 continue
             try:
                 file_bytes = self.storage.get_file(doc.storage_path)
                 # Preserve folder structure: documents/files/{folder_id or root}/{filename}
-                folder_path = doc.folder_id if doc.folder_id else "root"
-                zf.writestr(f"documents/files/{folder_path}/{doc.filename}", file_bytes)
+                archive_path = f"documents/files/{doc.folder_id or 'root'}/{doc.filename}"
+                zf.writestr(archive_path, file_bytes)
+                sources[doc.storage_path] = archive_path
             except Exception as e:
                 logger.warning(f"Could not retrieve file for document {doc.id}: {e}")
                 zf.writestr(
                     f"documents/files/{doc.folder_id or 'root'}/{doc.filename}.missing.txt",
                     f"File not found: {doc.storage_path}\nError: {str(e)}",
                 )
+
+        result = await self.session.execute(
+            select(DocumentGeneration).where(DocumentGeneration.tenant_id == tenant_id)
+        )
+        for generation in result.scalars().all():
+            if not generation.storage_path or generation.storage_path in sources:
+                continue
+            archive_path = (
+                f"documents/files/generations/{generation.id}/{generation.filename or 'source'}"
+            )
+            try:
+                zf.writestr(archive_path, self.storage.get_file(generation.storage_path))
+                sources[generation.storage_path] = archive_path
+            except Exception as e:
+                logger.warning("Could not retrieve source for generation %s: %s", generation.id, e)
+
+        zf.writestr("documents/files/sources.json", json.dumps(sources, indent=2))
 
     async def _add_conversations(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export conversation summaries as JSON."""

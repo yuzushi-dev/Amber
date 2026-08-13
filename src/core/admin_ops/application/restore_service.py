@@ -415,6 +415,28 @@ class RestoreService:
     async def _restore_document_files(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Restore document files to storage."""
         try:
+            sources_manifest = "documents/files/sources.json"
+            if sources_manifest in zf.namelist():
+                sources = json.loads(zf.read(sources_manifest))
+                if isinstance(sources, dict):
+                    for storage_path, archive_path in sources.items():
+                        if not isinstance(storage_path, str) or not isinstance(archive_path, str):
+                            continue
+                        if archive_path not in zf.namelist():
+                            logger.warning("Backup source entry missing: %s", archive_path)
+                            continue
+                        try:
+                            file_bytes = zf.read(archive_path)
+                            self.storage.upload_file(
+                                object_name=storage_path,
+                                data=io.BytesIO(file_bytes),
+                                length=len(file_bytes),
+                                content_type="application/octet-stream",
+                            )
+                        except Exception as e:
+                            logger.warning("Error restoring source %s: %s", storage_path, e)
+                    return
+
             # Find all files in documents/files/
             file_entries = [
                 name

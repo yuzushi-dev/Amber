@@ -878,7 +878,8 @@ async def _count_pending_docs_async(tenant_id: str) -> int:
                 text(
                     "SELECT count(*) FROM documents "
                     "WHERE tenant_id = :tid "
-                    "AND status IN ('INGESTED','EXTRACTING','CLASSIFYING','CHUNKING','EMBEDDING','GRAPH_SYNC')"
+                    "AND (status IN ('INGESTED','EXTRACTING','CLASSIFYING','CHUNKING','EMBEDDING','GRAPH_SYNC') "
+                    "OR pending_generation_id IS NOT NULL OR processing_attempt_id IS NOT NULL)"
                 ),
                 {"tid": tenant_id},
             )
@@ -933,6 +934,12 @@ async def _mark_document_failed(document_id: str, error: str, tenant_id: str = "
             document = result.scalars().first()
 
             if document:
+                if document.active_generation_id:
+                    logger.warning(
+                        "Keeping published document %s READY after replacement failure",
+                        document_id,
+                    )
+                    return
                 document.status = DocumentStatus.FAILED
                 await session.commit()
                 _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)

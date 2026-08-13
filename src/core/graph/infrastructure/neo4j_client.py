@@ -523,8 +523,13 @@ class Neo4jClient:
             MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id,
                             generation_id: $generation_id})
             SET c.is_published = true
+            WITH c
+            OPTIONAL MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NOT NULL AND old.generation_id <> $generation_id
+            SET old.is_published = false
             WITH count(c) AS ignored
-            MATCH ()-[r {document_id: $document_id, generation_id: $generation_id}]->()
+            MATCH ()-[r {document_id: $document_id, tenant_id: $tenant_id,
+                         generation_id: $generation_id}]->()
             SET r.is_staging = false
             """,
             {

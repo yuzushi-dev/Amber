@@ -10,6 +10,7 @@ from src.core.generation.application.prompts.entity_extraction import (
 from src.core.graph.application.processor import GraphProcessor
 from src.core.graph.application.writer import GraphWriter
 from src.core.graph.infrastructure.neo4j_client import Neo4jClient
+from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.retrieval.application.search.graph_traversal import GraphTraversalService
 
 
@@ -122,3 +123,32 @@ async def test_graph_publish_promotes_only_requested_generation():
     assert "c.is_published = true" in query
     assert "r.is_staging = false" in query
     assert params["generation_id"] == "gen-new"
+
+
+@pytest.mark.asyncio
+async def test_graph_search_hides_unpublished_chunks_but_keeps_legacy_chunks():
+    graph = MagicMock(spec=Neo4jClient)
+    graph.execute_read = AsyncMock(return_value=[])
+    searcher = GraphSearcher(graph)
+
+    await searcher.search_by_entities(["entity-1"], "tenant-1")
+    entity_query, _ = graph.execute_read.await_args.args
+    assert "coalesce(c.is_published, true) = true" in entity_query
+
+    await searcher.search_by_neighbors(["chunk-1"], "tenant-1")
+    neighbor_query, _ = graph.execute_read.await_args.args
+    assert "coalesce(start.is_published, true) = true" in neighbor_query
+    assert "coalesce(neighbor.is_published, true) = true" in neighbor_query
+
+
+@pytest.mark.asyncio
+async def test_graph_publish_hides_all_other_document_generations():
+    client = Neo4jClient(uri="bolt://unused", user="unused", password="unused")
+    client.execute_write = AsyncMock(return_value=[])
+
+    await client.publish_document_generation("doc-1", "tenant-1", "gen-new")
+
+    query, _ = client.execute_write.await_args.args
+    assert "old.generation_id IS NOT NULL" in query
+    assert "old.generation_id <> $generation_id" in query
+    assert "SET old.is_published = false" in query

@@ -165,6 +165,97 @@ async def test_generation_metadata_backup_and_restore_round_trip(
 
 
 @pytest.mark.asyncio
+async def test_backup_includes_each_generation_source_once(
+    backup_service, mock_session, mock_storage
+):
+    document = Document(
+        id="doc-1",
+        tenant_id="tenant-1",
+        filename="source.pdf",
+        storage_path="documents/source.pdf",
+        metadata_={},
+    )
+    shared_generation = DocumentGeneration(
+        id="generation-shared",
+        document_id=document.id,
+        tenant_id=document.tenant_id,
+        content_hash="shared-hash",
+        storage_path=document.storage_path,
+        filename=document.filename,
+        metadata_={},
+    )
+    other_generation = DocumentGeneration(
+        id="generation-other",
+        document_id=document.id,
+        tenant_id=document.tenant_id,
+        content_hash="other-hash",
+        storage_path="documents/generation/other.pdf",
+        filename="other.pdf",
+        metadata_={},
+    )
+    result = MagicMock()
+    result.scalars.return_value.all.side_effect = [
+        [document],
+        [shared_generation, other_generation],
+    ]
+    mock_session.execute.return_value = result
+    mock_storage.get_file.side_effect = lambda path: path.encode()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        await backup_service._add_document_files(zf, "tenant-1")
+
+    assert mock_storage.get_file.call_args_list == [
+        (("documents/source.pdf",), {}),
+        (("documents/generation/other.pdf",), {}),
+    ]
+    with zipfile.ZipFile(buffer, "r") as zf:
+        sources = json.loads(zf.read("documents/files/sources.json"))
+        assert sources == {
+            "documents/source.pdf": "documents/files/root/source.pdf",
+            "documents/generation/other.pdf": "documents/files/generations/generation-other/other.pdf",
+        }
+        assert zf.read(sources["documents/source.pdf"]) == b"documents/source.pdf"
+        assert (
+            zf.read(sources["documents/generation/other.pdf"]) == b"documents/generation/other.pdf"
+        )
+
+
+@pytest.mark.asyncio
+async def test_restore_restores_generation_sources_from_backup_manifest(
+    restore_service, mock_session, mock_storage
+):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(
+            "documents/files/sources.json",
+            json.dumps(
+                {
+                    "documents/source.pdf": "documents/files/root/source.pdf",
+                    "documents/generation/other.pdf": "documents/files/generations/generation-other/other.pdf",
+                }
+            ),
+        )
+        zf.writestr("documents/files/root/source.pdf", b"source")
+        zf.writestr("documents/files/generations/generation-other/other.pdf", b"other")
+
+    with zipfile.ZipFile(buffer, "r") as zf:
+        await restore_service._restore_document_files(zf, "tenant-1")
+
+    uploads = [call.kwargs for call in mock_storage.upload_file.call_args_list]
+    assert [upload["object_name"] for upload in uploads] == [
+        "documents/source.pdf",
+        "documents/generation/other.pdf",
+    ]
+    assert [upload["data"].read() for upload in uploads] == [b"source", b"other"]
+    assert [upload["content_type"] for upload in uploads] == [
+        "application/octet-stream",
+        "application/octet-stream",
+    ]
+    assert mock_session.execute.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_create_backup_user_data(backup_service, mock_session, mock_storage):
     # Setup mock data using proper SQLAlchemy models
 
@@ -242,16 +333,18 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
     # 2. _add_document_generations -> select(DocumentGeneration)
     # 3. _add_folders -> select(Folder)
     # 4. _add_document_files -> select(Document)
-    # 5. _add_conversations -> select(ConversationSummary)
-    # 6. _add_user_facts -> select(UserFact)
-    # 7. _add_chunks_table -> select(Chunk)
-    # 8. _add_vectors -> select(Tenant)
+    # 5. _add_document_files -> select(DocumentGeneration)
+    # 6. _add_conversations -> select(ConversationSummary)
+    # 7. _add_user_facts -> select(UserFact)
+    # 8. _add_chunks_table -> select(Chunk)
+    # 9. _add_vectors -> select(Tenant)
 
     mock_session.execute.side_effect = [
         result_mock_docs,  # Metadata
         result_mock_generations,  # Document generations
         result_mock_folders,  # Folders
         result_mock_docs,  # Files
+        result_mock_generations,  # Generation files
         result_mock_conv,  # Conversations
         result_mock_facts,  # Facts
         result_mock_chunks,  # Chunks

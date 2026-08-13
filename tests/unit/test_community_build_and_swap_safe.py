@@ -76,6 +76,24 @@ async def test_summarizer_selects_only_requested_staging_generation():
 
 
 @pytest.mark.asyncio
+async def test_community_read_paths_exclude_staging_graph_artifacts():
+    graph = AsyncMock()
+    graph.execute_read.return_value = []
+    detector = CommunityDetector(graph)
+    summarizer = CommunitySummarizer(graph, AsyncMock())
+
+    await detector._fetch_l0_graph("tenant-1")
+    l0_query, _ = graph.execute_read.await_args.args
+    assert "coalesce(source_chunk.is_published, true) = true" in l0_query
+    assert "coalesce(r.is_staging, false) = false" in l0_query
+
+    await summarizer._fetch_community_data("community-1", "tenant-1")
+    queries = [call.args[0] for call in graph.execute_read.await_args_list[-4:]]
+    assert any("coalesce(r.is_staging, false) = false" in query for query in queries)
+    assert any("coalesce(c_chunk.is_published, true) = true" in query for query in queries)
+
+
+@pytest.mark.asyncio
 async def test_global_search_resolves_only_active_communities():
     graph = AsyncMock()
     graph.execute_read.return_value = []
