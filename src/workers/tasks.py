@@ -137,6 +137,54 @@ def health_check(self) -> dict:
 
 
 @celery_app.task(
+    name="src.workers.tasks.check_llm_registry_drift",
+    queue="low_priority",
+)
+def check_llm_registry_drift() -> dict:
+    """Periodically report stored LLM registry drift; never mutates tenants."""
+    return run_async(_check_llm_registry_drift_async())
+
+
+async def _check_llm_registry_drift_async() -> dict:
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.api.config import settings
+    from src.core.generation.application.llm_steps import inspect_llm_step_registry
+    from src.core.tenants.domain.tenant import Tenant
+
+    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
+    findings: list[dict[str, str | None]] = []
+    tenants: list = []
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+
+            await configure_worker_session(session)
+            result = await session.execute(select(Tenant).where(Tenant.is_active.is_(True)))
+            tenants = result.scalars().all()
+            for tenant in tenants:
+                findings.extend(inspect_llm_step_registry(tenant.id, tenant.config or {}))
+    finally:
+        await engine.dispose()
+
+    for finding in findings:
+        if finding["severity"] == "error":
+            # NOTE: `finding` includes a "message" key, which collides with the
+            # reserved LogRecord attribute of the same name -- passing it
+            # directly as `extra=finding` raises KeyError at log time. Nest it
+            # under its own key instead.
+            logger.error("llm_registry_drift: %s", finding["message"], extra={"finding": finding})
+    return {
+        "status": "drift_detected" if findings else "ok",
+        "tenants_scanned": len(tenants),
+        "findings": findings,
+    }
+
+
+@celery_app.task(
     bind=True,
     name="src.workers.tasks.process_document",
     base=BaseTask,

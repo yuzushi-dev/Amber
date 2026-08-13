@@ -129,6 +129,15 @@ celery_app.conf.beat_schedule = {
         "task": "src.workers.recovery.periodic_recovery_sweep",
         "schedule": 600.0,  # 10 minutes
     },
+    # Periodic read-only sweep for stored `llm_steps` overrides drifting out of
+    # sync with the live model registry (e.g. a provider retiring a model that
+    # was valid when a tenant's config was last written). Complements the
+    # write-time validation in validate_llm_step_override (applied on the
+    # tenant config PUT), which only catches drift introduced at write time.
+    "llm-registry-drift": {
+        "task": "src.workers.tasks.check_llm_registry_drift",
+        "schedule": 900.0,  # 15 minutes
+    },
 }
 
 # Task routing
