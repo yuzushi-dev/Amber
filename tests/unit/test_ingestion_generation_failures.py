@@ -102,3 +102,46 @@ def test_process_document_never_performs_document_wide_predelete():
 
     assert ".delete_by_document(" not in source
     assert "DETACH DELETE c" not in source
+
+
+@pytest.mark.asyncio
+async def test_duplicate_worker_stops_before_reading_staging_generation():
+    document = SimpleNamespace(
+        id="doc_0123456789abcdef",
+        tenant_id="tenant-1",
+        filename="published.pdf",
+        content_hash="published-hash",
+        storage_path="tenant-1/doc/published.pdf",
+        status=DocumentStatus.READY,
+        pending_generation_id="gen-pending",
+        processing_attempt_id=None,
+        metadata_={},
+    )
+
+    class _ClaimRejectedRepo:
+        def __init__(self):
+            self.claims = []
+
+        async def get(self, _document_id):
+            return document
+
+        async def claim_processing_attempt(self, *args):
+            self.claims.append(args)
+            return False
+
+        async def get_generation(self, _generation_id):
+            raise AssertionError("losing worker must not read staging artifacts")
+
+    repository = _ClaimRejectedRepo()
+    service = service_module.IngestionService(
+        document_repository=repository,
+        tenant_repository=None,
+        unit_of_work=SimpleNamespace(commit=lambda: None),
+        storage_client=object(),
+        neo4j_client=object(),
+        vector_store=None,
+    )
+
+    await service.process_document(document.id)
+
+    assert len(repository.claims) == 1

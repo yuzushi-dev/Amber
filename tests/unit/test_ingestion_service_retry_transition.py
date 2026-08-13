@@ -54,6 +54,7 @@ class StubDocument:
         self.error_message = None
         self.pending_generation_id = None
         self.content_hash = "test-hash"
+        self.processing_attempt_id = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -70,11 +71,29 @@ class FakeDocumentRepository:
     async def get(self, document_id: str) -> StubDocument:
         return self._document
 
-    async def update_status(self, document_id: str, status, old_status=None) -> bool:
+    async def update_status(
+        self, document_id: str, status, old_status=None, attempt_id=None
+    ) -> bool:
         self.update_status_calls.append((document_id, status, old_status))
         if old_status is not None and self._document.status != old_status:
             return False
+        if attempt_id is not None and self._document.processing_attempt_id != attempt_id:
+            return False
         self._document.status = status
+        return True
+
+    async def claim_processing_attempt(
+        self, document_id, attempt_id, old_status, pending_generation_id
+    ):
+        if self._document.processing_attempt_id is not None:
+            return False
+        self._document.processing_attempt_id = attempt_id
+        return True
+
+    async def release_processing_attempt(self, document_id, attempt_id):
+        if self._document.processing_attempt_id != attempt_id:
+            return False
+        self._document.processing_attempt_id = None
         return True
 
     async def save(self, document: StubDocument) -> None:
@@ -152,7 +171,12 @@ async def test_process_document_cas_uses_actual_prior_status(prior_status):
     # The CAS must key off the status that was actually validated, not a
     # hardcoded INGESTED, otherwise retries from FAILED/READY/NEEDS_REVIEW
     # always silently no-op.
-    assert repo.update_status_calls == [("doc_1", DocumentStatus.EXTRACTING, prior_status)]
+    assert repo.update_status_calls[0] == (
+        "doc_1",
+        DocumentStatus.EXTRACTING,
+        prior_status,
+    )
+    assert repo.update_status_calls[-1] == ("doc_1", DocumentStatus.FAILED, None)
 
     # Pipeline reached the storage step (guard did not block it) and the
     # error handler ran, persisting FAILED + a structured error message.

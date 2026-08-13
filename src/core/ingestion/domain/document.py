@@ -42,6 +42,7 @@ class Document(Base, TimestampMixin):
     )  # Path in Object Storage (MinIO)
     active_generation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     pending_generation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    processing_attempt_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     status: Mapped[DocumentStatus] = mapped_column(
         SQLEnum(DocumentStatus), default=DocumentStatus.INGESTED, nullable=False

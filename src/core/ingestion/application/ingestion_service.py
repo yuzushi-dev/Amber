@@ -86,6 +86,22 @@ class IngestionService:
         self.graph_processor = GraphProcessor()
         self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
 
+    async def _update_status_for_attempt(
+        self,
+        document_id: str,
+        status: DocumentStatus,
+        attempt_id: str,
+        old_status: DocumentStatus | None = None,
+    ) -> None:
+        updated = await self.document_repository.update_status(
+            document_id,
+            status,
+            old_status=old_status,
+            attempt_id=attempt_id,
+        )
+        if not updated:
+            raise RuntimeError(f"Processing attempt ownership changed for {document_id}")
+
     async def register_document(
         self,
         tenant_id: str,
@@ -442,6 +458,18 @@ class IngestionService:
                 "reprocessing (pass force=True for an explicit reprocess)."
             )
             return
+        attempt_id = uuid4().hex
+        claimed = await self.document_repository.claim_processing_attempt(
+            document_id,
+            attempt_id,
+            prior_status,
+            pending_generation_id,
+        )
+        if not claimed:
+            logger.warning(
+                "Document %s is already owned by another processing attempt", document_id
+            )
+            return
         generation = None
         if pending_generation_id:
             generation = await self.document_repository.get_generation(pending_generation_id)
@@ -466,9 +494,13 @@ class IngestionService:
 
         updated = True
         if not preserve_published:
-            updated = await self.document_repository.update_status(
-                document_id, DocumentStatus.EXTRACTING, old_status=prior_status
+            await self._update_status_for_attempt(
+                document_id,
+                DocumentStatus.EXTRACTING,
+                attempt_id,
+                old_status=prior_status,
             )
+            updated = True
 
         if not updated:
             # Re-fetch to see why
@@ -577,9 +609,12 @@ class IngestionService:
                     document.pending_generation_id = None
                     await self.document_repository.save(document)
                 else:
-                    await self.document_repository.update_status(
-                        document.id, DocumentStatus.NEEDS_REVIEW
+                    await self._update_status_for_attempt(
+                        document.id,
+                        DocumentStatus.NEEDS_REVIEW,
+                        attempt_id,
                     )
+                await self.document_repository.release_processing_attempt(document.id, attempt_id)
                 await self.unit_of_work.commit()
                 await self.event_dispatcher.emit_state_change(
                     StateChangeEvent(
@@ -595,8 +630,10 @@ class IngestionService:
             # 5. Classify Domain (Stage 1.4)
             TransitionManager.validate_transition(processing_status, DocumentStatus.CLASSIFYING)
             if not preserve_published:
-                await self.document_repository.update_status(
-                    document.id, DocumentStatus.CLASSIFYING
+                await self._update_status_for_attempt(
+                    document.id,
+                    DocumentStatus.CLASSIFYING,
+                    attempt_id,
                 )
                 await self.unit_of_work.commit()
             processing_status = DocumentStatus.CLASSIFYING
@@ -662,7 +699,9 @@ class IngestionService:
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
             TransitionManager.validate_transition(processing_status, DocumentStatus.CHUNKING)
             if not preserve_published:
-                await self.document_repository.update_status(document.id, DocumentStatus.CHUNKING)
+                await self._update_status_for_attempt(
+                    document.id, DocumentStatus.CHUNKING, attempt_id
+                )
                 await self.unit_of_work.commit()
             processing_status = DocumentStatus.CHUNKING
 
@@ -739,7 +778,9 @@ class IngestionService:
             # 8. Generate Embeddings and Store in Milvus
             TransitionManager.validate_transition(processing_status, DocumentStatus.EMBEDDING)
             if not preserve_published:
-                await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
+                await self._update_status_for_attempt(
+                    document.id, DocumentStatus.EMBEDDING, attempt_id
+                )
                 await self.unit_of_work.commit()
             processing_status = DocumentStatus.EMBEDDING
 
@@ -995,7 +1036,9 @@ class IngestionService:
             # 9. Build Knowledge Graph
             TransitionManager.validate_transition(processing_status, DocumentStatus.GRAPH_SYNC)
             if not preserve_published:
-                await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
+                await self._update_status_for_attempt(
+                    document.id, DocumentStatus.GRAPH_SYNC, attempt_id
+                )
                 await self.unit_of_work.commit()
             processing_status = DocumentStatus.GRAPH_SYNC
             await self.event_dispatcher.emit_state_change(
@@ -1118,7 +1161,9 @@ class IngestionService:
             # 11. Update Document Status -> READY
             TransitionManager.validate_transition(processing_status, DocumentStatus.READY)
             await self.document_repository.save_generation(generation)
-            published = await self.document_repository.publish_generation(document.id, generation)
+            published = await self.document_repository.publish_generation(
+                document.id, generation, attempt_id
+            )
             if not published:
                 raise RuntimeError("document generation lost pending ownership before publish")
             await self.unit_of_work.commit()
@@ -1153,7 +1198,7 @@ class IngestionService:
             logger.exception(f"Failed to process document {document_id}")
             try:
                 document = await self.document_repository.get(document_id)
-                if document:
+                if document and getattr(document, "processing_attempt_id", None) == attempt_id:
                     # Use shared error mapping for structured persistence
                     try:
                         import json
@@ -1174,10 +1219,23 @@ class IngestionService:
                             document.pending_generation_id = None
                             await self.document_repository.save(document)
                     else:
+                        await self._update_status_for_attempt(
+                            document.id,
+                            DocumentStatus.FAILED,
+                            attempt_id,
+                        )
                         document.status = DocumentStatus.FAILED
                         document.error_message = error_message
                         await self.document_repository.save(document)
+                    await self.document_repository.release_processing_attempt(
+                        document.id, attempt_id
+                    )
                     await self.unit_of_work.commit()
+                elif document:
+                    logger.warning(
+                        "Failure ignored because processing ownership changed for %s",
+                        document_id,
+                    )
 
             except Exception as inner_err:
                 logger.error(f"Failed to update error state for {document_id}: {inner_err}")

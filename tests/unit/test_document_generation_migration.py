@@ -4,7 +4,6 @@ from pathlib import Path
 from src.core.ingestion.domain.chunk import Chunk
 from src.core.ingestion.domain.document import Document
 
-
 MIGRATION = (
     Path(__file__).parents[2]
     / "alembic/versions/20260813_1700_add_document_artifact_generations.py"
@@ -26,6 +25,7 @@ def test_generation_schema_is_additive_and_follows_current_head():
     assert migration.down_revision == "20260812_1600"
     assert Document.__table__.c.active_generation_id.nullable
     assert Document.__table__.c.pending_generation_id.nullable
+    assert Document.__table__.c.processing_attempt_id.nullable
     assert Chunk.__table__.c.generation_id.nullable
 
 

@@ -93,7 +93,11 @@ class DocumentRepository(Protocol):
         ...
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        old_status: str | None = None,
+        attempt_id: str | None = None,
     ) -> bool:
         """Atomic update of document status.
 
@@ -107,11 +111,27 @@ class DocumentRepository(Protocol):
         """
         ...
 
+    async def claim_processing_attempt(
+        self,
+        document_id: str,
+        attempt_id: str,
+        old_status: str,
+        pending_generation_id: str | None,
+    ) -> bool:
+        """Claim one document attempt only if no worker currently owns it."""
+        ...
+
+    async def release_processing_attempt(self, document_id: str, attempt_id: str) -> bool:
+        """Release the attempt only if it still owns the document."""
+        ...
+
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
         """Retrieve only chunks from each document's published generation."""
         ...
 
-    async def publish_generation(self, document_id: str, generation: DocumentGeneration) -> bool:
+    async def publish_generation(
+        self, document_id: str, generation: DocumentGeneration, attempt_id: str
+    ) -> bool:
         """Atomically publish the document's expected pending generation."""
         ...
 

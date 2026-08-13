@@ -32,6 +32,7 @@ class StubDocument:
         self.error_message = None
         self.pending_generation_id = None
         self.content_hash = "test-hash"
+        self.processing_attempt_id = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -97,9 +98,19 @@ class FakeDocumentRepositoryForFailure:
         return self.document
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self, document_id: str, status: str, old_status: str | None = None, attempt_id=None
     ) -> bool:
         self.document.status = status
+        return True
+
+    async def claim_processing_attempt(
+        self, document_id, attempt_id, old_status, pending_generation_id
+    ):
+        self.document.processing_attempt_id = attempt_id
+        return True
+
+    async def release_processing_attempt(self, document_id, attempt_id):
+        self.document.processing_attempt_id = None
         return True
 
     async def save(self, document) -> None:

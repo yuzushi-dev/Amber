@@ -64,7 +64,7 @@ async def test_publish_generation_uses_pending_pointer_as_compare_and_set():
         hashtags=[],
     )
 
-    published = await repository.publish_generation("doc-1", generation)
+    published = await repository.publish_generation("doc-1", generation, "attempt-1")
 
     assert published is True
     document_sql = str(session.statements[0])
@@ -72,6 +72,54 @@ async def test_publish_generation_uses_pending_pointer_as_compare_and_set():
     assert "documents.pending_generation_id = :pending_generation_id_1" in document_sql
     assert "active_generation_id=:active_generation_id" in document_sql.replace(" ", "")
     assert "pending_generation_id=:pending_generation_id" in document_sql.replace(" ", "")
+    assert "documents.processing_attempt_id = :processing_attempt_id_1" in document_sql
+    assert "processing_attempt_id=:processing_attempt_id" in document_sql.replace(" ", "")
     assert "document_generations.status = 'staging'" in generation_sql
     assert "status='published'" in generation_sql.replace(" ", "")
     assert session.flushed == 1
+
+
+@pytest.mark.asyncio
+async def test_processing_attempt_claim_is_single_owner_compare_and_set():
+    session = _Session([_Result(rowcount=1)])
+    repository = PostgresDocumentRepository(session)
+
+    claimed = await repository.claim_processing_attempt(
+        "doc-1", "attempt-1", "ready", "gen-pending"
+    )
+
+    assert claimed is True
+    compact = str(session.statements[0]).replace(" ", "")
+    assert "documents.processing_attempt_idISNULL" in compact
+    assert "documents.pending_generation_id=:pending_generation_id_1" in compact
+    assert "documents.status=:status_1" in compact
+    assert "processing_attempt_id=:processing_attempt_id" in compact
+
+
+@pytest.mark.asyncio
+async def test_attempt_owned_status_update_checks_owner_without_reassigning_it():
+    session = _Session([_Result(rowcount=1)])
+    repository = PostgresDocumentRepository(session)
+
+    updated = await repository.update_status(
+        "doc-1", "embedding", old_status="chunking", attempt_id="attempt-1"
+    )
+
+    assert updated is True
+    compact = str(session.statements[0]).replace(" ", "")
+    assert "documents.processing_attempt_id=:processing_attempt_id_1" in compact
+    assert "SETstatus=:status" in compact
+    assert "SETprocessing_attempt_id" not in compact
+
+
+@pytest.mark.asyncio
+async def test_processing_attempt_release_checks_owner():
+    session = _Session([_Result(rowcount=1)])
+    repository = PostgresDocumentRepository(session)
+
+    released = await repository.release_processing_attempt("doc-1", "attempt-1")
+
+    assert released is True
+    compact = str(session.statements[0]).replace(" ", "")
+    assert "documents.processing_attempt_id=:processing_attempt_id_1" in compact
+    assert "SETprocessing_attempt_id=:processing_attempt_id" in compact
