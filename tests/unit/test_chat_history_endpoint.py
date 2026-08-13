@@ -248,3 +248,41 @@ async def test_admin_list_chat_history_legacy_row_yields_no_group(monkeypatch):
 
     assert res.total == 1
     assert res.conversations[0].group_name is None
+
+    feedback_stmt = mock_session.execute.call_args_list[1].args[0]
+    join_sql = str(
+        feedback_stmt.get_final_froms()[0].onclause.compile(compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert "feedbacks.tenant_id = conversation_summaries.tenant_id" in join_sql
+    assert "api_key_id" not in join_sql
+
+
+@pytest.mark.asyncio
+async def test_admin_detail_links_legacy_feedback_after_conversation_backfill(monkeypatch):
+    """Admin detail is tenant-scoped and must not require matching owners."""
+    from src.api.routes.admin.chat_history import get_conversation_detail
+
+    conv = _make_conversation("conv-1", "tenant-a", "user-a", "Question")
+    conv.api_key_id = "backfilled-key"
+
+    conv_result = MagicMock()
+    conv_result.scalar_one_or_none.return_value = conv
+    feedback_result = MagicMock()
+    feedback_result.scalar_one_or_none.return_value = None
+    session = AsyncMock()
+    session.execute.side_effect = [conv_result, feedback_result]
+
+    monkeypatch.setattr(
+        "src.core.admin_ops.application.metrics.collector.MetricsCollector.get_recent",
+        AsyncMock(return_value=[]),
+    )
+
+    request = MagicMock()
+    request.state.is_super_admin = False
+    request.state.tenant_id = "tenant-a"
+    await get_conversation_detail(request_id="conv-1", request=request, session=session, _=None)
+
+    feedback_stmt = session.execute.call_args_list[1].args[0]
+    sql = str(feedback_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "feedbacks.tenant_id = 'tenant-a'" in sql
+    assert "feedbacks.api_key_id =" not in sql
