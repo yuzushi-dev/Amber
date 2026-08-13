@@ -2,8 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.core.retrieval.application.retrieval_service import RetrievalService
-from src.core.retrieval.application.retrieval_service import VectorSearchTarget
+from src.core.retrieval.application.retrieval_service import (
+    RetrievalService,
+    VectorSearchTarget,
+)
 from src.core.retrieval.domain.ports.vector_store_port import SearchResult
 
 
