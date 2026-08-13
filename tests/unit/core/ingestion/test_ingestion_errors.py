@@ -24,8 +24,10 @@ async def test_process_document_handles_quota_exceeded():
     document_repo.get.return_value = mock_doc
 
     # Simulate status updates so validate_transition sees the correct current status
-    async def _update_status(doc_id, status, old_status=None):
+    async def _update_status(doc_id, status, old_status=None, attempt_id=None):
         mock_doc.status = status
+        if attempt_id is not None:
+            mock_doc.processing_attempt_id = attempt_id
         return True
 
     document_repo.update_status.side_effect = _update_status

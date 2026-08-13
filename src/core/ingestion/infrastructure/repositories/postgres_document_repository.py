@@ -450,7 +450,11 @@ class PostgresDocumentRepository(DocumentRepository):
         return list(result.scalars().all())
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        old_status: str | None = None,
+        attempt_id: str | None = None,
     ) -> bool:
         """Atomic update of document status."""
         from sqlalchemy import update
@@ -461,7 +465,10 @@ class PostgresDocumentRepository(DocumentRepository):
         if old_status:
             stmt = stmt.where(Document.status == old_status)
 
-        stmt = stmt.values(status=status)
+        values = {"status": status}
+        if attempt_id is not None:
+            values["processing_attempt_id"] = attempt_id
+        stmt = stmt.values(**values)
 
         result = await self._session.execute(stmt)
         await self._session.flush()
@@ -571,4 +578,3 @@ class PostgresDocumentRepository(DocumentRepository):
 
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-

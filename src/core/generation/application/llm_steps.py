@@ -264,6 +264,13 @@ def resolve_llm_step_config(
     step_id: str,
     settings: Any,
 ) -> LLMStepConfig:
+    """Resolve a step without mutating legacy tenant configuration.
+
+    Missing per-step overrides deliberately fall back to the tenant-level
+    provider/model and then application defaults. Existing legacy values are
+    reported by ``inspect_llm_step_registry`` but remain runnable until an
+    operator replaces them.
+    """
     step = LLM_STEP_DEFS[step_id]
     step_overrides = (tenant_config.get("llm_steps") or {}).get(step_id, {})
 
@@ -297,6 +304,84 @@ def resolve_llm_step_config(
         temperature=temperature,
         seed=seed,
     )
+
+
+def inspect_llm_step_registry(
+    tenant_id: str, tenant_config: dict[str, Any]
+) -> list[dict[str, str | None]]:
+    """Return read-only findings for stored LLM step configuration drift."""
+    from src.shared.model_registry import LLM_MODELS
+
+    findings: list[dict[str, str | None]] = []
+    overrides = tenant_config.get("llm_steps")
+    if not overrides:
+        legacy_model = tenant_config.get("llm_model") or tenant_config.get("generation_model")
+        if legacy_model:
+            findings.append(
+                {
+                    "tenant_id": tenant_id,
+                    "step_id": "*",
+                    "severity": "info",
+                    "code": "legacy_fallback",
+                    "message": (
+                        "No per-step override is stored; steps use the legacy tenant/application "
+                        f"fallback model {legacy_model!r} until explicitly migrated."
+                    ),
+                }
+            )
+        return findings
+
+    if not isinstance(overrides, dict):
+        return [
+            {
+                "tenant_id": tenant_id,
+                "step_id": "*",
+                "severity": "error",
+                "code": "invalid_llm_steps",
+                "message": "llm_steps must be an object keyed by step id.",
+            }
+        ]
+
+    for step_id, override in overrides.items():
+        if step_id not in LLM_STEP_DEFS:
+            findings.append(
+                {
+                    "tenant_id": tenant_id,
+                    "step_id": str(step_id),
+                    "severity": "error",
+                    "code": "unknown_step",
+                    "message": f"Unknown LLM step {step_id!r}.",
+                }
+            )
+            continue
+        if not isinstance(override, dict):
+            findings.append(
+                {
+                    "tenant_id": tenant_id,
+                    "step_id": str(step_id),
+                    "severity": "error",
+                    "code": "invalid_override",
+                    "message": "LLM step override must be an object.",
+                }
+            )
+            continue
+
+        provider = override.get("provider")
+        model = override.get("model")
+        error = validate_llm_step_override(provider, model)
+        if error:
+            code = "unknown_provider" if provider not in LLM_MODELS else "unavailable_model"
+            findings.append(
+                {
+                    "tenant_id": tenant_id,
+                    "step_id": str(step_id),
+                    "severity": "error",
+                    "code": code,
+                    "message": error,
+                }
+            )
+
+    return findings
 
 
 def validate_llm_step_override(provider: str | None, model: str | None) -> str | None:

@@ -14,6 +14,9 @@ import os
 import time
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
+
+from sqlalchemy.exc import IntegrityError
 
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
@@ -82,6 +85,35 @@ class IngestionService:
         # GraphProcessor uses global graph_writer internally, but that's handled by tasks.py patch for safety
         self.graph_processor = GraphProcessor()
         self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
+
+    async def _compensate_storage_upload(self, storage_path: str, reason: str) -> None:
+        try:
+            await asyncio.to_thread(self.storage.delete_file, storage_path)
+            logger.warning(
+                "document_storage_compensated", extra={"storage_path": storage_path, "reason": reason}
+            )
+        except Exception as cleanup_error:
+            logger.error(
+                "document_storage_compensation_failed",
+                extra={
+                    "storage_path": storage_path,
+                    "reason": reason,
+                    "error": str(cleanup_error),
+                },
+            )
+
+    async def _update_status_for_attempt(
+        self, document: Document, status: DocumentStatus, attempt_id: str
+    ) -> None:
+        updated = await self.document_repository.update_status(
+            document.id,
+            status,
+            old_status=document.status,
+            attempt_id=attempt_id,
+        )
+        if not updated:
+            raise RuntimeError(f"Processing attempt ownership changed for {document.id}")
+        document.status = status
 
     async def _cleanup_failed_document_artifacts(
         self,
@@ -209,6 +241,7 @@ class IngestionService:
         self,
         document: Document,
         graph_result: GraphProcessingResult,
+        attempt_id: str | None = None,
     ) -> None:
         """Persist review state while retaining successful graph writes."""
         failed_chunk_ids = list(graph_result.failed_chunk_ids)
@@ -235,12 +268,17 @@ class IngestionService:
         document.metadata_ = metadata
 
         TransitionManager.validate_transition(document.status, DocumentStatus.NEEDS_REVIEW)
-        await self.document_repository.update_status(
-            document.id,
-            DocumentStatus.NEEDS_REVIEW,
-            old_status=document.status,
-        )
-        document.status = DocumentStatus.NEEDS_REVIEW
+        if attempt_id is None:
+            await self.document_repository.update_status(
+                document.id,
+                DocumentStatus.NEEDS_REVIEW,
+                old_status=document.status,
+            )
+            document.status = DocumentStatus.NEEDS_REVIEW
+        else:
+            await self._update_status_for_attempt(
+                document, DocumentStatus.NEEDS_REVIEW, attempt_id
+            )
         await self.document_repository.save(document)
         await self.unit_of_work.commit()
         await self.event_dispatcher.emit_state_change(
@@ -391,7 +429,19 @@ class IngestionService:
             folder_id=folder_id,
         )
 
-        await self.document_repository.save(new_doc)
+        try:
+            await self.document_repository.save(new_doc)
+        except IntegrityError:
+            # A concurrent identical upload owns the deterministic object key;
+            # deleting it here would remove the winner's blob.
+            logger.info(
+                "document_registration_duplicate_race",
+                extra={"tenant_id": tenant_id, "content_hash": content_hash},
+            )
+            raise
+        except Exception:
+            await self._compensate_storage_upload(storage_path, "document_persistence_failed")
+            raise
         # Note: Caller responsible for commit if needed, or we rely on implicit UoW scope?
         # Usage implies session commit happens outside.
 
@@ -619,8 +669,12 @@ class IngestionService:
                 "reprocessing (pass force=True for an explicit reprocess)."
             )
             return
+        attempt_id = uuid4().hex
         updated = await self.document_repository.update_status(
-            document_id, DocumentStatus.EXTRACTING, old_status=prior_status
+            document_id,
+            DocumentStatus.EXTRACTING,
+            old_status=prior_status,
+            attempt_id=attempt_id,
         )
 
         if not updated:
@@ -727,11 +781,10 @@ class IngestionService:
                 TransitionManager.validate_transition(
                     document.status, DocumentStatus.NEEDS_REVIEW
                 )
-                await self.document_repository.update_status(
-                    document.id, DocumentStatus.NEEDS_REVIEW
+                await self._update_status_for_attempt(
+                    document, DocumentStatus.NEEDS_REVIEW, attempt_id
                 )
                 await self.unit_of_work.commit()
-                document.status = DocumentStatus.NEEDS_REVIEW
                 await self.event_dispatcher.emit_state_change(
                     StateChangeEvent(
                         document_id=document.id,
@@ -745,9 +798,10 @@ class IngestionService:
 
             # 5. Classify Domain (Stage 1.4)
             TransitionManager.validate_transition(document.status, DocumentStatus.CLASSIFYING)
-            await self.document_repository.update_status(document.id, DocumentStatus.CLASSIFYING)
+            await self._update_status_for_attempt(
+                document, DocumentStatus.CLASSIFYING, attempt_id
+            )
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.CLASSIFYING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -807,9 +861,8 @@ class IngestionService:
 
             # 7. Chunk Content using SemanticChunker (Stage 1.5)
             TransitionManager.validate_transition(document.status, DocumentStatus.CHUNKING)
-            await self.document_repository.update_status(document.id, DocumentStatus.CHUNKING)
+            await self._update_status_for_attempt(document, DocumentStatus.CHUNKING, attempt_id)
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.CHUNKING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -883,9 +936,8 @@ class IngestionService:
 
             # 8. Generate Embeddings and Store in Milvus
             TransitionManager.validate_transition(document.status, DocumentStatus.EMBEDDING)
-            await self.document_repository.update_status(document.id, DocumentStatus.EMBEDDING)
+            await self._update_status_for_attempt(document, DocumentStatus.EMBEDDING, attempt_id)
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.EMBEDDING
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -1164,9 +1216,8 @@ class IngestionService:
 
             # 9. Build Knowledge Graph
             TransitionManager.validate_transition(document.status, DocumentStatus.GRAPH_SYNC)
-            await self.document_repository.update_status(document.id, DocumentStatus.GRAPH_SYNC)
+            await self._update_status_for_attempt(document, DocumentStatus.GRAPH_SYNC, attempt_id)
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.GRAPH_SYNC
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
                     document_id=document.id,
@@ -1211,7 +1262,7 @@ class IngestionService:
                         progress_callback=_on_graph_progress,
                     )
                     if isinstance(graph_result, GraphProcessingResult) and graph_result.failed_chunk_ids:
-                        await self._mark_graph_sync_partial(document, graph_result)
+                        await self._mark_graph_sync_partial(document, graph_result, attempt_id)
                         return
             except Exception as e:
                 logger.error(f"Graph processing failed for document {document_id}: {e}")
@@ -1286,9 +1337,10 @@ class IngestionService:
 
             # 11. Update Document Status -> READY
             TransitionManager.validate_transition(document.status, DocumentStatus.READY)
-            await self.document_repository.update_status(document.id, DocumentStatus.READY)
+            await self._update_status_for_attempt(document, DocumentStatus.READY, attempt_id)
             await self.unit_of_work.commit()
-            document.status = DocumentStatus.READY
+            document.processing_attempt_id = None
+            await self.document_repository.save(document)
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(
@@ -1309,7 +1361,19 @@ class IngestionService:
             logger.exception(f"Failed to process document {document_id}")
             try:
                 document = await self.document_repository.get(document_id)
-                if document:
+                if document and getattr(document, "processing_attempt_id", None) == attempt_id:
+                    failed = await self.document_repository.update_status(
+                        document.id,
+                        DocumentStatus.FAILED,
+                        old_status=document.status,
+                        attempt_id=attempt_id,
+                    )
+                    if not failed:
+                        logger.warning(
+                            "document_failure_ownership_lost",
+                            extra={"document_id": document_id, "attempt_id": attempt_id},
+                        )
+                        raise RuntimeError("processing attempt ownership changed")
                     document.status = DocumentStatus.FAILED
                     # Use shared error mapping for structured persistence
                     try:
@@ -1335,6 +1399,11 @@ class IngestionService:
                     await self._cleanup_failed_document_artifacts(
                         document,
                         vector_store=cleanup_vector_store,
+                    )
+                elif document:
+                    logger.warning(
+                        "document_failure_ownership_lost",
+                        extra={"document_id": document_id, "attempt_id": attempt_id},
                     )
             except Exception as inner_err:
                 logger.error(f"Failed to update error state for {document_id}: {inner_err}")

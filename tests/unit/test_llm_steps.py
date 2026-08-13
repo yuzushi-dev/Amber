@@ -1,4 +1,5 @@
 from src.core.generation.application.llm_steps import (
+    inspect_llm_step_registry,
     resolve_llm_step_config,
     validate_llm_step_override,
 )
@@ -97,3 +98,40 @@ def test_validate_llm_step_override_provider_only_passes():
     """A provider-only override (no model given) has nothing to check --
     the model comes from elsewhere."""
     assert validate_llm_step_override("openai", None) is None
+
+
+def test_inspect_llm_step_registry_accepts_valid_override():
+    findings = inspect_llm_step_registry(
+        "tenant-valid",
+        {"llm_steps": {"chat.generation": {"provider": "openai", "model": OPENAI_DEFAULT}}},
+    )
+
+    assert findings == []
+
+
+def test_inspect_llm_step_registry_reports_retired_or_unknown_model():
+    findings = inspect_llm_step_registry(
+        "tenant-legacy",
+        {"llm_steps": {"chat.generation": {"provider": "openai", "model": "gpt-retired-999"}}},
+    )
+
+    assert findings[0]["tenant_id"] == "tenant-legacy"
+    assert findings[0]["step_id"] == "chat.generation"
+    assert findings[0]["severity"] == "error"
+    assert findings[0]["code"] == "unavailable_model"
+
+
+def test_inspect_llm_step_registry_documents_legacy_fallback():
+    findings = inspect_llm_step_registry(
+        "tenant-old", {"llm_provider": "openai", "llm_model": OPENAI_DEFAULT}
+    )
+
+    assert findings == [
+        {
+            "tenant_id": "tenant-old",
+            "step_id": "*",
+            "severity": "info",
+            "code": "legacy_fallback",
+            "message": findings[0]["message"],
+        }
+    ]

@@ -129,6 +129,10 @@ celery_app.conf.beat_schedule = {
         "task": "src.workers.recovery.periodic_recovery_sweep",
         "schedule": 600.0,  # 10 minutes
     },
+    "llm-registry-drift": {
+        "task": "src.workers.tasks.check_llm_registry_drift",
+        "schedule": 900.0,  # 15 minutes
+    },
 }
 
 # Task routing

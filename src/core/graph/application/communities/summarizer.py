@@ -44,6 +44,7 @@ class CommunitySummarizer:
         community_id: str,
         tenant_id: str,
         tenant_config: dict[str, Any] | None = None,
+        generation_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Generates a summary for a single community.
@@ -58,7 +59,7 @@ class CommunitySummarizer:
         logger.info(f"Summarizing community {community_id} for tenant {tenant_id}")
 
         # 1. Fetch data for community
-        data = await self._fetch_community_data(community_id, tenant_id)
+        data = await self._fetch_community_data(community_id, tenant_id, generation_id)
         if not data["entities"] and not data["child_summaries"]:
             logger.warning(
                 f"Community {community_id} has no entities and no child summaries. Skipping."
@@ -112,7 +113,7 @@ class CommunitySummarizer:
             summary_content = self._parse_json(result.text)
 
             # 5. Persist back to Neo4j
-            await self._persist_summary(community_id, summary_content, tenant_id)
+            await self._persist_summary(community_id, summary_content, tenant_id, generation_id)
 
             return summary_content
 
@@ -128,6 +129,7 @@ class CommunitySummarizer:
             await self.graph.execute_write(
                 """
                 MATCH (c:Community {id: $id, tenant_id: $tenant_id})
+                WHERE $generation_id IS NULL OR c.generation_id = $generation_id
                 FOREACH (_ IN CASE WHEN c.summary IS NOT NULL THEN [1] ELSE [] END |
                     SET c.status = 'ready', c.is_stale = true, c.error = $error
                 )
@@ -135,7 +137,12 @@ class CommunitySummarizer:
                     SET c.status = 'failed', c.error = $error
                 )
                 """,
-                {"id": community_id, "tenant_id": tenant_id, "error": str(e)},
+                {
+                    "id": community_id,
+                    "tenant_id": tenant_id,
+                    "generation_id": generation_id,
+                    "error": str(e),
+                },
             )
             return {}
 
@@ -145,6 +152,7 @@ class CommunitySummarizer:
         batch_size: int = 50,
         concurrency: int = 1,
         tenant_config: dict[str, Any] | None = None,
+        generation_id: str | None = None,
     ):
         """
         Finds all communities marked as stale (or missing summary) and summarizes them.
@@ -160,11 +168,15 @@ class CommunitySummarizer:
         query = """
         MATCH (c:Community)
         WHERE c.tenant_id = $tenant_id
+          AND ($generation_id IS NULL OR c.generation_id = $generation_id)
+          AND ($generation_id IS NOT NULL OR coalesce(c.active, true) = true)
           AND (c.summary IS NULL OR c.is_stale = true)
         RETURN c.id as id, coalesce(c.level, 0) as level
         ORDER BY c.level ASC
         """
-        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
+        results = await self.graph.execute_read(
+            query, {"tenant_id": tenant_id, "generation_id": generation_id}
+        )
 
         level_0_ids = [r["id"] for r in results if r["level"] == 0]
         higher_level_ids = [r["id"] for r in results if r["level"] > 0]
@@ -191,6 +203,7 @@ class CommunitySummarizer:
                 batch_size=batch_size,
                 concurrency=current_concurrency,
                 tenant_config=tenant_config,
+                generation_id=generation_id,
             )
 
     async def _process_community_batch(
@@ -200,6 +213,7 @@ class CommunitySummarizer:
         batch_size: int,
         concurrency: int,
         tenant_config: dict[str, Any] | None = None,
+        generation_id: str | None = None,
     ):
         """Process a list of community IDs in batches with rate-limit handling."""
         from collections import deque
@@ -244,7 +258,9 @@ class CommunitySummarizer:
             async def _bounded_summarize(cid: str, _sem=sem):
                 async with _sem:
                     try:
-                        await self.summarize_community(cid, tenant_id, tenant_config)
+                        await self.summarize_community(
+                            cid, tenant_id, tenant_config, generation_id
+                        )
                         return ("ok", cid, None)
                     except RateLimitError as e:
                         return ("rate_limited", cid, e)
@@ -284,13 +300,16 @@ class CommunitySummarizer:
                     f"Reducing concurrency to {current_concurrency} for next batch"
                 )
 
-    async def _fetch_community_data(self, community_id: str, tenant_id: str) -> dict[str, Any]:
+    async def _fetch_community_data(
+        self, community_id: str, tenant_id: str, generation_id: str | None = None
+    ) -> dict[str, Any]:
         """
         Fetches entities, relationships, child community summaries, and exemplar text units.
         """
         # Fetch entities directly belonging to this community
         entity_query = """
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
+        WHERE $generation_id IS NULL OR c.generation_id = $generation_id
         RETURN e.name as name, e.type as type, e.description as description
         """
 
@@ -300,6 +319,7 @@ class CommunitySummarizer:
               (e2:Entity)-[:BELONGS_TO]->(c),
               (e1)-[r]->(e2)
         WHERE NOT type(r) IN ['BELONGS_TO', 'PARENT_OF']
+          AND ($generation_id IS NULL OR c.generation_id = $generation_id)
         RETURN e1.name as source, e2.name as target, type(r) as type, r.description as description
         """
 
@@ -307,6 +327,8 @@ class CommunitySummarizer:
         child_query = """
         MATCH (child:Community)-[:PARENT_OF]-(c:Community {id: $id, tenant_id: $tenant_id})
         WHERE child.summary IS NOT NULL
+          AND ($generation_id IS NULL OR c.generation_id = $generation_id)
+          AND ($generation_id IS NULL OR child.generation_id = $generation_id)
         RETURN child.id as id, child.title as title, child.summary as summary
         ORDER BY child.id
         """
@@ -314,12 +336,17 @@ class CommunitySummarizer:
         # Fetch exemplar text units in a stable order.
         chunk_query = """
         MATCH (e:Entity)-[:BELONGS_TO]->(c:Community {id: $id, tenant_id: $tenant_id})
+        WHERE $generation_id IS NULL OR c.generation_id = $generation_id
         MATCH (c_chunk:Chunk)-[:MENTIONS]->(e)
         WITH DISTINCT c_chunk ORDER BY c_chunk.id LIMIT 3
         RETURN c_chunk.id as id, c_chunk.content as content
         """
 
-        params = {"id": community_id, "tenant_id": tenant_id}
+        params = {
+            "id": community_id,
+            "tenant_id": tenant_id,
+            "generation_id": generation_id,
+        }
         entities = await self.graph.execute_read(entity_query, params)
         relationships = await self.graph.execute_read(rel_query, params)
         child_summaries = await self.graph.execute_read(child_query, params)
@@ -543,11 +570,16 @@ class CommunitySummarizer:
             raise
 
     async def _persist_summary(
-        self, community_id: str, summary: dict[str, Any], tenant_id: str = ""
+        self,
+        community_id: str,
+        summary: dict[str, Any],
+        tenant_id: str = "",
+        generation_id: str | None = None,
     ):
         """Updates the Community node with the generated summary fields."""
         query = """
         MATCH (c:Community {id: $id, tenant_id: $tenant_id})
+        WHERE $generation_id IS NULL OR c.generation_id = $generation_id
         SET c.title = $title,
             c.summary = $summary,
             c.rating = $rating,
@@ -560,6 +592,7 @@ class CommunitySummarizer:
         params = {
             "id": community_id,
             "tenant_id": tenant_id,
+            "generation_id": generation_id,
             "title": summary.get("title", "Untitled Community"),
             "summary": summary.get("summary", ""),
             "rating": summary.get("rating", 0),

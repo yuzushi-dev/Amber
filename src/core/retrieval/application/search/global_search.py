@@ -62,6 +62,15 @@ class GlobalSearchService:
         if not reports:
             return {"candidates": []}
 
+        # Drop vectors whose graph node is no longer active. Community vectors
+        # are append/upsert-only, while Neo4j is the source of truth for the
+        # published generation.
+        community_ids = [r.chunk_id for r in reports]
+        origins_map = await self._resolve_community_origins(community_ids, tenant_id)
+        reports = [report for report in reports if report.chunk_id in origins_map]
+        if not reports:
+            return {"candidates": []}
+
         # 2. Map Phase: Extract key points from each report
         from src.core.generation.application.llm_steps import resolve_llm_step_config
         from src.shared.kernel.runtime import get_settings
@@ -81,11 +90,7 @@ class GlobalSearchService:
 
         map_results = await asyncio.gather(*map_tasks)
 
-        # 3. Resolve Original Documents
-        community_ids = [r.chunk_id for r in reports]
-        origins_map = await self._resolve_community_origins(community_ids, tenant_id)
-
-        # 4. Pack into Candidates
+        # 3. Pack into Candidates
         candidates = []
         for report, points in zip(reports, map_results, strict=True):
             if not points or points.strip() == "NONE":
@@ -119,7 +124,9 @@ class GlobalSearchService:
         try:
             query = """
             MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)-[:MENTIONS]->(e:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(com:Community)
-            WHERE com.id IN $community_ids AND com.tenant_id = $tenant_id
+            WHERE com.id IN $community_ids
+              AND com.tenant_id = $tenant_id
+              AND coalesce(com.active, true) = true
             WITH com.id AS community_id, d.id AS doc_id, count(e) AS entity_count
             ORDER BY entity_count DESC
             WITH community_id, collect(doc_id)[0] AS primary_doc_id

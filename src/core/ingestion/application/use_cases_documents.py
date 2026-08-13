@@ -6,6 +6,7 @@ Application layer use cases for document operations.
 These contain the business logic extracted from route handlers.
 """
 
+import asyncio
 import hashlib
 import logging
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import magic  # python-magic for server-side MIME detection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.events.dispatcher import EventDispatcher
@@ -127,6 +129,23 @@ class UploadDocumentUseCase:
         self._event_dispatcher = event_dispatcher
         self._document_sharing_service = document_sharing_service
 
+    async def _compensate_storage_upload(self, storage_path: str, reason: str) -> None:
+        try:
+            await asyncio.to_thread(self._storage.delete_file, storage_path)
+            logger.warning(
+                "document_storage_compensated",
+                extra={"storage_path": storage_path, "reason": reason},
+            )
+        except Exception as cleanup_error:
+            logger.error(
+                "document_storage_compensation_failed",
+                extra={
+                    "storage_path": storage_path,
+                    "reason": reason,
+                    "error": str(cleanup_error),
+                },
+            )
+
     async def execute(self, request: UploadDocumentRequest) -> UploadDocumentResult:
         """
         Execute the document upload use case.
@@ -202,17 +221,50 @@ class UploadDocumentUseCase:
             vector_store_factory=self._vector_store_factory,
             event_dispatcher=self._event_dispatcher,
         )
-        document = await service.register_document(
-            tenant_id=request.tenant_id,
-            filename=request.filename,
-            file_content=request.content,
-            content_type=request.content_type,
-            metadata_=request.metadata,
-            folder_id=request.folder_id,
-        )
+        uploaded_content = existing_content_match is None
+        try:
+            document = await service.register_document(
+                tenant_id=request.tenant_id,
+                filename=request.filename,
+                file_content=request.content,
+                content_type=request.content_type,
+                metadata_=request.metadata,
+                folder_id=request.folder_id,
+            )
+        except IntegrityError:
+            await self._unit_of_work.rollback()
+            document = await self._document_repository.find_by_content_hash(
+                request.tenant_id, content_hash
+            )
+            if document is None:
+                raise
+            existing_content_match = document
+            uploaded_content = False
 
         # Commit transaction before dispatching async processing
-        await self._unit_of_work.commit()
+        try:
+            await self._unit_of_work.commit()
+        except IntegrityError:
+            await self._unit_of_work.rollback()
+            document = await self._document_repository.find_by_content_hash(
+                request.tenant_id, content_hash
+            )
+            if document is not None:
+                existing_content_match = document
+                uploaded_content = False
+            else:
+                if uploaded_content:
+                    await self._compensate_storage_upload(
+                        getattr(document, "storage_path", ""), "document_commit_failed"
+                    )
+                raise
+        except Exception:
+            await self._unit_of_work.rollback()
+            if uploaded_content:
+                await self._compensate_storage_upload(
+                    getattr(document, "storage_path", ""), "document_commit_failed"
+                )
+            raise
 
         if normalized_share_targets:
             await self._document_sharing_service.add_shares(
@@ -228,10 +280,30 @@ class UploadDocumentUseCase:
         is_duplicate = existing_content_match is not None or document.status != DocumentStatus.INGESTED
         if retry_requested or not is_duplicate:
             if self._task_dispatcher:
-                await self._task_dispatcher.dispatch(
-                    "src.workers.tasks.process_document", args=[document.id, request.tenant_id]
-                )
-                action = "retry_queued" if retry_requested else "accepted"
+                try:
+                    await self._task_dispatcher.dispatch(
+                        "src.workers.tasks.process_document", args=[document.id, request.tenant_id]
+                    )
+                    action = "retry_queued" if retry_requested else "accepted"
+                except Exception as dispatch_error:
+                    logger.error(
+                        "document_dispatch_failed",
+                        extra={
+                            "document_id": document.id,
+                            "tenant_id": request.tenant_id,
+                            "error": str(dispatch_error),
+                        },
+                    )
+                    document.error_message = f"dispatch_failed: {dispatch_error}"
+                    await self._document_repository.update_status(
+                        document.id,
+                        DocumentStatus.FAILED,
+                        old_status=document.status,
+                    )
+                    document.status = DocumentStatus.FAILED
+                    await self._document_repository.save(document)
+                    await self._unit_of_work.commit()
+                    action = "dispatch_failed"
             else:
                 # No dispatcher - this is a test or sync execution scenario
                 # Caller must handle processing separately
@@ -262,6 +334,7 @@ class UploadDocumentUseCase:
                 "retry_queued": "Document reprocessing queued",
                 "retry_not_queued": "Document retry requested but no worker dispatcher is available",
                 "deduplicated": "Document deduplicated",
+                "dispatch_failed": "Document stored but worker dispatch failed; retry it",
             }[action],
         )
 

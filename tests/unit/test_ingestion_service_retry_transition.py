@@ -67,11 +67,13 @@ class FakeDocumentRepository:
     async def get(self, document_id: str) -> StubDocument:
         return self._document
 
-    async def update_status(self, document_id: str, status, old_status=None) -> bool:
+    async def update_status(self, document_id: str, status, old_status=None, attempt_id=None) -> bool:
         self.update_status_calls.append((document_id, status, old_status))
         if old_status is not None and self._document.status != old_status:
             return False
         self._document.status = status
+        if attempt_id is not None:
+            self._document.processing_attempt_id = attempt_id
         return True
 
     async def save(self, document: StubDocument) -> None:
@@ -86,6 +88,18 @@ class FakeDocumentRepository:
 class FakeUnitOfWork:
     async def commit(self) -> None:
         pass
+
+
+class OwnershipChangingRepository(FakeDocumentRepository):
+    def __init__(self, document: StubDocument) -> None:
+        super().__init__(document)
+        self.get_count = 0
+
+    async def get(self, document_id: str) -> StubDocument:
+        self.get_count += 1
+        if self.get_count == 2:
+            self._document.processing_attempt_id = "newer-attempt"
+        return self._document
 
 
 class ExplodingStorage:
@@ -138,7 +152,11 @@ async def test_process_document_cas_uses_actual_prior_status(prior_status):
     # The CAS must key off the status that was actually validated, not a
     # hardcoded INGESTED, otherwise retries from FAILED/READY/NEEDS_REVIEW
     # always silently no-op.
-    assert repo.update_status_calls == [("doc_1", DocumentStatus.EXTRACTING, prior_status)]
+    assert repo.update_status_calls[0] == ("doc_1", DocumentStatus.EXTRACTING, prior_status)
+    assert repo.update_status_calls[1][1:] == (
+        DocumentStatus.FAILED,
+        DocumentStatus.EXTRACTING,
+    )
 
     # Pipeline reached the storage step (guard did not block it) and the
     # error handler ran, persisting FAILED + a structured error message.
@@ -191,9 +209,11 @@ async def test_process_document_reprocesses_ready_with_explicit_force():
     with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
         await service.process_document("doc_5", force=True)
 
-    assert repo.update_status_calls == [
-        ("doc_5", DocumentStatus.EXTRACTING, DocumentStatus.READY)
-    ]
+    assert repo.update_status_calls[0] == (
+        "doc_5",
+        DocumentStatus.EXTRACTING,
+        DocumentStatus.READY,
+    )
 
 
 @pytest.mark.asyncio
@@ -244,3 +264,24 @@ async def test_process_document_skips_invalid_prior_status_without_touching_db()
     assert repo.update_status_calls == []
     assert repo.saved == []
     assert document.status == DocumentStatus.CHUNKING
+
+
+@pytest.mark.asyncio
+async def test_stale_attempt_cannot_mark_newer_attempt_failed():
+    document = StubDocument(
+        id="doc-owned",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc-owned/file.txt",
+        filename="file.txt",
+        metadata_={},
+    )
+    repo = OwnershipChangingRepository(document)
+    service = make_service(repo, FakeUnitOfWork())
+
+    with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
+        await service.process_document("doc-owned")
+
+    assert document.processing_attempt_id == "newer-attempt"
+    assert document.status == DocumentStatus.EXTRACTING
+    assert repo.saved == []

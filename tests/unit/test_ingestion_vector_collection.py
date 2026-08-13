@@ -14,9 +14,11 @@ class FakeDocumentRepository:
     async def get(self, document_id):
         return self._document
 
-    async def update_status(self, document_id, status, old_status=None):
+    async def update_status(self, document_id, status, old_status=None, attempt_id=None):
         # Track status so validate_transition sees the correct current state
         self._document.status = status
+        if attempt_id is not None:
+            self._document.processing_attempt_id = attempt_id
         return True
 
     async def save(self, document):

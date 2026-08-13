@@ -137,6 +137,49 @@ def health_check(self) -> dict:
 
 
 @celery_app.task(
+    name="src.workers.tasks.check_llm_registry_drift",
+    queue="low_priority",
+)
+def check_llm_registry_drift() -> dict:
+    """Periodically report stored LLM registry drift; never mutates tenants."""
+    return run_async(_check_llm_registry_drift_async())
+
+
+async def _check_llm_registry_drift_async() -> dict:
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.api.config import settings
+    from src.core.generation.application.llm_steps import inspect_llm_step_registry
+    from src.core.tenants.domain.tenant import Tenant
+
+    engine = create_async_engine(settings.db.database_url)
+    findings: list[dict[str, str | None]] = []
+    try:
+        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as session:
+            from src.core.database.session import configure_worker_session
+
+            await configure_worker_session(session)
+            result = await session.execute(select(Tenant).where(Tenant.is_active.is_(True)))
+            tenants = result.scalars().all()
+            for tenant in tenants:
+                findings.extend(inspect_llm_step_registry(tenant.id, tenant.config or {}))
+    finally:
+        await engine.dispose()
+
+    for finding in findings:
+        if finding["severity"] == "error":
+            logger.error("llm_registry_drift", extra=finding)
+    return {
+        "status": "drift_detected" if findings else "ok",
+        "tenants_scanned": len(tenants),
+        "findings": findings,
+    }
+
+
+@celery_app.task(
     bind=True,
     name="src.workers.tasks.process_document",
     base=BaseTask,
@@ -396,18 +439,17 @@ async def _process_communities_async(
     from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL
 
     next_phase = resume_from
+    generation_id = None
+    detector = None
     try:
         # 1. Detection or the pre-existing incremental update.
         detect_res = {"status": "skipped_by_checkpoint", "community_count": 0}
         if resume_from == "detection":
             if not skip_detection:
-                # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
-                # wipe that detect_communities() performs at the start of every full-Leiden run.
-                # If the task was revoked after we started running but before the destructive
-                # step, abort here so acks_late re-delivery can't silently re-wipe communities.
+                # Cooperative cancellation before starting a new isolated generation.
                 if task_id and _is_revoked(task_id):
                     logger.info(
-                        f"[Task {task_id}] Revoked before community detection/wipe; "
+                        f"[Task {task_id}] Revoked before community detection; "
                         f"aborting for tenant {tenant_id}"
                     )
                     return {"status": "cancelled", "tenant_id": tenant_id}
@@ -419,6 +461,7 @@ async def _process_communities_async(
                     max_levels=settings.leiden_max_levels,
                     seed=settings.leiden_seed,
                 )
+                generation_id = detect_res.get("generation_id")
 
                 if detect_res["status"] == "skipped":
                     return detect_res
@@ -476,6 +519,7 @@ async def _process_communities_async(
                 tenant_id,
                 tenant_config=tenant_config,
                 concurrency=int(concurrency),
+                generation_id=generation_id,
             )
         else:
             logger.info("Resuming community task for tenant %s from embedding", tenant_id)
@@ -535,11 +579,15 @@ async def _process_communities_async(
         # compared locally because Neo4j does not provide a portable SHA-256 function.
         query = """
         MATCH (c:Community {tenant_id: $tenant_id, status: 'ready'})
+        WHERE ($generation_id IS NOT NULL OR coalesce(c.active, true) = true)
+          AND ($generation_id IS NULL OR c.generation_id = $generation_id)
         RETURN c.id as id, c.tenant_id as tenant_id, c.level as level, c.title as title,
                c.summary as summary, c.embedding_content_hash as embedding_content_hash,
                c.embedding_resync_run_id as embedding_resync_run_id
         """
-        ready_comms = await platform.neo4j_client.execute_read(query, {"tenant_id": tenant_id})
+        ready_comms = await platform.neo4j_client.execute_read(
+            query, {"tenant_id": tenant_id, "generation_id": generation_id}
+        )
         embedding_provider_name = str(
             getattr(embedding_provider, "provider_name", None) or t_embedding_provider or "unknown"
         )
@@ -566,6 +614,8 @@ async def _process_communities_async(
         )
 
         if sync_stats.cancelled:
+            if generation_id and detector is not None:
+                await detector.discard_generation(tenant_id, generation_id)
             return {
                 "status": "cancelled",
                 "tenant_id": tenant_id,
@@ -573,6 +623,9 @@ async def _process_communities_async(
                 "communities_embedded": sync_stats.embedded,
                 "communities_skipped_current": sync_stats.skipped_current,
             }
+
+        if generation_id and detector is not None:
+            await detector.activate_generation(tenant_id, generation_id)
 
         return {
             "status": "success",
@@ -586,6 +639,19 @@ async def _process_communities_async(
             "embedding_resync_run_id": force_full_resync_id,
         }
     except Exception as e:
+        if generation_id and detector is not None:
+            try:
+                await detector.discard_generation(tenant_id, generation_id)
+            except Exception as cleanup_error:
+                logger.error(
+                    "Failed to discard community generation %s for tenant %s: %s",
+                    generation_id,
+                    tenant_id,
+                    cleanup_error,
+                )
+            # A staged generation is not a resumable checkpoint: rebuild it from
+            # detection so a retry cannot summarize or embed a discarded graph.
+            next_phase = "detection"
         raise CommunityPhaseError(next_phase, e) from e
     finally:
         # Close Neo4j connection to prevent event loop conflicts

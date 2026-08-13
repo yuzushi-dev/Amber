@@ -77,7 +77,11 @@ class DocumentRepository(Protocol):
         ...
 
     async def update_status(
-        self, document_id: str, status: str, old_status: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        old_status: str | None = None,
+        attempt_id: str | None = None,
     ) -> bool:
         """Atomic update of document status.
 
@@ -85,6 +89,7 @@ class DocumentRepository(Protocol):
             document_id: Document ID
             status: New status (enum value)
             old_status: Optional required current status for optimistic locking.
+            attempt_id: Optional processing-attempt owner to persist atomically.
 
         Returns:
             bool: True if updated, False if not found or old_status mismatch.
@@ -119,4 +124,3 @@ class DocumentRepository(Protocol):
         (match any) for dual-edition queries.
         """
         ...
-

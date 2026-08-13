@@ -12,9 +12,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.config import settings
-from src.api.deps import verify_super_admin
+from src.api.deps import get_db_session, verify_super_admin
 from src.core.admin_ops.application.tuning_service import TuningService
 from src.core.database.session import async_session_maker
 from src.core.tenants.application.active_vector_collection import (
@@ -241,6 +243,28 @@ async def get_llm_steps():
     ]
 
     return {"steps": steps}
+
+
+@router.get("/llm-steps/drift", dependencies=[Depends(verify_super_admin)])
+async def get_llm_step_registry_drift(
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Inventory stored per-tenant LLM step drift without changing config."""
+    from src.core.generation.application.llm_steps import inspect_llm_step_registry
+    from src.core.tenants.domain.tenant import Tenant
+
+    result = await db.execute(select(Tenant).where(Tenant.is_active.is_(True)))
+    tenants = result.scalars().all()
+    findings = [
+        finding
+        for tenant in tenants
+        for finding in inspect_llm_step_registry(tenant.id, tenant.config or {})
+    ]
+    return {
+        "tenants_scanned": len(tenants),
+        "findings": findings,
+        "blocking_findings": sum(1 for finding in findings if finding["severity"] == "error"),
+    }
 
 
 @router.get("/schema", response_model=ConfigSchemaResponse)

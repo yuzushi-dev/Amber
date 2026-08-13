@@ -220,8 +220,12 @@ class FakeDocumentRepositoryForFailure:
     async def get(self, document_id: str):
         return self.document
 
-    async def update_status(self, document_id: str, status: str, old_status: str | None = None) -> bool:
+    async def update_status(
+        self, document_id: str, status: str, old_status: str | None = None, attempt_id=None
+    ) -> bool:
         self.document.status = status
+        if attempt_id is not None:
+            self.document.processing_attempt_id = attempt_id
         return True
 
     async def save(self, document) -> None:

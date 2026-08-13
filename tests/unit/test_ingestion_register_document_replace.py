@@ -124,11 +124,13 @@ class InMemoryDocumentRepository:
     async def get(self, document_id):
         return self.rows.get(document_id)
 
-    async def update_status(self, document_id, status, old_status=None) -> bool:
+    async def update_status(self, document_id, status, old_status=None, attempt_id=None) -> bool:
         doc = self.rows.get(document_id)
         if doc is None:
             return False
         doc.status = status
+        if attempt_id is not None:
+            doc.processing_attempt_id = attempt_id
         return True
 
 
