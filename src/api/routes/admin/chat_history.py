@@ -9,7 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session, verify_super_admin, verify_tenant_admin
@@ -155,6 +155,13 @@ async def list_chat_history(
         conv_ids = [conv.id for conv in rows]
         feedback_query = (
             select(Feedback.request_id, Feedback.is_positive)
+            .join(
+                ConversationSummary,
+                and_(
+                    Feedback.request_id == ConversationSummary.id,
+                    Feedback.tenant_id == ConversationSummary.tenant_id,
+                ),
+            )
             .where(Feedback.request_id.in_(conv_ids))
             .order_by(Feedback.created_at.desc())
         )
@@ -176,13 +183,16 @@ async def list_chat_history(
         # existed, which correctly yields "no group" below rather than a
         # guess.
         from sqlalchemy import text as sa_text
-        grp_result = await session.execute(sa_text("""
+
+        grp_result = await session.execute(
+            sa_text("""
             SELECT ak.id AS key_id, g.name AS group_name
             FROM api_keys ak
             JOIN group_members gm ON gm.api_key_id = ak.id
             JOIN groups g ON g.id = gm.group_id
             WHERE g.is_active = true
-        """))
+        """)
+        )
         key_to_group: dict[str, str] = {r.key_id: r.group_name for r in grp_result.fetchall()}
 
         for conv in rows:
@@ -200,6 +210,7 @@ async def list_chat_history(
             history: list[dict] = metadata.get("history") or []
 
             from src.api.config import settings as _settings
+
             redact_enabled = _settings.chat_redact_without_feedback
 
             if len(history) <= 1:
@@ -209,7 +220,11 @@ async def list_chat_history(
                     response_text = metadata.get("answer")
                     response_preview = None
                     if response_text:
-                        response_preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+                        response_preview = (
+                            response_text[:100] + "..."
+                            if len(response_text) > 100
+                            else response_text
+                        )
                     elif conv.summary:
                         response_preview = conv.summary[:100]
                     display_query = query_text or conv.title
@@ -239,7 +254,9 @@ async def list_chat_history(
                 for idx, turn in enumerate(history):
                     turn_ts_str = turn.get("timestamp")
                     try:
-                        turn_ts = datetime.fromisoformat(turn_ts_str) if turn_ts_str else conv.created_at
+                        turn_ts = (
+                            datetime.fromisoformat(turn_ts_str) if turn_ts_str else conv.created_at
+                        )
                     except Exception:
                         turn_ts = conv.created_at
 
@@ -247,7 +264,11 @@ async def list_chat_history(
                         turn_query = turn.get("query", "")
                         turn_answer = turn.get("answer", "")
                         display_turn_query = turn_query or conv.title
-                        response_preview = (turn_answer[:100] + "...") if len(turn_answer) > 100 else turn_answer or None
+                        response_preview = (
+                            (turn_answer[:100] + "...")
+                            if len(turn_answer) > 100
+                            else turn_answer or None
+                        )
                     else:
                         display_turn_query = REDACTED
                         response_preview = REDACTED
@@ -325,7 +346,14 @@ async def get_conversation_detail(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Check if conversation has feedback
-    feedback_query = select(Feedback).where(Feedback.request_id == conv_id).limit(1)
+    feedback_query = (
+        select(Feedback)
+        .where(
+            Feedback.request_id == conv_id,
+            Feedback.tenant_id == conv.tenant_id,
+        )
+        .limit(1)
+    )
     feedback_result = await session.execute(feedback_query)
     feedback_row = feedback_result.scalar_one_or_none()
     has_feedback = feedback_row is not None
@@ -343,6 +371,7 @@ async def get_conversation_detail(
 
     # Extract details
     from src.api.config import settings as _settings
+
     redact_enabled = _settings.chat_redact_without_feedback
 
     metadata = conv.metadata_ or {}
@@ -372,7 +401,7 @@ async def get_conversation_detail(
             ot = getattr(m, "output_tokens", 0)
             input_tokens += it
             output_tokens += ot
-            total_tokens += (m.tokens_used if m.tokens_used > 0 else (it + ot))
+            total_tokens += m.tokens_used if m.tokens_used > 0 else (it + ot)
             cost += m.cost_estimate
             if m.model:
                 model = m.model
@@ -392,7 +421,9 @@ async def get_conversation_detail(
         tenant_id=conv.tenant_id,
         trace_id=None,
         query_text=(query_text or conv.title) if (has_feedback or not redact_enabled) else REDACTED,
-        response_text=(response_text or conv.summary) if (has_feedback or not redact_enabled) else REDACTED,
+        response_text=(response_text or conv.summary)
+        if (has_feedback or not redact_enabled)
+        else REDACTED,
         model=model,
         provider=provider,
         input_tokens=input_tokens,

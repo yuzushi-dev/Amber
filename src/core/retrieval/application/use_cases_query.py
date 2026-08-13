@@ -258,6 +258,7 @@ class QueryUseCase:
                         options={
                             "user_id": user_id,
                             "tenant_id": tenant_id,
+                            "api_key_id": getattr(http_request_state, "api_key_id", None),
                             "model": options.model,
                         },
                     )

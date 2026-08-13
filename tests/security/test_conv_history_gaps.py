@@ -139,7 +139,25 @@ def test_query_py_sticky_check_verifies_tenant():
     )
 
 
-# ── Fix 4b: api_key_id ownership + legacy adoption on persistence (#72) ──────
+def test_query_py_sticky_check_verifies_api_key_owner():
+    """Sticky mode must reject a conversation owned by another API key."""
+    import src.api.routes.query as q_module
+
+    source = inspect.getsource(q_module)
+    assert "existing_conv.api_key_id != api_key_id" in source, (
+        "Sticky mode check does not verify authenticated API-key ownership."
+    )
+
+
+def test_query_py_nonstream_persistence_rejects_foreign_summary():
+    """The non-stream path must not fall through to a colliding INSERT."""
+    import src.api.routes.query as q_module
+
+    source = inspect.getsource(q_module)
+    assert "Skipping foreign or legacy non-stream conversation persistence" in source
+
+
+# ── Fix 4b: api_key_id ownership + fail-closed legacy rows (#72) ─────────────
 
 
 class _FakeRlsSession:
@@ -269,12 +287,8 @@ async def test_rag_persist_allows_matching_api_key(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rag_persist_adopts_legacy_conversation_with_no_api_key_id(monkeypatch):
-    """A conversation written before the api_key_id column existed (NULL)
-    must be adopted by the first authenticated same-tenant write, not
-    orphaned into a silent no-op forever — no worse than the pre-fix
-    behaviour (any same-tenant caller could already update it with zero
-    ownership check), but durable and provably owned afterward."""
+async def test_rag_persist_rejects_legacy_conversation_with_no_api_key_id(monkeypatch, caplog):
+    """A legacy conversation with no authenticated owner must stay inaccessible."""
 
     from src.api.routes.query import _persist_rag_conversation
     from src.core.generation.domain.memory_models import ConversationSummary
@@ -288,20 +302,23 @@ async def test_rag_persist_adopts_legacy_conversation_with_no_api_key_id(monkeyp
         "src.api.deps._get_async_session_maker", lambda: _FakeSessionMaker(session)
     )
 
-    await _persist_rag_conversation(
-        rls_context=_fake_rls_context(),
-        conversation_id="conv-legacy",
-        tenant_id="tenant-a",
-        stream_user_id="first-writer",
-        api_key_id="key-first-writer",
-        query="q",
-        answer="a",
-        sources=[],
-        quality=None,
-    )
+    with caplog.at_level("WARNING"):
+        await _persist_rag_conversation(
+            rls_context=_fake_rls_context(),
+            conversation_id="conv-legacy",
+            tenant_id="tenant-a",
+            stream_user_id="first-writer",
+            api_key_id="key-first-writer",
+            query="q",
+            answer="a",
+            sources=[],
+            quality=None,
+        )
 
-    assert existing.api_key_id == "key-first-writer"
-    assert len(existing.metadata_["history"]) == 1
+    assert "Skipping foreign RAG conversation persistence" in caplog.text
+    assert existing.api_key_id is None
+    assert existing.metadata_["history"] == []
+    assert session.added == []
 
 
 @pytest.mark.asyncio

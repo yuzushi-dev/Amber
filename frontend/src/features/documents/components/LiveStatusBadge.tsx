@@ -33,7 +33,7 @@ export default function LiveStatusBadge({ documentId, initialStatus, errorMessag
         // "ingested" might wait for a trigger, but usually it transitions fast.
         // We subscribe if it's processing or ingested.
         const terminalStates = ['ready', 'failed', 'completed']
-        if (terminalStates.includes(status.toLowerCase())) {
+        if (terminalStates.includes(initialStatus.toLowerCase())) {
             return
         }
 
@@ -112,7 +112,7 @@ export default function LiveStatusBadge({ documentId, initialStatus, errorMessag
                 manager.disconnect()
             }
         }
-    }, [documentId, onComplete])
+    }, [documentId, initialStatus, onComplete])
 
     // Render logic
     const s = status.toLowerCase()

@@ -80,17 +80,14 @@ export default function DataRetentionPage() {
             try {
                 const status = await exportApi.getJobStatus(exportJobId)
 
-                // Only update state if changed
-                if (JSON.stringify(status) !== JSON.stringify(exportStatus)) {
-                    setExportStatus(status)
+                setExportStatus(status)
 
-                    if (status.status === 'completed') {
-                        setIsExporting(false)
-                        toast.success('Export ready for download!')
-                    } else if (status.status === 'failed') {
-                        setIsExporting(false)
-                        toast.error(`Export failed: ${status.error || 'Unknown error'}`)
-                    }
+                if (status.status === 'completed') {
+                    setIsExporting(false)
+                    toast.success('Export ready for download!')
+                } else if (status.status === 'failed') {
+                    setIsExporting(false)
+                    toast.error(`Export failed: ${status.error || 'Unknown error'}`)
                 }
             } catch (error) {
                 console.error('Failed to poll export status:', error)

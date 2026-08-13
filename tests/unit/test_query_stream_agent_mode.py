@@ -71,6 +71,7 @@ def _build_post_request() -> Request:
     }
     request = Request(scope)
     request.state.tenant_id = "tenant-test"
+    request.state.api_key_id = "key-test"
     request.state.api_key_name = "test-key"
     request.state.is_super_admin = True
     return request

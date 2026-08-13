@@ -2,7 +2,8 @@
 tests/e2e/test_chat_history.py
 ================================
 Per-user conversation isolation within the same tenant:
-  - Two different X-User-ID values produce separate history views
+  - Two different authenticated API keys produce separate history views
+  - X-User-ID cannot change the authenticated history owner
   - User A cannot read User B's conversation details
   - Users can only delete their own conversations
   - Admin sees all conversations; super admin sees cross-tenant
@@ -24,12 +25,13 @@ QUERY = "What does QCP-001 mean?"
 
 @pytest.mark.asyncio
 async def test_user_a_and_user_b_have_separate_histories(e2e_env):
-    """Two users with different X-User-ID headers must have independent histories."""
-    admin_key = e2e_env["tenant_a"]["admin_key"]
+    """Different API keys have independent histories regardless of X-User-ID."""
+    key_a = e2e_env["tenant_a"]["admin_key"]
+    key_b = e2e_env["tenant_a"]["user_key"]
 
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userA"},
+        headers={"X-API-Key": key_a, "X-User-ID": "e2e_chat_userA"},
         timeout=30,
     ) as c_a:
         r = await c_a.post("/v1/query", json={"query": QUERY})
@@ -38,7 +40,7 @@ async def test_user_a_and_user_b_have_separate_histories(e2e_env):
 
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userB"},
+        headers={"X-API-Key": key_b, "X-User-ID": "e2e_chat_userB"},
         timeout=30,
     ) as c_b:
         r = await c_b.post("/v1/query", json={"query": "What is QCP-002?"})
@@ -49,7 +51,7 @@ async def test_user_a_and_user_b_have_separate_histories(e2e_env):
     # User A history should not contain User B conversations
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userA"},
+        headers={"X-API-Key": key_a, "X-User-ID": "e2e_chat_userA"},
         timeout=30,
     ) as c_a:
         r_hist_a = await c_a.get("/v1/chat/history")
@@ -58,7 +60,7 @@ async def test_user_a_and_user_b_have_separate_histories(e2e_env):
     # User B history should be different
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userB"},
+        headers={"X-API-Key": key_b, "X-User-ID": "e2e_chat_userB"},
         timeout=30,
     ) as c_b:
         r_hist_b = await c_b.get("/v1/chat/history")
@@ -76,13 +78,14 @@ async def test_user_a_and_user_b_have_separate_histories(e2e_env):
 
 @pytest.mark.asyncio
 async def test_user_a_cannot_read_user_b_conversation(e2e_env):
-    """User A must not be able to read User B's conversation detail by ID."""
-    admin_key = e2e_env["tenant_a"]["admin_key"]
+    """An authenticated key cannot read a conversation owned by another key."""
+    key_a = e2e_env["tenant_a"]["admin_key"]
+    key_b = e2e_env["tenant_a"]["user_key"]
 
     # User B creates a conversation
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userB_detail"},
+        headers={"X-API-Key": key_b, "X-User-ID": "e2e_chat_userB_detail"},
         timeout=30,
     ) as c_b:
         r = await c_b.post("/v1/query", json={"query": QUERY})
@@ -97,7 +100,7 @@ async def test_user_a_cannot_read_user_b_conversation(e2e_env):
     # User A tries to read it
     async with httpx.AsyncClient(
         base_url=BASE,
-        headers={"X-API-Key": admin_key, "X-User-ID": "e2e_chat_userA_intruder"},
+        headers={"X-API-Key": key_a, "X-User-ID": "e2e_chat_userA_intruder"},
         timeout=30,
     ) as c_a:
         r2 = await c_a.get(f"/v1/chat/history/{conv_b}")
@@ -212,18 +215,15 @@ async def test_user_can_delete_own_conversation(ta_client):
     )
     assert r1.status_code == 200
     conv_id = r1.json().get("conversation_id") or r1.json().get("request_id")
-    if not conv_id:
-        pytest.skip("No conversation_id")
+    assert conv_id, "Query did not return a conversation identifier"
 
-    # Poll until conversation appears in history (async Postgres write)
-    for _ in range(6):
-        await asyncio.sleep(2)
-        r_check = await ta_client.get("/v1/chat/history", headers={"X-User-ID": "e2e_delete_user"})
-        convs_check = r_check.json().get("conversations", []) if r_check.status_code == 200 else []
-        if any(c.get("id") == conv_id or c.get("conversation_id") == conv_id for c in convs_check):
-            break
-    else:
-        pytest.skip("Conversation not found in history after 12s — likely non-streaming path issue")
+    # Non-stream persistence commits before the query response is returned.
+    r_check = await ta_client.get("/v1/chat/history", headers={"X-User-ID": "e2e_delete_user"})
+    assert r_check.status_code == 200
+    convs_check = r_check.json().get("conversations", [])
+    assert any(c.get("request_id") == conv_id for c in convs_check), (
+        "Conversation missing from committed history before delete"
+    )
 
     r2 = await ta_client.delete(
         f"/v1/chat/history/{conv_id}",

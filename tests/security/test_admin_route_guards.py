@@ -111,6 +111,18 @@ async def test_tenant_admin_rejects_plain_user():
     assert exc_info.value.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_tenant_admin_rejects_global_admin_scope_without_tenant_role():
+    """Global admin scope must not substitute for tenant ownership."""
+    from src.api.deps import verify_tenant_admin
+
+    req = _non_admin_req()
+    req.state.permissions = ["active_user", "admin"]
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_tenant_admin(req)
+    assert exc_info.value.status_code == 403
+
+
 # ── tenants.py mutating ops upgraded to super_admin ───────────────────────────
 
 def test_tenants_create_delete_patch_require_super_admin():
@@ -127,5 +139,25 @@ def test_tenants_create_delete_patch_require_super_admin():
             dep_fns = [d.dependency for d in getattr(route, "dependencies", [])]
             assert verify_super_admin in dep_fns, (
                 f"tenants.py {method_set} route missing verify_super_admin. "
-                f"Found deps: {[getattr(f,'__name__',repr(f)) for f in dep_fns]}"
+                f"Found deps: {[getattr(f, '__name__', repr(f)) for f in dep_fns]}"
             )
+
+
+@pytest.mark.parametrize("path", [
+    "/all",
+    "/job/{job_id}",
+    "/job/{job_id}/download",
+])
+def test_bulk_export_routes_require_tenant_admin(path):
+    """Bulk exports expose tenant-wide data and require an admin role."""
+    from fastapi.routing import APIRoute
+
+    from src.api.routes.export import router
+
+    route = next(
+        r for r in router.routes if isinstance(r, APIRoute) and r.path == f"/export{path}"
+    )
+    assert any(
+        getattr(dep.dependency, "__name__", "") == "verify_tenant_admin"
+        for dep in route.dependencies
+    ), f"Bulk export route {path} is missing verify_tenant_admin"

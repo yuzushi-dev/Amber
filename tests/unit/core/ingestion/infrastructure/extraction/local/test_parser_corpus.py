@@ -39,10 +39,19 @@ async def test_pdf_corpus_extracts_text():
 
 
 @pytest.mark.asyncio
-async def test_docx_corpus_extracts_text():
+async def test_docx_corpus_extracts_text(monkeypatch):
     docx = pytest.importorskip("docx")
     if not HAS_UNSTRUCTURED:
         pytest.skip("unstructured is not installed")
+
+    # Keep the corpus test offline: recent unstructured versions lazily install
+    # spaCy's model when it is not already present.
+    spacy = pytest.importorskip("spacy")
+    import unstructured.nlp.tokenize as tokenize
+
+    nlp = spacy.blank("en")
+    nlp.add_pipe("sentencizer")
+    monkeypatch.setattr(tokenize, "_get_nlp", lambda: nlp, raising=False)
 
     document = docx.Document()
     document.add_paragraph("Amber DOCX corpus")

@@ -32,6 +32,31 @@ class TestConversationMemoryManager:
         return mock_session_factory, mock_session
 
     @pytest.mark.asyncio
+    async def test_add_user_fact_requires_api_key_id(self):
+        from src.core.generation.application.memory.manager import ConversationMemoryManager
+
+        with pytest.raises(ValueError, match="API-key ownership"):
+            await ConversationMemoryManager().add_user_fact(
+                tenant_id="tenant_1", user_id="user_1", content="Some fact"
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_user_facts_without_api_key_is_fail_closed(self, mock_session_maker):
+        mock_factory, mock_session = mock_session_maker
+        with patch(
+            "src.core.generation.application.memory.manager.get_session_maker",
+            return_value=mock_factory,
+        ):
+            from src.core.generation.application.memory.manager import ConversationMemoryManager
+
+            facts = await ConversationMemoryManager().get_user_facts(
+                tenant_id="tenant_1", user_id="user_1"
+            )
+
+        assert facts == []
+        mock_session.execute.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_add_user_fact_success(self, mock_session_maker):
         """Test adding a user fact successfully."""
         mock_factory, mock_session = mock_session_maker
@@ -52,6 +77,7 @@ class TestConversationMemoryManager:
                 user_id="user_1",
                 content="User prefers Python.",
                 importance=0.9,
+                api_key_id="key_1",
             )
 
             # Verify session.add was called
@@ -80,7 +106,9 @@ class TestConversationMemoryManager:
             manager = ConversationMemoryManager()
             mock_session.refresh = AsyncMock()
 
-            await manager.add_user_fact(tenant_id="tenant_1", user_id="user_1", content="Some fact")
+            await manager.add_user_fact(
+                tenant_id="tenant_1", user_id="user_1", content="Some fact", api_key_id="key_1"
+            )
 
             added_fact = mock_session.add.call_args[0][0]
             assert added_fact.importance == 0.5
@@ -103,7 +131,9 @@ class TestConversationMemoryManager:
             mock_result.scalars.return_value.all.return_value = []
             mock_session.execute = AsyncMock(return_value=mock_result)
 
-            results = await manager.get_user_facts(tenant_id="tenant_1", user_id="user_1", limit=10)
+            results = await manager.get_user_facts(
+                tenant_id="tenant_1", user_id="user_1", limit=10, api_key_id="key_1"
+            )
 
             # Verify execute was called (once for RLS context, once for query)
             assert mock_session.execute.call_count == 2
@@ -132,11 +162,15 @@ class TestConversationMemoryManager:
             mock_result.scalars.return_value.all.return_value = [mock_fact1, mock_fact2]
             mock_session.execute = AsyncMock(return_value=mock_result)
 
-            results = await manager.get_user_facts(tenant_id="tenant_1", user_id="user_1")
+            results = await manager.get_user_facts(
+                tenant_id="tenant_1", user_id="user_1", api_key_id="key_1"
+            )
 
             assert len(results) == 2
             assert results[0].content == "Fact 1"
             assert results[1].content == "Fact 2"
+            query = mock_session.execute.call_args_list[-1][0][0]
+            assert "key_1" in str(query.compile(compile_kwargs={"literal_binds": True}))
 
     @pytest.mark.asyncio
     async def test_save_conversation_summary_success(self, mock_session_maker):
@@ -158,6 +192,7 @@ class TestConversationMemoryManager:
                 conversation_id="conv_123",
                 title="Python Discussion",
                 summary="Discussed async patterns.",
+                api_key_id="key_1",
             )
 
             mock_session.add.assert_called_once()
@@ -192,7 +227,7 @@ class TestConversationMemoryManager:
             mock_session.execute = AsyncMock(return_value=mock_result)
 
             results = await manager.get_recent_summaries(
-                tenant_id="tenant_1", user_id="user_1", limit=5
+                tenant_id="tenant_1", user_id="user_1", limit=5, api_key_id="key_1"
             )
 
             assert len(results) == 1
@@ -208,6 +243,7 @@ class TestUserFactModel:
             id="fact_123",
             tenant_id="tenant_1",
             user_id="user_1",
+            api_key_id="key_1",
             content="Test content",
             importance=0.8,
             metadata_={"source": "test"},
@@ -216,6 +252,7 @@ class TestUserFactModel:
         assert fact.id == "fact_123"
         assert fact.tenant_id == "tenant_1"
         assert fact.user_id == "user_1"
+        assert fact.api_key_id == "key_1"
         assert fact.content == "Test content"
         assert fact.importance == 0.8
         assert fact.metadata_["source"] == "test"

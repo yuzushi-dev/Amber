@@ -43,10 +43,14 @@ class ConversationMemoryManager:
         content: str,
         importance: float = 0.5,
         metadata: dict[str, Any] | None = None,
+        api_key_id: str | None = None,
     ) -> UserFact:
         """
         Add a new permanent fact about the user.
         """
+        if not api_key_id:
+            raise ValueError("Authenticated API-key ownership is required for user facts")
+
         fact_id = f"fact_{uuid4().hex[:12]}"
 
         async with get_session_maker()() as session:
@@ -56,6 +60,7 @@ class ConversationMemoryManager:
                     id=fact_id,
                     tenant_id=tenant_id,
                     user_id=user_id,
+                    api_key_id=api_key_id,
                     content=content,
                     importance=importance,
                     metadata_=metadata or {},
@@ -76,25 +81,37 @@ class ConversationMemoryManager:
         user_id: str,
         limit: int = 20,
         session: AsyncSession | None = None,
+        api_key_id: str | None = None,
     ) -> list[UserFact]:
         """
         Retrieve top user facts, strictly filtered by tenant_id.
         """
+        if not api_key_id:
+            return []
+
         if session is not None:
-            return await self._get_user_facts(session, tenant_id, user_id, limit)
+            return await self._get_user_facts(session, tenant_id, user_id, api_key_id, limit)
 
         async with get_session_maker()() as session:
             await self._configure_session(session, tenant_id)
-            return await self._get_user_facts(session, tenant_id, user_id, limit)
+            return await self._get_user_facts(session, tenant_id, user_id, api_key_id, limit)
 
     @staticmethod
     async def _get_user_facts(
-        session: AsyncSession, tenant_id: str, user_id: str, limit: int
+        session: AsyncSession,
+        tenant_id: str,
+        user_id: str,
+        api_key_id: str | None,
+        limit: int,
     ) -> list[UserFact]:
+        if not api_key_id:
+            return []
+
         stmt = (
             select(UserFact)
             .where(UserFact.tenant_id == tenant_id)
             .where(UserFact.user_id == user_id)
+            .where(UserFact.api_key_id == api_key_id)
             .order_by(desc(UserFact.importance), desc(UserFact.created_at))
             .limit(limit)
         )
@@ -109,10 +126,14 @@ class ConversationMemoryManager:
         title: str,
         summary: str,
         metadata: dict[str, Any] | None = None,
+        api_key_id: str | None = None,
     ) -> ConversationSummary:
         """
         Persist a summary of a completed conversation.
         """
+        if not api_key_id:
+            raise ValueError("Authenticated API-key ownership is required for conversation summaries")
+
         async with get_session_maker()() as session:
             try:
                 await self._configure_session(session, tenant_id)
@@ -121,6 +142,7 @@ class ConversationMemoryManager:
                     id=conversation_id,
                     tenant_id=tenant_id,
                     user_id=user_id,
+                    api_key_id=api_key_id,
                     title=title,
                     summary=summary,
                     metadata_=metadata or {},
@@ -136,17 +158,21 @@ class ConversationMemoryManager:
                 raise
 
     async def get_recent_summaries(
-        self, tenant_id: str, user_id: str, limit: int = 5
+        self, tenant_id: str, user_id: str, limit: int = 5, api_key_id: str | None = None
     ) -> list[ConversationSummary]:
         """
         Retrieve user's recent conversation history summaries.
         """
+        if not api_key_id:
+            return []
+
         async with get_session_maker()() as session:
             await self._configure_session(session, tenant_id)
             stmt = (
                 select(ConversationSummary)
                 .where(ConversationSummary.tenant_id == tenant_id)
                 .where(ConversationSummary.user_id == user_id)
+                .where(ConversationSummary.api_key_id == api_key_id)
                 .order_by(desc(ConversationSummary.created_at))
                 .limit(limit)
             )

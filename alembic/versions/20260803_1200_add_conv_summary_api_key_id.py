@@ -14,10 +14,9 @@ Nullable and unindexed-for-uniqueness by design: existing rows have no
 recorded authenticated identity and cannot be backfilled from data that was
 never captured. Application code (query.py, admin/chat_history.py) treats
 NULL as "no verified identity" and fails closed on every security-relevant
-read (history re-injection, group lookup) while still allowing an existing
-row to be adopted by the first authenticated write after this migration
-(same blast radius as today's un-scoped same-tenant write, but now durable
-once written) — see the docstrings at the call sites for the exact rule.
+read and write (history re-injection, group lookup, and conversation updates).
+Legacy rows are never backfilled or adopted because their original owner
+cannot be reconstructed.
 """
 
 import sqlalchemy as sa

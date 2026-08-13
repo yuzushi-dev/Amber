@@ -22,8 +22,8 @@ def _make_conversation(id: str, tenant_id: str, user_id: str, title: str):
 
 
 @pytest.mark.asyncio
-async def test_history_scoped_to_user_and_tenant():
-    """list_history must filter by both tenant_id and user_id."""
+async def test_history_scoped_to_api_key_and_tenant():
+    """list_history must filter by authenticated api_key_id and tenant_id."""
     from src.api.routes.chat import list_history
 
     conversations = [
@@ -38,7 +38,8 @@ async def test_history_scoped_to_user_and_tenant():
     mock_session.scalar.return_value = 2
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = "user-a"
+    mock_request.headers.get.return_value = "forged-user"
+    mock_request.state.api_key_id = "key-a"
     mock_request.state.api_key_name = ""
 
     response = await list_history(
@@ -53,11 +54,12 @@ async def test_history_scoped_to_user_and_tenant():
     assert len(response.conversations) == 2
     assert all(c.tenant_id == "t1" for c in response.conversations)
 
-    # Verify the DB query included tenant + user filters
+    # Verify the DB query included tenant + authenticated API-key filters.
     executed_query = mock_session.execute.call_args_list[-1][0][0]
     compiled = str(executed_query.compile(compile_kwargs={"literal_binds": True}))
     assert "t1" in compiled
-    assert "user-a" in compiled
+    assert "key-a" in compiled
+    assert "forged-user" not in compiled
 
 
 @pytest.mark.asyncio
@@ -75,7 +77,8 @@ async def test_history_returns_query_text_and_preview():
     mock_session.scalar.return_value = 1
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = "u1"
+    mock_request.headers.get.return_value = "forged-user"
+    mock_request.state.api_key_id = "key-u1"
     mock_request.state.api_key_name = ""
 
     response = await list_history(
@@ -89,15 +92,15 @@ async def test_history_returns_query_text_and_preview():
 
 
 @pytest.mark.asyncio
-async def test_history_missing_user_id_raises_401():
-    """If no user identity can be resolved, the endpoint must reject with 401."""
+async def test_history_missing_api_key_id_raises_401():
+    """If no authenticated API-key principal is present, the endpoint must reject."""
     from fastapi import HTTPException
 
     from src.api.routes.chat import list_history
 
     mock_request = MagicMock()
-    mock_request.headers.get.return_value = ""
-    mock_request.state.api_key_name = ""
+    mock_request.headers.get.return_value = "victim-user"
+    del mock_request.state.api_key_id
 
     with pytest.raises(HTTPException) as exc_info:
         await list_history(
@@ -245,3 +248,41 @@ async def test_admin_list_chat_history_legacy_row_yields_no_group(monkeypatch):
 
     assert res.total == 1
     assert res.conversations[0].group_name is None
+
+    feedback_stmt = mock_session.execute.call_args_list[1].args[0]
+    join_sql = str(
+        feedback_stmt.get_final_froms()[0].onclause.compile(compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert "feedbacks.tenant_id = conversation_summaries.tenant_id" in join_sql
+    assert "api_key_id" not in join_sql
+
+
+@pytest.mark.asyncio
+async def test_admin_detail_links_legacy_feedback_after_conversation_backfill(monkeypatch):
+    """Admin detail is tenant-scoped and must not require matching owners."""
+    from src.api.routes.admin.chat_history import get_conversation_detail
+
+    conv = _make_conversation("conv-1", "tenant-a", "user-a", "Question")
+    conv.api_key_id = "backfilled-key"
+
+    conv_result = MagicMock()
+    conv_result.scalar_one_or_none.return_value = conv
+    feedback_result = MagicMock()
+    feedback_result.scalar_one_or_none.return_value = None
+    session = AsyncMock()
+    session.execute.side_effect = [conv_result, feedback_result]
+
+    monkeypatch.setattr(
+        "src.core.admin_ops.application.metrics.collector.MetricsCollector.get_recent",
+        AsyncMock(return_value=[]),
+    )
+
+    request = MagicMock()
+    request.state.is_super_admin = False
+    request.state.tenant_id = "tenant-a"
+    await get_conversation_detail(request_id="conv-1", request=request, session=session, _=None)
+
+    feedback_stmt = session.execute.call_args_list[1].args[0]
+    sql = str(feedback_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "feedbacks.tenant_id = 'tenant-a'" in sql
+    assert "feedbacks.api_key_id =" not in sql

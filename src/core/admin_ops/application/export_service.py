@@ -30,7 +30,9 @@ class ExportService:
         self.session = session
         self.storage = storage
 
-    async def generate_single_conversation_zip(self, conversation_id: str, tenant_id: str) -> bytes:
+    async def generate_single_conversation_zip(
+        self, conversation_id: str, tenant_id: str, api_key_id: str
+    ) -> bytes:
         """
         Generate a ZIP file containing a single conversation's export data.
 
@@ -41,17 +43,20 @@ class ExportService:
 
         Args:
             conversation_id: ID of the conversation to export
+            tenant_id: Tenant ID for ownership verification
+            api_key_id: Authenticated API-key ID for ownership verification
 
         Returns:
             bytes: The ZIP file content
         """
         logger.info(f"Generating export for conversation {conversation_id}")
 
-        # Fetch conversation summary — scoped to caller's tenant
+        # Fetch conversation summary — scoped to caller's authenticated owner.
         result = await self.session.execute(
             select(ConversationSummary).where(
                 ConversationSummary.id == conversation_id,
                 ConversationSummary.tenant_id == tenant_id,
+                ConversationSummary.api_key_id == api_key_id,
             )
         )
         conversation = result.scalar_one_or_none()

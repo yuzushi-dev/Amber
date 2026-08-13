@@ -18,6 +18,7 @@ from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
 from src.core.admin_ops.domain.feedback import Feedback
 from src.core.admin_ops.infrastructure.rate_limiter import RateLimitCategory, get_rate_limiter
+from src.core.generation.domain.memory_models import ConversationSummary
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -74,6 +75,12 @@ async def create_feedback(
             detail="Authentication required: tenant context missing.",
         )
     tenant_id = str(tenant_id)
+    api_key_id = getattr(request.state, "api_key_id", None)
+    if not api_key_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: authenticated API key missing.",
+        )
 
     # Safety Check: Rate Limit for Feedback
     rl_result = await _get_rate_limiter_instance().check(str(tenant_id), RateLimitCategory.GENERAL)
@@ -86,12 +93,23 @@ async def create_feedback(
     try:
         from sqlalchemy import select
 
+        owner_result = await db.execute(
+            select(ConversationSummary).where(
+                ConversationSummary.id == data.request_id,
+                ConversationSummary.tenant_id == tenant_id,
+            )
+        )
+        owner_summary = owner_result.scalar_one_or_none()
+        if owner_summary is not None and owner_summary.api_key_id != api_key_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
         # Look for an existing PENDING/NONE record for this (request_id, tenant_id).
         # VERIFIED and REJECTED records are never modified.
         existing_stmt = select(Feedback).where(
-            Feedback.request_id == data.request_id,
-            Feedback.tenant_id == tenant_id,
-            Feedback.golden_status.in_(["NONE", "PENDING"]),
+                Feedback.request_id == data.request_id,
+                Feedback.tenant_id == tenant_id,
+                Feedback.api_key_id == api_key_id,
+                Feedback.golden_status.in_(["NONE", "PENDING"]),
         )
         existing = (await db.execute(existing_stmt)).scalar_one_or_none()
 
@@ -112,6 +130,7 @@ async def create_feedback(
                 id=str(uuid4()),
                 tenant_id=tenant_id,
                 request_id=data.request_id,
+                api_key_id=api_key_id,
                 is_positive=data.is_positive,
                 score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
                 comment=data.comment,
@@ -126,6 +145,7 @@ async def create_feedback(
                 id=str(uuid4()),
                 tenant_id=tenant_id,
                 request_id=data.request_id,
+                api_key_id=api_key_id,
                 is_positive=data.is_positive,
                 score=data.score if data.score is not None else (1.0 if data.is_positive else 0.0),
                 comment=data.comment,
@@ -147,6 +167,8 @@ async def create_feedback(
             ),
             message="Feedback submitted successfully",
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to submit feedback: {e}")
         raise HTTPException(
@@ -181,17 +203,39 @@ async def get_feedback(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required: tenant context missing.",
         )
+    api_key_id = getattr(request.state, "api_key_id", None)
+    if not api_key_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: authenticated API key missing.",
+        )
+
+    owner_result = await db.execute(
+        select(ConversationSummary).where(
+            ConversationSummary.id == request_id,
+            ConversationSummary.tenant_id == tenant_id,
+        )
+    )
+    owner_summary = owner_result.scalar_one_or_none()
+    if owner_summary is not None and owner_summary.api_key_id != api_key_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
 
     # Get total count — scoped to caller's tenant
     count_stmt = select(func.count(Feedback.id)).where(
-        Feedback.request_id == request_id, Feedback.tenant_id == tenant_id
+        Feedback.request_id == request_id,
+        Feedback.tenant_id == tenant_id,
+        Feedback.api_key_id == api_key_id,
     )
     total = await db.scalar(count_stmt)
 
     # Fetch feedback with pagination — scoped to caller's tenant
     result = await db.execute(
         select(Feedback)
-        .where(Feedback.request_id == request_id, Feedback.tenant_id == tenant_id)
+        .where(
+            Feedback.request_id == request_id,
+            Feedback.tenant_id == tenant_id,
+            Feedback.api_key_id == api_key_id,
+        )
         .order_by(Feedback.created_at.desc())
         .offset(offset)
         .limit(limit)

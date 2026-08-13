@@ -48,13 +48,36 @@ async def mock_storage():
 
 
 @pytest_asyncio.fixture
-async def backup_service(mock_session, mock_storage):
-    return BackupService(mock_session, mock_storage)
+async def mock_graph_client():
+    client = MagicMock()
+    client.export_graph.side_effect = lambda *args, **kwargs: mock_aiter([{"id": "g1"}])
+    client.import_graph = AsyncMock(return_value={"nodes_created": 1})
+    return client
 
 
 @pytest_asyncio.fixture
-async def restore_service(mock_session, mock_storage):
-    return RestoreService(mock_session, mock_storage)
+async def mock_vector_store_factory():
+    factory = MagicMock()
+    vector_store = MagicMock()
+    vector_store.export_vectors.side_effect = lambda *args, **kwargs: mock_aiter([{"id": "v1"}])
+    vector_store.import_vectors = AsyncMock(return_value=10)
+    vector_store.close = AsyncMock()
+    factory.return_value = vector_store
+    return factory
+
+
+@pytest_asyncio.fixture
+async def backup_service(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory):
+    return BackupService(
+        mock_session, mock_storage, mock_graph_client, mock_vector_store_factory
+    )
+
+
+@pytest_asyncio.fixture
+async def restore_service(mock_session, mock_storage, mock_graph_client, mock_vector_store_factory):
+    return RestoreService(
+        mock_session, mock_storage, mock_graph_client, mock_vector_store_factory
+    )
 
 
 # --- Tests for BackupService ---
@@ -86,6 +109,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         id="conv_1",
         tenant_id="tenant_1",
         user_id="user_1",
+        api_key_id="key-1",
         title="Test Chat",
         summary="Summary",
         created_at=datetime.now(UTC),
@@ -96,6 +120,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         id="fact_1",
         tenant_id="tenant_1",
         user_id="user_1",
+        api_key_id="key-1",
         content="User likes AI",
         importance=5,
         created_at=datetime.now(UTC),
@@ -125,13 +150,17 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
     result_mock_chunks = MagicMock()
     result_mock_chunks.scalars.return_value.all.return_value = []
 
+    result_mock_tenant = MagicMock()
+    result_mock_tenant.scalar_one_or_none.return_value = None
+
     # BackupService:
     # 1. _add_documents_metadata -> select(Document)
     # 2. _add_folders -> select(Folder)
     # 3. _add_document_files -> select(Document)
     # 4. _add_conversations -> select(ConversationSummary)
     # 5. _add_user_facts -> select(UserFact)
-    # 6. _add_conversation_summaries (pass)
+    # 6. _add_chunks_table -> select(Chunk)
+    # 7. _add_vectors -> select(Tenant)
 
     mock_session.execute.side_effect = [
         result_mock_docs,  # Metadata
@@ -140,6 +169,7 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         result_mock_conv,  # Conversations
         result_mock_facts,  # Facts
         result_mock_chunks,  # Chunks
+        result_mock_tenant,  # Tenant for vectors
     ]
 
     # Mock storage file retrieval
@@ -185,6 +215,11 @@ async def test_create_backup_user_data(backup_service, mock_session, mock_storag
         assert len(meta_json) == 1
         assert meta_json[0]["id"] == "doc_1"
         assert meta_json[0]["mime_type"] == "application/pdf"  # This verifies our fix
+
+        conversations = json.loads(zf.read("conversations/conversations.json"))
+        facts = json.loads(zf.read("memory/user_facts.json"))
+        assert conversations[0]["api_key_id"] == "key-1"
+        assert facts[0]["api_key_id"] == "key-1"
 
 
 @pytest.mark.asyncio
@@ -270,6 +305,54 @@ async def test_restore_backup(restore_service, mock_session, mock_storage):
     assert mock_storage.upload_file.call_count >= 1
     call_args = mock_storage.upload_file.call_args
     assert call_args.kwargs["content_type"] == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_restore_drops_unavailable_api_key_owner(restore_service, mock_session):
+    mock_session.get = AsyncMock(return_value=None)
+
+    assert await restore_service._resolve_api_key_id("missing-key", "tenant_1") is None
+
+
+@pytest.mark.asyncio
+async def test_restore_keeps_api_key_owner_linked_to_tenant(restore_service, mock_session):
+    mock_session.get = AsyncMock(return_value=MagicMock())
+
+    assert await restore_service._resolve_api_key_id("key-1", "tenant_1") == "key-1"
+
+
+@pytest.mark.asyncio
+async def test_restore_reports_rows_without_recoverable_owner(restore_service, mock_session):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "conversations/conversations.json",
+            json.dumps(
+                [
+                    {
+                        "id": "legacy-conv",
+                        "user_id": "user-1",
+                        "title": "Legacy",
+                        "summary": "No owner",
+                    }
+                ]
+            ),
+        )
+    zip_buffer.seek(0)
+
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    mock_session.execute.return_value = result
+    mock_session.get = AsyncMock(return_value=None)
+    mock_session.add = MagicMock()
+
+    with zipfile.ZipFile(zip_buffer, "r") as zf:
+        restored, without_owner = await restore_service._restore_conversations(
+            zf, "tenant_1", RestoreMode.MERGE
+        )
+
+    assert (restored, without_owner) == (1, 1)
+    assert mock_session.add.call_args[0][0].api_key_id is None
 
 
 @pytest.mark.asyncio
@@ -366,7 +449,14 @@ async def test_restore_full_system_config(restore_service, mock_session, mock_st
 
 
 @pytest.mark.asyncio
-async def test_restore_extended_components(restore_service, mock_session, mock_storage, caplog):
+async def test_restore_extended_components(
+    restore_service,
+    mock_session,
+    mock_storage,
+    mock_graph_client,
+    mock_vector_store_factory,
+    caplog,
+):
     """Test chunks, vectors, graph, and dump restore."""
     # ZIP content
     zip_buffer = io.BytesIO()
@@ -405,23 +495,15 @@ async def test_restore_extended_components(restore_service, mock_session, mock_s
     mock_session.execute.return_value.scalar_one_or_none.return_value = None  # No existing chunk
     mock_session.add = MagicMock()  # Ensure sync mock for add
 
-    # Mock Platform
-    with patch("src.amber_platform.composition_root.platform") as mock_platform:
-        mock_platform.milvus_vector_store.import_vectors = AsyncMock(return_value=10)
-        mock_platform.neo4j_client.import_graph = AsyncMock(return_value={"nodes_created": 1})
+    await restore_service.restore("backup_ext", "t1", RestoreMode.MERGE)
 
-        await restore_service.restore("backup_ext", "t1", RestoreMode.MERGE)
+    # Verify Chunks
+    errors = [r.message for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+    assert mock_session.add.call_count >= 1, f"Session add not called. Errors: {errors}"
 
-        # Verify Chunks
-        # Check logs if failed
-        errors = [r.message for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
-        assert mock_session.add.call_count >= 1, f"Session add not called. Errors: {errors}"
-
-        # Verify Vectors
-        mock_platform.milvus_vector_store.import_vectors.assert_called_once()
-
-        # Verify Graph
-        mock_platform.neo4j_client.import_graph.assert_called_once()
+    # Verify Vectors and Graph
+    mock_vector_store_factory.return_value.import_vectors.assert_awaited_once()
+    mock_graph_client.import_graph.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -443,13 +525,14 @@ async def test_restore_postgres_dump(restore_service, mock_session, mock_storage
     with patch("src.core.admin_ops.application.restore_service.subprocess.run") as mock_run:
         mock_run.return_value.returncode = 0
 
-        # Patch settings
-        with patch("src.api.config.settings") as mock_settings:
+        # Patch runtime settings
+        with patch("src.shared.kernel.runtime.get_settings") as get_settings:
+            mock_settings = MagicMock()
             mock_settings.db.database_url = "postgresql://u:p@h:5432/db"
-
+            get_settings.return_value = mock_settings
             await restore_service.restore("backup_dump", "t1", RestoreMode.REPLACE)
 
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert args[0] == "psql"
-            assert "-f" in args
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert args[0] == "psql"
+        assert "-f" in args

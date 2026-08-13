@@ -42,13 +42,25 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
     const timerRef = useRef<NodeJS.Timeout | null>(null)
     const startTimeRef = useRef<number | null>(null)
 
+    const checkStatus = useCallback(async () => {
+        try {
+            setLoading(true)
+            const data = await embeddingsApi.checkCompatibility()
+            setStatuses(data)
+        } catch (error) {
+            console.error("Failed to check embedding status", error)
+        } finally {
+            setLoading(false)
+        }
+    }, [])
+
     useEffect(() => {
         checkStatus()
         return () => {
             if (pollingRef.current) clearInterval(pollingRef.current)
             if (timerRef.current) clearInterval(timerRef.current)
         }
-    }, [])
+    }, [checkStatus])
 
     // Elapsed time timer
     useEffect(() => {
@@ -77,30 +89,6 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
         return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
-    // Auto-migrate handling
-    useEffect(() => {
-        if (autoMigrate && tenantId && !autoMigrateTriggered.current && statuses.length > 0) {
-            autoMigrateTriggered.current = true
-            // Find the tenant and start migration automatically
-            const tenant = statuses.find(s => s.tenant_id === tenantId)
-            if (tenant) {
-                startAutoMigration(tenant)
-            }
-        }
-    }, [autoMigrate, tenantId, statuses])
-
-    const checkStatus = async () => {
-        try {
-            setLoading(true)
-            const data = await embeddingsApi.checkCompatibility()
-            setStatuses(data)
-        } catch (error) {
-            console.error("Failed to check embedding status", error)
-        } finally {
-            setLoading(false)
-        }
-    }
-
     const startProgressPolling = useCallback((tid: string) => {
         if (pollingRef.current) clearInterval(pollingRef.current)
 
@@ -125,7 +113,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
                 console.error('Failed to poll migration status:', err)
             }
         }, 2000) // Poll every 2 seconds
-    }, [onMigrationComplete])
+    }, [checkStatus, onMigrationComplete, queryClient])
 
     const handleMigrateClick = (status: EmbeddingStatus) => {
         setSelectedTenant(status)
@@ -135,7 +123,7 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
         setMigrationOpen(true)
     }
 
-    const startAutoMigration = async (tenant: EmbeddingStatus) => {
+    const startAutoMigration = useCallback(async (tenant: EmbeddingStatus) => {
         setSelectedTenant(tenant)
         setShowProgressDialog(true)
         setElapsedTime(0)
@@ -163,7 +151,18 @@ export function EmbeddingMigration({ autoMigrate = false, tenantId, onMigrationC
         } finally {
             setMigrating(false)
         }
-    }
+    }, [startProgressPolling])
+
+    // Auto-migrate handling
+    useEffect(() => {
+        if (autoMigrate && tenantId && !autoMigrateTriggered.current && statuses.length > 0) {
+            autoMigrateTriggered.current = true
+            const tenant = statuses.find(s => s.tenant_id === tenantId)
+            if (tenant) {
+                startAutoMigration(tenant)
+            }
+        }
+    }, [autoMigrate, startAutoMigration, statuses, tenantId])
 
     const handleConfirmMigration = async () => {
         if (!selectedTenant) return

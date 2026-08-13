@@ -753,9 +753,28 @@ Full OpenAPI specification at `/docs`. Key endpoints:
 | ---------- | --------------------------- | ----------------------------- |
 | `POST`     | `/v1/query`                 | Submit a RAG query            |
 | `GET/POST` | `/v1/query/stream`          | Stream query response via SSE |
+| `GET`      | `/v1/chat/history`          | List conversations owned by the authenticated API key |
+| `GET`      | `/v1/chat/history/{conversation_id}` | Read one conversation owned by the authenticated API key |
+| `DELETE`   | `/v1/chat/history/{conversation_id}` | Delete one conversation owned by the authenticated API key |
+| `GET`      | `/v1/export/conversation/{conversation_id}` | Export one conversation owned by the authenticated API key |
+| `POST`     | `/v1/export/all`            | Start a tenant-wide export (tenant admin only) |
+| `GET`      | `/v1/export/job/{job_id}`   | Check a tenant-admin export job (tenant admin only) |
+| `GET`      | `/v1/export/job/{job_id}/download` | Download a tenant-admin export job (tenant admin only) |
 | `POST`     | `/v1/documents`             | Upload a document             |
 | `GET`      | `/v1/documents/{id}`        | Get document details          |
 | `GET`      | `/v1/documents/{id}/status` | Check processing status       |
+
+Conversation history ownership is the authenticated API key ID. `X-User-ID`
+is metadata only and never authorizes access; callers sharing one API key
+share that key's history. Legacy summaries with `api_key_id IS NULL` are
+excluded from self-service reads and multi-turn reinjection and are never
+backfilled or adopted because their original owner cannot be reconstructed.
+Long-term user facts use the same authenticated API-key owner; legacy facts
+with `api_key_id IS NULL` are excluded from generation-time memory injection.
+Deleting an API key sets owned rows to `NULL`; those rows remain
+fail-closed and require tenant-admin retention for cleanup.
+Restoring a backup without a recoverable API-key owner also keeps rows
+fail-closed; the restore result reports those counts for operator cleanup.
 
 ### Admin Endpoints
 

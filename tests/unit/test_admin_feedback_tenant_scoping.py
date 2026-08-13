@@ -85,8 +85,9 @@ async def test_super_admin_sees_all_tenants():
     assert len(items) == 3
 
     tenant_ids_in_response = {item.get("tenant_id") for item in items}
-    assert tenant_ids_in_response == {"t1", "t2", "t3"}, \
+    assert tenant_ids_in_response == {"t1", "t2", "t3"}, (
         "Super admin response must include tenant_id for each item"
+    )
 
 
 @pytest.mark.asyncio
@@ -107,3 +108,28 @@ async def test_response_includes_tenant_id_field():
 
     assert len(response.data) == 1
     assert "tenant_id" in response.data[0], "tenant_id must be present in feedback response"
+
+
+@pytest.mark.asyncio
+async def test_pending_feedback_joins_legacy_rows_when_both_owners_are_null():
+    """Tenant-scoped admins must retain the feedback/conversation association."""
+    from src.api.routes.admin.feedback import get_pending_feedback
+
+    mock_db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    await get_pending_feedback(
+        request=_make_request(is_super_admin=False, tenant_id="t1"),
+        skip=0,
+        limit=50,
+        db=mock_db,
+    )
+
+    stmt = mock_db.execute.call_args.args[0]
+    join_sql = str(
+        stmt.get_final_froms()[0].onclause.compile(compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert "feedbacks.tenant_id = conversation_summaries.tenant_id" in join_sql
+    assert "api_key_id" not in join_sql

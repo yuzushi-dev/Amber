@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useChatStore } from '../store'
 import { v4 as uuidv4 } from 'uuid'
+import { toast } from 'sonner'
 
 interface StreamState {
     isStreaming: boolean
@@ -31,6 +32,7 @@ export function useChatStream() {
 
     // Use ref to always access current conversationId (avoids stale closure)
     const conversationIdRef = useRef<string | null>(null)
+    const handleEventRef = useRef<(type: string, data: string) => void>(() => {})
     const debugLog = (...args: unknown[]) => {
         if (debugEnabledRef.current) {
             console.log('[ChatStream]', ...args)
@@ -201,7 +203,7 @@ export function useChatStream() {
 
                     if (eventType && data) {
                         debugLog(`Processing Event: type=${eventType}, len=${data.length}`)
-                        handleEvent(eventType, data)
+                        handleEventRef.current(eventType, data)
                     } else {
                         debugLog(`Skipped part (no event/data): ${part.substring(0, 30)}`)
                     }
@@ -215,7 +217,7 @@ export function useChatStream() {
             }
 
             // End of stream
-            handleEvent('done', '')
+            handleEventRef.current('done', '')
 
         } catch (err: unknown) {
             if (err instanceof Error && err.name === 'AbortError') {
@@ -234,7 +236,7 @@ export function useChatStream() {
                 error: err instanceof Error ? err : new Error(String(err))
             }))
         }
-    }, [])
+    }, [addMessage, stopStream, updateLastMessage])
 
     const handleEvent = useCallback((type: string, data: string) => {
         // Helper to parse JSON safely
@@ -277,6 +279,10 @@ export function useChatStream() {
 
             case 'status':
                 // Optional log
+                break
+
+            case 'warning':
+                toast.warning(String(parseJSON(data)))
                 break
 
             case 'sources':
@@ -325,6 +331,8 @@ export function useChatStream() {
                 break
         }
     }, [updateLastMessage, flushTokenBuffer])
+
+    handleEventRef.current = handleEvent
 
     const setConversationId = useCallback((id: string | null) => {
         conversationIdRef.current = id  // Sync ref

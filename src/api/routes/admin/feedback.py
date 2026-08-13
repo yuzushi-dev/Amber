@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session as get_db
@@ -29,7 +29,10 @@ def _get_tenant_id(request: Request) -> str:
         )
     return str(tenant_id)
 
-router = APIRouter(prefix="/feedback", tags=["admin-feedback"], dependencies=[Depends(verify_tenant_admin)])
+
+router = APIRouter(
+    prefix="/feedback", tags=["admin-feedback"], dependencies=[Depends(verify_tenant_admin)]
+)
 
 
 @router.get("/pending", response_model=ResponseSchema[list[dict]])
@@ -50,8 +53,11 @@ async def get_pending_feedback(
         select(Feedback, ConversationSummary)
         .outerjoin(
             ConversationSummary,
-            func.json_extract_path_text(Feedback.metadata_json, "session_id")
-            == ConversationSummary.id,
+            and_(
+                func.json_extract_path_text(Feedback.metadata_json, "session_id")
+                == ConversationSummary.id,
+                Feedback.tenant_id == ConversationSummary.tenant_id,
+            ),
         )
         .where(Feedback.golden_status.in_(["NONE", "PENDING"]))
         .order_by(Feedback.created_at.desc())
@@ -157,7 +163,9 @@ async def verify_feedback(feedback_id: str, request: Request, db: AsyncSession =
     # 5. Application Effects (Tuning & Graph)
     try:
         # Tuning Analysis
-        tuning = TuningService(session_factory=async_session_maker, redis_url=get_settings().db.redis_url)
+        tuning = TuningService(
+            session_factory=async_session_maker, redis_url=get_settings().db.redis_url
+        )
         await tuning.analyze_feedback_for_tuning(
             tenant_id=tenant_id,
             request_id=feedback.request_id,

@@ -72,6 +72,7 @@ async def test_memory_fact_extraction_uses_step_config(monkeypatch):
             tenant_id="default",
             user_id="user",
             text="Some user fact",
+            api_key_id="key-1",
             tenant_config=tenant_config,
         )
         assert result == []

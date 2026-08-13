@@ -20,17 +20,15 @@ from src.core.generation.domain.memory_models import ConversationSummary
 router = APIRouter(prefix="/chat", tags=["Chat History"])
 
 
-def _get_user_id(request: Request) -> str:
-    """Resolve user identity from X-User-ID header or authenticated API key name."""
-    user_id = (request.headers.get("X-User-ID") or "").strip()
-    if not user_id:
-        user_id = getattr(request.state, "api_key_name", "") or ""
-    if not user_id:
+def _get_api_key_id(request: Request) -> str:
+    """Return the authenticated API-key principal used for history ownership."""
+    api_key_id = getattr(request.state, "api_key_id", None)
+    if not api_key_id:
         raise HTTPException(
             status_code=401,
-            detail="Could not resolve user identity: provide X-User-ID or authenticate with a named API key.",
+            detail="Authentication required: authenticated API key missing.",
         )
-    return user_id
+    return str(api_key_id)
 
 
 @router.get("/history", response_model=ChatHistoryResponse)
@@ -44,15 +42,13 @@ async def list_history(
     """
     List user's chat history.
     """
-    # Determine User ID (match query.py logic)
-    # 1. Check header
-    # 2. Fallback to 'default_user'
-    user_id = _get_user_id(request)
+    api_key_id = _get_api_key_id(request)
 
     try:
         # Build query
         stmt = select(ConversationSummary).where(
-            ConversationSummary.tenant_id == tenant_id, ConversationSummary.user_id == user_id
+            ConversationSummary.tenant_id == tenant_id,
+            ConversationSummary.api_key_id == api_key_id,
         )
 
         # Order by most recent
@@ -60,7 +56,8 @@ async def list_history(
 
         # Count total
         count_stmt = select(func.count(ConversationSummary.id)).where(
-            ConversationSummary.tenant_id == tenant_id, ConversationSummary.user_id == user_id
+            ConversationSummary.tenant_id == tenant_id,
+            ConversationSummary.api_key_id == api_key_id,
         )
         total = await session.scalar(count_stmt) or 0
 
@@ -113,7 +110,7 @@ async def list_history(
         import logging
 
         logging.getLogger(__name__).error(f"Failed to list history: {e}")
-        return ChatHistoryResponse(conversations=[], total=0, limit=limit, offset=offset)
+        raise HTTPException(status_code=500, detail="Failed to load conversation history") from e
 
 
 @router.get("/history/{conversation_id}", response_model=ConversationDetail)
@@ -126,12 +123,12 @@ async def get_history_detail(
     """
     Get full conversation details.
     """
-    user_id = _get_user_id(request)
+    api_key_id = _get_api_key_id(request)
 
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
         ConversationSummary.tenant_id == tenant_id,
-        ConversationSummary.user_id == user_id,
+        ConversationSummary.api_key_id == api_key_id,
     )
     result = await session.execute(stmt)
     conv = result.scalar_one_or_none()
@@ -169,12 +166,12 @@ async def delete_history(
     """
     Delete a conversation.
     """
-    user_id = _get_user_id(request)
+    api_key_id = _get_api_key_id(request)
 
     stmt = select(ConversationSummary).where(
         ConversationSummary.id == conversation_id,
         ConversationSummary.tenant_id == tenant_id,
-        ConversationSummary.user_id == user_id,
+        ConversationSummary.api_key_id == api_key_id,
     )
     result = await session.execute(stmt)
     conv = result.scalar_one_or_none()

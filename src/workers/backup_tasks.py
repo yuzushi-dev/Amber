@@ -340,6 +340,8 @@ async def _restore_backup_async(
                 "documents": restore_result.documents_restored,
                 "conversations": restore_result.conversations_restored,
                 "facts": restore_result.facts_restored,
+                "conversations_without_owner": restore_result.conversations_without_owner,
+                "facts_without_owner": restore_result.facts_without_owner,
                 "errors": restore_result.errors,
                 "task_id": task_id,
             }

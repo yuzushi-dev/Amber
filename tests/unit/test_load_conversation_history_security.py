@@ -148,11 +148,9 @@ async def test_other_api_key_conversation_is_not_leaked():
 async def test_legacy_conversation_with_no_api_key_id_is_not_leaked():
     """A conversation written before the api_key_id column existed
     (NULL) must fail closed on read — never treated as "no filter" or
-    silently matched to whichever caller asks first. Unlike the write-side
-    persistence functions, there is no adoption on read: reading has no
-    durable commitment to anchor an adoption to, so a legacy row simply
-    never has its history re-injected until an authenticated write claims
-    it."""
+    silently matched to whichever caller asks first. Legacy rows have no
+    trustworthy owner and are never adopted, so their history is not
+    re-injected."""
     summary = SimpleNamespace(
         tenant_id=TENANT,
         api_key_id=None,
@@ -608,13 +606,13 @@ def test_resolve_owned_summary_none_returns_none():
     assert _resolve_owned_summary(None, TENANT, API_KEY_ID) is None
 
 
-
 def test_resolve_owned_summary_caller_none_returns_none():
-    """Unauthenticated caller (api_key_id is None) must never adopt or update a legacy row."""
+    """An unauthenticated caller must never update a legacy row."""
     from src.api.routes.query import _resolve_owned_summary
 
     existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=None)
     assert _resolve_owned_summary(existing, TENANT, None) is None
+
 
 def test_resolve_owned_summary_foreign_tenant_returns_none():
     from src.api.routes.query import _resolve_owned_summary
@@ -639,10 +637,10 @@ def test_resolve_owned_summary_matching_key_returns_summary():
     assert result.api_key_id == API_KEY_ID
 
 
-def test_resolve_owned_summary_legacy_row_adopts_api_key_id():
+def test_resolve_owned_summary_legacy_row_is_rejected():
     from src.api.routes.query import _resolve_owned_summary
 
     existing = SimpleNamespace(id="c1", tenant_id=TENANT, api_key_id=None)
     result = _resolve_owned_summary(existing, TENANT, API_KEY_ID)
-    assert result is existing
-    assert result.api_key_id == API_KEY_ID
+    assert result is None
+    assert existing.api_key_id is None

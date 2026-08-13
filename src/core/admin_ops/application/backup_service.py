@@ -236,6 +236,7 @@ class BackupService:
                 {
                     "id": conv.id,
                     "user_id": conv.user_id,
+                    "api_key_id": conv.api_key_id,
                     "title": conv.title,
                     "summary": conv.summary,
                     "metadata": conv.metadata_ or {},
@@ -257,6 +258,7 @@ class BackupService:
                 {
                     "id": fact.id,
                     "user_id": fact.user_id,
+                    "api_key_id": fact.api_key_id,
                     "content": fact.content,
                     "importance": fact.importance,
                     "metadata": fact.metadata_ or {},

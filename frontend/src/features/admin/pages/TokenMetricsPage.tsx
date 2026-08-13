@@ -121,7 +121,7 @@ export default function TokenMetricsPage() {
     useEffect(() => { fetchData() }, [fetchData])
 
     const totals = data?.totals
-    const tenantRows = data?.tenants ?? []
+    const tenantRows = useMemo(() => data?.tenants ?? [], [data?.tenants])
     const avgTokensPerCall = totals && totals.call_count > 0
         ? Math.round(totals.total_tokens / totals.call_count)
         : 0
