@@ -121,6 +121,15 @@ def test_inspect_llm_step_registry_reports_retired_or_unknown_model():
     assert findings[0]["code"] == "unavailable_model"
 
 
+def test_inspect_llm_step_registry_classifies_model_only_drift():
+    findings = inspect_llm_step_registry(
+        "tenant-model-only",
+        {"llm_steps": {"chat.generation": {"model": "gpt-retired-999"}}},
+    )
+
+    assert findings[0]["code"] == "unavailable_model"
+
+
 def test_inspect_llm_step_registry_documents_legacy_fallback():
     findings = inspect_llm_step_registry(
         "tenant-old", {"llm_provider": "openai", "llm_model": OPENAI_DEFAULT}

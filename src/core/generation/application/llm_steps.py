@@ -370,7 +370,11 @@ def inspect_llm_step_registry(
         model = override.get("model")
         error = validate_llm_step_override(provider, model)
         if error:
-            code = "unknown_provider" if provider not in LLM_MODELS else "unavailable_model"
+            code = (
+                "unknown_provider"
+                if provider is not None and provider not in LLM_MODELS
+                else "unavailable_model"
+            )
             findings.append(
                 {
                     "tenant_id": tenant_id,
