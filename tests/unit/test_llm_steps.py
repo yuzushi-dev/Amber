@@ -1,4 +1,5 @@
 from src.core.generation.application.llm_steps import (
+    inspect_llm_step_registry,
     resolve_llm_step_config,
     validate_llm_step_override,
 )
@@ -97,3 +98,85 @@ def test_validate_llm_step_override_provider_only_passes():
     """A provider-only override (no model given) has nothing to check --
     the model comes from elsewhere."""
     assert validate_llm_step_override("openai", None) is None
+
+
+# --- inspect_llm_step_registry (issue #107: periodic registry-drift sweep) ---
+#
+# Companion to validate_llm_step_override: that one is used at write-time (PUT
+# tenant config) and raises/rejects. This one is read-only and used by the
+# periodic Celery beat sweep (check_llm_registry_drift) to catch drift
+# introduced *after* a write -- e.g. a provider retiring a model that was
+# valid when the tenant's `llm_steps` override was last saved.
+
+
+def test_inspect_llm_step_registry_no_overrides_returns_no_findings():
+    assert inspect_llm_step_registry("tenant-1", {}) == []
+
+
+def test_inspect_llm_step_registry_legacy_model_reports_info_finding():
+    findings = inspect_llm_step_registry("tenant-1", {"llm_model": "gemma3:12b"})
+
+    assert len(findings) == 1
+    assert findings[0]["tenant_id"] == "tenant-1"
+    assert findings[0]["step_id"] == "*"
+    assert findings[0]["severity"] == "info"
+    assert findings[0]["code"] == "legacy_fallback"
+    assert "gemma3:12b" in findings[0]["message"]
+
+
+def test_inspect_llm_step_registry_valid_override_reports_nothing():
+    tenant_config = {
+        "llm_steps": {
+            "ingestion.chunk_context": {"provider": "openai", "model": OPENAI_DEFAULT}
+        }
+    }
+
+    assert inspect_llm_step_registry("tenant-1", tenant_config) == []
+
+
+def test_inspect_llm_step_registry_flags_retired_model_as_error():
+    """Reproduces the issue #107 reference bug: a tenant with a step pinned
+    to a model that is no longer known to the registry (e.g. retired from
+    Ollama) must be flagged, not silently ignored."""
+    tenant_config = {
+        "llm_steps": {
+            "ingestion.chunk_context": {"provider": "ollama", "model": "gemma3:12b"}
+        }
+    }
+
+    findings = inspect_llm_step_registry("tenant-1", tenant_config)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["tenant_id"] == "tenant-1"
+    assert finding["step_id"] == "ingestion.chunk_context"
+    assert finding["severity"] == "error"
+    assert finding["code"] in {"unknown_provider", "unavailable_model"}
+    assert "gemma3:12b" in finding["message"]
+
+
+def test_inspect_llm_step_registry_flags_unknown_step_id():
+    tenant_config = {"llm_steps": {"not.a.real.step": {"provider": "openai"}}}
+
+    findings = inspect_llm_step_registry("tenant-1", tenant_config)
+
+    assert len(findings) == 1
+    assert findings[0]["code"] == "unknown_step"
+    assert findings[0]["severity"] == "error"
+
+
+def test_inspect_llm_step_registry_flags_non_dict_override():
+    tenant_config = {"llm_steps": {"ingestion.chunk_context": "not-a-dict"}}
+
+    findings = inspect_llm_step_registry("tenant-1", tenant_config)
+
+    assert len(findings) == 1
+    assert findings[0]["code"] == "invalid_override"
+
+
+def test_inspect_llm_step_registry_flags_non_dict_llm_steps():
+    findings = inspect_llm_step_registry("tenant-1", {"llm_steps": "not-a-dict"})
+
+    assert len(findings) == 1
+    assert findings[0]["code"] == "invalid_llm_steps"
+    assert findings[0]["step_id"] == "*"

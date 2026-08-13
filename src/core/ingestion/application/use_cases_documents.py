@@ -353,16 +353,31 @@ class DeleteDocumentUseCase:
             except Exception as e:
                 logger.warning(f"Failed to collect affected communities before deletion: {e}")
 
-            # This query ensures we also clean up entities that no longer have ANY mentions
+            # This query ensures we also clean up entities that no longer have ANY mentions.
+            #
+            # Fix (#109): the previous version did `WITH d, c, collect(DISTINCT e)
+            # AS entities`, grouping by (d, c) instead of by d alone -- Cypher's
+            # implicit grouping treats every non-aggregated identifier in the WITH
+            # as a grouping key, so with `c` in that list the query produced one
+            # row PER CHUNK, not one row per document. When an entity was
+            # mentioned by two-or-more chunks of the SAME document, the orphan
+            # check on chunk A's row (`NOT (entity)<-[:MENTIONS]-()`) could still
+            # see the live MENTIONS edge from chunk B (not deleted yet within that
+            # row's evaluation), so the entity's DETACH DELETE was skipped even
+            # though, once ALL of the document's chunks are gone, it has zero
+            # mentions and should be removed. Grouping on `d` only (chunks and
+            # entities collected as lists) guarantees a single row per document,
+            # so the deletes below fully happen before the orphan check runs.
             cypher = """
             MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
             OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
             OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
-            WITH d, c, collect(DISTINCT e) AS entities
-            DETACH DELETE d, c
+            WITH d, collect(DISTINCT c) AS chunks, collect(DISTINCT e) AS entities
+            FOREACH (ch IN chunks | DETACH DELETE ch)
+            DETACH DELETE d
             WITH entities
             UNWIND entities AS entity
-            WITH entity
+            WITH DISTINCT entity
             WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
             DETACH DELETE entity
             """
@@ -398,6 +413,19 @@ class DeleteDocumentUseCase:
 
             # Clean isolated entities (no relationships at all or only connected to other entities but not chunks)
             # More aggressive: Delete any Entity that is NOT reachable from a Chunk
+            #
+            # Kept intentionally (#109): with the grouping bug in `cypher` above
+            # fixed, this tenant-wide scan is no longer compensating for that bug
+            # -- entities mentioned only by chunks reached via HAS_CHUNK are now
+            # correctly evaluated for orphan status after all of the document's
+            # own chunks are gone. However `orphan_chunk_cypher` right above
+            # deletes a second class of chunk (linked to the document only by the
+            # `document_id` property, not HAS_CHUNK) without itself collecting or
+            # re-checking the entities those chunks mentioned. This tenant-wide
+            # sweep is what catches an entity left mention-less by that second
+            # deletion. Removing it would reintroduce a (smaller-scope) orphan
+            # leak for that path, so it stays as a real safety net rather than a
+            # redundant full scan.
             orphan_cypher = """
             MATCH (e:Entity {tenant_id: $tenant_id})
             WHERE NOT (:Chunk)-[:MENTIONS]->(e)
