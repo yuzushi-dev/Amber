@@ -25,6 +25,7 @@ class GraphTraversalService:
         beam_width: int = 5,
         timeout_ms: int = 200,
         allowed_doc_ids: list[str] | None = None,
+        active_generation_ids: dict[str, str] | None = None,
     ) -> list[Candidate]:
         """
         Executes a bounded BFS (Beam Search) from seed entities.
@@ -49,6 +50,14 @@ class GraphTraversalService:
                 acl_clause = " AND c.document_id IN $allowed_doc_ids"
                 params["allowed_doc_ids"] = allowed_doc_ids
 
+            generation_clause = ""
+            if active_generation_ids is not None:
+                generation_clause = (
+                    " AND (c.generation_id IS NULL OR "
+                    "c.generation_id = $active_generation_ids[c.document_id])"
+                )
+                params["active_generation_ids"] = active_generation_ids
+
             query = """
             MATCH (start:Entity)
             WHERE start.id IN $seed_ids AND start.tenant_id = $tenant_id
@@ -58,6 +67,7 @@ class GraphTraversalService:
             WHERE neighbor.tenant_id = $tenant_id
               AND NOT neighbor.id IN $seed_ids
               AND NOT type(r1) IN ['BELONGS_TO', 'PARENT_OF']
+              AND coalesce(r1.is_staging, false) = false
 
             WITH start, neighbor, r1
             ORDER BY r1.weight DESC
@@ -71,6 +81,7 @@ class GraphTraversalService:
               AND NOT h2.id IN $seed_ids
               AND NOT h2.id = start.id
               AND NOT type(r2) IN ['BELONGS_TO', 'PARENT_OF']
+              AND coalesce(r2.is_staging, false) = false
 
             WITH h1, h2, r2
             ORDER BY r2.weight DESC
@@ -82,7 +93,9 @@ class GraphTraversalService:
             UNWIND final_entities as e
 
             MATCH (e)-[:MENTIONS]-(c:Chunk)
-            WHERE c.tenant_id = $tenant_id{acl_clause}
+            WHERE c.tenant_id = $tenant_id
+              AND (c.generation_id IS NULL OR coalesce(c.is_published, false) = true)
+              {acl_clause}{generation_clause}
 
             RETURN DISTINCT c.id as chunk_id, c.content as content, c.document_id as document_id
             LIMIT 50
@@ -90,7 +103,9 @@ class GraphTraversalService:
 
             # Using asyncio.wait_for to enforce timeout
             results = await asyncio.wait_for(
-                self.neo4j.execute_read(query.format(acl_clause=acl_clause), params),
+                self.neo4j.execute_read(
+                    query.format(acl_clause=acl_clause, generation_clause=generation_clause), params
+                ),
                 timeout=timeout_ms / 1000.0,
             )
 

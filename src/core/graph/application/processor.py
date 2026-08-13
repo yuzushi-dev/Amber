@@ -31,6 +31,7 @@ class GraphProcessor:
         chunks: list["Chunk"],
         tenant_id: str,
         filename: str = None,
+        generation_id: str | None = None,
         tenant_config: dict[str, Any] | None = None,
         progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
     ):
@@ -159,7 +160,9 @@ class GraphProcessor:
                     wait_started = time.perf_counter()
                     async with sem:
                         extract_started = time.perf_counter()
-                        chunk_metrics["extract_wait_ms"] = int((extract_started - wait_started) * 1000)
+                        chunk_metrics["extract_wait_ms"] = int(
+                            (extract_started - wait_started) * 1000
+                        )
 
                         result = await extractor.extract(
                             chunk.content,
@@ -170,7 +173,9 @@ class GraphProcessor:
                             chunk_number=chunk_number,
                             total_chunks=total_chunks,
                         )
-                        chunk_metrics["extract_ms"] = int((time.perf_counter() - extract_started) * 1000)
+                        chunk_metrics["extract_ms"] = int(
+                            (time.perf_counter() - extract_started) * 1000
+                        )
 
                 if result.usage:
                     total_tokens += result.usage.total_tokens
@@ -194,13 +199,16 @@ class GraphProcessor:
                 # Keep writes out of the LLM semaphore so the next extraction can start immediately.
                 if result.entities:
                     write_started = time.perf_counter()
-                    await self.writer.write_extraction_result(
-                        document_id=chunk.document_id,
-                        chunk_id=chunk.id,
-                        tenant_id=tenant_id,
-                        result=result,
-                        filename=filename,
-                    )
+                    write_kwargs = {
+                        "document_id": chunk.document_id,
+                        "chunk_id": chunk.id,
+                        "tenant_id": tenant_id,
+                        "result": result,
+                        "filename": filename,
+                    }
+                    if generation_id is not None:
+                        write_kwargs["generation_id"] = generation_id
+                    await self.writer.write_extraction_result(**write_kwargs)
                     chunk_metrics["write_ms"] = int((time.perf_counter() - write_started) * 1000)
 
             except Exception as e:
@@ -209,7 +217,9 @@ class GraphProcessor:
                 logger.error(f"Graph processing failed for chunk {chunk.id}: {e}")
             finally:
                 chunk_metrics["total_ms"] = int((time.perf_counter() - chunk_started) * 1000)
-                logger.info("graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True))
+                logger.info(
+                    "graph_sync_chunk_metrics %s", json.dumps(chunk_metrics, sort_keys=True)
+                )
 
                 chunks_completed += 1
                 if progress_callback:
