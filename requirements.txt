@@ -67,6 +67,7 @@ python-magic>=0.4.27
 
 # Security
 prompt-guard>=3.7.1
+cryptography>=44.0.0  # Fernet encryption for connector credentials at rest (src/shared/security.py)
 
 # Observability & Tracing
 opentelemetry-api>=1.22.0

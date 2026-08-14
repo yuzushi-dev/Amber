@@ -7,9 +7,22 @@ Verifies that:
 - connectors.py authenticate writes to encrypted_credentials (not raw sync_cursor)
 - connectors.py browse/sync reads from encrypted_credentials
 - sync_cursor no longer holds raw credential fields
+- `cryptography` is declared as a direct dependency in the manifests actually
+  installed at build time (requirements-core.txt / pyproject.toml), not just
+  resolvable by whichever transitive graph a given installer happens to pick.
 """
 
 import inspect
+import re
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# Matches a manifest line/entry that *declares* cryptography as a dependency,
+# e.g. "cryptography==50.0.0" (requirements*.txt) or '"cryptography>=44.0.0"'
+# (pyproject.toml). Deliberately stricter than a bare substring check so it
+# can't be satisfied by a comment mentioning the word "cryptography".
+_CRYPTOGRAPHY_DECLARATION = re.compile(r"^[\s\"']*cryptography\s*[=<>~!]", re.IGNORECASE | re.MULTILINE)
 
 # ── encryption helpers ────────────────────────────────────────────────────────
 
@@ -60,6 +73,44 @@ def test_decrypt_credentials_returns_none_wrong_key():
     configure_security("key-two")
     result = decrypt_credentials(token)
     assert result is None, "Wrong key must not decrypt ciphertext"
+
+
+# ── dependency manifest (regression guard) ────────────────────────────────────
+
+
+def test_cryptography_declared_in_docker_build_manifest():
+    """
+    `cryptography` is imported directly by encrypt_credentials/decrypt_credentials
+    but was, until this fix, declared nowhere as a direct dependency -- it only
+    appeared in uv.lock, pinned there because uv's resolver locked an older
+    unstructured-client (0.42.8) that happens to require cryptography. uv.lock
+    is never consulted at build time: docker/api.Dockerfile and
+    docker/worker.Dockerfile both run `pip install -r requirements-core.txt`,
+    and plain pip's resolver picks a newer unstructured-client (0.46.1, verified
+    via wheel METADATA) that has dropped the cryptography dependency entirely.
+    A clean `pip install --dry-run -r requirements-core.txt` against the
+    pre-fix manifest confirms zero occurrences of "cryptography" in the
+    resolved install set -- so production images genuinely lacked the module,
+    matching the observed ModuleNotFoundError.
+
+    This test guards against that regression by asserting `cryptography` is
+    declared directly in the manifest that Docker actually installs from.
+    """
+    core_requirements = (PROJECT_ROOT / "requirements-core.txt").read_text()
+    assert _CRYPTOGRAPHY_DECLARATION.search(core_requirements), (
+        "cryptography is imported directly by src/shared/security.py "
+        "(encrypt_credentials/decrypt_credentials) but is not declared in "
+        "requirements-core.txt, which is what docker/api.Dockerfile and "
+        "docker/worker.Dockerfile actually install at build time. It must "
+        "not be left to whatever version of unstructured-client pip's "
+        "resolver happens to pick."
+    )
+
+
+def test_cryptography_declared_in_pyproject():
+    """`cryptography` must also be a direct pyproject.toml dependency (used by CI)."""
+    pyproject = (PROJECT_ROOT / "pyproject.toml").read_text()
+    assert _CRYPTOGRAPHY_DECLARATION.search(pyproject)
 
 
 # ── connector model ───────────────────────────────────────────────────────────

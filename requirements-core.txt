@@ -51,6 +51,7 @@ minio==7.2.20
 
 # Security
 python-magic==0.4.27
+cryptography==50.0.0  # Fernet encryption for connector credentials at rest (src/shared/security.py)
 
 # Extraction
 markitdown[html]==0.1.6
