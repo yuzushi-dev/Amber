@@ -12,12 +12,28 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.config import settings
 from src.api.deps import get_db_session as get_db
 from src.api.schemas.base import ResponseSchema
 from src.shared.context import get_current_tenant
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
+
+
+def _ensure_dev_environment() -> None:
+    """This endpoint seeds demo/onboarding content and is not a legitimate
+    production admin operation — it's gated to non-production deployments
+    the same way other dev-only behavior in this codebase is (see
+    `settings.debug` guards in `src/api/main.py`), rather than to a role,
+    since any authenticated user of the tenant is an acceptable caller in
+    a dev/demo environment but none should be able to reach it in prod.
+    """
+    if not settings.debug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sample data seeding is only available in debug/development deployments.",
+        )
 
 
 def _get_tenant_id(request: Request) -> str:
@@ -220,6 +236,8 @@ async def seed_sample_data(
     - solar_system: Educational content about planets
     - technology: Technical documentation about AI/ML
     """
+    _ensure_dev_environment()
+
     if request.dataset not in SAMPLE_DATASETS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
