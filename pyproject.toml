@@ -64,6 +64,10 @@ dependencies = [
     "structlog>=24.1.0",
     
     
+    # Security
+    # Fernet encryption for connector credentials at rest (src/shared/security.py)
+    "cryptography>=44.0.0",
+
     # Storage
     "minio>=7.2.0",
 
