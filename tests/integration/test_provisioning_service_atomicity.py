@@ -18,6 +18,7 @@ that path end-to-end against a real Postgres instance and asserts that a
 mid-job failure leaves ZERO new rows behind.
 """
 
+import asyncio
 import uuid
 
 import pytest
@@ -211,23 +212,29 @@ async def test_mid_job_integrity_error_leaves_zero_rows_committed(monkeypatch):
 # --------------------------------------------------------------------------- #
 # Regression coverage for the second review round on PR #128:
 #
-# `_copy_vectors` / `_copy_graph` used to swallow their own exceptions
-# (log + continue), so a dead Milvus or Neo4j left `provision()` returning
-# "success" with `vectors_copied: 0` / `graph_nodes_copied: 0` — the caller
-# marked the job COMPLETED and committed a tenant with documents but zero
-# searchable vectors, with no visible error anywhere. Now fixed: Milvus/Neo4j
-# failures propagate and roll back the whole job exactly like a Postgres
-# failure would, with best-effort cleanup of any vectors already written to
-# the target collection in that attempt.
+# - `_copy_vectors` / `_copy_graph` used to swallow their own exceptions
+#   (log + continue), so a dead Milvus or Neo4j left `provision()` returning
+#   "success" with `vectors_copied: 0` / `graph_nodes_copied: 0` — the caller
+#   marked the job COMPLETED and committed a tenant with documents but zero
+#   searchable vectors, with no visible error anywhere.
+# - There was also no application-level ceiling on how long `provision()`
+#   could hold its single Postgres transaction open, relying entirely on an
+#   external `idle_in_transaction_session_timeout` that may not be configured.
+#
+# Both are now fixed: Milvus/Neo4j failures propagate and roll back the whole
+# job exactly like a Postgres failure would (with best-effort cleanup of any
+# vectors already written to the target collection in that attempt), and
+# `provision()` is wrapped in an application-level `asyncio.wait_for` timeout.
 # --------------------------------------------------------------------------- #
 
 
 class _FakeVectorStore:
     """Minimal stand-in for the parts of VectorStorePort provisioning uses."""
 
-    def __init__(self, records=None, fail_upsert=False):
+    def __init__(self, records=None, fail_upsert=False, delay=0.0):
         self._records = records or []
         self._fail_upsert = fail_upsert
+        self._delay = delay
         self.upserted_ids: list[str] = []
         self.deleted_ids: list[str] = []
         self.connected = False
@@ -237,6 +244,8 @@ class _FakeVectorStore:
 
     async def export_vectors(self, tenant_id):
         for rec in self._records:
+            if self._delay:
+                await asyncio.sleep(self._delay)
             yield rec
 
     async def upsert_chunks(self, chunks):
@@ -253,10 +262,13 @@ class _FakeVectorStore:
 class _FakeNeo4jClient:
     """Minimal stand-in for the graph client methods `_copy_graph` uses."""
 
-    def __init__(self, fail_import=False):
+    def __init__(self, fail_import=False, export_delay=0.0):
         self._fail_import = fail_import
+        self._export_delay = export_delay
 
     async def export_graph(self, tenant_id):
+        if self._export_delay:
+            await asyncio.sleep(self._export_delay)
         return
         yield  # pragma: no cover - makes this an async generator
 
@@ -454,6 +466,121 @@ async def test_graph_copy_failure_after_vectors_succeed_cleans_up_vectors_and_ro
         assert target_store.upserted_ids, "Sanity check: vectors should have been written first."
         assert set(target_store.deleted_ids) >= set(target_store.upserted_ids), (
             "Expected the vectors written before the graph failure to be cleaned up."
+        )
+    finally:
+        await _cleanup_tenants(session_maker, source_tenant_id, target_tenant_id, job.id)
+
+
+@pytest.mark.asyncio
+async def test_provision_timeout_rolls_back_postgres(monkeypatch):
+    """If a step hangs past the application-level timeout, `provision()`
+    must raise (not hang forever) and roll back the whole job, without
+    depending on an external `idle_in_transaction_session_timeout`.
+    """
+    session_maker = get_session_maker()
+
+    async with session_maker() as setup_session:
+        await _configure(setup_session)
+        source_tenant_id, target_tenant_id, job, source_chunk_ids = (
+            await _seed_source_and_target(setup_session, n_docs=1)
+        )
+
+    from src.shared.kernel.runtime import get_settings
+
+    monkeypatch.setattr(get_settings(), "enable_tenant_provisioning", True)
+    # Shrink the timeout well below the fake store's artificial delay so the
+    # test runs in a fraction of a second instead of the real 1800s ceiling.
+    # 0.3s comfortably covers the real Postgres flush() for a single document
+    # (steps 1-6), so the timeout reliably fires during the deliberately slow
+    # Milvus read (step 7), not mid-flush — keeping the test deterministic.
+    monkeypatch.setattr(provisioning_service_module, "_PROVISION_TIMEOUT_SECONDS", 0.3)
+
+    target_collection = resolve_active_vector_collection(target_tenant_id, {})
+    # `delay` makes export_vectors hang well past the shrunk timeout.
+    source_store = _FakeVectorStore(
+        records=[{"chunk_id": source_chunk_ids[0], "vector": [0.1], "content": "hello world"}],
+        delay=2.0,
+    )
+    target_store = _FakeVectorStore()
+
+    def factory(dimensions, collection_name):
+        return target_store if collection_name == target_collection else source_store
+
+    job_session = session_maker()
+    await _configure(job_session)
+    service = ProvisioningService(
+        session=job_session, vector_store_factory=factory, neo4j_client=_FakeNeo4jClient()
+    )
+
+    try:
+        try:
+            with pytest.raises(TimeoutError):
+                await service.provision(job.id)
+        finally:
+            await job_session.close()
+
+        await _assert_target_empty(session_maker, target_tenant_id)
+    finally:
+        await _cleanup_tenants(session_maker, source_tenant_id, target_tenant_id, job.id)
+
+
+@pytest.mark.asyncio
+async def test_provision_timeout_after_vectors_written_cleans_up_vectors(monkeypatch):
+    """Regression test for the cancellation edge case: `asyncio.wait_for`
+    cancels the inner coroutine with `CancelledError`, a `BaseException` that
+    the `except Exception` blocks around steps 7-8 do NOT catch. So a timeout
+    that fires *after* vectors were already fully written to Milvus (here:
+    while the Neo4j graph copy is hanging) must still clean up those vectors
+    via `provision()`'s own `self._cleanup_ctx`-based handler — not rely on
+    the (bypassed) inner exception handling.
+    """
+    session_maker = get_session_maker()
+
+    async with session_maker() as setup_session:
+        await _configure(setup_session)
+        source_tenant_id, target_tenant_id, job, source_chunk_ids = (
+            await _seed_source_and_target(setup_session, n_docs=1)
+        )
+        job.include_graph = True
+        await setup_session.commit()
+
+    from src.shared.kernel.runtime import get_settings
+
+    monkeypatch.setattr(get_settings(), "enable_tenant_provisioning", True)
+    monkeypatch.setattr(provisioning_service_module, "_PROVISION_TIMEOUT_SECONDS", 0.3)
+
+    target_collection = resolve_active_vector_collection(target_tenant_id, {})
+    source_store = _FakeVectorStore(
+        records=[{"chunk_id": source_chunk_ids[0], "vector": [0.1], "content": "hello world"}]
+    )
+    target_store = _FakeVectorStore()
+
+    def factory(dimensions, collection_name):
+        return target_store if collection_name == target_collection else source_store
+
+    job_session = session_maker()
+    await _configure(job_session)
+    service = ProvisioningService(
+        session=job_session,
+        vector_store_factory=factory,
+        # Graph export hangs well past the shrunk timeout; vectors (step 7)
+        # complete first since they have no artificial delay.
+        neo4j_client=_FakeNeo4jClient(export_delay=2.0),
+    )
+
+    try:
+        try:
+            with pytest.raises(TimeoutError):
+                await service.provision(job.id)
+        finally:
+            await job_session.close()
+
+        await _assert_target_empty(session_maker, target_tenant_id)
+
+        assert target_store.upserted_ids, "Sanity check: vectors should have been written first."
+        assert set(target_store.deleted_ids) >= set(target_store.upserted_ids), (
+            "Expected the vectors written before the timeout to be cleaned up, even though "
+            "CancelledError bypasses the inner except-Exception cleanup path."
         )
     finally:
         await _cleanup_tenants(session_maker, source_tenant_id, target_tenant_id, job.id)

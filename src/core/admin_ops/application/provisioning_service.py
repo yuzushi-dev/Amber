@@ -7,6 +7,7 @@ tenant without re-running the ingestion pipeline.  Called exclusively from
 the ``provision_tenant`` Celery task.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -31,6 +32,20 @@ _BATCH = 50          # documents flushed (not committed) per round-trip; the who
                      # caller after `provision()` returns successfully.
 _VECTOR_BATCH = 500  # Milvus chunk IDs per query
 
+# Application-level ceiling on the whole `provision()` run (job lookup through
+# the final Milvus/Neo4j copy). Provisioning holds a single open Postgres
+# transaction for its entire duration (see the module docstring / provision()
+# below), so a hang here — e.g. Milvus or Neo4j wedged mid-copy — would
+# otherwise keep that transaction (and any locks/replication slots it holds)
+# open indefinitely, and correctness must not depend on an external
+# `idle_in_transaction_session_timeout` being configured on the Postgres
+# server. 30 minutes is comfortably under the Celery `task_soft_time_limit`
+# of 3600s (see src/workers/celery_app.py) so this timeout fires and rolls
+# back cleanly well before Celery would SIGTERM/SIGKILL the worker process,
+# while still being generous enough for the largest realistic provisioning
+# job (a handful of thousand documents).
+_PROVISION_TIMEOUT_SECONDS = 1800
+
 
 class ProvisioningService:
     """Copies tenant data (postgres rows + Milvus vectors + optionally Neo4j graph)
@@ -45,6 +60,10 @@ class ProvisioningService:
         self.session = session
         self.vector_store_factory = vector_store_factory
         self.neo4j_client = neo4j_client
+        # Set by `_provision_inner` once Postgres staging (step 6) finishes;
+        # read by `provision()`'s timeout handler. See the NOTE in
+        # `provision()`'s docstring for why this can't just be a local var.
+        self._cleanup_ctx: tuple[dict[str, str], Tenant, Tenant] | None = None
 
     # ------------------------------------------------------------------ #
     # Public entry point                                                   #
@@ -59,7 +78,56 @@ class ProvisioningService:
 
         Returns a dict with result counters on success.
         Raises on unrecoverable errors (caller marks the job FAILED).
+
+        Wrapped in an application-level timeout (`_PROVISION_TIMEOUT_SECONDS`)
+        so a wedged Milvus/Neo4j call (or an unexpectedly huge document set)
+        cannot hold the underlying Postgres transaction open forever — see
+        the constant's docstring for why this must not rely on an external
+        `idle_in_transaction_session_timeout`.
+
+        NOTE on cancellation: `asyncio.wait_for` cancels the inner coroutine
+        by raising `CancelledError` inside it. `CancelledError` is a
+        `BaseException`, not an `Exception`, so it is NOT caught by the
+        `except Exception` blocks inside `_provision_inner` (steps 3-6 and
+        7-8) — it unwinds straight past them to here. That's why the Milvus
+        vector cleanup on a timeout is done here, from `self._cleanup_ctx`
+        (populated by `_provision_inner` once step 6 finishes), rather than
+        relying on the inner try/except blocks to have run.
         """
+        self._cleanup_ctx = None  # reset in case this instance is reused across calls
+        try:
+            return await asyncio.wait_for(
+                self._provision_inner(job_id, progress_callback),
+                timeout=_PROVISION_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as original:
+            logger.error(
+                f"[provision:{job_id}] Provisioning exceeded the "
+                f"{_PROVISION_TIMEOUT_SECONDS}s application-level timeout — rolling back "
+                "and failing the job rather than leaving the transaction open indefinitely."
+            )
+            if self._cleanup_ctx is not None:
+                chunk_id_map, source_tenant, target_tenant = self._cleanup_ctx
+                await self._cleanup_target_vectors(
+                    job_id, chunk_id_map, source_tenant, target_tenant
+                )
+            try:
+                await self.session.rollback()
+            except Exception:
+                logger.exception(
+                    f"[provision:{job_id}] Rollback after timeout also failed — the "
+                    "connection may already be unusable; it will be discarded by the pool."
+                )
+            raise TimeoutError(
+                f"Provisioning job {job_id} exceeded the {_PROVISION_TIMEOUT_SECONDS}s "
+                "application-level timeout"
+            ) from original
+
+    async def _provision_inner(
+        self,
+        job_id: str,
+        progress_callback: Callable[[int], None] | None,
+    ) -> dict:
         def _progress(pct: int):
             if progress_callback:
                 progress_callback(pct)
@@ -136,6 +204,14 @@ class ProvisioningService:
             )
             await self.session.rollback()
             raise
+
+        # Make (chunk_id_map, source_tenant, target_tenant) reachable from
+        # `provision()`'s timeout handler: `CancelledError` (raised by
+        # `asyncio.wait_for` on timeout) is a BaseException and skips the
+        # `except Exception` blocks below, so that handler can't rely on a
+        # local variable here — it reads this instance attribute instead.
+        # See the NOTE in `provision()`'s docstring.
+        self._cleanup_ctx = (chunk_id_map, source_tenant, target_tenant)
 
         # ── 7-8. Copy Milvus vectors, then the Neo4j graph ────────────── #
         #
