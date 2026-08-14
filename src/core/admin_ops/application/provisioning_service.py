@@ -26,7 +26,9 @@ from src.core.tenants.domain.tenant import Tenant
 
 logger = logging.getLogger(__name__)
 
-_BATCH = 50          # documents committed per transaction
+_BATCH = 50          # documents flushed (not committed) per round-trip; the whole
+                     # job is a single Postgres transaction, committed once by the
+                     # caller after `provision()` returns successfully.
 _VECTOR_BATCH = 500  # Milvus chunk IDs per query
 
 
@@ -81,30 +83,59 @@ class ProvisioningService:
 
         _progress(5)
 
-        # ── 3. Stamp embedding config onto target ────────────────────── #
-        await self._stamp_embedding_config(source_tenant, target_tenant)
-        _progress(8)
+        # ── 3-8. Copy postgres rows, then vectors/graph ──────────────── #
+        #
+        # Everything that writes to Postgres (embedding-config stamp, folders,
+        # documents, chunks) happens on the SAME session/transaction and is
+        # only ever flushed, never committed, until this method returns
+        # successfully. The caller (provision_tenant / _provision_async)
+        # issues the single commit once the job is marked COMPLETED, so a
+        # job that dies partway through — e.g. a retry that re-copies a
+        # document whose content_hash already exists in the target tenant
+        # and trips `uq_documents_tenant_content_hash` — leaves ZERO rows
+        # behind: the exception propagates, we roll back everything this
+        # job has staged, and re-raise so the caller marks the job FAILED.
+        # This also makes retries idempotent: a failed run never leaves a
+        # partial target state that a subsequent run has to reconcile with.
+        try:
+            # ── 3. Stamp embedding config onto target ────────────────── #
+            await self._stamp_embedding_config(source_tenant, target_tenant)
+            _progress(8)
 
-        # ── 4. Resolve documents to copy ─────────────────────────────── #
-        docs = await self._resolve_source_docs(
-            source_tenant.id, job.document_ids, job.folder_ids
-        )
-        if not docs:
-            logger.warning(f"[provision:{job_id}] No READY documents found in source — nothing to copy")
-            return {"docs_copied": 0, "chunks_copied": 0, "vectors_copied": 0, "graph_nodes_copied": 0}
+            # ── 4. Resolve documents to copy ─────────────────────────── #
+            docs = await self._resolve_source_docs(
+                source_tenant.id, job.document_ids, job.folder_ids
+            )
+            if not docs:
+                logger.warning(
+                    f"[provision:{job_id}] No READY documents found in source — nothing to copy"
+                )
+                return {
+                    "docs_copied": 0,
+                    "chunks_copied": 0,
+                    "vectors_copied": 0,
+                    "graph_nodes_copied": 0,
+                }
 
-        _progress(10)
+            _progress(10)
 
-        # ── 5. Copy folders ───────────────────────────────────────────── #
-        source_folder_ids = {d.folder_id for d in docs if d.folder_id}
-        folder_id_map = await self._copy_folders(source_folder_ids, target_tenant.id)
-        _progress(15)
+            # ── 5. Copy folders ───────────────────────────────────────── #
+            source_folder_ids = {d.folder_id for d in docs if d.folder_id}
+            folder_id_map = await self._copy_folders(source_folder_ids, target_tenant.id)
+            _progress(15)
 
-        # ── 6. Copy documents + chunks in Postgres ────────────────────── #
-        doc_id_map, chunk_id_map, old_chunk_to_old_doc = await self._copy_docs_and_chunks(
-            docs, folder_id_map, target_tenant.id, _progress, start=15, end=55
-        )
-        _progress(55)
+            # ── 6. Copy documents + chunks in Postgres ────────────────── #
+            doc_id_map, chunk_id_map, old_chunk_to_old_doc = await self._copy_docs_and_chunks(
+                docs, folder_id_map, target_tenant.id, _progress, start=15, end=55
+            )
+            _progress(55)
+        except Exception:
+            logger.exception(
+                f"[provision:{job_id}] Postgres copy failed — rolling back the entire job "
+                "(no partial documents/chunks/folders left behind)."
+            )
+            await self.session.rollback()
+            raise
 
         # ── 7. Copy Milvus vectors ────────────────────────────────────── #
         vectors_copied = await self._copy_vectors(
@@ -148,7 +179,11 @@ class ProvisioningService:
 
     async def _stamp_embedding_config(self, source: Tenant, target: Tenant) -> None:
         """Copy embedding model config from source to target so the startup
-        mismatch check (EmbeddingMigrationService) passes."""
+        mismatch check (EmbeddingMigrationService) passes.
+
+        Flushes (does not commit) so this stays inside the single job-wide
+        transaction — see the try/except around steps 3-6 in `provision()`.
+        """
         src_cfg = source.config or {}
         tgt_cfg = dict(target.config or {})
         keys = ("embedding_provider", "embedding_model", "embedding_dimensions")
@@ -159,8 +194,7 @@ class ProvisioningService:
                 changed = True
         if changed:
             target.config = tgt_cfg
-            await self.session.commit()
-            await self.session.refresh(target)
+            await self.session.flush()
 
     async def _resolve_source_docs(
         self,
@@ -186,7 +220,10 @@ class ProvisioningService:
     async def _copy_folders(
         self, source_folder_ids: set[str], target_tenant_id: str
     ) -> dict[str, str]:
-        """Duplicate folders into the target tenant. Returns old_id → new_id map."""
+        """Duplicate folders into the target tenant. Returns old_id → new_id map.
+
+        Flushes (does not commit) — stays inside the job-wide transaction.
+        """
         if not source_folder_ids:
             return {}
         result = await self.session.execute(
@@ -199,7 +236,7 @@ class ProvisioningService:
             self.session.add(new_folder)
             folder_id_map[src_folder.id] = new_id
         if folder_id_map:
-            await self.session.commit()
+            await self.session.flush()
         return folder_id_map
 
     async def _copy_docs_and_chunks(
@@ -211,7 +248,14 @@ class ProvisioningService:
         start: int,
         end: int,
     ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        """Copy Document + Chunk rows; returns (doc_id_map, chunk_id_map, chunk→doc map)."""
+        """Copy Document + Chunk rows; returns (doc_id_map, chunk_id_map, chunk→doc map).
+
+        Flushes per batch of `_BATCH` documents (to bound memory / surface
+        constraint violations early via round-trips to the DB) but never
+        commits — the whole job commits atomically once, in the caller,
+        after `provision()` returns successfully. See the try/except around
+        steps 3-6 in `provision()` for the rollback-on-failure path.
+        """
         doc_id_map: dict[str, str] = {}           # old_doc_id  → new_doc_id
         chunk_id_map: dict[str, str] = {}          # old_chunk_id → new_chunk_id
         old_chunk_to_old_doc: dict[str, str] = {}  # old_chunk_id → old_doc_id
@@ -259,13 +303,13 @@ class ProvisioningService:
                     )
                     self.session.add(new_chunk)
 
-            await self.session.commit()
+            await self.session.flush()
 
             # Report sub-progress
             done = min(batch_start + _BATCH, total)
             pct = start + int((done / total) * (end - start))
             progress_fn(pct)
-            logger.info(f"[provisioning] postgres {done}/{total} docs committed")
+            logger.info(f"[provisioning] postgres {done}/{total} docs staged (flushed, not yet committed)")
 
         return doc_id_map, chunk_id_map, old_chunk_to_old_doc
 
