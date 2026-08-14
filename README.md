@@ -7,10 +7,10 @@
 Amber answers questions over a document collection by combining vector search with a knowledge graph built from those same documents. It ingests your files, extracts entities and relationships into Neo4j, embeds the chunks into Milvus, and picks a retrieval strategy per query. Every answer comes back with citations to the chunks it was built from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/release-v1.5.0-blue.svg)](https://github.com/yuzushi-dev/Amber/releases)
+[![Release](https://img.shields.io/badge/release-v1.5.1-blue.svg)](https://github.com/yuzushi-dev/Amber/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-blue.svg)](https://react.dev)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.133+-009688.svg)](https://fastapi.tiangolo.com)
 
 ## Table of Contents
 
