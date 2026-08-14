@@ -451,6 +451,21 @@ class ProvisioningService:
         silent orphan (this job's ids are freshly generated per attempt, so
         no future retry will ever reference — or clean up — these ids).
         Deleting ids that were never actually written is a harmless no-op.
+
+        NOTE on `connect()` below: it creates the target Milvus collection if
+        absent. In every failure path that reaches here through an exception
+        raised inside `_copy_vectors` (the shortfall check, or any upsert
+        error), `_copy_vectors` itself already called `target_store.connect()`
+        unconditionally before either of those raise points, so this is a
+        harmless re-connect to a collection that already exists -- it does
+        not create anything new. The only path where this call could be the
+        one actually creating the collection is a timeout that lands mid
+        cancellation during `_copy_vectors`'s own `connect()` call, before it
+        completes; in that narrow race this may leave an empty target
+        collection behind despite the job having been rolled back. Accepted
+        as a low-severity residual: it holds zero vectors, gets reused
+        harmlessly if the tenant is provisioned again, and is dropped by the
+        tenant-deletion path (`cleanup_tenant_vectors`) if the tenant never is.
         """
         if not chunk_id_map:
             return
