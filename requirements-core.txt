@@ -60,7 +60,7 @@ pymupdf-layout==1.27.2.3  # For enhanced layout analysis
 mistralai==1.12.4
 tiktoken==0.12.0
 kreuzberg==4.9.9
-unstructured[docx]==0.18.31  # ponytail: .docx backstop extractor (was vendored in /app/.packages, not in image -> python-docx missing -> docx ingestion FAILED)
+unstructured[pptx,docx]==0.18.31  # ponytail: .docx/.pptx backstop extractor (was vendored in /app/.packages, not in image -> python-docx/python-pptx missing -> docx/pptx ingestion FAILED)
 Pillow>=12.3.0
 pi-heif>=1.3.0
 
