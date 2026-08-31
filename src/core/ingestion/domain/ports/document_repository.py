@@ -35,6 +35,10 @@ class DocumentRepository(Protocol):
         """Mark only the staging generation failed."""
         ...
 
+    async def delete_chunks_by_generation(self, generation_id: str) -> None:
+        """Delete any chunks already written for this generation (retry cleanup)."""
+        ...
+
     async def delete(self, document: Document) -> None:
         """Delete a document."""
         ...

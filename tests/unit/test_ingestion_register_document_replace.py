@@ -129,6 +129,11 @@ class InMemoryDocumentRepository:
         generation.status = "failed"
         generation.error_message = error_message
 
+    async def delete_chunks_by_generation(self, generation_id):
+        self.staging_chunks = [
+            c for c in self.staging_chunks if getattr(c, "generation_id", None) != generation_id
+        ]
+
     async def claim_processing_attempt(
         self, document_id, attempt_id, old_status, pending_generation_id
     ):

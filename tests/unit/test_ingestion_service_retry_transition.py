@@ -67,6 +67,8 @@ class FakeDocumentRepository:
         self.update_status_calls: list[tuple[str, str, str | None]] = []
         self.saved: list[StubDocument] = []
         self.generation = None
+        self.deleted_chunks_for: list[str] = []
+        self.generation_status_log: list[str] = []
 
     async def get(self, document_id: str) -> StubDocument:
         return self._document
@@ -106,6 +108,7 @@ class FakeDocumentRepository:
 
     async def save_generation(self, generation):
         self.generation = generation
+        self.generation_status_log.append(generation.status)
         return generation
 
     async def get_generation(self, generation_id):
@@ -114,6 +117,9 @@ class FakeDocumentRepository:
     async def mark_generation_failed(self, generation_id, error_message):
         self.generation.status = "failed"
         self.generation.error_message = error_message
+
+    async def delete_chunks_by_generation(self, generation_id):
+        self.deleted_chunks_for.append(generation_id)
 
 
 class FakeUnitOfWork:
@@ -261,6 +267,50 @@ async def test_process_document_clears_stale_error_message_on_retry():
     # Final save, from the exception handler: records the NEW failure.
     assert repo.saved[2].status == DocumentStatus.FAILED
     assert "sentinel-stop-after-guard" in repo.saved[2].error_message
+
+
+class StubGeneration:
+    def __init__(self, id: str, status: str) -> None:
+        self.id = id
+        self.status = status
+        self.error_message = "stale error from prior attempt"
+        self.storage_path = "tenant-1/doc_6/file.txt"
+
+
+@pytest.mark.asyncio
+async def test_process_document_resets_failed_pending_generation_on_retry():
+    """Issue #133: re-uploading the same content-hash of a FAILED document
+    reuses `pending_generation_id` from the failed attempt. That generation
+    row is still status='failed', and publish_generation's CAS only flips
+    'staging' rows to 'published' - replayed unchanged, publish can NEVER
+    succeed no matter how many times the retry runs. The reuse path must put
+    the generation back in 'staging' (and drop any chunks it already wrote)
+    before the pipeline restarts."""
+    generation = StubGeneration(id="gen_1", status="failed")
+    document = StubDocument(
+        id="doc_6",
+        tenant_id="tenant-1",
+        status=DocumentStatus.FAILED,
+        storage_path="tenant-1/doc_6/file.txt",
+        filename="file.txt",
+        metadata_={},
+        pending_generation_id="gen_1",
+    )
+    repo = FakeDocumentRepository(document)
+    repo.generation = generation
+    service = make_service(repo, FakeUnitOfWork())
+
+    with pytest.raises(RuntimeError, match="sentinel-stop-after-guard"):
+        await service.process_document("doc_6")
+
+    # The reuse path put the failed generation back in 'staging' (and cleared
+    # its stale error) before the pipeline restarted. It is 'failed' again by
+    # the time process_document returns only because ExplodingStorage makes
+    # THIS attempt fail too - mark_generation_failed's own re-failure below is
+    # expected, not evidence the reset never happened.
+    assert repo.generation_status_log == ["staging"]
+    assert generation.status == "failed"  # this attempt's own failure, re-applied
+    assert repo.deleted_chunks_for == ["gen_1"]
 
 
 @pytest.mark.asyncio
