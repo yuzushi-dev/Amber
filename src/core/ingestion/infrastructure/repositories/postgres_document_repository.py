@@ -143,6 +143,12 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.delete(document)
         await self._session.flush()
 
+    async def delete_chunks_by_generation(self, generation_id: str) -> None:
+        from sqlalchemy import delete
+
+        await self._session.execute(delete(Chunk).where(Chunk.generation_id == generation_id))
+        await self._session.flush()
+
     async def list_by_tenant(
         self, tenant_id: str, limit: int = 100, offset: int = 0
     ) -> list[Document]:

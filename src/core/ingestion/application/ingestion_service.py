@@ -25,6 +25,7 @@ from src.core.ingestion.application.document_taxonomy import classify_document_t
 from src.core.ingestion.domain.document import (
     Document,
     DocumentGeneration,
+    DocumentGenerationStatus,
 )
 from src.core.ingestion.domain.ports.content_extractor import (
     ContentExtractorPort,
@@ -471,8 +472,30 @@ class IngestionService:
             )
             return
         generation = None
-        if pending_generation_id:
-            generation = await self.document_repository.get_generation(pending_generation_id)
+        try:
+            if pending_generation_id:
+                generation = await self.document_repository.get_generation(pending_generation_id)
+                if generation is not None:
+                    # A retry (re-upload with the same content-hash, or a
+                    # stale-lock sweep) reaches here with pending_generation_id
+                    # still pointing at the PREVIOUS attempt's generation row.
+                    # If that attempt failed the row is status='failed', and
+                    # publish_generation's CAS only flips 'staging' rows to
+                    # 'published' - replaying it unchanged can never publish
+                    # (issue #133). Reset it before reuse regardless of its
+                    # current status, and always clear any chunks a prior
+                    # attempt against this same generation id may have already
+                    # committed (deterministic id = hash(generation_id, index))
+                    # before failing at a later stage - a no-op delete on a
+                    # generation that never wrote chunks.
+                    generation.status = DocumentGenerationStatus.STAGING.value
+                    generation.error_message = None
+                    await self.document_repository.save_generation(generation)
+                    await self.document_repository.delete_chunks_by_generation(generation.id)
+        except Exception:
+            await self.document_repository.release_processing_attempt(document_id, attempt_id)
+            await self.unit_of_work.commit()
+            raise
         if generation is None:
             generation = DocumentGeneration(
                 id=uuid4().hex,
