@@ -187,6 +187,8 @@ class DocumentSummarizer:
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
                 ollama_base_url=res_ollama_url,
+                ollama_cloud_base_url=settings.ollama_cloud_base_url,
+                ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
             )
         else:
             factory = get_provider_factory()
