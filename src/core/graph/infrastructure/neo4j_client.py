@@ -617,16 +617,17 @@ class Neo4jClient:
             # Delete communities that are not reachable from any Entity.
             # This handles hierarchical communities (C <- C <- E) correctly.
             # Note: We use DETACH DELETE to remove PARENT_OF relationships.
-            # We use *1.. to handle any depth of IN_COMMUNITY or PARENT_OF hierarchy
-            # effectively checking if the community roots a subgraph containing at least one Entity.
-            # Logic: If no Entity points to this community (directly or indirectly), it is empty.
+            # Entities attach only to leaf (level 0) communities via BELONGS_TO;
+            # PARENT_OF points parent -> child, so an ancestor community c is
+            # reachable from an entity by walking PARENT_OF backwards (*0..)
+            # from the entity's leaf community up to c.
+            # Logic: If no Entity's leaf community is c or a descendant of c, it is empty.
             query_communities = """
             MATCH (c:Community)
-            WHERE NOT EXISTS { (:Entity)-[:IN_COMMUNITY|HAS_MEMBER*1..]->(c) }
+            WHERE NOT EXISTS { (:Entity)-[:BELONGS_TO]->()<-[:PARENT_OF*0..]-(c) }
             DETACH DELETE c
             RETURN count(c) as deleted
             """
-            # Note: We include HAS_MEMBER in the pattern just in case data model varies, though verification showed absent.
 
             res_comm = await self.execute_write(query_communities)
             counts["communities"] = res_comm[0]["deleted"] if res_comm else 0
