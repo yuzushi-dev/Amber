@@ -31,6 +31,7 @@ from src.core.tenants.application.effective_config import (
 )
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.kernel.observability import trace_span
+from src.shared.model_registry import LLM_MODEL_TO_PROVIDERS, resolve_provider_for_model
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -312,6 +313,33 @@ class GenerationService:
         text = MULTI_CITATION_PATTERN.sub(_expand_grouped_citation, text)
         return CITATION_NORMALIZE_PATTERN.sub(r"[[Source: \1]]", text)
 
+    @staticmethod
+    def _override_request_model(llm_cfg, model: str):
+        provider = llm_cfg.provider
+        if provider not in LLM_MODEL_TO_PROVIDERS.get(model, set()):
+            provider = resolve_provider_for_model(
+                model, LLM_MODEL_TO_PROVIDERS, kind="llm"
+            ) or provider
+        return replace(llm_cfg, provider=provider, model=model)
+
+    async def _exclude_ce_sources(self, candidates: list[Any]) -> list[Any]:
+        """Check authoritative editions before any document enters generation."""
+        if not candidates:
+            return []
+        if self.document_repository is None:
+            raise RuntimeError("Document repository required to enforce source policy")
+        document_ids = [
+            c.get("document_id") if isinstance(c, dict) else getattr(c, "document_id", None)
+            for c in candidates
+        ]
+        editions = await self.document_repository.get_editions_by_ids(
+            list({doc_id for doc_id in document_ids if doc_id})
+        )
+        return [
+            candidate for candidate, doc_id in zip(candidates, document_ids, strict=True)
+            if doc_id in editions and editions[doc_id] == "commercial"
+        ]
+
     @trace_span("GenerationService.generate")
     async def generate(
         self,
@@ -326,6 +354,7 @@ class GenerationService:
         """
         start_time = time.perf_counter()
         trace = []
+        candidates = await self._exclude_ce_sources(candidates)
 
         # Step 0.5: Inject global rules as candidates AND build system prompt addendum
         rules_addendum = ""
@@ -475,7 +504,7 @@ class GenerationService:
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
-            llm_cfg = replace(llm_cfg, model=req_model)
+            llm_cfg = self._override_request_model(llm_cfg, req_model)
             logger.info(f"Model override from request: {req_model}")
 
         logger.info(
@@ -494,13 +523,15 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
+        if req_model and factory is None:
+            raise RuntimeError("Provider factory required for an explicit model override")
 
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=True,
+                with_failover=not bool(req_model),
             )
             if factory
             else self.llm
@@ -632,6 +663,7 @@ class GenerationService:
         contains only detached prompt/provider data and can safely outlive it.
         """
         prelude_events: list[dict[str, Any]] = []
+        candidates = await self._exclude_ce_sources(candidates)
         # Step 0.5: Inject global rules as candidates AND build system prompt addendum
         rules_addendum = ""
         try:
@@ -787,7 +819,7 @@ class GenerationService:
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
-            llm_cfg = replace(llm_cfg, model=req_model)
+            llm_cfg = self._override_request_model(llm_cfg, req_model)
             logger.info(f"Model override from request (stream): {req_model}")
 
         logger.info(
@@ -818,13 +850,15 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
+        if req_model and factory is None:
+            raise RuntimeError("Provider factory required for an explicit model override")
 
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=True,
+                with_failover=not bool(req_model),
             )
             if factory
             else self.llm

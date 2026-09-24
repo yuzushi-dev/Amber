@@ -205,6 +205,9 @@ async def test_generation_service_generate_sets_chunks_used():
     svc._resolve_provider_factory = MagicMock(return_value=None)
     svc._apply_complexity_routing = lambda **kwargs: (kwargs["llm_cfg"], "standard", False)
     svc._get_document_titles = AsyncMock(return_value={})
+    svc.document_repository = SimpleNamespace(
+        get_editions_by_ids=AsyncMock(return_value={"d1": "commercial", "d2": "commercial"})
+    )
     svc._map_sources = MagicMock(return_value=("Provider response", []))
 
     mock_provider = MagicMock()
@@ -219,8 +222,8 @@ async def test_generation_service_generate_sets_chunks_used():
     svc.llm = mock_provider
 
     candidates = [
-        {"chunk_id": "c1", "content": "chunk 1 text", "metadata": {}},
-        {"chunk_id": "c2", "content": "chunk 2 text", "metadata": {}},
+        {"chunk_id": "c1", "document_id": "d1", "content": "chunk 1 text", "metadata": {}},
+        {"chunk_id": "c2", "document_id": "d2", "content": "chunk 2 text", "metadata": {}},
     ]
     result = await svc.generate(query="Current query", candidates=candidates)
 

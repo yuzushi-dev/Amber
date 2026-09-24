@@ -826,6 +826,7 @@ class MilvusVectorStore:
                 document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 
@@ -872,8 +873,10 @@ class MilvusVectorStore:
             return await self.search(
                 dense_vector,
                 tenant_id,
+                document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 
@@ -953,8 +956,10 @@ class MilvusVectorStore:
             return await self.search(
                 dense_vector,
                 tenant_id,
+                document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 

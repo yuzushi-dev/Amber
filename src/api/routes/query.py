@@ -897,6 +897,7 @@ async def _prepare_stream_phase(
         try:
             retrieval_result = await asyncio.wait_for(
                 retrieval_service.retrieve(
+                    for_generation=True,
                     query=request.query,
                     tenant_id=tenant_id,
                     document_ids=document_ids,

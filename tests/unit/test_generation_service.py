@@ -18,6 +18,12 @@ class DummySettings:
     db = SimpleNamespace(redis_url="redis://test")
 
 
+def _commercial_repository():
+    return SimpleNamespace(get_editions_by_ids=AsyncMock(
+        side_effect=lambda ids: {doc_id: "commercial" for doc_id in ids}
+    ))
+
+
 @pytest.fixture(autouse=True)
 def configure_runtime_settings():
     configure_settings(DummySettings())
@@ -63,6 +69,7 @@ async def test_generate_uses_tenant_prompt_overrides():
 
         # Service Init
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
         )
         # Ensure LLM is set (though factory should have handled it)
@@ -120,6 +127,7 @@ async def test_generate_uses_default_prompts_when_no_override():
         mock_factory.get_llm_provider.return_value = mock_llm
 
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
         )
         service.llm = mock_llm
@@ -193,6 +201,7 @@ async def test_generate_injects_global_rules_into_system_prompt():
         mock_factory.get_llm_provider.return_value = mock_llm
 
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
         )
         service.llm = mock_llm
@@ -261,6 +270,7 @@ async def test_generate_inherits_default_tenant_prompt_overrides():
         mock_factory.get_llm_provider.return_value = mock_llm
 
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider='mock_provider'
         )
         service.llm = mock_llm
@@ -320,6 +330,7 @@ async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
         mock_factory.get_llm_provider.return_value = mock_llm
 
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider='mock_provider'
         )
         service.llm = mock_llm
@@ -415,6 +426,7 @@ async def test_generate_excludes_injected_global_rules_from_chunks_used():
         mock_factory.get_llm_provider.return_value = mock_llm
 
         service = GenerationService(
+            document_repository=_commercial_repository(),
             tenant_repository=mock_tenant_repo, default_llm_provider="mock_provider"
         )
         service.llm = mock_llm

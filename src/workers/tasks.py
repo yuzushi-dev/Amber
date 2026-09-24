@@ -1186,11 +1186,17 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
                 logger.warning(f"Failed to fetch tenant config for benchmark: {e}")
 
             # Initialize RAG Pipeline
+            from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
+                PostgresDocumentRepository,
+            )
+
+            document_repository = PostgresDocumentRepository(session)
             retrieval_config = RetrievalConfig(
                 milvus_host=settings.db.milvus_host,
                 milvus_port=settings.db.milvus_port,
             )
             retrieval_service = RetrievalService(
+                document_repository=document_repository,
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
                 ollama_base_url=resolved_ollama_url,
@@ -1198,6 +1204,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
                 config=retrieval_config,
             )
             generation_service = GenerationService(
+                document_repository=document_repository,
                 openai_api_key=settings.openai_api_key,
                 anthropic_api_key=settings.anthropic_api_key,
                 ollama_base_url=resolved_ollama_url,
@@ -1222,6 +1229,7 @@ async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task
 
                 worker_scopes = resolve_query_scopes(tenant_id, enforce_groups=False)
                 retrieval_result = await retrieval_service.retrieve(
+                    for_generation=True,
                     query=query, tenant_id=tenant_id, top_k=5, query_scopes=worker_scopes
                 )
 

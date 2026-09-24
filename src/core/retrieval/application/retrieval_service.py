@@ -790,6 +790,7 @@ class RetrievalService:
         global_rules: list[str] | None = None,
         memory_context: str | None = None,
         query_scopes: QueryScopes | None = None,
+        for_generation: bool = False,
     ) -> RetrievalResult:
         """
         Retrieve relevant chunks for a query with Phase 5 analysis.
@@ -845,6 +846,27 @@ class RetrievalService:
 
         # Merge filters
         all_document_ids = list(set((document_ids or []) + (structured_query.document_ids or [])))
+        if for_generation:
+            # Apply ACLs and the source policy before taxonomy can broaden selection.
+            visible_ids = set()
+            for owner_id in resolved_scopes.vector_scopes:
+                visible_ids.update(await self._list_visible_document_ids(
+                    viewer_tenant_id=resolved_tenant_id,
+                    owner_tenant_id=owner_id,
+                    candidate_document_ids=all_document_ids or None,
+                    group_ids=list(resolved_scopes.group_ids),
+                    enforce_groups=resolved_scopes.enforce_groups,
+                ))
+            editions = await self.document_repository.get_editions_by_ids(list(visible_ids))
+            all_document_ids = sorted(
+                doc_id for doc_id in visible_ids if editions.get(doc_id) == "commercial"
+            )
+            if not all_document_ids:
+                return RetrievalResult(
+                    chunks=[], query=query, tenant_id=resolved_tenant_id,
+                    latency_ms=(time.perf_counter() - start_time) * 1000,
+                    search_mode=SearchMode.BASIC.value, trace=trace,
+                )
         all_filters = {**(filters or {})}
         if structured_query.tags:
             all_filters["tags"] = structured_query.tags
@@ -935,10 +957,13 @@ class RetrievalService:
         _router_start = time.perf_counter()
         search_mode = await self.router.route(
             structured_query.cleaned_query,
-            explicit_mode=options.search_mode,
+            explicit_mode=SearchMode.BASIC if for_generation else options.search_mode,
             tenant_config=tenant_config,
         )
         _router_latency_ms = (time.perf_counter() - _router_start) * 1000
+        if for_generation:
+            # Graph summaries lack reliable per-document edition provenance.
+            search_mode = SearchMode.BASIC
 
         # SECURITY: STRUCTURED runs tenant-scoped Cypher with NO group ACL (Neo4j
         # has no Postgres-RLS backstop), and options.search_mode is a public request
@@ -1084,6 +1109,14 @@ class RetrievalService:
                 vector_targets=vector_targets,
             )
 
+        if for_generation:
+            # Recheck cached/backend results before any sufficiency LLM sees them.
+            allowed_ids = set(all_document_ids)
+            result.chunks = [
+                c for c in result.chunks
+                if (c.get("document_id") if isinstance(c, dict) else c.document_id) in allowed_ids
+            ]
+
         # Step 9: Sufficient-context gate + iterative retrieval.
         # Only meaningful for vector-based modes (GLOBAL/DRIFT do their own
         # iteration; STRUCTURED returns tabular rows). Gated by option, off by
@@ -1106,6 +1139,12 @@ class RetrievalService:
                 tenant_config=tenant_config,
                 include_trace=include_trace,
             )
+
+        if for_generation:
+            result.chunks = [
+                c for c in result.chunks
+                if (c.get("document_id") if isinstance(c, dict) else c.document_id) in allowed_ids
+            ]
 
         # Record latency for circuit breaker
         total_latency = (time.perf_counter() - start_time) * 1000
@@ -1240,6 +1279,7 @@ class RetrievalService:
         tenant_config: dict[str, Any] | None = None,
     ) -> RetrievalResult:
         """Helper to execute vector search with HyDE and Decomposition support."""
+        allowed_document_ids = set(document_ids) if document_ids else None
 
         # Handle Decomposition
         queries_to_run = [structured_query.cleaned_query]
@@ -1315,6 +1355,10 @@ class RetrievalService:
                     cached_result.chunk_ids[:top_k],
                     cached_result.scores[:top_k],
                 )
+                if allowed_document_ids is not None:
+                    sub_chunks = [
+                        c for c in sub_chunks if c.get("document_id") in allowed_document_ids
+                    ]
                 if sub_chunks or not cached_result.chunk_ids:
                     # Real cache hit — either chunks resolved, or the cache
                     # legitimately recorded "no matches" for this query (empty
@@ -1429,6 +1473,11 @@ class RetrievalService:
                         "mode": "hybrid",
                     }
                 )
+
+            if allowed_document_ids is not None:
+                search_results = [
+                    r for r in search_results if r.document_id in allowed_document_ids
+                ]
 
             # Rerank
             if self.reranker and len(search_results) > 0:

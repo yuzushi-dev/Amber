@@ -193,6 +193,7 @@ class QueryUseCase:
                 document_ids = request.filters.document_ids if request.filters else None
 
                 retrieval_result = await self.retrieval_service.retrieve(
+                    for_generation=True,
                     query=request.query,
                     tenant_id=tenant_id,
                     document_ids=document_ids,

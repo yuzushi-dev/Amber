@@ -6,7 +6,7 @@ from src.core.tools.graph import create_graph_tool
 
 class FakeGraphClient:
     async def execute_read(self, query, parameters=None):
-        return [{"id": "1"}, {"id": "2"}]
+        raise AssertionError("Unscoped graph retrieval must not execute")
 
 
 def _tool(tenant_id: str = "tenant-1"):
@@ -15,11 +15,11 @@ def _tool(tenant_id: str = "tenant-1"):
 
 
 @pytest.mark.asyncio
-async def test_query_graph_uses_injected_client():
+async def test_query_graph_blocks_results_without_commercial_provenance():
     set_graph_client(FakeGraphClient())
     query_graph = _tool()
     result = await query_graph("MATCH (n) WHERE n.tenant_id = $tenant_id RETURN n")
-    assert "{'id': '1'}" in result
+    assert "commercial source provenance" in result
 
 
 @pytest.mark.asyncio
@@ -27,7 +27,7 @@ async def test_query_graph_raises_when_not_configured():
     set_graph_client(None)
     query_graph = _tool()
     result = await query_graph("MATCH (n) WHERE n.tenant_id = $tenant_id RETURN n")
-    assert "Graph client not configured" in result
+    assert "commercial source provenance" in result
 
 
 @pytest.mark.asyncio

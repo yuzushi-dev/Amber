@@ -25,6 +25,7 @@ def create_retrieval_tool(
     async def search_codebase(query: str) -> str:
         """Search the codebase using vector search."""
         result = await service.retrieve(
+            for_generation=True,
             query=query, tenant_id=tenant_id, top_k=5, query_scopes=query_scopes
         )
 

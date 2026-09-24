@@ -614,6 +614,18 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.flush()
         return True
 
+    async def get_editions_by_ids(self, document_ids: list[str]) -> dict[str, str]:
+        """Return known taxonomy editions without changing document metadata."""
+        if not document_ids:
+            return {}
+        result = await self._session.execute(
+            select(
+                Document.id,
+                Document.metadata_["taxonomy"]["edition"].astext.label("edition"),
+            ).where(Document.id.in_(document_ids))
+        )
+        return {row.id: row.edition or "unknown" for row in result.all()}
+
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
         if not document_ids:
