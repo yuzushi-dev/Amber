@@ -8,6 +8,7 @@ default tenant to child tenants.
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -212,7 +213,7 @@ class DocumentSharingService:
         if not ordered:
             return []
 
-        result = await self._session.execute(
+        result: Any = await self._session.execute(
             select(Tenant.id).where(Tenant.id.in_(ordered))
         )
         existing_ids = {row[0] for row in result.all()}
@@ -223,7 +224,7 @@ class DocumentSharingService:
         return ordered
 
     async def _load_share_targets(self, document_id: str) -> list[DocumentShareTargetOutput]:
-        result = await self._session.execute(
+        result: Any = await self._session.execute(
             select(
                 DocumentShare.target_tenant_id,
                 Tenant.name,

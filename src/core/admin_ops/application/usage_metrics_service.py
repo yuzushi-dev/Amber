@@ -8,6 +8,7 @@ Used by the super-admin observability endpoint.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +69,7 @@ class UsageMetricsService:
         Applies optional filters for tenant, date range, and operation type.
         Results are sorted by total_tokens descending.
         """
-        stmt = (
+        stmt: Any = (
             select(
                 UsageLog.tenant_id,
                 Tenant.name.label("tenant_name"),
