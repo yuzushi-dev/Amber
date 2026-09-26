@@ -53,3 +53,18 @@ def test_parser_only_filters():
     assert parsed.tags == ["tag1"]
     # Should fallback to original query if cleaned is empty
     assert parsed.cleaned_query == query
+
+
+def test_parser_does_not_treat_email_addresses_as_document_ids():
+    query = "Search reports@example.com, jane.doe+mail@example.org, and first-last@sample.net"
+    parsed = QueryParser.parse(query)
+
+    assert parsed.document_ids == []
+    assert parsed.cleaned_query == query
+
+
+def test_parser_still_accepts_standalone_document_filter():
+    parsed = QueryParser.parse("Find @doc_123 please")
+
+    assert parsed.document_ids == ["doc_123"]
+    assert parsed.cleaned_query == "Find please"

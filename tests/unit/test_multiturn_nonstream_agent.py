@@ -173,6 +173,9 @@ async def test_generation_service_generate_forwards_history_to_provider():
     svc._resolve_provider_factory = MagicMock(return_value=None)
     svc._apply_complexity_routing = lambda **kwargs: (kwargs["llm_cfg"], "standard", False)
     svc._get_document_titles = AsyncMock(return_value={})
+    svc.document_repository = SimpleNamespace(
+        get_editions_by_ids=AsyncMock(return_value={"d1": "commercial"})
+    )
     svc._map_sources = MagicMock(return_value=("Provider response", []))
 
     mock_provider = MagicMock()
@@ -189,7 +192,9 @@ async def test_generation_service_generate_forwards_history_to_provider():
     history = [{"role": "user", "content": "Prior message"}]
     await svc.generate(
         query="Current query",
-        candidates=[{"chunk_id": "c1", "content": "chunk text", "metadata": {}}],
+        candidates=[{
+            "chunk_id": "c1", "document_id": "d1", "content": "chunk text", "metadata": {}
+        }],
         conversation_history=history,
     )
 

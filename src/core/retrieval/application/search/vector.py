@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 from src.core.retrieval.domain.candidate import Candidate
 from src.core.retrieval.domain.ports.vector_store_port import VectorStorePort
@@ -106,7 +106,8 @@ class VectorSearcher:
                     tenant_id=r.tenant_id,
                     content=r.metadata.get("content", ""),
                     score=r.score,
-                    source="hybrid",
+                    source=cast(Any, r.source),
+                    score_type=r.score_type,
                     metadata={
                         **r.metadata,
                         **({"generation_id": r.generation_id} if r.generation_id is not None else {}),

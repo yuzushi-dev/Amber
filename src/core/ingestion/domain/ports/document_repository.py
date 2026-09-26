@@ -133,6 +133,10 @@ class DocumentRepository(Protocol):
         """Retrieve only chunks from each document's published generation."""
         ...
 
+    async def get_next_chunks(self, chunk_ids: list[str]) -> dict[str, Chunk]:
+        """Map each chunk id to the following chunk of the same published generation."""
+        ...
+
     async def publish_generation(
         self, document_id: str, generation: DocumentGeneration, attempt_id: str
     ) -> bool:
@@ -141,6 +145,16 @@ class DocumentRepository(Protocol):
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""
+        ...
+
+    async def find_document_ids_by_reference_number(
+        self, reference_number: str, candidate_document_ids: list[str]
+    ) -> list[str]:
+        """Find candidate documents whose filename or title contains this exact numeric token."""
+        ...
+
+    async def get_editions_by_ids(self, document_ids: list[str]) -> dict[str, str]:
+        """Return authoritative taxonomy editions for document IDs."""
         ...
 
     async def get_folder_name(self, folder_id: str) -> str | None:

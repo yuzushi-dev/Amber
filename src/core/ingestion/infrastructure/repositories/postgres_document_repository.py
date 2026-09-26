@@ -564,6 +564,46 @@ class PostgresDocumentRepository(DocumentRepository):
         )
         return list(result.scalars().all())
 
+    async def get_next_chunks(self, chunk_ids: list[str]) -> dict[str, Chunk]:
+        """Map each chunk id to the following chunk of the same published generation."""
+        from sqlalchemy.orm import aliased
+
+        from src.core.ingestion.domain.chunk import Chunk
+
+        if not chunk_ids:
+            return {}
+
+        parent = aliased(Chunk)
+        # Savepoint: callers treat this lookup as optional, so a failure here must not
+        # abort the request transaction shared with the rest of retrieval/generation.
+        async with self._session.begin_nested():
+            result = await self._session.execute(
+                select(parent.id, Chunk)
+                .join(
+                    Chunk,
+                    and_(
+                        Chunk.tenant_id == parent.tenant_id,
+                        Chunk.document_id == parent.document_id,
+                        Chunk.generation_id.is_not_distinct_from(parent.generation_id),
+                        Chunk.index == parent.index + 1,
+                    ),
+                )
+                .join(Document, Document.id == Chunk.document_id)
+                .where(
+                    parent.id.in_(chunk_ids),
+                    or_(
+                        and_(
+                            Document.active_generation_id.is_(None),
+                            Chunk.generation_id.is_(None),
+                        ),
+                        Chunk.generation_id == Document.active_generation_id,
+                    ),
+                )
+                .order_by(parent.id, Chunk.id)  # deterministic if an index is ever duplicated
+            )
+            rows = result.all()
+        return dict(rows)
+
     async def publish_generation(
         self, document_id: str, generation: DocumentGeneration, attempt_id: str
     ) -> bool:
@@ -613,6 +653,41 @@ class PostgresDocumentRepository(DocumentRepository):
             raise RuntimeError("pending document generation is not publishable")
         await self._session.flush()
         return True
+
+    async def get_editions_by_ids(self, document_ids: list[str]) -> dict[str, str]:
+        """Return known taxonomy editions without changing document metadata."""
+        if not document_ids:
+            return {}
+        result = await self._session.execute(
+            select(
+                Document.id,
+                Document.metadata_["taxonomy"]["edition"].astext.label("edition"),
+            ).where(Document.id.in_(document_ids))
+        )
+        return {row.id: row.edition or "unknown" for row in result.all()}
+
+    async def find_document_ids_by_reference_number(
+        self, reference_number: str, candidate_document_ids: list[str]
+    ) -> list[str]:
+        """Find candidate docs whose filename or title contains an exact numeric token."""
+        if (
+            len(reference_number) < 8
+            or not reference_number.isascii()
+            or not reference_number.isdigit()
+            or not candidate_document_ids
+        ):
+            return []
+
+        number_pattern = rf"(^|[^[:alnum:]_]){reference_number}([^[:alnum:]_]|$)"
+        stmt = select(Document.id).where(
+            Document.id.in_(candidate_document_ids),
+            or_(
+                Document.filename.op("~")(number_pattern),
+                Document.metadata_["title"].astext.op("~")(number_pattern),
+            ),
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_titles_by_ids(self, document_ids: list[str]) -> dict[str, str]:
         """Return a mapping of document_id to filename."""

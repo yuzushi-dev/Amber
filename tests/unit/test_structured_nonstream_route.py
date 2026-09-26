@@ -43,6 +43,9 @@ async def test_structured_query_is_returned_not_swallowed_into_fallback():
 
     use_case = MagicMock()
     use_case.execute = AsyncMock(return_value=expected)
+    client_history_loader = AsyncMock(
+        side_effect=AssertionError("explicit client history must not load stored turns")
+    )
 
     with (
         patch("src.amber_platform.composition_root.build_retrieval_service", MagicMock()),
@@ -52,11 +55,14 @@ async def test_structured_query_is_returned_not_swallowed_into_fallback():
             "src.core.retrieval.application.use_cases_query.QueryUseCase",
             return_value=use_case,
         ),
+        patch("src.api.config.settings.enable_multiturn_history_reinjection", True),
+        patch("src.api.routes.query._load_conversation_history", client_history_loader),
     ):
         result = await query(
             request=QueryRequest(
                 query="list all documents",
                 options=QueryOptions(include_sources=True),
+                history=[{"query": "which docs?", "answer": "two docs"}],
             ),
             http_request=_http_request(),
             session=MagicMock(),
@@ -67,3 +73,8 @@ async def test_structured_query_is_returned_not_swallowed_into_fallback():
     )
     assert result.count == 2
     assert result.query_type == "list_documents"
+    assert use_case.execute.await_args.kwargs["conversation_history"] == [
+        {"role": "user", "content": "which docs?"},
+        {"role": "assistant", "content": "two docs"},
+    ]
+    client_history_loader.assert_not_awaited()

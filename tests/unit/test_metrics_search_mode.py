@@ -2,6 +2,66 @@
 Tests for PR-04: Search mode and router latency in query metrics.
 """
 
+import json
+
+import pytest
+
+
+class _Redis:
+    def __init__(self):
+        self.values = {}
+        self.lists = {}
+
+    async def setex(self, key, _ttl, value):
+        self.values[key] = value
+
+    async def lpush(self, key, value):
+        self.lists.setdefault(key, []).insert(0, value)
+
+    async def ltrim(self, *_args):
+        return None
+
+    async def lrange(self, key, start, end):
+        return self.lists.get(key, [])[start : end + 1]
+
+    async def mget(self, keys):
+        return [self.values.get(key) for key in keys]
+
+
+@pytest.mark.asyncio
+async def test_search_mode_survives_redis_round_trip_and_legacy_defaults_unknown():
+    from src.core.admin_ops.application.metrics.collector import MetricsCollector, QueryMetrics
+
+    collector = MetricsCollector(redis_url="fake://redis")
+    redis = _Redis()
+    collector._client = redis
+    metrics = QueryMetrics(
+        query_id="q-1", tenant_id="tenant-1", query="question", search_mode="basic"
+    )
+
+    await collector.record(metrics)
+    recent = await collector.get_recent(tenant_id="tenant-1")
+
+    assert json.loads(redis.values["metrics:query:q-1"])["search_mode"] == "basic"
+    assert recent[0].search_mode == "basic"
+
+    failed = QueryMetrics(
+        query_id="q-error", tenant_id="tenant-1", query="failed route", success=False,
+        search_mode="unknown",
+    )
+    await collector.record(failed)
+    failed_recent = await collector.get_recent(tenant_id="tenant-1")
+    assert failed_recent[0].success is False
+    assert failed_recent[0].search_mode == "unknown"
+
+    legacy_record = metrics.to_dict()
+    legacy_record.update(query_id="q-legacy", query="old")
+    legacy_record.pop("search_mode")
+    redis.values["metrics:query:q-legacy"] = json.dumps(legacy_record)
+    redis.lists["metrics:queries:tenant-1"].append("q-legacy")
+    legacy = await collector.get_recent(tenant_id="tenant-1")
+    assert legacy[2].search_mode == "unknown"
+
 
 class TestMetricsSearchModeFields:
     """Test that QueryMetrics includes search_mode and router_latency_ms."""

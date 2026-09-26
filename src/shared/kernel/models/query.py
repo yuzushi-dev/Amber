@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 
 class SearchMode(StrEnum):
@@ -130,6 +130,15 @@ class QueryOptions(BaseModel):
     )
 
 
+class ConversationTurn(BaseModel):
+    """One client-supplied prior query/answer pair."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: StrictStr = Field(..., min_length=1, max_length=10000)
+    answer: StrictStr | None = Field(None, max_length=20000)
+
+
 class QueryRequest(BaseModel):
     """Query request payload."""
 
@@ -151,6 +160,7 @@ class QueryRequest(BaseModel):
         None,
         description="Conversation ID for multi-turn context",
     )
+    history: list[ConversationTurn] | None = Field(None, max_length=2)
 
 
 class Source(BaseModel):
@@ -188,6 +198,7 @@ class QueryResponse(BaseModel):
     """Query response payload."""
 
     answer: str = Field(..., description="Generated answer")
+    model: str | None = Field(None, description="Effective model used for generation")
     sources: list[Source] = Field(
         default_factory=list,
         description="Source citations",

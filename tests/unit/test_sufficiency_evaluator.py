@@ -92,8 +92,7 @@ async def test_gap_queries_capped_at_max():
 
 
 @pytest.mark.asyncio
-async def test_insufficient_but_no_gaps_treated_as_sufficient():
-    # Avoid a wasted retrieval round when the model gives no actionable gaps.
+async def test_insufficient_verdict_without_gaps_remains_insufficient():
     evaluator, _ = _evaluator_with_response(
         '{"sufficient": false, "reason": "vague", "gap_queries": []}'
     )
@@ -101,17 +100,17 @@ async def test_insufficient_but_no_gaps_treated_as_sufficient():
     with p1, p2:
         verdict = await evaluator.evaluate("q", chunks=[{"content": "c"}])
 
-    assert verdict.is_sufficient is True
+    assert verdict.is_sufficient is False
 
 
 @pytest.mark.asyncio
-async def test_unparseable_response_fails_open():
+async def test_unparseable_response_is_unknown():
     evaluator, _ = _evaluator_with_response("not json at all, sorry")
     p1, p2 = _patches()
     with p1, p2:
         verdict = await evaluator.evaluate("q", chunks=[{"content": "c"}])
 
-    assert verdict.is_sufficient is True
+    assert verdict.is_sufficient is None
 
 
 @pytest.mark.asyncio
@@ -141,7 +140,7 @@ async def test_fenced_json_block_is_parsed():
 
 
 @pytest.mark.asyncio
-async def test_llm_exception_fails_open():
+async def test_llm_exception_is_unknown():
     mock_provider = AsyncMock()
     mock_provider.generate.side_effect = RuntimeError("provider down")
     mock_factory = MagicMock()
@@ -152,8 +151,10 @@ async def test_llm_exception_fails_open():
     with p1, p2:
         verdict = await evaluator.evaluate("q", chunks=[{"content": "c"}])
 
-    assert verdict.is_sufficient is True
+    assert verdict.is_sufficient is None
     assert verdict.reason == "evaluation_error"
+    assert verdict.coverage[0]["chunk_id"] is None
+    assert verdict.coverage[0]["presented_length"] == 1
 
 
 @pytest.mark.asyncio
@@ -199,6 +200,39 @@ async def test_no_optional_blocks_when_absent():
     prompt = provider.generate.await_args.args[0]
     assert "ALREADY attempted" not in prompt
     assert "Draft answer under review" not in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", ["not json", '{"reason":"missing decision"}', '{"sufficient":"false"}'])
+async def test_invalid_or_missing_decision_is_unknown(response):
+    evaluator, _ = _evaluator_with_response(response)
+    p1, p2 = _patches()
+    with p1, p2:
+        verdict = await evaluator.evaluate("q", chunks=[{"content": "c"}])
+
+    assert verdict.is_sufficient is None
+
+
+@pytest.mark.asyncio
+async def test_snippet_coverage_reports_truncation_and_omission_without_rewriting_text():
+    evaluator, provider = _evaluator_with_response(
+        '{"sufficient":true,"reason":"ok","gap_queries":[]}'
+    )
+    chunks = [
+        {"chunk_id": f"c{i}", "document_id": f"d{i}", "content": "  a\n  b " + ("x" * 700)}
+        for i in range(13)
+    ]
+    p1, p2 = _patches()
+    with p1, p2:
+        verdict = await evaluator.evaluate("q", chunks=chunks)
+
+    prompt = provider.generate.await_args.args[0]
+    assert "  a\n  b " in prompt
+    assert verdict.coverage[0]["chunk_id"] == "c0"
+    assert verdict.coverage[0]["truncated"] is True
+    assert verdict.coverage[0]["original_length"] > verdict.coverage[0]["presented_length"]
+    assert verdict.coverage[-1]["chunk_id"] == "c12"
+    assert verdict.coverage[-1]["omitted"] is True
 
 
 def test_verdict_dataclass_defaults():

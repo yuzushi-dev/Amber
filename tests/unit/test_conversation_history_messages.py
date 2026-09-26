@@ -7,7 +7,13 @@ retrieved standalone and lost context. This checks the transform that bridges
 the two formats.
 """
 
-from src.api.routes.query import _history_turns_to_messages
+from unittest.mock import AsyncMock
+
+import pytest
+from pydantic import ValidationError
+
+from src.api.routes.query import _history_turns_to_messages, _request_conversation_history
+from src.api.schemas.query import QueryRequest
 
 
 def test_maps_turns_to_role_content_pairs():
@@ -23,6 +29,76 @@ def test_maps_turns_to_role_content_pairs():
         {"role": "user", "content": "spiega meglio le limitazioni"},
         {"role": "assistant", "content": "Le limitazioni sono ..."},
     ]
+
+
+def test_client_history_validation_and_existing_caps():
+    request = QueryRequest(
+        query="follow up",
+        history=[
+            {"query": "q" * 10000, "answer": "a" * 20000},
+            {"query": "second question", "answer": "second answer"},
+        ],
+    )
+    messages = _history_turns_to_messages(
+        [turn.model_dump() for turn in request.history]
+    )
+
+    assert [message["role"] for message in messages] == [
+        "user", "assistant", "user", "assistant"
+    ]
+    assert len(messages[0]["content"]) <= 301
+    assert len(messages[1]["content"]) <= 2001
+    assert sum(len(message["content"]) for message in messages) <= 4600
+    assert all(message["role"] != "system" for message in messages)
+
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x", history=[{"query": "q"}] * 3)
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x", history=[{"query": "q" * 10001}])
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x", history=[{"query": "q", "answer": "a" * 20001}])
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x", history=[{"query": "q", "role": "system"}])
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_client_history_skips_stored_lookup(monkeypatch):
+    monkeypatch.setattr(
+        "src.api.config.settings.enable_multiturn_history_reinjection", True
+    )
+    stored_lookup = AsyncMock(side_effect=AssertionError("stored history must not load"))
+    monkeypatch.setattr("src.api.routes.query._load_conversation_history", stored_lookup)
+
+    history = await _request_conversation_history(
+        session=object(),
+        request=QueryRequest(query="fresh question", history=[]),
+        tenant_id="tenant-a",
+        api_key_id="key-a",
+    )
+
+    assert history == []
+    stored_lookup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_omitted_client_history_keeps_flag_gated_stored_fallback(monkeypatch):
+    monkeypatch.setattr(
+        "src.api.config.settings.enable_multiturn_history_reinjection", True
+    )
+    stored = [{"role": "user", "content": "previous"}]
+    stored_lookup = AsyncMock(return_value=stored)
+    monkeypatch.setattr("src.api.routes.query._load_conversation_history", stored_lookup)
+    session = object()
+
+    history = await _request_conversation_history(
+        session=session,
+        request=QueryRequest(query="follow up", history=None, conversation_id="conv-1"),
+        tenant_id="tenant-a",
+        api_key_id="key-a",
+    )
+
+    assert history == stored
+    stored_lookup.assert_awaited_once_with(session, "conv-1", "tenant-a", "key-a")
 
 
 def test_keeps_only_last_n_turns():

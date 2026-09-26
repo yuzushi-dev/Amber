@@ -8,8 +8,8 @@ the query. When not, it emits targeted "gap" follow-up queries that drive an
 additional retrieval round — mirroring the Sufficient Context Agent pattern
 (evaluate snippets -> identify gaps -> re-retrieve).
 
-Fails open: any error yields a "sufficient" verdict so the gate never blocks a
-response.
+An invalid or unavailable judgment is reported as unknown so callers can stop
+recovery without claiming that the available context is sufficient.
 """
 
 import json
@@ -37,9 +37,10 @@ _MAX_SNIPPETS_IN_PROMPT = 12
 class SufficiencyVerdict:
     """Outcome of a sufficiency evaluation."""
 
-    is_sufficient: bool
+    is_sufficient: bool | None
     reason: str = ""
     gap_queries: list[str] = field(default_factory=list)
+    coverage: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SufficiencyEvaluator:
@@ -100,8 +101,8 @@ class SufficiencyEvaluator:
                 snippets), catching gaps that raw snippets alone do not reveal.
 
         Returns:
-            SufficiencyVerdict. On any failure, returns is_sufficient=True
-            (fail open) so retrieval proceeds without an extra round.
+            SufficiencyVerdict. On evaluation failure or invalid output,
+            `is_sufficient` is None and `coverage` describes the prompt snippets.
         """
         if not chunks:
             # Nothing retrieved — a gap is certain; ask to retry with the query.
@@ -111,7 +112,7 @@ class SufficiencyEvaluator:
                 gap_queries=[query],
             )
 
-        snippets = self._format_snippets(chunks)
+        snippets, coverage = self._format_snippets(chunks)
         prompt = QUERY_SUFFICIENCY_PROMPT.format(
             query=query,
             snippets=snippets,
@@ -153,11 +154,15 @@ class SufficiencyEvaluator:
                 kwargs["seed"] = llm_cfg.seed
 
             response_res = await provider.generate(prompt, work_class="chat", **kwargs)
-            return self._parse(response_res.text or "", max_gap_queries)
+            verdict = self._parse(response_res.text or "", max_gap_queries)
+            verdict.coverage = coverage
+            return verdict
 
         except Exception as e:
-            logger.error(f"Sufficiency evaluation failed (failing open): {e}")
-            return SufficiencyVerdict(is_sufficient=True, reason="evaluation_error")
+            logger.error("Sufficiency evaluation failed; reporting unknown: %s", e)
+            return SufficiencyVerdict(
+                is_sufficient=None, reason="evaluation_error", coverage=coverage
+            )
 
     def _tried_block(self, tried_gap_queries: list[str] | None) -> str:
         tried = [q.strip() for q in (tried_gap_queries or []) if q and q.strip()]
@@ -167,8 +172,9 @@ class SufficiencyEvaluator:
         return (
             "- These follow-up queries were ALREADY attempted in earlier rounds and "
             "returned no new useful information. Do NOT propose them or close paraphrases "
-            "again. Propose genuinely DIFFERENT angles; if no new angle exists, return "
-            "sufficient=true with an empty gap_queries list:\n"
+            "again. Propose genuinely DIFFERENT angles when the evidence remains "
+            "insufficient; if no new angle exists, return an empty gap_queries list "
+            "while keeping the sufficient decision grounded in the evidence:\n"
             f"{listed}\n"
         )
 
@@ -186,14 +192,32 @@ class SufficiencyEvaluator:
             f'"""\n{draft}\n"""\n'
         )
 
-    def _format_snippets(self, chunks: list[dict]) -> str:
+    def _format_snippets(self, chunks: list[dict]) -> tuple[str, list[dict[str, Any]]]:
         lines = []
-        for i, c in enumerate(chunks[:_MAX_SNIPPETS_IN_PROMPT], start=1):
-            content = (c.get("content") or "").strip().replace("\n", " ")
-            if len(content) > _SNIPPET_CHAR_LIMIT:
-                content = content[:_SNIPPET_CHAR_LIMIT] + "…"
-            lines.append(f"[{i}] {content}")
-        return "\n".join(lines)
+        coverage = []
+        for i, c in enumerate(chunks, start=1):
+            content = c.get("content") or ""
+            if not isinstance(content, str):
+                content = str(content)
+            omitted = i > _MAX_SNIPPETS_IN_PROMPT
+            presented = "" if omitted else content[:_SNIPPET_CHAR_LIMIT]
+            truncated = not omitted and len(content) > len(presented)
+            if truncated:
+                presented += "…"
+            if not omitted:
+                lines.append(f"[{i}] {presented}")
+            coverage.append(
+                {
+                    "chunk_id": c.get("chunk_id"),
+                    "document_id": c.get("document_id"),
+                    "order": i,
+                    "original_length": len(content),
+                    "presented_length": len(presented),
+                    "truncated": truncated,
+                    "omitted": omitted,
+                }
+            )
+        return "\n".join(lines), coverage
 
     def _parse(self, raw: str, max_gap_queries: int) -> SufficiencyVerdict:
         response = raw.strip()
@@ -212,22 +236,17 @@ class SufficiencyEvaluator:
         try:
             data = json.loads(response)
         except (json.JSONDecodeError, ValueError):
-            logger.warning("Sufficiency verdict not parseable (failing open): %r", raw[:200])
-            return SufficiencyVerdict(is_sufficient=True, reason="unparseable")
+            logger.warning("Sufficiency verdict not parseable: %r", raw[:200])
+            return SufficiencyVerdict(is_sufficient=None, reason="unparseable")
 
-        is_sufficient = bool(data.get("sufficient", True))
+        is_sufficient = data.get("sufficient")
+        if not isinstance(is_sufficient, bool):
+            return SufficiencyVerdict(is_sufficient=None, reason="invalid_decision")
         reason = str(data.get("reason", "") or "")
         gap_queries_raw = data.get("gap_queries") or []
         if not isinstance(gap_queries_raw, list):
             gap_queries_raw = []
         gap_queries = [str(g).strip() for g in gap_queries_raw if str(g).strip()][:max_gap_queries]
-
-        # If judged insufficient but no actionable gaps were given, treat as
-        # sufficient to avoid a wasted retrieval round.
-        if not is_sufficient and not gap_queries:
-            return SufficiencyVerdict(
-                is_sufficient=True, reason=reason or "no_gap_queries"
-            )
 
         return SufficiencyVerdict(
             is_sufficient=is_sufficient, reason=reason, gap_queries=gap_queries

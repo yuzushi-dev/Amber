@@ -171,13 +171,9 @@ async def query(
         # Determine User ID (extract logic from previous implementation)
         user_id = _get_user_id(http_request)
         api_key_id = _get_api_key_id(http_request)
-        conversation_history: list[dict] | None = None
-        from src.api.config import settings as history_settings
-
-        if history_settings.enable_multiturn_history_reinjection:
-            conversation_history = await _load_conversation_history(
-                session, request.conversation_id, tenant_id, api_key_id
-            )
+        conversation_history = await _request_conversation_history(
+            session, request, tenant_id, api_key_id
+        )
 
         response = await use_case.execute(
             request=request,
@@ -497,6 +493,27 @@ def _history_turns_to_messages(turns: list[dict], max_turns: int = 2) -> list[di
     for group in reversed(kept_groups):
         messages.extend(group)
     return messages
+
+
+async def _request_conversation_history(
+    session: AsyncSession,
+    request: QueryRequest,
+    tenant_id: str,
+    api_key_id: str | None,
+) -> list[dict]:
+    """Prefer explicitly supplied turns; otherwise use gated stored history."""
+    if request.history is not None:
+        return _history_turns_to_messages(
+            [turn.model_dump(exclude_none=True) for turn in request.history]
+        )
+
+    from src.api.config import settings as history_settings
+
+    if history_settings.enable_multiturn_history_reinjection:
+        return await _load_conversation_history(
+            session, request.conversation_id, tenant_id, api_key_id
+        )
+    return []
 
 
 async def _load_conversation_history(
@@ -829,13 +846,9 @@ async def _prepare_stream_phase(
             tenant_config_snapshot = (
                 await snapshot_result if isawaitable(snapshot_result) else snapshot_result
             )
-            agent_history: list[dict] | None = None
-            from src.api.config import settings as history_settings
-
-            if history_settings.enable_multiturn_history_reinjection:
-                agent_history = await _load_conversation_history(
-                    session, request.conversation_id, tenant_id, api_key_id
-                )
+            agent_history = await _request_conversation_history(
+                session, request, tenant_id, api_key_id
+            )
             return _StreamPrePhase(
                 agent_mode=True,
                 generation_service=generation_service,
@@ -886,20 +899,25 @@ async def _prepare_stream_phase(
         except Exception as e:
             logger.error(f"Failed to resolve effective model for rate limiting: {e}")
 
-        conversation_history: list[dict] | None = None
-        from src.api.config import settings as history_settings
-
-        if history_settings.enable_multiturn_history_reinjection:
-            conversation_history = await _load_conversation_history(
-                session, request.conversation_id, tenant_id, api_key_id
-            )
+        conversation_history = await _request_conversation_history(
+            session, request, tenant_id, api_key_id
+        )
 
         try:
             retrieval_result = await asyncio.wait_for(
                 retrieval_service.retrieve(
+                    for_generation=True,
                     query=request.query,
                     tenant_id=tenant_id,
                     document_ids=document_ids,
+                    filters=(
+                        request.filters.model_dump(
+                            include={"edition", "audience", "source_family"},
+                            exclude_none=True,
+                        )
+                        if request.filters
+                        else None
+                    ),
                     top_k=max_chunks,
                     include_trace=request.options.include_trace if request.options else False,
                     options=request.options,
@@ -947,6 +965,7 @@ async def _prepare_stream_phase(
                     "tenant_id": tenant_id,
                     "api_key_id": api_key_id,
                     "model": request.options.model if request.options else None,
+                    "include_trace": request.options.include_trace if request.options else False,
                 },
                 session=session,
             )
@@ -1206,6 +1225,7 @@ async def _query_stream_impl(
                         "tenant_id": tenant_id,
                         "api_key_id": phase.api_key_id,
                         "model": request.options.model if request.options else None,
+                        "include_trace": request.options.include_trace if request.options else False,
                     },
                 )
 
@@ -1294,6 +1314,7 @@ async def _query_stream_impl(
                     chunks_used=used_chunks_count,
                     reranking_latency_ms=stream_rerank_latency_ms,
                     cache_hit=retrieval_result.cache_hit,
+                    search_mode=retrieval_result.search_mode,
                     tokens_used=input_tokens + output_tokens,
                     output_tokens=output_tokens,
                     generation_latency_ms=stream_latency_ms,

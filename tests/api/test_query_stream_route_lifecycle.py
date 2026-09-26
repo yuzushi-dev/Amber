@@ -49,7 +49,11 @@ class _SessionMaker:
 
 
 class _Generation:
-    async def prepare_stream(self, **_kwargs):
+    def __init__(self):
+        self.prepare_kwargs = None
+
+    async def prepare_stream(self, **kwargs):
+        self.prepare_kwargs = kwargs
         return SimpleNamespace(prelude_events=())
 
     async def stream_prepared(self, _prepared):
@@ -64,12 +68,21 @@ class _Generation:
 def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatch):
     """A reintroduced ``Depends(get_db_session)`` would create a third session."""
     sessions = _SessionMaker()
+    retrieval_calls = []
+    recorded_metrics = []
+    generation = _Generation()
 
     async def structured_precheck(**_kwargs):
         return None
 
-    async def retrieve(**_kwargs):
-        return SimpleNamespace(chunks=[{"chunk_id": "chunk-1", "score": 1.0}], cache_hit=False)
+    async def retrieve(**kwargs):
+        retrieval_calls.append(kwargs)
+        return SimpleNamespace(
+            chunks=[{"chunk_id": "chunk-1", "score": 1.0}],
+            cache_hit=False,
+            search_mode="basic",
+            reranking_ms=0.0,
+        )
 
     async def no_graph_write(**_kwargs):
         return None
@@ -79,6 +92,7 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
             pass
 
         async def record(self, _metrics):
+            recorded_metrics.append(_metrics)
             return None
 
         async def close(self):
@@ -95,7 +109,7 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
     )
     monkeypatch.setattr(
         "src.amber_platform.composition_root.build_generation_service",
-        lambda _session: _Generation(),
+        lambda _session: generation,
     )
     monkeypatch.setattr(
         "src.core.generation.domain.memory_models.ConversationSummary",
@@ -128,9 +142,33 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
         response = client.post(
             "/query/stream",
             headers={"X-User-ID": "user-a"},
-            json={"query": "Explain the alerting setup", "options": {"model": "test"}},
+            json={
+                "query": "Explain the alerting setup",
+                "filters": {
+                    "document_ids": [],
+                    "edition": "commercial",
+                    "audience": "admin",
+                    "source_family": "zendesk_kb",
+                },
+                "history": [{"query": "What is the alert?", "answer": "A signal."}],
+                "options": {"model": "test", "include_trace": True, "search_mode": "drift"},
+            },
         )
 
     assert response.status_code == 200
     assert "event: done" in response.text
     assert len(sessions.sessions) == 2
+    assert retrieval_calls[0]["document_ids"] == []
+    assert retrieval_calls[0]["filters"] == {
+        "edition": "commercial",
+        "audience": "admin",
+        "source_family": "zendesk_kb",
+    }
+    expected_history = [
+        {"role": "user", "content": "What is the alert?"},
+        {"role": "assistant", "content": "A signal."},
+    ]
+    assert retrieval_calls[0]["history"] == expected_history
+    assert generation.prepare_kwargs["conversation_history"] == expected_history
+    assert generation.prepare_kwargs["options"]["include_trace"] is True
+    assert recorded_metrics[0].search_mode == "basic"

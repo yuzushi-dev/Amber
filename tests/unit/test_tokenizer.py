@@ -27,6 +27,17 @@ def test_truncate_to_budget():
     assert count <= 8  # Allow some buffer for fallback estimation
 
 
+def test_truncate_fallback_keeps_true_prefix_and_suffix(monkeypatch):
+    monkeypatch.setattr(tokenizer, "TIKTOKEN_AVAILABLE", False)
+    text = "🙂" * 100
+
+    prefix = Tokenizer.truncate_to_budget(text, 3)
+    suffix = Tokenizer.truncate_to_budget(text, 3, from_start=False)
+
+    assert text.startswith(prefix)
+    assert text.endswith(suffix)
+
+
 def test_model_specific_encoding():
     text = "Special tokens and model specific behavior."
     count_mini = Tokenizer.count_tokens(text, model=DEFAULT_LLM_MODEL["openai"])

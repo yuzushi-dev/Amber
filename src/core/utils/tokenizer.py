@@ -98,7 +98,7 @@ class Tokenizer:
                     else:
                         truncated_tokens = tokens[-max_tokens:]
 
-                    return encoding.decode(truncated_tokens)
+                    return encoding.decode(truncated_tokens, errors="ignore")
             except Exception:
                 pass
 

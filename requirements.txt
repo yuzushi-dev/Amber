@@ -50,6 +50,7 @@ flashrank>=0.2.0
 # Utilities
 python-dateutil>=2.8.2
 tenacity>=8.2.0
+markdown-it-py==4.2.0
 
 # Testing (included for convenience)
 pytest>=7.4.0

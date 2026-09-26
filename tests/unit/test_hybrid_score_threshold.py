@@ -14,6 +14,8 @@ collection (no real Milvus server needed) and asserts:
 
 import pytest
 
+from src.core.retrieval.application.search.vector import VectorSearcher
+from src.core.retrieval.domain.ports.vector_store_port import SearchResult
 from src.core.retrieval.infrastructure.vector_store.milvus import (
     MilvusConfig,
     MilvusVectorStore,
@@ -85,6 +87,7 @@ async def test_hybrid_search_default_none_keeps_all_candidates():
     )
 
     assert [r.chunk_id for r in results] == ["c1", "c2"]
+    assert [(r.score_type, r.source) for r in results] == [("rrf", "hybrid"), ("rrf", "hybrid")]
 
 
 @pytest.mark.asyncio
@@ -104,6 +107,35 @@ async def test_hybrid_search_explicit_threshold_drops_low_scores():
     )
 
     assert [r.chunk_id for r in results] == ["c1"]
+    assert (results[0].score_type, results[0].source) == ("rrf", "hybrid")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("score_type", "source"), [("rrf", "hybrid"), ("cosine", "vector")]
+)
+async def test_vector_searcher_preserves_hybrid_or_dense_fallback_provenance(score_type, source):
+    class Store:
+        async def hybrid_search(self, **kwargs):
+            return [
+                SearchResult(
+                    chunk_id="c1",
+                    document_id="d1",
+                    tenant_id="t1",
+                    score=0.03,
+                    score_type=score_type,
+                    source=source,
+                    metadata={"content": "body"},
+                )
+            ]
+
+    candidates = await VectorSearcher(Store()).hybrid_search(
+        query_vector=[0.1], sparse_vector={1: 0.5}, tenant_id="t1"
+    )
+
+    assert [(candidate.score_type, candidate.source) for candidate in candidates] == [
+        (score_type, source)
+    ]
 
 
 @pytest.mark.asyncio

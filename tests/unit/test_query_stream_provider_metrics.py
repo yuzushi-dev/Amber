@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -35,11 +36,14 @@ async def test_stream_done_includes_provider():
     service = GenerationService(
         llm_provider=DummyProvider(),
         config=GenerationConfig(max_tokens=8),
+        document_repository=SimpleNamespace(
+            get_editions_by_ids=AsyncMock(return_value={"d1": "commercial"})
+        ),
     )
     events = []
     async for event in service.generate_stream(
         query="hi",
-        candidates=[{"content": "ctx"}],
+        candidates=[{"document_id": "d1", "content": "ctx"}],
         options={"tenant_id": None, "user_id": None},
     ):
         events.append(event)

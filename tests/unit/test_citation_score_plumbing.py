@@ -94,6 +94,9 @@ async def test_prepare_stream_includes_score_score_type_and_source_in_sse_event(
     svc._resolve_provider_factory = MagicMock(return_value=None)
     svc._apply_complexity_routing = lambda **kwargs: (kwargs["llm_cfg"], "standard", False)
     svc._get_document_titles = AsyncMock(return_value={"d1": "Doc 1 Title"})
+    svc.document_repository = SimpleNamespace(
+        get_editions_by_ids=AsyncMock(return_value={"d1": "commercial"})
+    )
 
     candidates = [
         Candidate(

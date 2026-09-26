@@ -5,13 +5,8 @@ Graph Tools
 Tools for the agent to interact with the Neo4j Knowledge Graph.
 """
 
-import logging
 import re
 from typing import Any
-
-from src.core.graph.domain.ports.graph_client import get_graph_client
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Write-clause detection (case-insensitive, word-boundary)
@@ -49,7 +44,7 @@ def _references_tenant_id(query: str, parameters: dict[str, Any] | None) -> bool
 
 def create_graph_tool(tenant_id: str) -> dict[str, Any]:
     """
-    Build a tenant-scoped, read-only ``query_graph`` tool.
+    Build a tenant-scoped ``query_graph`` tool with a source-provenance gate.
 
     The returned dict has two keys:
       - ``"func"`` — the async callable the agent executor will invoke
@@ -77,7 +72,7 @@ def create_graph_tool(tenant_id: str) -> dict[str, Any]:
 
     async def query_graph(query: str, parameters: dict[str, Any] | None = None) -> str:
         """
-        Execute a read-only, tenant-scoped Cypher query against the knowledge graph.
+        Validate Cypher and fail closed until commercial source provenance is available.
 
         The query MUST reference the ``$tenant_id`` parameter so results are
         limited to the caller's tenant.  Write clauses are not permitted.
@@ -112,18 +107,11 @@ def create_graph_tool(tenant_id: str) -> dict[str, Any]:
                 "``{tenant_id: $tenant_id}`` or ``WHERE n.tenant_id = $tenant_id``."
             )
 
-        try:
-            results = await get_graph_client().execute_read(query, merged_params)
-
-            if not results:
-                return "No results found."
-
-            formatted = [str(record) for record in results]
-            return "\n".join(formatted)
-
-        except Exception as e:
-            logger.warning("query_graph execution error for tenant %s: %s", tenant_id, e)
-            return f"Error executing graph query: {str(e)}"
+        # Free-form Cypher cannot prove the edition provenance of returned aggregates.
+        return (
+            "Graph lookup unavailable: commercial source provenance cannot be verified. "
+            "Use search_codebase to retrieve permitted documents."
+        )
 
     schema = {
         "type": "function",

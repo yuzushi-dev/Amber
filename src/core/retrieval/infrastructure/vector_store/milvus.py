@@ -826,6 +826,7 @@ class MilvusVectorStore:
                 document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 
@@ -872,8 +873,10 @@ class MilvusVectorStore:
             return await self.search(
                 dense_vector,
                 tenant_id,
+                document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 
@@ -942,6 +945,8 @@ class MilvusVectorStore:
                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
                             score=hit.score,
                             metadata=meta,
+                            score_type="rrf",
+                            source="hybrid",
                             generation_id=hit.entity.get(self.FIELD_GENERATION_ID),
                         )
                     )
@@ -953,8 +958,10 @@ class MilvusVectorStore:
             return await self.search(
                 dense_vector,
                 tenant_id,
+                document_ids=document_ids,
                 limit=limit,
                 filters=filters,
+                collection_name=collection_name,
                 exclude_document_ids=exclude_document_ids,
             )
 

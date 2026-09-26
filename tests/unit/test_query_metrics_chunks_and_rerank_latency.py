@@ -74,6 +74,7 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
         def __init__(self):
             self.m = SimpleNamespace(
                 query_id="q-1", tenant_id="tenant-1", query="test query",
+                search_mode="unknown",
                 chunks_retrieved=0, chunks_used=0, reranking_latency_ms=0.0,
                 tokens_used=0, input_tokens=0, output_tokens=0, cost_estimate=0.0,
                 model="", provider="", sources_cited=0, answer_length=0, response="",
@@ -106,6 +107,7 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
     assert captured_metrics.reranking_latency_ms == pytest.approx(45.5), (
         "reranking_latency_ms must be copied from RetrievalResult.reranking_ms (independent of include_trace)"
     )
+    assert captured_metrics.search_mode == "basic"
 
 
 @pytest.mark.asyncio
@@ -205,6 +207,9 @@ async def test_generation_service_generate_sets_chunks_used():
     svc._resolve_provider_factory = MagicMock(return_value=None)
     svc._apply_complexity_routing = lambda **kwargs: (kwargs["llm_cfg"], "standard", False)
     svc._get_document_titles = AsyncMock(return_value={})
+    svc.document_repository = SimpleNamespace(
+        get_editions_by_ids=AsyncMock(return_value={"d1": "commercial", "d2": "commercial"})
+    )
     svc._map_sources = MagicMock(return_value=("Provider response", []))
 
     mock_provider = MagicMock()
@@ -219,8 +224,8 @@ async def test_generation_service_generate_sets_chunks_used():
     svc.llm = mock_provider
 
     candidates = [
-        {"chunk_id": "c1", "content": "chunk 1 text", "metadata": {}},
-        {"chunk_id": "c2", "content": "chunk 2 text", "metadata": {}},
+        {"chunk_id": "c1", "document_id": "d1", "content": "chunk 1 text", "metadata": {}},
+        {"chunk_id": "c2", "document_id": "d2", "content": "chunk 2 text", "metadata": {}},
     ]
     result = await svc.generate(query="Current query", candidates=candidates)
 

@@ -14,7 +14,14 @@ from typing import Any
 
 import structlog
 
+from src.core.generation.application.citations import (
+    is_escaped,
+    is_protected,
+    protected_code_ranges,
+    rewrite_unprotected,
+)
 from src.core.generation.application.context_builder import ContextBuilder
+from src.core.generation.application.literal_code import guard_literal_code
 from src.core.generation.application.registry import PromptRegistry
 from src.core.generation.domain.ports.provider_factory import (
     build_provider_factory,
@@ -31,6 +38,7 @@ from src.core.tenants.application.effective_config import (
 )
 from src.core.tenants.domain.ports.tenant_repository import TenantRepository
 from src.shared.kernel.observability import trace_span
+from src.shared.model_registry import LLM_MODEL_TO_PROVIDERS, resolve_provider_for_model
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -95,8 +103,8 @@ class GenerationResult:
     chunks_used: int = 0
     trace: list[dict[str, Any]] = field(default_factory=list)
     follow_up_questions: list[str] = field(default_factory=list)
-    is_grounded: bool = True
-    grounding_score: float = 1.0
+    is_grounded: bool | None = None
+    grounding_score: float | None = None
 
 
 @dataclass
@@ -108,7 +116,7 @@ class GenerationConfig:
     temperature: float | None = None  # Use step defaults unless overridden
     seed: int | None = None
     max_tokens: int = 12000
-    max_context_tokens: int = 8000  # Default to 8k context budget
+    max_context_tokens: int = 12000  # 12k: no tail truncation with 6 gap slots (benchmark 2026-09-26); model window 131k
     enable_follow_up: bool = True
     prompt_version: str = "latest"
 
@@ -133,6 +141,7 @@ class PreparedGenerationStream:
     api_key_id: str | None
     tenant_config: dict[str, Any]
     used_candidates_count: int = 0
+    source_excerpts: dict[int, str] = field(default_factory=dict)
 
 
 def _is_synthetic_candidate(candidate: Any) -> bool:
@@ -298,6 +307,30 @@ class GenerationService:
             tenant_config=tenant_config,
             rules_addendum=rules_addendum,
         )
+        system_prompt += (
+            "\n\n## LITERAL RESPONSE FORMATTING\n"
+            "Distinguish read-only checks from state-changing actions; never present a "
+            "mutating command as a verification step. Include prerequisites and backup "
+            "steps before state changes only when the sources document them, and never "
+            "assume a backup already exists. Quote shell literals so metacharacters "
+            "cannot trigger unintended expansion. Preserve quotes and delimiters, "
+            "including backticks, inside code literals; when a literal contains "
+            "backticks, use a fenced code block whose fence is longer than every "
+            "consecutive backtick sequence in the literal; never use inline code "
+            "for such a literal. Never remove characters to simplify Markdown. "
+            "If the sources do not document a "
+            "cause or known issue, state that limitation separately from any supported "
+            "checks or procedures. When sources cover only part of the question, identify "
+            "the specific undocumented detail, then separately describe relevant checks "
+            "or procedures explicitly documented in the supplied sources with citations. "
+            "Label a related source describing a different symptom as such; it cannot "
+            "establish the reported cause. Use a bare no-documentation refusal only when "
+            "no supplied source provides relevant information. Cite each documented "
+            "check or procedure and do not provide unsupported instructions.\n"
+            "Preserve every character of literal search patterns, operators, wildcards, "
+            "paths, and commands. Put these syntax-sensitive literals in inline code "
+            "or fenced code blocks; do not use emphasis for them."
+        )
 
         if tenant_config.get("rag_system_prompt"):
             logger.debug("Applied tenant system prompt override")
@@ -309,8 +342,39 @@ class GenerationService:
     def _normalize_citations(self, text: str) -> str:
         if not text:
             return text
-        text = MULTI_CITATION_PATTERN.sub(_expand_grouped_citation, text)
-        return CITATION_NORMALIZE_PATTERN.sub(r"[[Source: \1]]", text)
+        text = rewrite_unprotected(text, MULTI_CITATION_PATTERN, _expand_grouped_citation)
+        return rewrite_unprotected(
+            text,
+            CITATION_NORMALIZE_PATTERN,
+            lambda match: f"[[Source: {match.group(1)}]]",
+        )
+
+    @staticmethod
+    def _override_request_model(llm_cfg, model: str):
+        provider = llm_cfg.provider
+        if provider not in LLM_MODEL_TO_PROVIDERS.get(model, set()):
+            provider = resolve_provider_for_model(
+                model, LLM_MODEL_TO_PROVIDERS, kind="llm"
+            ) or provider
+        return replace(llm_cfg, provider=provider, model=model)
+
+    async def _exclude_ce_sources(self, candidates: list[Any]) -> list[Any]:
+        """Check authoritative editions before any document enters generation."""
+        if not candidates:
+            return []
+        if self.document_repository is None:
+            raise RuntimeError("Document repository required to enforce source policy")
+        document_ids = [
+            c.get("document_id") if isinstance(c, dict) else getattr(c, "document_id", None)
+            for c in candidates
+        ]
+        editions = await self.document_repository.get_editions_by_ids(
+            list({doc_id for doc_id in document_ids if doc_id})
+        )
+        return [
+            candidate for candidate, doc_id in zip(candidates, document_ids, strict=True)
+            if doc_id in editions and editions[doc_id] == "commercial"
+        ]
 
     @trace_span("GenerationService.generate")
     async def generate(
@@ -326,6 +390,7 @@ class GenerationService:
         """
         start_time = time.perf_counter()
         trace = []
+        candidates = await self._exclude_ce_sources(candidates)
 
         # Step 0.5: Inject global rules as candidates AND build system prompt addendum
         rules_addendum = ""
@@ -367,7 +432,42 @@ class GenerationService:
             max_tokens=self.config.max_context_tokens,
             model=self.config.model or self.llm.model_name,
         )
-        context_result = builder.build(candidates, query=query)
+        doc_titles = await self._get_document_titles(candidates)
+        context_result = builder.build(
+            candidates, query=query, document_titles=doc_titles
+        )
+
+        if include_trace:
+            traced_candidates = []
+            for candidate in context_result.used_candidates:
+                if _is_synthetic_candidate(candidate):
+                    continue
+                if isinstance(candidate, dict):
+                    metadata = candidate.get("metadata") or {}
+                    chunk_id = candidate.get("chunk_id") or candidate.get("id")
+                    document_id = candidate.get("document_id") or metadata.get("document_id")
+                    score = candidate.get("score")
+                else:
+                    metadata = getattr(candidate, "metadata", {}) or {}
+                    chunk_id = getattr(candidate, "chunk_id", None) or getattr(candidate, "id", None)
+                    document_id = getattr(candidate, "document_id", None) or metadata.get("document_id")
+                    score = getattr(candidate, "score", None)
+                traced_candidates.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "document_id": document_id,
+                        "score": float(score) if score is not None else None,
+                    }
+                )
+            trace.append(
+                {
+                    "step": "generation_context",
+                    "candidate_count": len(traced_candidates),
+                    "tokens": context_result.tokens,
+                    "candidates": traced_candidates,
+                    "coverage": context_result.coverage,
+                }
+            )
 
         # Step 1.5: Retrieve Memory (Facts & Summaries)
         memory_context = ""
@@ -400,7 +500,8 @@ class GenerationService:
                         "metadata": {
                             "document_id": f"user_fact_{idx}",
                             "title": "Verified Memory",
-                            "type": "memory"
+                            "type": "memory",
+                            "synthetic": True,
                         },
                         "score": 1.5,
                     })
@@ -475,7 +576,7 @@ class GenerationService:
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
-            llm_cfg = replace(llm_cfg, model=req_model)
+            llm_cfg = self._override_request_model(llm_cfg, req_model)
             logger.info(f"Model override from request: {req_model}")
 
         logger.info(
@@ -494,13 +595,15 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
+        if req_model and factory is None:
+            raise RuntimeError("Provider factory required for an explicit model override")
 
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=True,
+                with_failover=not bool(req_model),
             )
             if factory
             else self.llm
@@ -543,9 +646,10 @@ class GenerationService:
 
         # Step 4: Parse citations, map sources, and renumber markers so they
         # match the (cited-only) `sources` array returned to the client.
-        doc_titles = await self._get_document_titles(context_result.used_candidates)
         normalized_answer, cited_sources = self._map_sources(
-            llm_result.text, context_result.used_candidates, doc_titles
+            guard_literal_code(llm_result.text, context_result.source_excerpts),
+            context_result.used_candidates,
+            doc_titles,
         )
 
         # Log response summary
@@ -574,25 +678,6 @@ class GenerationService:
                 answer=normalized_answer.strip(),
             )
 
-        # Step 5: Verify sources
-        is_grounded = True
-        grounding_score = 1.0
-
-        if cited_sources:
-            for _source in cited_sources:
-                # We verify if the generated answer text around complexity (not implemented fully here)
-                # For MVP, we verify if the citation points to content that appears relevant.
-                # Actually, SourceVerifier.verify_citation checks if 'citation_text' is in 'source_text'.
-                # But here we don't have the citation text extracted, only the index [1].
-                # We should try to extract the sentence containing [1].
-                # Or just mark it based on presence.
-                # For now, let's assume if it cites a source validly mapped, it's partially verified.
-                # Use source_verifier if we can extract quoted text.
-                pass
-
-            # TODO: Implement granular quote extraction for robust verification
-            pass
-
         total_latency = (time.perf_counter() - start_time) * 1000
 
         return GenerationResult(
@@ -613,8 +698,6 @@ class GenerationService:
             follow_up_questions=self._generate_follow_ups(query, normalized_answer)
             if self.config.enable_follow_up
             else [],
-            is_grounded=is_grounded,
-            grounding_score=grounding_score,
         )
 
     async def prepare_stream(
@@ -632,6 +715,7 @@ class GenerationService:
         contains only detached prompt/provider data and can safely outlive it.
         """
         prelude_events: list[dict[str, Any]] = []
+        candidates = await self._exclude_ce_sources(candidates)
         # Step 0.5: Inject global rules as candidates AND build system prompt addendum
         rules_addendum = ""
         try:
@@ -662,6 +746,7 @@ class GenerationService:
                             "metadata": {
                                 "document_id": f"rule_doc_{idx}",
                                 "title": "Global Domain Rule",
+                                "synthetic": True,
                             },
                             "score": 2.0,
                         }
@@ -675,7 +760,45 @@ class GenerationService:
             max_tokens=self.config.max_context_tokens,
             model=self.config.model or self.llm.model_name,
         )
-        ctx = builder.build(candidates, query=query)
+        doc_titles = await self._get_document_titles(candidates)
+        ctx = builder.build(candidates, query=query, document_titles=doc_titles)
+
+        if (options or {}).get("include_trace"):
+            traced_candidates = []
+            for candidate in ctx.used_candidates:
+                if _is_synthetic_candidate(candidate):
+                    continue
+                if isinstance(candidate, dict):
+                    metadata = candidate.get("metadata") or {}
+                    chunk_id = candidate.get("chunk_id") or candidate.get("id")
+                    document_id = candidate.get("document_id") or metadata.get("document_id")
+                    score = candidate.get("score")
+                else:
+                    metadata = getattr(candidate, "metadata", {}) or {}
+                    chunk_id = getattr(candidate, "chunk_id", None) or getattr(candidate, "id", None)
+                    document_id = getattr(candidate, "document_id", None) or metadata.get("document_id")
+                    score = getattr(candidate, "score", None)
+                traced_candidates.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "document_id": document_id,
+                        "score": float(score) if score is not None else None,
+                    }
+                )
+            prelude_events.append(
+                {
+                    "event": "trace",
+                    "data": {
+                        "step": "generation_context",
+                        "details": {
+                            "candidate_count": len(traced_candidates),
+                            "tokens": ctx.tokens,
+                            "candidates": traced_candidates,
+                            "coverage": ctx.coverage,
+                        },
+                    },
+                }
+            )
 
         # Step 2: Retrieve Memory (Facts & Summaries)
         memory_context = ""
@@ -719,7 +842,6 @@ class GenerationService:
                 logger.warning(f"Failed to retrieve memory in stream: {e}")
 
         # Step 3: Yield source metadata
-        doc_titles = await self._get_document_titles(ctx.used_candidates)
         cited_sources = []
         for i, c in enumerate(ctx.used_candidates):
             is_dict = isinstance(c, dict)
@@ -787,7 +909,7 @@ class GenerationService:
         # Override model if provided in request options
         req_model = options.get("model") if options else None
         if req_model:
-            llm_cfg = replace(llm_cfg, model=req_model)
+            llm_cfg = self._override_request_model(llm_cfg, req_model)
             logger.info(f"Model override from request (stream): {req_model}")
 
         logger.info(
@@ -818,13 +940,15 @@ class GenerationService:
 
         # Resolve factory with tenant context
         factory = self._resolve_provider_factory(tenant_config)
+        if req_model and factory is None:
+            raise RuntimeError("Provider factory required for an explicit model override")
 
         provider = (
             factory.get_llm_provider(
                 provider_name=llm_cfg.provider,
                 model=llm_cfg.model,
                 tier=self.config.tier,
-                with_failover=True,
+                with_failover=not bool(req_model),
             )
             if factory
             else self.llm
@@ -853,11 +977,13 @@ class GenerationService:
             used_candidates_count=sum(
                 1 for c in ctx.used_candidates if not _is_synthetic_candidate(c)
             ),
+            source_excerpts=dict(ctx.source_excerpts),
         )
 
     async def stream_prepared(self, prepared: PreparedGenerationStream) -> AsyncIterator[dict]:
         """Stream a previously prepared provider request without touching the database."""
         full_answer = ""
+        emitted_length = 0
         try:
             logger.info(f"Starting LLM stream with model: {prepared.provider.model_name}")
             async for token in prepared.provider.generate_stream(
@@ -872,12 +998,23 @@ class GenerationService:
                 **prepared.stream_kwargs,
             ):
                 full_answer += token
-                yield {"event": "token", "data": token}
+                safe_end = self._safe_stream_prefix_length(full_answer)
+                if safe_end > emitted_length:
+                    yield {"event": "token", "data": full_answer[emitted_length:safe_end]}
+                    emitted_length = safe_end
             logger.info(f"LLM stream completed, total answer length: {len(full_answer)}")
         except Exception as e:
             logger.exception(f"LLM stream failed with error: {e}")
             # Let the API layer map provider errors to structured SSE processing_error events.
             raise
+
+        guarded_answer = guard_literal_code(full_answer, prepared.source_excerpts)
+        emitted_prefix = full_answer[:emitted_length]
+        if not guarded_answer.startswith(emitted_prefix):
+            raise RuntimeError("Literal code guard changed an already emitted prose prefix")
+        if len(guarded_answer) > emitted_length:
+            yield {"event": "token", "data": guarded_answer[emitted_length:]}
+        full_answer = guarded_answer
 
         # Step 5.5: Trigger Async Memory Extraction
         if prepared.user_id and prepared.api_key_id and full_answer:
@@ -907,6 +1044,15 @@ class GenerationService:
                 "provider": prepared.provider.provider_name,
             },
         }
+
+    @staticmethod
+    def _safe_stream_prefix_length(text: str) -> int:
+        """Return complete prose paragraphs before any possible code syntax."""
+        indicator = re.search(r"`|~|<|\t| {4}", text)
+        limit = indicator.start() if indicator else len(text)
+        # ponytail: only LF blank lines stream early; CR/CRLF stay buffered, extend if latency is measured.
+        boundary = text.rfind("\n\n", 0, limit)
+        return boundary + 2 if boundary >= 0 else 0
 
     async def generate_stream(
         self,
@@ -1062,12 +1208,22 @@ class GenerationService:
         """
         doc_titles = doc_titles or {}
         normalized_answer = self._normalize_citations(answer)
-        pattern = r"\[\[Source:\s*(\d+)\]\]"  # Updated regex to match new prompt format (allowing space)
-        matches = re.findall(pattern, normalized_answer)
+        pattern = re.compile(r"\[\[Source:\s*(\d+)\]\]", re.IGNORECASE)
+        ranges = protected_code_ranges(normalized_answer)
+        matches = [
+            match.group(1) for match in pattern.finditer(normalized_answer)
+            if not is_protected(match.start(), match.end(), ranges)
+            and not is_escaped(normalized_answer, match.start())
+        ]
         # Fallback for old format [1] just in case
         if not matches:
-            pattern = r"\[(\d+)\]"
-            matches = re.findall(pattern, normalized_answer)
+            pattern = re.compile(r"\[(\d+)\]")
+            ranges = protected_code_ranges(normalized_answer)
+            matches = [
+                match.group(1) for match in pattern.finditer(normalized_answer)
+                if not is_protected(match.start(), match.end(), ranges)
+                and not is_escaped(normalized_answer, match.start())
+            ]
 
         cited_indices = {int(m) for m in matches}
 
@@ -1117,10 +1273,7 @@ class GenerationService:
             new_index = original_to_new.get(int(match.group(1)))
             return f"[[Source: {new_index}]]" if new_index is not None else ""
 
-        normalized_answer = re.sub(pattern, _renumber, normalized_answer)
-        # Tidy whitespace/punctuation spacing left behind by stripped markers.
-        normalized_answer = re.sub(r"[ \t]+([.,;:!?])", r"\1", normalized_answer)
-        normalized_answer = re.sub(r"[ \t]{2,}", " ", normalized_answer)
+        normalized_answer = rewrite_unprotected(normalized_answer, pattern, _renumber)
 
         return normalized_answer, sources
 

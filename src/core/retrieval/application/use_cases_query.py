@@ -193,9 +193,18 @@ class QueryUseCase:
                 document_ids = request.filters.document_ids if request.filters else None
 
                 retrieval_result = await self.retrieval_service.retrieve(
+                    for_generation=True,
                     query=request.query,
                     tenant_id=tenant_id,
                     document_ids=document_ids,
+                    filters=(
+                        request.filters.model_dump(
+                            include={"edition", "audience", "source_family"},
+                            exclude_none=True,
+                        )
+                        if request.filters
+                        else None
+                    ),
                     top_k=max_chunks,
                     include_trace=include_trace,
                     options=options,
@@ -247,6 +256,7 @@ class QueryUseCase:
 
                 if not retrieval_result.chunks:
                     answer = self._get_empty_result_message(request.query)
+                    response_model = None
                     sources: list[Source] = []
                     follow_ups = ["What documents are available?", "How do I upload documents?"]
                 else:
@@ -264,6 +274,7 @@ class QueryUseCase:
                     )
 
                     answer = gen_result.answer
+                    response_model = getattr(gen_result, "model", None)
                     self._update_metrics_from_generation(query_metrics, gen_result, answer)
 
                     sources = [
@@ -316,6 +327,7 @@ class QueryUseCase:
 
         return QueryResponse(
             answer=answer,
+            model=response_model,
             sources=sources if options.include_sources else [],
             trace=trace_steps if include_trace else None,
             timing=TimingInfo(

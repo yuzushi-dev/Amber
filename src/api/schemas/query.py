@@ -6,6 +6,7 @@ Request and response models for the query API.
 """
 
 from src.shared.kernel.models.query import (
+    ConversationTurn,
     DateRange,
     QueryFilters,
     QueryOptions,
@@ -19,6 +20,7 @@ from src.shared.kernel.models.query import (
 )
 
 __all__ = [
+    "ConversationTurn",
     "QueryRequest",
     "QueryFilters",
     "QueryOptions",
