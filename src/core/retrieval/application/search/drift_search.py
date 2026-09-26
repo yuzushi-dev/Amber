@@ -59,7 +59,7 @@ class DriftSearchService:
         downstream by GenerationService.
         """
         all_candidates: list[dict[str, Any]] = []
-        follow_ups_history = []
+        follow_ups_history: list[Any] = []
         trace: list[dict[str, Any]] = []
         reranking_ms = 0.0
         timed_out_stage: str | None = None

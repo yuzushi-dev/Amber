@@ -3,6 +3,7 @@
 import re
 from collections.abc import Callable
 from html.parser import HTMLParser
+from typing import Any
 
 from markdown_it import MarkdownIt
 
@@ -19,7 +20,7 @@ def _line_offsets(text: str) -> tuple[list[int], list[int]]:
 
 def _html_code_ranges(text: str, ignored: list[tuple[int, int]]) -> list[tuple[int, int]]:
     line_starts = [0] + [match.end() for match in re.finditer(r"\n", text)]
-    ranges = []
+    ranges: list[tuple[int, int]] = []
     stack: list[tuple[str, int]] = []
 
     class CodeTagParser(HTMLParser):
@@ -30,16 +31,16 @@ def _html_code_ranges(text: str, ignored: list[tuple[int, int]]) -> list[tuple[i
         def _inside_markdown_code(self, offset: int) -> bool:
             return any(start <= offset < end for start, end in ignored)
 
-        def handle_starttag(self, tag, attrs):
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             if tag in {"code", "pre"}:
                 start = self._offset()
                 if not self._inside_markdown_code(start) and not is_escaped(text, start):
                     stack.append((tag, start))
 
-        def handle_startendtag(self, tag, attrs):
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             return
 
-        def handle_endtag(self, tag):
+        def handle_endtag(self, tag: str) -> None:
             if tag not in {"code", "pre"}:
                 return
             end_start = self._offset()
@@ -60,7 +61,7 @@ def _html_code_ranges(text: str, ignored: list[tuple[int, int]]) -> list[tuple[i
 
 
 def _block_range(
-    line_map: list[int] | tuple[int, int] | None, starts: list[int], text_len: int
+    line_map: list[int] | tuple[int, ...] | None, starts: list[int], text_len: int
 ) -> tuple[int, int] | None:
     if not line_map or line_map[0] < 0 or line_map[1] > len(starts):
         return None
@@ -109,14 +110,14 @@ def protected_code_ranges(text: str) -> list[tuple[int, int]]:
         if rule.name == "backticks"
     )
 
-    def capture_backticks(state, silent):
+    def capture_backticks(state: Any, silent: bool) -> bool:
         start = state.pos
         matched = original_backticks(state, silent)
         if matched and not silent and state.tokens and state.tokens[-1].type == "code_inline":
             spans.append((state.src, start, state.pos, state.env.get("_amber_source_map")))
         return matched
 
-    def parse_inline_with_map(state):
+    def parse_inline_with_map(state: Any) -> None:
         for token in state.tokens:
             if token.type == "inline":
                 state.env["_amber_source_map"] = token.map
@@ -139,14 +140,14 @@ def protected_code_ranges(text: str) -> list[tuple[int, int]]:
     for src, start, end, line_map in spans:
         raw_start = _inline_offset(src, start, line_map, lines, lines_start)
         raw_end = _inline_offset(src, end, line_map, lines, lines_start)
-        block = tuple(line_map) if line_map else None
+        span_block = tuple(line_map) if line_map else None
         if raw_start is None or raw_end is None or raw_end < raw_start:
-            failed_blocks.add(block)
+            failed_blocks.add(span_block)
         else:
-            mapped_spans.append((block, raw_start, raw_end))
+            mapped_spans.append((span_block, raw_start, raw_end))
 
-    for line_map in failed_blocks:
-        block = _block_range(line_map, lines_start, len(text))
+    for failed_map in failed_blocks:
+        block = _block_range(failed_map, lines_start, len(text))
         ranges.append(block or (0, len(text)))
     ranges.extend((start, end) for block, start, end in mapped_spans if block not in failed_blocks)
     ranges.extend(_html_code_ranges(text, ranges))
@@ -154,7 +155,7 @@ def protected_code_ranges(text: str) -> list[tuple[int, int]]:
 
 
 def _merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    merged = []
+    merged: list[tuple[int, int]] = []
     for start, end in sorted(ranges):
         if merged and start <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(merged[-1][1], end))

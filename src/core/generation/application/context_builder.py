@@ -55,9 +55,9 @@ class ContextBuilder:
 
         Candidates can be Candidate objects or dictionaries.
         """
-        used_candidates = []
+        used_candidates: list[Any] = []
         dropped_candidates = []
-        context_parts = []
+        context_parts: list[str] = []
         coverage = []
         source_excerpts = {}
 
@@ -69,7 +69,7 @@ class ContextBuilder:
                 metadata = candidate.get("metadata") or candidate
                 chunk_id = candidate.get("chunk_id") or candidate.get("id")
                 title = (
-                    (document_titles or {}).get(document_id)
+                    (document_titles.get(document_id) if document_titles and document_id else None)
                     or candidate.get("title")
                     or metadata.get("document_title")
                     or metadata.get("title")
@@ -80,7 +80,7 @@ class ContextBuilder:
                 metadata = getattr(candidate, "metadata", None) or {}
                 chunk_id = getattr(candidate, "chunk_id", None) or getattr(candidate, "id", None)
                 title = (
-                    (document_titles or {}).get(document_id)
+                    (document_titles.get(document_id) if document_titles and document_id else None)
                     or metadata.get("document_title")
                     or metadata.get("title")
                 )
