@@ -258,10 +258,18 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         group_ids: list[str] = []
         if not is_super_admin:
             async with _get_async_session_maker()() as _grp_session:
-                from sqlalchemy import select
+                from sqlalchemy import select, text
 
                 from src.core.tenants.domain.group import GroupMember
 
+                # group_members is RLS-isolated by tenant. Scope this lookup to the
+                # key's already-authorized tenant, transaction-local so nothing leaks
+                # through the pool; otherwise a fresh connection returns no groups and
+                # a reused one silently depends on the previous request's GUCs.
+                await _grp_session.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                    {"tenant": str(tenant_id)},
+                )
                 _grp_result = await _grp_session.execute(
                     select(GroupMember.group_id).where(
                         GroupMember.api_key_id == valid_key.id,
