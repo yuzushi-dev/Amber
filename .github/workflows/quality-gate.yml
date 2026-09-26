@@ -36,6 +36,9 @@ jobs:
         run: |
           python -m venv .venv
           ./.venv/bin/pip install --upgrade pip
+          # Same pinned runtime set as docker/api.Dockerfile, so CI type-checks and
+          # tests against the versions production runs; dev extras fill in the rest.
+          ./.venv/bin/pip install -r requirements-core.txt
           ./.venv/bin/pip install -e ".[dev]"
 
       - name: Install frontend dependencies
