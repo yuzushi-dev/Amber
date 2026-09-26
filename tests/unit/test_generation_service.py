@@ -20,7 +20,7 @@ class DummySettings:
 
 def _commercial_repository():
     return SimpleNamespace(get_editions_by_ids=AsyncMock(
-        side_effect=lambda ids: {doc_id: "commercial" for doc_id in ids}
+        side_effect=lambda ids: dict.fromkeys(ids, "commercial")
     ))
 
 
@@ -78,6 +78,7 @@ async def test_generate_uses_tenant_prompt_overrides():
         mock_ctx_builder_instance = MockContextBuilder.return_value
         mock_context_result = MagicMock()
         mock_context_result.content = "Mock Context"
+        mock_context_result.source_excerpts = {}
         mock_ctx_builder_instance.build.return_value = mock_context_result
 
         # Execute
@@ -135,6 +136,7 @@ async def test_generate_uses_default_prompts_when_no_override():
         mock_ctx_builder_instance = MockContextBuilder.return_value
         mock_context_result = MagicMock()
         mock_context_result.content = "Mock Context"
+        mock_context_result.source_excerpts = {}
         mock_ctx_builder_instance.build.return_value = mock_context_result
 
         # Execute
@@ -209,6 +211,7 @@ async def test_generate_injects_global_rules_into_system_prompt():
         mock_ctx_builder_instance = MockContextBuilder.return_value
         mock_context_result = MagicMock()
         mock_context_result.content = "Mock Context"
+        mock_context_result.source_excerpts = {}
         mock_ctx_builder_instance.build.return_value = mock_context_result
 
         # Execute
@@ -278,6 +281,7 @@ async def test_generate_inherits_default_tenant_prompt_overrides():
         mock_ctx_builder_instance = MockContextBuilder.return_value
         mock_context_result = MagicMock()
         mock_context_result.content = 'Mock Context'
+        mock_context_result.source_excerpts = {}
         mock_ctx_builder_instance.build.return_value = mock_context_result
 
         await service.generate(
@@ -338,6 +342,7 @@ async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
         mock_ctx_builder_instance = MockContextBuilder.return_value
         mock_context_result = MagicMock()
         mock_context_result.content = 'Mock Context'
+        mock_context_result.source_excerpts = {}
         mock_ctx_builder_instance.build.return_value = mock_context_result
 
         await service.generate(
@@ -350,6 +355,19 @@ async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
     assert system_prompt.startswith('CUSTOM_SYSTEM_PROMPT')
     assert '## DOMAIN RULES' in system_prompt
     assert 'Always answer with domain context.' in system_prompt
+    assert 'Preserve every character of literal search patterns, operators, wildcards' in system_prompt
+    assert 'paths, and commands' in system_prompt
+    assert 'inline code or fenced code blocks; do not use emphasis' in system_prompt
+    assert 'never present a mutating command as a verification step' in system_prompt
+    assert 'never assume a backup already exists' in system_prompt
+    assert 'Preserve quotes and delimiters, including backticks, inside code literals' in system_prompt
+    assert 'use a fenced code block whose fence is longer than every' in system_prompt
+    assert 'Never remove characters to simplify Markdown' in system_prompt
+    assert 'If the sources do not document a cause or known issue' in system_prompt
+    assert 'When sources cover only part of the question, identify the specific undocumented detail' in system_prompt
+    assert 'Label a related source describing a different symptom as such; it cannot establish the reported cause' in system_prompt
+    assert 'Use a bare no-documentation refusal only when no supplied source provides relevant information' in system_prompt
+    assert 'Cite each documented check or procedure and do not provide unsupported instructions' in system_prompt
 
 def test_is_synthetic_candidate_true_for_dict_with_synthetic_flag():
     from src.core.generation.application.generation_service import _is_synthetic_candidate
@@ -433,7 +451,7 @@ async def test_generate_excludes_injected_global_rules_from_chunks_used():
 
         captured_candidates: list = []
 
-        def fake_build(candidates, query=None):
+        def fake_build(candidates, query=None, document_titles=None):
             from src.core.generation.application.context_builder import ContextResult
 
             captured_candidates.extend(candidates)
@@ -447,6 +465,7 @@ async def test_generate_excludes_injected_global_rules_from_chunks_used():
             query="How to configure mailstore?",
             candidates=list(retrieved_chunks),
             options={"tenant_id": "tenant-123"},
+            include_trace=True,
         )
 
     # Sanity: confirm the 1 injected global-rule candidate really was packed
@@ -454,3 +473,16 @@ async def test_generate_excludes_injected_global_rules_from_chunks_used():
     # assertion below would pass by coincidence rather than by exclusion.
     assert len(captured_candidates) == 3
     assert result.chunks_used == 2
+    assert result.is_grounded is None
+    assert result.grounding_score is None
+    context_trace = next(step for step in result.trace if step["step"] == "generation_context")
+    assert context_trace == {
+        "step": "generation_context",
+        "candidate_count": 2,
+        "tokens": 10,
+        "candidates": [
+            {"chunk_id": "c1", "document_id": "doc1", "score": 0.9},
+            {"chunk_id": "c2", "document_id": "doc2", "score": 0.8},
+        ],
+        "coverage": [],
+    }

@@ -3,11 +3,11 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
-from src.core.retrieval.application.retrieval_service import RetrievalService
-from src.shared.kernel.models.query import QueryOptions
-from src.core.retrieval.application.query.router import SearchMode
 from src.core.retrieval.application.query.parser import QueryParser
+from src.core.retrieval.application.query.router import SearchMode
+from src.core.retrieval.application.retrieval_service import RetrievalService
 from src.core.retrieval.domain.ports.vector_store_port import SearchResult
+from src.shared.kernel.models.query import QueryOptions
 
 
 @pytest.mark.asyncio
@@ -59,6 +59,35 @@ async def test_generation_selects_only_visible_commercial_documents(commercial):
 
 
 @pytest.mark.asyncio
+async def test_local_vector_fallback_is_reported_as_effective_basic_mode():
+    service = RetrievalService.__new__(RetrievalService)
+    service.config = SimpleNamespace(top_k=5)
+    service._get_effective_tenant_config = AsyncMock(return_value={})
+    service.document_repository = SimpleNamespace()
+    service.router = SimpleNamespace(route=AsyncMock(return_value=SearchMode.LOCAL))
+    service._resolve_vector_targets = AsyncMock(return_value=[])
+    service._execute_vector_search = AsyncMock(
+        return_value=SimpleNamespace(chunks=[], trace=[])
+    )
+    service.circuit_breaker = MagicMock()
+    scopes = SimpleNamespace(
+        effective_tenant_id="tenant", vector_scopes=["tenant"],
+        graph_scopes=["tenant"], group_ids=[], enforce_groups=False,
+    )
+
+    result = await service.retrieve(
+        "simple question",
+        "tenant",
+        options=QueryOptions(search_mode=SearchMode.LOCAL, use_rewrite=False),
+        query_scopes=scopes,
+    )
+
+    assert service.router.route.await_args.kwargs["explicit_mode"] == SearchMode.LOCAL
+    service._execute_vector_search.assert_awaited_once()
+    assert result.search_mode == SearchMode.BASIC.value
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cached", [True, False])
 async def test_document_scope_filters_cache_and_reranker(cached):
     service = RetrievalService.__new__(RetrievalService)
@@ -77,6 +106,7 @@ async def test_document_scope_filters_cache_and_reranker(cached):
     service.result_cache = SimpleNamespace(
         get=AsyncMock(return_value=SimpleNamespace(
             chunk_ids=["commercial", "ce"], scores=[1.0, 1.0],
+            score_types=["reranker", "reranker"], sources=["vector", "vector"],
         ) if cached else None), set=AsyncMock(),
     )
     service._fetch_chunks_by_ids = AsyncMock(return_value=[

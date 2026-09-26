@@ -945,6 +945,8 @@ class MilvusVectorStore:
                             tenant_id=hit.entity.get(self.FIELD_TENANT_ID),
                             score=hit.score,
                             metadata=meta,
+                            score_type="rrf",
+                            source="hybrid",
                             generation_id=hit.entity.get(self.FIELD_GENERATION_ID),
                         )
                     )

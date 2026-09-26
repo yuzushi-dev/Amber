@@ -126,3 +126,113 @@ def test_map_sources_grouped_citation_requires_source_keyword_or_double_bracket(
 
     assert [s.chunk_id for s in sources] == ["c1"]
     assert "arr[0, 1]" in rewritten
+
+
+def test_map_sources_preserves_literal_whitespace_and_punctuation_when_renumbering():
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    code = '```js\n  const label = m(`label.view_mail`, `VIEW MAIL`);\n  const value = "x   !";\n```'
+    inline_literal = "`x  !`"
+    answer = f"{code}\nInline {inline_literal} [[Source: 2]]."
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [source.chunk_id for source in sources] == ["c2"]
+    assert code in rewritten
+    assert inline_literal in rewritten
+    assert rewritten.endswith("[[Source: 1]].")
+
+
+def test_code_markers_do_not_normalize_collect_or_renumber():
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    code = (
+        "``arr[1]`` `arr[\n  1] and [[Source: 2]]` ```code [[Source: 1]]```\n~~~py\n[1]\n~~~~\n"
+        "    [[Source: 1]]\n\t[[Source: 1]]\n> ~~~\n> [[Source: 1]]\n> ~~~~\n"
+    )
+    answer = f"{code}- quoted list [[Source: 2]]\n    list continuation [[Source: 2]]\n> - nested `[[Source: 1]]\n>   still [[Source: 1]]` [[Source: 2]]\n> prose [[Source: 2]]\nUse [[Source: 2]]."
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [source.chunk_id for source in sources] == ["c2"]
+    assert rewritten.startswith(code)
+    assert rewritten.endswith("- quoted list [[Source: 1]]\n    list continuation [[Source: 1]]\n> - nested `[[Source: 1]]\n>   still [[Source: 1]]` [[Source: 1]]\n> prose [[Source: 1]]\nUse [[Source: 1]].")
+
+
+def test_code_only_and_escaped_markers_do_not_add_sources():
+    svc = _service()
+    candidates = [_candidate("c1", "d1")]
+
+    rewritten, sources = svc._map_sources("`arr[1]` and \\[1]", candidates)
+
+    assert sources == []
+    assert rewritten == "`arr[1]` and \\[1]"
+
+    rewritten, sources = svc._map_sources("~~~\n[[Source: 1]]\n[[Source: 1]]", candidates)
+
+    assert sources == []
+    assert rewritten == "~~~\n[[Source: 1]]\n[[Source: 1]]"
+
+
+def test_repeated_lines_and_crlf_map_to_original_code_ranges():
+    svc = _service()
+    candidates = [_candidate("c1", "d1")]
+    answer = "`[[Source: 1]]`\r\n`[[Source: 1]]`\r\n```\r\n[[Source: 1]]\r\n```\r\nUse [[Source: 1]]."
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [source.chunk_id for source in sources] == ["c1"]
+    assert rewritten == "`[[Source: 1]]`\r\n`[[Source: 1]]`\r\n```\r\n[[Source: 1]]\r\n```\r\nUse [[Source: 1]]."
+
+
+def test_html_code_and_pre_tags_are_protected_without_rewriting_prose():
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    answer = (
+        "Prose [[Source: 2]]; <code class='literal'>[1]</code>; "
+        "<pre data-kind='raw'>\n\n[[Source: 1]]\n</pre>"
+    )
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [source.chunk_id for source in sources] == ["c2"]
+    assert rewritten == (
+        "Prose [[Source: 1]]; <code class='literal'>[1]</code>; "
+        "<pre data-kind='raw'>\n\n[[Source: 1]]\n</pre>"
+    )
+
+
+def test_html_unclosed_and_markdown_fence_boundaries_are_conservative():
+    svc = _service()
+    candidates = [_candidate("c1", "d1")]
+    unclosed = "<code data-x='y'>[1]\n[[Source: 1]]"
+    fenced = "~~~\n<code>literal\n~~~\rprose [[Source: 1]]"
+
+    rewritten_unclosed, sources_unclosed = svc._map_sources(unclosed, candidates)
+    rewritten_fenced, sources_fenced = svc._map_sources(fenced, candidates)
+
+    assert sources_unclosed == []
+    assert rewritten_unclosed == unclosed
+    assert [source.chunk_id for source in sources_fenced] == ["c1"]
+    assert rewritten_fenced == "~~~\n<code>literal\n~~~\rprose [[Source: 1]]"
+
+
+def test_escaped_html_opening_does_not_protect_following_prose():
+    svc = _service()
+    candidates = [_candidate("c1", "d1")]
+
+    rewritten, sources = svc._map_sources("\\<code>[1] prose [[Source: 1]]", candidates)
+
+    assert [source.chunk_id for source in sources] == ["c1"]
+    assert rewritten == "\\<code>[[Source: 1]] prose [[Source: 1]]"
+
+
+def test_html_tag_literal_inside_markdown_code_does_not_protect_later_prose():
+    svc = _service()
+    candidates = [_candidate("c1", "d1"), _candidate("c2", "d2")]
+    answer = "Use `<code>` then [[Source: 2]]"
+
+    rewritten, sources = svc._map_sources(answer, candidates)
+
+    assert [source.chunk_id for source in sources] == ["c2"]
+    assert rewritten == "Use `<code>` then [[Source: 1]]"

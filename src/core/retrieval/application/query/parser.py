@@ -23,7 +23,7 @@ class QueryParser:
     """
 
     # Regex patterns
-    DOC_PATTERN = re.compile(r"@(\w+)")
+    DOC_PATTERN = re.compile(r"(?<![\w.+-])@(\w+)")
     TAG_PATTERN = re.compile(r"#(\w+)")
     SINCE_PATTERN = re.compile(r"since:(\d{4}-\d{2}-\d{2})")
     UNTIL_PATTERN = re.compile(r"until:(\d{4}-\d{2}-\d{2})")

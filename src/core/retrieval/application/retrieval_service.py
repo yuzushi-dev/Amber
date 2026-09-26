@@ -7,7 +7,10 @@ Unified retrieval pipeline combining vector search, caching, and reranking.
 
 import inspect
 import logging
+import math
+import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +49,96 @@ from src.shared.kernel.observability import trace_span
 from src.shared.kernel.runtime import get_settings as _get_settings
 
 logger = logging.getLogger(__name__)
+
+_ARTICLE_REFERENCE_PATTERN = re.compile(
+    r"(?:\b(?:articles?|articol[oi]|kb)\b[\s:#-]*([0-9]{8,})(?![A-Za-z0-9_])|"
+    r"/articles/([0-9]{8,})(?![A-Za-z0-9_]))",
+    re.IGNORECASE,
+)
+
+
+def _extract_article_reference(query: str) -> str | None:
+    match = _ARTICLE_REFERENCE_PATTERN.search(query)
+    return next((number for number in match.groups() if number), None) if match else None
+
+
+def _validated_rerank_results(
+    items: Any,
+    *,
+    input_count: int,
+    top_k: int,
+) -> list[tuple[int, float]] | None:
+    """Validate a complete reranker selection before any candidate is changed."""
+    if not isinstance(items, list) or len(items) != min(top_k, input_count):
+        return None
+
+    validated: list[tuple[int, float]] = []
+    seen_indices: set[int] = set()
+    try:
+        for item in items:
+            index = item.index
+            score_value = item.score
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or index < 0
+                or index >= input_count
+                or index in seen_indices
+                or isinstance(score_value, bool)
+            ):
+                return None
+            score = float(score_value)
+            if not math.isfinite(score):
+                return None
+            seen_indices.add(index)
+            validated.append((index, score))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    return validated
+
+
+_RERANK_TIMING_FIELDS = (
+    "ranker_load_ms",
+    "executor_queue_ms",
+    "ranker_execution_ms",
+    "postprocess_ms",
+)
+
+# ponytail: fixed caps on continuation chunks per generation context (multi-chunk
+# documents / sufficiency gap hits); make them RetrievalConfig fields only if
+# tuning per tenant is ever needed.
+MAX_DOCUMENT_CONTINUATIONS = 4
+MAX_GAP_CONTINUATIONS = 3
+# At most this many gap queries run per sufficiency round, and at most this many
+# new chunks are admitted per round (one slot per gap query, round-robin).
+SUFFICIENCY_GAPS_PER_ROUND = 3  # gap queries (searches + reranks) per round
+# Gap hits admitted per round (round-robin across that round's gap queries). 6 lets each
+# of 3 gap queries contribute 2 hits: +10/124 key facts in the 2026-09-26 replay.
+SUFFICIENCY_GAP_HITS_PER_ROUND = 6
+# Gap hits whose reranker score (against their own gap query) falls below this are
+# off-topic noise and are not admitted. Calibrated on FlashRank ms-marco-MiniLM-L-12-v2:
+# legitimate gap hits scored >= 0.61; the 0.25-0.6 band held only irrelevant hits in a
+# 64-run held-out benchmark. Recalibrate if the reranker model changes.
+# ponytail: fixed threshold; it only catches off-topic noise, not lexical false
+# positives (MiniLM saturates on word overlap).
+SUFFICIENCY_GAP_MIN_SCORE = 0.6
+
+
+def _provider_rerank_timings(result: Any) -> dict[str, float]:
+    """Expose only safe numeric timing metadata from a reranker result."""
+    metadata = getattr(result, "metadata", None)
+    if not isinstance(metadata, dict):
+        return {}
+
+    timings: dict[str, float] = {}
+    for key in _RERANK_TIMING_FIELDS:
+        value = metadata.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        elapsed = float(value)
+        if math.isfinite(elapsed) and elapsed >= 0:
+            timings[key] = elapsed
+    return timings
 
 
 @dataclass
@@ -830,6 +923,23 @@ class RetrievalService:
                 }
             )
 
+        raw_document_ids = QueryParser.parse(query).document_ids or []
+        has_document_scope = document_ids is not None or bool(raw_document_ids)
+        requested_document_ids = (
+            set(document_ids).intersection(raw_document_ids)
+            if document_ids is not None and raw_document_ids
+            else set(document_ids if document_ids is not None else raw_document_ids)
+        )
+        if has_document_scope and not requested_document_ids:
+            return RetrievalResult(
+                chunks=[],
+                query=query,
+                tenant_id=resolved_tenant_id,
+                latency_ms=(time.perf_counter() - start_time) * 1000,
+                search_mode=SearchMode.BASIC.value,
+                trace=trace,
+            )
+
         # Step 1: Contextual Rewriting
         processed_query = query
         # Rewrite if history is provided OR explicit system constraints (rules/memory) are given
@@ -845,7 +955,7 @@ class RetrievalService:
         structured_query = QueryParser.parse(processed_query)
 
         # Merge filters
-        all_document_ids = list(set((document_ids or []) + (structured_query.document_ids or [])))
+        all_document_ids = sorted(requested_document_ids)
         if for_generation:
             # Apply ACLs and the source policy before taxonomy can broaden selection.
             visible_ids = set()
@@ -868,7 +978,7 @@ class RetrievalService:
                     search_mode=SearchMode.BASIC.value, trace=trace,
                 )
         all_filters = {**(filters or {})}
-        if structured_query.tags:
+        if all_filters.get("tags") is None and structured_query.tags:
             all_filters["tags"] = structured_query.tags
         # Date range filters could be added here
 
@@ -887,55 +997,44 @@ class RetrievalService:
         _inferred_edition = _tax_ctx.editions or (
             _tax_ctx.edition if _tax_ctx.edition != "unknown" else None
         )
-        _tax_edition = _explicit_edition or _inferred_edition
-        _tax_audience = _explicit_audience or (_tax_ctx.audience if _tax_ctx.audience != "unknown" else None)
+        _tax_edition = (
+            _explicit_edition if _explicit_edition is not None else _inferred_edition
+        )
+        _tax_audience = _explicit_audience
         _tax_source_family = _explicit_source_family
+        _taxonomy_filter_explicit = any(
+            value is not None
+            for value in (_explicit_edition, _explicit_audience, _explicit_source_family)
+        )
 
         _taxonomy_doc_ids: list[str] | None = None
         _broadening_stage = "none"
 
-        _has_taxonomy_signal = bool(_tax_edition or _tax_audience or _tax_source_family)
+        _has_taxonomy_signal = _taxonomy_filter_explicit or bool(
+            _tax_edition or _tax_audience or _tax_source_family
+        )
         if _has_taxonomy_signal and hasattr(self.document_repository, "list_visible_document_ids_by_taxonomy"):
-            _primary_scope = resolved_scopes.effective_tenant_id
-
-            # Stage 1: strict (edition + audience + source_family)
-            _strict_ids = await self.document_repository.list_visible_document_ids_by_taxonomy(
-                viewer_tenant_id=_primary_scope,
-                owner_tenant_id=_primary_scope,
-                candidate_document_ids=all_document_ids or None,
-                edition=_tax_edition,
-                audience=_tax_audience,
-                source_family=_tax_source_family,
-            )
+            _strict_ids = []
+            for owner_id in resolved_scopes.vector_scopes:
+                _owner_ids = await self.document_repository.list_visible_document_ids_by_taxonomy(
+                    viewer_tenant_id=resolved_tenant_id,
+                    owner_tenant_id=owner_id,
+                    candidate_document_ids=all_document_ids or None,
+                    edition=_tax_edition,
+                    audience=_tax_audience,
+                    source_family=_tax_source_family,
+                )
+                _strict_ids.extend(_owner_ids or [])
+            _strict_ids = list(dict.fromkeys(_strict_ids))
 
             if _strict_ids:
                 _taxonomy_doc_ids = _strict_ids
                 _broadening_stage = "strict"
-            elif _tax_edition and _tax_audience:
-                # Stage 2: same edition, any audience
-                _broad2 = await self.document_repository.list_visible_document_ids_by_taxonomy(
-                    viewer_tenant_id=_primary_scope,
-                    owner_tenant_id=_primary_scope,
-                    candidate_document_ids=all_document_ids or None,
-                    edition=_tax_edition,
-                )
-                if _broad2:
-                    _taxonomy_doc_ids = _broad2
-                    _broadening_stage = "edition_only"
-                else:
-                    # Stage 3: any edition, same audience
-                    _broad3 = await self.document_repository.list_visible_document_ids_by_taxonomy(
-                        viewer_tenant_id=_primary_scope,
-                        owner_tenant_id=_primary_scope,
-                        candidate_document_ids=all_document_ids or None,
-                        audience=_tax_audience,
-                    )
-                    if _broad3:
-                        _taxonomy_doc_ids = _broad3
-                        _broadening_stage = "audience_only"
-                    else:
-                        # Stage 4: unfiltered fallback (low confidence or empty corpus)
-                        _broadening_stage = "unfiltered"
+            elif _taxonomy_filter_explicit:
+                _taxonomy_doc_ids = []
+                _broadening_stage = "strict_empty"
+            else:
+                _broadening_stage = "unfiltered"
 
             if include_trace:
                 trace.append({
@@ -944,14 +1043,71 @@ class RetrievalService:
                     "inferred_audience": _tax_ctx.audience,
                     "explicit_edition": _explicit_edition,
                     "explicit_audience": _explicit_audience,
+                    "audience_filter": _tax_audience,
                     "confidence": _tax_ctx.confidence,
                     "broadening_stage": _broadening_stage,
                     "strict_candidate_count": len(_strict_ids) if _has_taxonomy_signal else None,
                     "taxonomy_doc_ids_count": len(_taxonomy_doc_ids) if _taxonomy_doc_ids else 0,
                 })
 
+        taxonomy_strict_empty = _taxonomy_doc_ids is not None and not _taxonomy_doc_ids
         if _taxonomy_doc_ids is not None:
             all_document_ids = _taxonomy_doc_ids
+
+        article_reference = _extract_article_reference(query)
+        if article_reference:
+            candidate_ids: set[str] = set()
+            if not taxonomy_strict_empty:
+                for owner_id in resolved_scopes.vector_scopes:
+                    candidate_ids.update(await self._list_visible_document_ids(
+                        viewer_tenant_id=resolved_tenant_id,
+                        owner_tenant_id=owner_id,
+                        candidate_document_ids=all_document_ids or None,
+                        group_ids=list(resolved_scopes.group_ids),
+                        enforce_groups=resolved_scopes.enforce_groups,
+                    ))
+
+            lookup = getattr(self.document_repository, "find_document_ids_by_reference_number", None)
+            matches: set[str] = set()
+            reference_status = "not_found"
+            if not callable(lookup):
+                reference_status = "unavailable"
+            elif candidate_ids:
+                try:
+                    lookup_result = lookup(
+                        article_reference,
+                        candidate_document_ids=sorted(candidate_ids),
+                    )
+                    if inspect.isawaitable(lookup_result):
+                        lookup_result = await lookup_result
+                    if isinstance(lookup_result, list):
+                        matches = candidate_ids.intersection(lookup_result)
+                        reference_status = "found" if matches else "not_found"
+                    else:
+                        reference_status = "unavailable"
+                except Exception as e:
+                    logger.warning("Article reference lookup failed: %s", e)
+                    reference_status = "error"
+
+            if matches:
+                all_document_ids = sorted(matches)
+            if include_trace:
+                trace.append({
+                    "step": "article_reference",
+                    "reference_number": article_reference,
+                    "status": reference_status,
+                    "matched_document_count": len(matches),
+                })
+
+        if taxonomy_strict_empty:
+            return RetrievalResult(
+                chunks=[],
+                query=query,
+                tenant_id=resolved_tenant_id,
+                latency_ms=(time.perf_counter() - start_time) * 1000,
+                search_mode=SearchMode.BASIC.value,
+                trace=trace,
+            )
 
         # Step 3: Query Routing
         _router_start = time.perf_counter()
@@ -964,6 +1120,7 @@ class RetrievalService:
         if for_generation:
             # Graph summaries lack reliable per-document edition provenance.
             search_mode = SearchMode.BASIC
+        effective_search_mode = search_mode
 
         # SECURITY: STRUCTURED runs tenant-scoped Cypher with NO group ACL (Neo4j
         # has no Postgres-RLS backstop), and options.search_mode is a public request
@@ -974,6 +1131,7 @@ class RetrievalService:
         # and drift.
         _structured_allowed = not getattr(resolved_scopes, "enforce_groups", False)
         if not _structured_allowed and search_mode == SearchMode.STRUCTURED:
+            effective_search_mode = SearchMode.BASIC
             logger.info(
                 "STRUCTURED mode requested but group enforcement is active for tenant=%s; "
                 "falling back to ACL-enforced vector search",
@@ -1007,12 +1165,21 @@ class RetrievalService:
                     tenant_id=resolved_tenant_id,
                     tenant_config=tenant_config,
                     query_scopes=resolved_scopes,
+                    document_ids=all_document_ids or None,
+                    filters={**(filters or {}), **all_filters},
+                    options=options,
+                    for_generation=for_generation,
+                    include_trace=include_trace,
                 )
+                if include_trace:
+                    trace.extend(res["trace"])
                 result = RetrievalResult(
                     chunks=res["candidates"],
                     query=query,
                     tenant_id=resolved_tenant_id,
                     latency_ms=0,
+                    trace=res["trace"],
+                    reranking_ms=res["reranking_ms"],
                 )
             elif search_mode == SearchMode.STRUCTURED and _structured_allowed:
                 from src.core.retrieval.application.query.structured_query import (
@@ -1038,6 +1205,7 @@ class RetrievalService:
                     )
                 else:
                     # Executor failed (e.g. graph client unavailable); fall back to vector search
+                    effective_search_mode = SearchMode.BASIC
                     logger.warning(
                         "STRUCTURED query execution failed for tenant=%s; falling back to vector search",
                         resolved_tenant_id,
@@ -1059,6 +1227,7 @@ class RetrievalService:
                         trace=trace,
                         vector_targets=vector_targets,
                         tenant_config=tenant_config,
+                        include_trace=include_trace,
                     )
             else:
                 vector_targets = await self._resolve_vector_targets(
@@ -1072,6 +1241,7 @@ class RetrievalService:
                 # TODO: Create entity_embeddings collection — see ARCHITECTURE_AUDIT.md §4.3
                 # Until then, LOCAL falls back to BASIC vector search.
                 if search_mode == SearchMode.LOCAL:
+                    effective_search_mode = SearchMode.BASIC
                     logger.warning(
                         "SearchMode.LOCAL requested but entity_embeddings collection does not exist; "
                         "falling back to BASIC vector search. tenant=%s", resolved_tenant_id
@@ -1086,9 +1256,11 @@ class RetrievalService:
                     trace=trace,
                     vector_targets=vector_targets,
                     tenant_config=tenant_config,
+                    include_trace=include_trace,
                 )
         except Exception as e:
             logger.error(f"Retrieval failed for mode {search_mode}: {e}")
+            effective_search_mode = SearchMode.BASIC
             # Fallback to simple vector search
             if not vector_targets:
                 vector_targets = await self._resolve_vector_targets(
@@ -1107,6 +1279,7 @@ class RetrievalService:
                 options=options,
                 trace=trace,
                 vector_targets=vector_targets,
+                include_trace=include_trace,
             )
 
         if for_generation:
@@ -1120,7 +1293,8 @@ class RetrievalService:
         # Step 9: Sufficient-context gate + iterative retrieval.
         # Only meaningful for vector-based modes (GLOBAL/DRIFT do their own
         # iteration; STRUCTURED returns tabular rows). Gated by option, off by
-        # default — fails open so it never blocks a response.
+        # default — unknown judgments stop additional retrieval without blocking
+        # the response or claiming the context is sufficient.
         if (
             options.use_sufficiency_loop
             and options.max_sufficiency_rounds > 0
@@ -1145,13 +1319,18 @@ class RetrievalService:
                 c for c in result.chunks
                 if (c.get("document_id") if isinstance(c, dict) else c.document_id) in allowed_ids
             ]
+            result.chunks = await self._append_document_continuations(
+                result.chunks,
+                allowed_ids=allowed_ids,
+                trace=trace if include_trace else None,
+            )
 
         # Record latency for circuit breaker
         total_latency = (time.perf_counter() - start_time) * 1000
         self.circuit_breaker.record_latency(total_latency)
 
         result.latency_ms = total_latency
-        result.search_mode = search_mode.value
+        result.search_mode = effective_search_mode.value
         result.router_latency_ms = _router_latency_ms
         if not include_trace:
             result.trace = []
@@ -1159,6 +1338,162 @@ class RetrievalService:
             result.trace = trace
 
         return result
+
+    async def _append_document_continuations(
+        self,
+        chunks: list[Any],
+        *,
+        allowed_ids: set[str],
+        trace: list[dict[str, Any]] | None = None,
+    ) -> list[Any]:
+        """Keep split sections together in the generation context.
+
+        A document that already supplied two or more final chunks, and every
+        sufficiency gap hit, also supplies the chunk that follows (e.g. symptom/cause
+        chunk -> solution chunk), inserted right after its predecessor. The two
+        kinds have separate caps. Lookup failures leave the list unchanged.
+        Generation results can therefore exceed ``top_k`` by the sufficiency additions
+        (up to rounds x SUFFICIENCY_GAP_HITS_PER_ROUND) plus up to
+        MAX_DOCUMENT_CONTINUATIONS + MAX_GAP_CONTINUATIONS continuations; chunk-count
+        metrics and evaluation contexts include them (``source="document_continuation"``).
+        """
+        if not chunks or not all(isinstance(c, dict) for c in chunks):
+            return chunks
+        fetch = getattr(self.document_repository, "get_next_chunks", None)
+        per_document = Counter(c.get("document_id") for c in chunks)
+
+        def is_gap_parent(chunk: dict[str, Any]) -> bool:
+            return bool(chunk.get("sufficiency_gap_hit"))
+
+        parent_ids = [
+            c["chunk_id"]
+            for c in chunks
+            if c.get("chunk_id")
+            and (is_gap_parent(c) or per_document[c.get("document_id")] >= 2)
+        ]
+        if fetch is None or not parent_ids:
+            return chunks
+        try:
+            following = await fetch(parent_ids)
+        except Exception as e:
+            logger.warning(f"Document continuation lookup failed: {e}")
+            return chunks
+        if not isinstance(following, dict):
+            return chunks
+
+        selected = {c.get("chunk_id") for c in chunks}
+        expanded: list[Any] = []
+        added: list[dict[str, Any]] = []
+        used = {True: 0, False: 0}  # continuations per parent kind (gap hit or not)
+        caps = {True: MAX_GAP_CONTINUATIONS, False: MAX_DOCUMENT_CONTINUATIONS}
+        for chunk in chunks:
+            expanded.append(chunk)
+            nxt = following.get(chunk.get("chunk_id"))
+            gap_parent = is_gap_parent(chunk)
+            if (
+                nxt is None
+                or used[gap_parent] >= caps[gap_parent]
+                or nxt.id in selected
+                or nxt.document_id != chunk.get("document_id")
+                or nxt.document_id not in allowed_ids
+            ):
+                continue
+            expanded.append(
+                {
+                    "chunk_id": nxt.id,
+                    "document_id": nxt.document_id,
+                    "content": nxt.content,
+                    "metadata": nxt.metadata_,
+                    "score": chunk.get("score"),
+                    "score_type": chunk.get("score_type"),
+                    "source": "document_continuation",
+                }
+            )
+            selected.add(nxt.id)
+            used[gap_parent] += 1
+            added.append({"chunk_id": nxt.id, "after": chunk.get("chunk_id"), "gap_hit": gap_parent})
+        if trace is not None and added:
+            trace.append({"step": "document_continuations", "added": added})
+        return expanded
+
+    async def _merge_candidate_groups(
+        self,
+        groups: list[list[dict[str, Any]]],
+        *,
+        query: str,
+        top_k: int,
+        provider_timings: dict[str, float] | None = None,
+        rerank: bool = True,
+    ) -> tuple[list[dict[str, Any]], float, bool]:
+        """Merge ordered query result groups, reranking on one shared query.
+
+        With ``rerank=False`` the additive policy is used directly: base group
+        order first, then one candidate at a time from each later group.
+        """
+        unique_groups: list[list[dict[str, Any]]] = []
+        seen_chunk_ids: set[Any] = set()
+        seen_doc_content: set[tuple[Any, str]] = set()
+        for group in groups:
+            unique_group = []
+            for candidate in group:
+                chunk_id = candidate.get("chunk_id")
+                document_id = candidate.get("document_id")
+                content = candidate.get("content")
+                if chunk_id and chunk_id in seen_chunk_ids:
+                    continue
+                if chunk_id:
+                    seen_chunk_ids.add(chunk_id)
+                if document_id and isinstance(content, str) and content:
+                    content_key = (document_id, content)
+                    if content_key in seen_doc_content:
+                        continue
+                    seen_doc_content.add(content_key)
+                unique_group.append(dict(candidate))
+            unique_groups.append(unique_group)
+
+        union = [candidate for group in unique_groups for candidate in group]
+        reranking_ms = 0.0
+        if rerank and self.reranker is not None and union:
+            started = time.perf_counter()
+            try:
+                response = await self.reranker.rerank(
+                    query=query,
+                    documents=[str(candidate.get("content") or "") for candidate in union],
+                    top_k=top_k,
+                )
+                if provider_timings is not None:
+                    provider_timings.update(_provider_rerank_timings(response))
+                validated = _validated_rerank_results(
+                    response.results, input_count=len(union), top_k=top_k
+                )
+                if validated is None:
+                    raise ValueError("malformed or incomplete reranker results")
+                ranked = []
+                for index, score in validated:
+                    candidate = dict(union[index])
+                    candidate["score"] = score
+                    candidate["score_type"] = "reranker"
+                    ranked.append(candidate)
+                reranking_ms = (time.perf_counter() - started) * 1000
+                floor = self.config.rerank_score_floor
+                if floor is not None:
+                    ranked = [c for c in ranked if c["score"] >= floor]
+                return ranked[:top_k], reranking_ms, True
+            except Exception as e:
+                reranking_ms = (time.perf_counter() - started) * 1000
+                logger.warning("Common-query reranking failed; preserving group order: %s", e)
+
+        # Scores from different queries are not comparable. Preserve the base
+        # order, then fairly take one candidate at a time from each gap group.
+        fallback = list(unique_groups[0]) if unique_groups else []
+        gap_groups = unique_groups[1:]
+        round_idx = 0
+        while len(fallback) < top_k and any(round_idx < len(group) for group in gap_groups):
+            for group in gap_groups:
+                if round_idx < len(group) and len(fallback) < top_k:
+                    fallback.append(group[round_idx])
+            round_idx += 1
+        return fallback[:top_k], reranking_ms, False
 
     async def _run_sufficiency_loop(
         self,
@@ -1180,25 +1515,32 @@ class RetrievalService:
 
         Judges whether `result.chunks` are sufficient to answer `processed_query`.
         While insufficient and rounds remain, runs the proposed gap queries
-        through vector search and merges new chunks into `result` in place.
-        Mutates `result.chunks` (kept score-sorted, capped at top_k).
+        through vector search and ADDS their hits to `result.chunks` in place:
+        the current context keeps its order, and each round appends up to SUFFICIENCY_GAP_HITS_PER_ROUND new
+        chunks taken one at a time from each gap group in that group's own rank
+        order (never re-scored against the original query, which is what judged
+        the context insufficient). Gap hits reranked below SUFFICIENCY_GAP_MIN_SCORE
+        are not admitted. Total length is capped by the budget.
         """
-        seen_ids = {c.get("chunk_id") for c in result.chunks}
         # Decomposition off for gap queries to avoid combinatorial fan-out.
         gap_options = options.model_copy(update={"use_decomposition": False})
         # Context budget: gap chunks are ADDED (the loop fills gaps), not capped
         # back to top_k — otherwise narrow gap chunks evict the original best
         # chunks and the loop hurts more than it helps.
         budget = options.sufficiency_max_chunks or (
-            top_k + options.max_sufficiency_rounds * 3
+            top_k + options.max_sufficiency_rounds * SUFFICIENCY_GAP_HITS_PER_ROUND
         )
         budget = max(budget, top_k)
         # Track gap queries already attempted so the judge proposes new angles
         # instead of repeating the same gaps every round (progressive feedback).
         tried: list[str] = []
         tried_norm: set[str] = set()
+        pending_context_trace_idx: int | None = None
 
         for round_idx in range(options.max_sufficiency_rounds):
+            if pending_context_trace_idx is not None and include_trace:
+                trace[pending_context_trace_idx]["context_reevaluated"] = True
+                pending_context_trace_idx = None
             verdict = await self.sufficiency_evaluator.evaluate(
                 query=processed_query,
                 chunks=result.chunks,
@@ -1208,9 +1550,15 @@ class RetrievalService:
 
             # Drop gaps already attempted in earlier rounds (defends against the
             # judge repeating them despite the prompt).
-            fresh_gaps = [
-                g for g in verdict.gap_queries if g.strip().lower() not in tried_norm
-            ]
+            fresh_gaps = []
+            round_gap_norms: set[str] = set()
+            for gap in verdict.gap_queries:
+                normalized = " ".join(gap.split()).casefold()
+                if normalized and normalized not in tried_norm and normalized not in round_gap_norms:
+                    round_gap_norms.add(normalized)
+                    fresh_gaps.append(gap)
+                if len(fresh_gaps) == SUFFICIENCY_GAPS_PER_ROUND:
+                    break
 
             if include_trace:
                 trace.append(
@@ -1219,19 +1567,25 @@ class RetrievalService:
                         "round": round_idx + 1,
                         "sufficient": verdict.is_sufficient,
                         "reason": verdict.reason,
+                        "status": (
+                            "unknown" if verdict.is_sufficient is None
+                            else "sufficient" if verdict.is_sufficient
+                            else "insufficient"
+                        ),
                         "gap_queries": verdict.gap_queries,
                         "fresh_gap_queries": fresh_gaps,
+                        "coverage": verdict.coverage,
                     }
                 )
 
-            # Stop when sufficient, or when no genuinely new gap query remains.
-            if verdict.is_sufficient or not fresh_gaps:
+            if verdict.is_sufficient is None or verdict.is_sufficient or not fresh_gaps:
                 break
 
-            added = 0
+            round_groups: list[list[dict[str, Any]]] = []
+            below_floor: list[Any] = []
             for gap_q in fresh_gaps:
                 tried.append(gap_q)
-                tried_norm.add(gap_q.strip().lower())
+                tried_norm.add(" ".join(gap_q.split()).casefold())
                 gap_structured = QueryParser.parse(gap_q)
                 try:
                     gap_result = await self._execute_vector_search(
@@ -1244,26 +1598,70 @@ class RetrievalService:
                         trace=trace,
                         vector_targets=vector_targets,
                         tenant_config=tenant_config,
+                        include_trace=include_trace,
+                        _rerank_stage="gap",
                     )
                 except Exception as e:
                     logger.warning("Gap retrieval failed for %r: %s", gap_q[:80], e)
                     continue
+                result.reranking_ms += gap_result.reranking_ms
+                # Only reranker-scale scores are comparable with the floor; vector/RRF
+                # fallback scores pass through unchanged.
+                hits = []
+                for c in gap_result.chunks[:top_k]:
+                    if (
+                        c.get("score_type") == "reranker"
+                        and float(c.get("score") or 0.0) < SUFFICIENCY_GAP_MIN_SCORE
+                    ):
+                        below_floor.append(c.get("chunk_id"))
+                    else:
+                        hits.append(c)
+                if hits:
+                    round_groups.append(
+                        [
+                            {**c, "sufficiency_gap_hit": True, "sufficiency_round": round_idx + 1}
+                            for c in hits
+                        ]
+                    )
 
-                for c in gap_result.chunks:
-                    cid = c.get("chunk_id")
-                    if cid not in seen_ids:
-                        result.chunks.append(c)
-                        seen_ids.add(cid)
-                        added += 1
+            merged, _, _ = await self._merge_candidate_groups(
+                [list(result.chunks)] + round_groups,
+                query=processed_query,
+                top_k=min(budget, len(result.chunks) + SUFFICIENCY_GAP_HITS_PER_ROUND),
+                rerank=False,
+            )
+            # Base chunks win dedupe, so only this round's admitted hits carry its number.
+            added = [c for c in merged if c.get("sufficiency_round") == round_idx + 1]
+            result.chunks = merged
+            if include_trace:
+                sufficiency_trace = next(
+                    (
+                        step for step in reversed(trace)
+                        if step.get("step") == "sufficiency_check"
+                    ),
+                    None,
+                )
+                if sufficiency_trace is not None:
+                    sufficiency_trace["gap_hits_added"] = [c.get("chunk_id") for c in added]
+                    sufficiency_trace["gap_hits_below_floor"] = len(below_floor)
 
-            # Keep score-sorted and bounded by the expanded budget; stop early if
-            # nothing new surfaced. seen_ids stays cumulative so trimmed-out
-            # chunks are not re-fetched.
-            result.chunks.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-            result.chunks = result.chunks[:budget]
-
-            if added == 0:
+            if not added:
                 break
+
+            if include_trace:
+                trace_entry_idx = next(
+                    (
+                        idx for idx in range(len(trace) - 1, -1, -1)
+                        if trace[idx].get("step") == "sufficiency_check"
+                    ),
+                    None,
+                )
+                if trace_entry_idx is not None:
+                    pending_context_trace_idx = trace_entry_idx
+                    trace_entry = trace[trace_entry_idx]
+                    trace_entry["context_reevaluated"] = False
+                    if round_idx + 1 == options.max_sufficiency_rounds:
+                        trace_entry["context_changed_after_evaluation"] = True
 
     @trace_span("RetrievalService.vector_search")
     async def _execute_vector_search(
@@ -1277,6 +1675,8 @@ class RetrievalService:
         trace: list[dict],
         vector_targets: list[VectorSearchTarget],
         tenant_config: dict[str, Any] | None = None,
+        include_trace: bool = False,
+        _rerank_stage: str = "initial",
     ) -> RetrievalResult:
         """Helper to execute vector search with HyDE and Decomposition support."""
         allowed_document_ids = set(document_ids) if document_ids else None
@@ -1290,6 +1690,8 @@ class RetrievalService:
             )
 
         logger.debug("Vector search running %d query variant(s)", len(queries_to_run))
+        if include_trace:
+            trace.append({"step": "query_variants", "queries": list(queries_to_run)})
 
         # Resolve embedding service once (tenant_config is constant for the loop) so we
         # can read model/provider for cache-key construction without redundant calls.
@@ -1306,11 +1708,11 @@ class RetrievalService:
             {doc_id for t in vector_targets if t.document_ids is not None for doc_id in t.document_ids}
         )
 
-        all_chunks = []
-        seen_chunk_ids = set()
+        variant_groups: list[list[dict[str, Any]]] = []
         reranking_ms_total = 0.0
 
         for q in queries_to_run:
+            query_chunks: list[dict[str, Any]] = []
             logger.debug("Vector search processing query variant: %s", q[:120])
             # Handle HyDE
             search_query = q
@@ -1354,6 +1756,8 @@ class RetrievalService:
                 sub_chunks = await self._fetch_chunks_by_ids(
                     cached_result.chunk_ids[:top_k],
                     cached_result.scores[:top_k],
+                    (cached_result.score_types or ["unknown"] * len(cached_result.chunk_ids))[:top_k],
+                    (cached_result.sources or ["unknown"] * len(cached_result.chunk_ids))[:top_k],
                 )
                 if allowed_document_ids is not None:
                     sub_chunks = [
@@ -1370,22 +1774,35 @@ class RetrievalService:
                     # stale entry, and must not send us back to a live search
                     # that would filter the same chunks out again.
                     logger.info("Using cached result for '%s'", search_query)
+                    if include_trace:
+                        trace.append({
+                            "step": "cache_selection",
+                            "query": search_query,
+                            "cache_hit": True,
+                            "chunks": [
+                                {
+                                    "chunk_id": c.get("chunk_id"),
+                                    "document_id": c.get("document_id"),
+                                    "score": c.get("score"),
+                                    "score_type": c.get("score_type"),
+                                    "source": c.get("source"),
+                                }
+                                for c in sub_chunks
+                            ],
+                        })
 
-                    # Cached scores are post-rerank scores (see sub_chunks_to_cache
-                    # below). The floor is part of the cache key, so an entry read back
-                    # here was already written under this same floor; this filter is the
-                    # belt-and-braces half of that pair, and it is what keeps the gate
-                    # honest if a future writer ever caches without keying by the floor.
-                    if self.config.rerank_score_floor is not None:
+                    # Apply the reranker floor only to scores known to be on the
+                    # reranker scale. Legacy cache entries have unknown provenance
+                    # and must not be compared with a reranker threshold.
+                    if len(queries_to_run) == 1 and self.config.rerank_score_floor is not None:
                         sub_chunks = [
                             c
                             for c in sub_chunks
-                            if float(c.get("score", 0.0)) >= self.config.rerank_score_floor
+                            if c.get("score_type") != "reranker"
+                            or float(c.get("score", 0.0)) >= self.config.rerank_score_floor
                         ]
-                    for c in sub_chunks:
-                        if c["chunk_id"] not in seen_chunk_ids:
-                            all_chunks.append(c)
-                            seen_chunk_ids.add(c["chunk_id"])
+                    query_chunks.extend(sub_chunks)
+                    variant_groups.append(query_chunks[:top_k])
                     continue
 
                 # Stale cache entry: the cache pointed at chunk_ids, but NONE
@@ -1440,6 +1857,7 @@ class RetrievalService:
                             "step": "vector_search",
                             "duration_ms": (time.perf_counter() - hybrid_start) * 1000,
                             "results_count": len(search_results),
+                            "query": search_query,
                             "mode": "hybrid",
                             "targets": target_search_trace,
                         }
@@ -1460,6 +1878,7 @@ class RetrievalService:
                         "step": "vector_search",
                         "duration_ms": (time.perf_counter() - step_start) * 1000,
                         "results_count": len(search_results),
+                        "query": search_query,
                         "mode": "dense",
                         "targets": target_search_trace,
                     }
@@ -1479,6 +1898,22 @@ class RetrievalService:
                     r for r in search_results if r.document_id in allowed_document_ids
                 ]
 
+            if include_trace:
+                trace.append({
+                    "step": "pre_rerank_candidates",
+                    "query": search_query,
+                    "chunks": [
+                        {
+                            "chunk_id": r.chunk_id,
+                            "document_id": r.document_id,
+                            "score": float(r.score),
+                            "score_type": getattr(r, "score_type", "cosine"),
+                            "source": getattr(r, "source", "vector"),
+                        }
+                        for r in search_results
+                    ],
+                })
+
             # Rerank
             if self.reranker and len(search_results) > 0:
                 step_start = time.perf_counter()
@@ -1492,30 +1927,41 @@ class RetrievalService:
                         top_k=top_k,
                     )
 
-                    # Reorder results based on reranker scores
+                    validated = _validated_rerank_results(
+                        rerank_result.results,
+                        input_count=len(search_results),
+                        top_k=top_k,
+                    )
+                    if validated is None:
+                        raise ValueError("malformed or incomplete reranker results")
+
+                    # Reorder results based on validated reranker scores.
                     reranked_results = []
-                    for item in rerank_result.results:
-                        if item.index < len(search_results):
-                            original = search_results[item.index]
-                            reranked_results.append(
-                                SearchResult(
-                                    chunk_id=original.chunk_id,
-                                    document_id=original.document_id,
-                                    tenant_id=original.tenant_id,
-                                    score=item.score,
-                                    score_type="reranker",
+                    for index, score in validated:
+                        original = search_results[index]
+                        reranked_results.append(
+                            SearchResult(
+                                chunk_id=original.chunk_id,
+                                document_id=original.document_id,
+                                tenant_id=original.tenant_id,
+                                score=score,
+                                score_type="reranker",
                                 source=getattr(original, "source", "vector"),
                                 metadata=original.metadata,
                                 generation_id=getattr(
-                                    original, "generation_id", original.metadata.get("generation_id")
+                                    original,
+                                    "generation_id",
+                                    original.metadata.get("generation_id"),
                                 ),
-                                )
                             )
-
+                        )
                     rerank_trace = {
                         "step": "rerank",
+                        "stage": _rerank_stage,
                         "duration_ms": (time.perf_counter() - step_start) * 1000,
                         "model": self.config.rerank_model,
+                        "rerank_attempted": True,
+                        **_provider_rerank_timings(rerank_result),
                     }
 
                     # Relevance floor: drop chunks the reranker scored below the
@@ -1523,7 +1969,11 @@ class RetrievalService:
                     # calibrated on the reranker scale; the raw vector scores this
                     # method may fall back to (rerank failure branch below) are on
                     # a different scale and must not be compared against it.
-                    floor = self.config.rerank_score_floor
+                    floor = (
+                        self.config.rerank_score_floor
+                        if len(queries_to_run) == 1
+                        else None
+                    )
                     if floor is not None:
                         kept = [r for r in reranked_results if r.score >= floor]
                         dropped = len(reranked_results) - len(kept)
@@ -1545,11 +1995,39 @@ class RetrievalService:
                     reranking_ms_total += rerank_trace["duration_ms"]
 
                 except Exception as e:
+                    failed_duration_ms = (time.perf_counter() - step_start) * 1000
+                    reranking_ms_total += failed_duration_ms
+                    trace.append(
+                        {
+                            "step": "rerank",
+                            "stage": _rerank_stage,
+                            "duration_ms": failed_duration_ms,
+                            "model": self.config.rerank_model,
+                            "rerank_attempted": True,
+                            "status": "failed",
+                        }
+                    )
                     logger.warning(f"Reranking failed, using vector scores: {e}")
                     search_results = search_results[:top_k]
 
             else:
                 search_results = search_results[:top_k]
+
+            if include_trace:
+                trace.append({
+                    "step": "post_rerank_candidates",
+                    "query": search_query,
+                    "chunks": [
+                        {
+                            "chunk_id": r.chunk_id,
+                            "document_id": r.document_id,
+                            "score": float(r.score),
+                            "score_type": getattr(r, "score_type", "cosine"),
+                            "source": getattr(r, "source", "vector"),
+                        }
+                        for r in search_results
+                    ],
+                })
 
             # Fallback: Check for missing content and fetch from DB
             missing_content_ids = []
@@ -1595,9 +2073,9 @@ class RetrievalService:
                     "content": r.metadata.get("content", ""),
                 }
                 sub_chunks_to_cache.append(chunk_data)
-                if r.chunk_id not in seen_chunk_ids:
-                    all_chunks.append(chunk_data)
-                    seen_chunk_ids.add(r.chunk_id)
+                query_chunks.append(chunk_data)
+
+            variant_groups.append(query_chunks[:top_k])
 
             # Cache results for this sub-query
             await self.result_cache.set(
@@ -1605,6 +2083,8 @@ class RetrievalService:
                 tenant_id=tenant_id,
                 chunk_ids=[c["chunk_id"] for c in sub_chunks_to_cache],
                 scores=[c["score"] for c in sub_chunks_to_cache],
+                score_types=[c["score_type"] for c in sub_chunks_to_cache],
+                sources=[c["source"] for c in sub_chunks_to_cache],
                 filters=cache_filters,
                 search_mode=_cache_search_mode,
                 top_k=top_k,
@@ -1614,9 +2094,55 @@ class RetrievalService:
                 rerank_score_floor=self.config.rerank_score_floor,
             )
 
-        # Final sort and limit
-        all_chunks.sort(key=lambda x: x["score"], reverse=True)
-        final_chunks = all_chunks[:top_k]
+        if len(queries_to_run) > 1:
+            common_rerank_attempted = self.reranker is not None and any(variant_groups)
+            common_rerank_timings: dict[str, float] = {}
+            final_chunks, common_reranking_ms, _ = await self._merge_candidate_groups(
+                variant_groups,
+                query=structured_query.cleaned_query,
+                top_k=top_k,
+                provider_timings=common_rerank_timings if include_trace else None,
+            )
+            reranking_ms_total += common_reranking_ms
+            if include_trace:
+                trace.append(
+                    {
+                        "step": "common_query_rerank",
+                        "stage": "query_variant_common",
+                        "rerank_attempted": common_rerank_attempted,
+                        "query": structured_query.cleaned_query,
+                        "duration_ms": common_reranking_ms,
+                        **common_rerank_timings,
+                        "chunks": [
+                            {
+                                "chunk_id": c.get("chunk_id"),
+                                "document_id": c.get("document_id"),
+                                "score": c.get("score"),
+                                "score_type": c.get("score_type"),
+                                "source": c.get("source"),
+                            }
+                            for c in final_chunks
+                        ],
+                    }
+                )
+        else:
+            final_chunks = variant_groups[0] if variant_groups else []
+            final_chunks.sort(key=lambda x: x["score"], reverse=True)
+            final_chunks = final_chunks[:top_k]
+        if include_trace:
+            trace.append({
+                "step": "final_selection",
+                "chunks": [
+                    {
+                        "chunk_id": c.get("chunk_id"),
+                        "document_id": c.get("document_id"),
+                        "score": c.get("score"),
+                        "score_type": c.get("score_type"),
+                        "source": c.get("source"),
+                    }
+                    for c in final_chunks
+                ],
+            })
 
         return RetrievalResult(
             chunks=final_chunks,
@@ -1631,6 +2157,8 @@ class RetrievalService:
         self,
         chunk_ids: list[str],
         scores: list[float],
+        score_types: list[str] | None = None,
+        sources: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch chunk content from repository."""
         if not chunk_ids:
@@ -1641,7 +2169,11 @@ class RetrievalService:
             chunk_map = {c.id: c for c in db_chunks}
 
             results = []
-            for cid, score in zip(chunk_ids, scores, strict=False):
+            aligned_score_types = score_types or ["unknown"] * len(chunk_ids)
+            aligned_sources = sources or ["unknown"] * len(chunk_ids)
+            for cid, score, score_type, source in zip(
+                chunk_ids, scores, aligned_score_types, aligned_sources, strict=False
+            ):
                 if cid in chunk_map:
                     chunk = chunk_map[cid]
                     results.append(
@@ -1651,8 +2183,8 @@ class RetrievalService:
                             "content": chunk.content,
                             "metadata": chunk.metadata_,
                             "score": score,
-                            "score_type": "cosine",
-                            "source": "vector",
+                            "score_type": score_type,
+                            "source": source,
                         }
                     )
             return results

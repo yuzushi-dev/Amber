@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.requests import Request
@@ -46,10 +46,13 @@ class StubSessionMaker:
 
 
 class StubAgentOrchestrator:
+    calls = []
+
     def __init__(self, **_kwargs):
         pass
 
-    async def run(self, **_kwargs):
+    async def run(self, **kwargs):
+        self.calls.append(kwargs)
         return SimpleNamespace(
             answer="Agent answer",
             sources=[{"chunk_id": "chunk-1", "document_id": "doc-1", "score": 0.95}],
@@ -79,6 +82,8 @@ def _build_post_request() -> Request:
 
 @pytest.mark.asyncio
 async def test_query_stream_agent_mode_emits_done(monkeypatch):
+    StubAgentOrchestrator.calls.clear()
+
     async def _dummy_tool(*_args, **_kwargs):
         return {"ok": True}
 
@@ -130,10 +135,20 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
     monkeypatch.setattr(
         "src.api.config.settings.enable_maintainer_tools", True, raising=False
     )
+    monkeypatch.setattr(
+        "src.api.config.settings.enable_multiturn_history_reinjection", True, raising=False
+    )
+    stored_history_loader = AsyncMock(
+        side_effect=AssertionError("explicit history must bypass stored history")
+    )
+    monkeypatch.setattr(
+        "src.api.routes.query._load_conversation_history", stored_history_loader
+    )
 
     request = QueryRequest(
         query="Summarize workspace",
         options=QueryOptions(agent_mode=True, agent_role="maintainer"),
+        history=[{"query": "Earlier question", "answer": "Earlier answer"}],
     )
 
     response = await _query_stream_impl(
@@ -150,3 +165,8 @@ async def test_query_stream_agent_mode_emits_done(monkeypatch):
     assert "event: done" in payload
     assert "Agent answer" in payload
     assert "event: processing_error" not in payload
+    assert StubAgentOrchestrator.calls[-1]["conversation_history"] == [
+        {"role": "user", "content": "Earlier question"},
+        {"role": "assistant", "content": "Earlier answer"},
+    ]
+    stored_history_loader.assert_not_awaited()

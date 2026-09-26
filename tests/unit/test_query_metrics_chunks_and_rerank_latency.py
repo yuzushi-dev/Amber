@@ -74,6 +74,7 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
         def __init__(self):
             self.m = SimpleNamespace(
                 query_id="q-1", tenant_id="tenant-1", query="test query",
+                search_mode="unknown",
                 chunks_retrieved=0, chunks_used=0, reranking_latency_ms=0.0,
                 tokens_used=0, input_tokens=0, output_tokens=0, cost_estimate=0.0,
                 model="", provider="", sources_cited=0, answer_length=0, response="",
@@ -106,6 +107,7 @@ async def test_use_case_execute_populates_chunks_used_and_rerank_latency():
     assert captured_metrics.reranking_latency_ms == pytest.approx(45.5), (
         "reranking_latency_ms must be copied from RetrievalResult.reranking_ms (independent of include_trace)"
     )
+    assert captured_metrics.search_mode == "basic"
 
 
 @pytest.mark.asyncio

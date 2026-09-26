@@ -1,6 +1,7 @@
 """
 Tests for PR-01: Result cache restoration.
 """
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -72,3 +73,92 @@ class TestResultCacheClass:
 
         result = await cache.get("query", "tenant", {})
         assert result is None
+
+
+class _MemoryRedis:
+    def __init__(self):
+        self.values = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def setex(self, key, ttl, value):
+        self.values[key] = value
+
+
+@pytest.mark.asyncio
+async def test_cache_roundtrips_score_provenance_without_changing_order():
+    from src.core.cache.result_cache import ResultCache
+
+    cache = ResultCache()
+    cache._client = _MemoryRedis()
+    ids = ["chunk-rerank", "chunk-rrf", "chunk-cosine"]
+    scores = [0.2, 0.03, 0.9]
+    score_types = ["reranker", "rrf", "cosine"]
+    sources = ["vector", "hybrid", "vector"]
+
+    assert await cache.set(
+        "query", "tenant", ids, scores, score_types=score_types, sources=sources
+    )
+    result = await cache.get("query", "tenant")
+
+    assert result is not None
+    assert result.chunk_ids == ids
+    assert result.scores == scores
+    assert result.score_types == score_types
+    assert result.sources == sources
+
+
+@pytest.mark.asyncio
+async def test_cache_old_entry_metadata_is_unknown():
+    from src.core.cache.result_cache import ResultCache
+
+    cache = ResultCache()
+    cache._client = _MemoryRedis()
+    ids = ["chunk-a", "chunk-b"]
+    key = cache._make_key("tenant", cache._hash_request("query", "tenant"))
+    cache._client.values[key] = json.dumps(
+        {"chunk_ids": ids, "scores": [0.7, 0.6], "cached_at": "2099", "query_hash": "old"}
+    )
+
+    result = await cache.get("query", "tenant")
+
+    assert result is not None
+    assert result.score_types == ["unknown", "unknown"]
+    assert result.sources == ["unknown", "unknown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("score_types", "sources", "expected_score_types", "expected_sources"),
+    [
+        ("reranker", ["vector", "hybrid"], ["unknown", "unknown"], ["vector", "hybrid"]),
+        (["reranker"], ["vector", "hybrid"], ["unknown", "unknown"], ["vector", "hybrid"]),
+        (["reranker", 7], ["vector", None], ["unknown", "unknown"], ["unknown", "unknown"]),
+    ],
+)
+async def test_cache_malformed_provenance_becomes_unknown(
+    score_types, sources, expected_score_types, expected_sources
+):
+    from src.core.cache.result_cache import ResultCache
+
+    cache = ResultCache()
+    cache._client = _MemoryRedis()
+    ids = ["chunk-a", "chunk-b"]
+    key = cache._make_key("tenant", cache._hash_request("query", "tenant"))
+    cache._client.values[key] = json.dumps(
+        {
+            "chunk_ids": ids,
+            "scores": [0.7, 0.6],
+            "score_types": score_types,
+            "sources": sources,
+            "cached_at": "2099",
+        }
+    )
+
+    result = await cache.get("query", "tenant")
+
+    assert result is not None
+    assert result.chunk_ids == ids
+    assert result.score_types == expected_score_types
+    assert result.sources == expected_sources

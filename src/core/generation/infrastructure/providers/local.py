@@ -7,6 +7,7 @@ No API costs, works offline, privacy-preserving.
 """
 
 import logging
+import math
 import time
 from typing import Any
 
@@ -136,6 +137,12 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
 _flashrank_ranker_cache: dict[tuple[str, str | None], Any] = {}
 
 
+def _elapsed_ms(start: float, end: float) -> float:
+    """Return a safe elapsed duration for provider diagnostics."""
+    elapsed = (end - start) * 1000
+    return elapsed if math.isfinite(elapsed) and elapsed >= 0 else 0.0
+
+
 class FlashRankReranker(BaseRerankerProvider):
     """
     Local reranker using FlashRank.
@@ -189,7 +196,9 @@ class FlashRankReranker(BaseRerankerProvider):
         start_time = time.perf_counter()
 
         try:
+            load_started = time.perf_counter()
             ranker = self._load_ranker(model_name)
+            ranker_load_ms = _elapsed_ms(load_started, time.perf_counter())
             from flashrank import RerankRequest
 
             # FlashRank expects list of dicts with 'text' key
@@ -198,13 +207,24 @@ class FlashRankReranker(BaseRerankerProvider):
 
             import asyncio
 
-            results = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: ranker.rerank(request)
+            submitted_at = time.perf_counter()
+
+            def _run_ranker():
+                worker_started = time.perf_counter()
+                results = ranker.rerank(request)
+                worker_finished = time.perf_counter()
+                return results, worker_started, worker_finished
+
+            results, worker_started, worker_finished = await (
+                asyncio.get_event_loop().run_in_executor(None, _run_ranker)
             )
+            executor_queue_ms = _elapsed_ms(submitted_at, worker_started)
+            ranker_execution_ms = _elapsed_ms(worker_started, worker_finished)
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             # Convert to our format
+            postprocess_started = time.perf_counter()
             scored_items = [
                 RerankResult.ScoredItem(
                     index=r["id"],
@@ -217,12 +237,21 @@ class FlashRankReranker(BaseRerankerProvider):
             # Apply top_k if specified
             if top_k:
                 scored_items = scored_items[:top_k]
+            postprocess_ms = _elapsed_ms(
+                postprocess_started, time.perf_counter()
+            )
 
             return RerankResult(
                 results=scored_items,
                 model=model_name,
                 provider=self.provider_name,
                 latency_ms=elapsed_ms,
+                metadata={
+                    "ranker_load_ms": ranker_load_ms,
+                    "executor_queue_ms": executor_queue_ms,
+                    "ranker_execution_ms": ranker_execution_ms,
+                    "postprocess_ms": postprocess_ms,
+                },
             )
 
         except ImportError:

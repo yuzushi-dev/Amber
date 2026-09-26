@@ -5,8 +5,13 @@ Provider Unit Tests
 Tests for the model provider abstraction layer.
 """
 
+import asyncio
+import sys
+import types
+
 import pytest
 
+from src.core.generation.infrastructure.providers import local as local_providers
 from src.core.generation.infrastructure.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
@@ -319,3 +324,57 @@ class TestProviderExceptions:
             retry_after=30.0,
         )
         assert error.retry_after == 30.0
+
+
+@pytest.mark.asyncio
+async def test_flashrank_reports_queue_and_execution_timings(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        def perf_counter(self):
+            return self.now
+
+        def advance(self, seconds):
+            self.now += seconds
+
+    clock = FakeClock()
+
+    class FakeRanker:
+        def rerank(self, request):
+            clock.advance(0.011)
+            return [
+                {"id": 1, "score": 0.9, "text": "second"},
+                {"id": 0, "score": 0.8, "text": "first"},
+            ]
+
+    class FakeLoop:
+        async def run_in_executor(self, executor, function):
+            clock.advance(0.007)
+            return function()
+
+    fake_flashrank = types.ModuleType("flashrank")
+    fake_flashrank.RerankRequest = lambda **kwargs: kwargs
+    monkeypatch.setitem(sys.modules, "flashrank", fake_flashrank)
+    monkeypatch.setattr(local_providers, "time", clock)
+    monkeypatch.setattr(asyncio, "get_event_loop", lambda: FakeLoop())
+
+    ranker = FakeRanker()
+    provider = local_providers.FlashRankReranker()
+
+    def load_ranker(model_name):
+        clock.advance(0.004)
+        return ranker
+
+    monkeypatch.setattr(provider, "_load_ranker", load_ranker)
+    result = await provider.rerank("query", ["first", "second"], top_k=1)
+
+    assert result.model == provider.default_model
+    assert [(item.index, item.text) for item in result.results] == [(1, "second")]
+    assert result.metadata["ranker_load_ms"] == pytest.approx(4.0)
+    assert result.metadata["executor_queue_ms"] == pytest.approx(7.0)
+    assert result.metadata["ranker_execution_ms"] == pytest.approx(11.0)
+    assert result.metadata["postprocess_ms"] >= 0.0
+    assert all(
+        isinstance(value, float) and 0.0 <= value < float("inf")
+        for value in result.metadata.values()
+    )

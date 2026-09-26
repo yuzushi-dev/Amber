@@ -106,7 +106,8 @@ class VectorSearcher:
                     tenant_id=r.tenant_id,
                     content=r.metadata.get("content", ""),
                     score=r.score,
-                    source="hybrid",
+                    source=r.source,
+                    score_type=r.score_type,
                     metadata={
                         **r.metadata,
                         **({"generation_id": r.generation_id} if r.generation_id is not None else {}),

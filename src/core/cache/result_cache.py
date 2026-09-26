@@ -44,6 +44,19 @@ class CachedResult:
     scores: list[float]
     cached_at: str
     tenant_id: str
+    score_types: list[str] | None = None
+    sources: list[str] | None = None
+
+
+def _validated_labels(value: Any, count: int) -> list[str]:
+    """Return aligned metadata labels, marking missing or malformed data unknown."""
+    if (
+        isinstance(value, list)
+        and len(value) == count
+        and all(isinstance(item, str) and item for item in value)
+    ):
+        return value
+    return ["unknown"] * count
 
 
 class ResultCache:
@@ -200,6 +213,8 @@ class ResultCache:
                 scores=result["scores"],
                 cached_at=result["cached_at"],
                 tenant_id=tenant_id,
+                score_types=_validated_labels(result.get("score_types"), len(result["chunk_ids"])),
+                sources=_validated_labels(result.get("sources"), len(result["chunk_ids"])),
             )
 
         except Exception as e:
@@ -220,6 +235,8 @@ class ResultCache:
         embedding_provider: str | None = None,
         collection_names: list[str] | None = None,
         rerank_score_floor: float | None = None,
+        score_types: list[str] | None = None,
+        sources: list[str] | None = None,
     ) -> bool:
         """
         Cache a retrieval result.
@@ -229,6 +246,8 @@ class ResultCache:
             tenant_id: Tenant ID
             chunk_ids: List of retrieved chunk IDs
             scores: Corresponding similarity scores
+            score_types: Corresponding score scale labels
+            sources: Corresponding retrieval source labels
             filters: Optional search filters used
             ttl: Optional TTL override
             search_mode: The resolved search mode (affects result shape)
@@ -264,6 +283,8 @@ class ResultCache:
                 {
                     "chunk_ids": chunk_ids,
                     "scores": scores,
+                    "score_types": _validated_labels(score_types, len(chunk_ids)),
+                    "sources": _validated_labels(sources, len(chunk_ids)),
                     "cached_at": datetime.now(UTC).isoformat(),
                     "query_hash": request_hash,
                 }

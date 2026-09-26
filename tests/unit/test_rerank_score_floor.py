@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.cache.result_cache import CachedResult
 from src.core.retrieval.application.retrieval_service import RetrievalConfig, RetrievalService
 from src.core.retrieval.infrastructure.vector_store.milvus import SearchResult
 from src.core.tenants.application.query_scopes import QueryScopes
@@ -140,14 +141,18 @@ async def test_floor_disabled_keeps_everything():
 
 @pytest.mark.asyncio
 async def test_floor_applies_to_cache_hits():
-    """Cached scores are post-rerank scores, so a cache hit must not bypass the
-    gate - otherwise the floor is enforced only on the first query."""
+    """Only cached scores explicitly marked as reranker use the rerank floor."""
     service = _make_service(floor=0.5)
     _wire_search_and_rerank(service, [0.99])
 
-    cached = MagicMock()
-    cached.chunk_ids = ["chunk-a", "chunk-b"]
-    cached.scores = [0.95, 0.02]
+    cached = CachedResult(
+        chunk_ids=["chunk-a", "chunk-b"],
+        scores=[0.95, 0.02],
+        cached_at="2099",
+        tenant_id="default",
+        score_types=["reranker", "reranker"],
+        sources=["vector", "vector"],
+    )
     service.result_cache.get = AsyncMock(return_value=cached)
     service.document_repository.get_chunks = AsyncMock(
         return_value=[
@@ -160,6 +165,35 @@ async def test_floor_applies_to_cache_hits():
 
     kept = [c["chunk_id"] for c in result.chunks]
     assert kept == ["chunk-a"], f"cache hit bypassed the floor: {kept}"
+
+
+@pytest.mark.asyncio
+async def test_floor_preserves_non_reranker_cached_scales():
+    service = _make_service(floor=0.5)
+    cached = CachedResult(
+        chunk_ids=["raw", "unknown", "low-reranker", "rrf"],
+        scores=[0.01, 0.02, 0.03, 0.04],
+        cached_at="2099",
+        tenant_id="default",
+        score_types=["cosine", "unknown", "reranker", "rrf"],
+        sources=["vector", "unknown", "vector", "hybrid"],
+    )
+    service.result_cache.get = AsyncMock(return_value=cached)
+    service.document_repository.get_chunks = AsyncMock(
+        return_value=[
+            MagicMock(id=chunk_id, document_id=f"doc-{chunk_id}", content="content", metadata_={})
+            for chunk_id in cached.chunk_ids
+        ]
+    )
+
+    result = await _retrieve(service)
+
+    assert [chunk["chunk_id"] for chunk in result.chunks] == ["rrf", "unknown", "raw"]
+    assert [(chunk["score_type"], chunk["source"]) for chunk in result.chunks] == [
+        ("rrf", "hybrid"),
+        ("unknown", "unknown"),
+        ("cosine", "vector"),
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -403,6 +403,7 @@ class MetricsCollector:
                             chunks_retrieved=d.get("chunks_retrieved", 0),
                             chunks_used=d.get("chunks_used", 0),
                             cache_hit=d.get("cache_hit", False),
+                            search_mode=d.get("search_mode", "unknown"),
                             local_hits=d.get("local_hits", 0),
                             shared_hits=d.get("shared_hits", 0),
                             acl_filtered_results=d.get("acl_filtered_results", 0),
