@@ -164,10 +164,8 @@ def _unwrapped_body(fragment: str) -> str | None:
 
 
 def _omission(fragment: str, marker: str = OMISSION_MARKER) -> str:
-    ending = re.search(r"(?:(?:\r\n)|\r|\n)+$", fragment)
-    if ending:
-        return marker + ending.group(0)
-    return marker
+    # Trailing run of line breaks, kept verbatim (no regex: avoids ReDoS on long \r\n runs).
+    return marker + fragment[len(fragment.rstrip("\r\n")):]
 
 
 def _source_section(source_excerpts: dict[int, str]) -> str:
