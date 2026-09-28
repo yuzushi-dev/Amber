@@ -183,6 +183,7 @@ def test_source_section_is_absent_when_no_excerpt_was_supplied():
         "Prose paragraph.\n\ninline `mutated\ncode` end.",
         "Prose paragraph.\n\n- item\n    mutated()\n",
         "Prose paragraph.\n\n> ```\n> mutated()\n> ```",
+        "Prose paragraph.\n\n```\nsafe source\n``` [[Source: 4]]\n\nEnd `mutated()`.",
     ],
 )
 async def test_streamed_guard_matches_sync_result_for_every_two_chunk_split(answer):
@@ -342,8 +343,6 @@ def test_formatting_only_differences_are_not_omitted(answer, source):
 @pytest.mark.parametrize(
     ("answer", "source"),
     [
-        # the literal backticks are content, not formatting
-        ("`m(label.view_mail, VIEW MAIL)`", {1: "m(`label.view_mail`, `VIEW MAIL`)"}),
         # a changed value is still a different literal
         ("`ufw allow 20000:50000/udp`", {1: "ufw allow 20000:40000/udp"}),
         ("`acmectl prov ms host acmeMtaMyNetworks`", {1: "acme$ acmectl prov ms host \\\n acmeMtaTrustedNetworks"}),
@@ -457,3 +456,40 @@ def test_history_does_not_admit_new_code_or_leak_into_the_source_section():
     assert OMISSION_MARKER in guarded
     assert "[[Source: 1]]" in guarded
     assert "Earlier:" not in guarded and "[[Source: -1]]" not in guarded
+
+
+def test_citation_on_closing_fence_line_does_not_swallow_the_answer_tail():
+    source = {19: "```\nacmectl backup doItemRestore {Account name or id} {item_id}\n```"}
+    answer = (
+        "Syntax:\n```\nacmectl backup doItemRestore {Account name or id} {item_id}\n"
+        "``` [[Source: 19]]\n\nThen check the logs."
+    )
+    guarded = guard_literal_code(answer, source)
+    assert OMISSION_MARKER not in guarded
+    assert guarded == (
+        "Syntax:\n```\nacmectl backup doItemRestore {Account name or id} {item_id}\n"
+        "```\n[[Source: 19]]\n\nThen check the logs."
+    )
+    # A citation as the info string of an opening fence is not moved.
+    assert guard_literal_code("``` [[Source: 1]]\nrun()\n```", {1: "run()"}).startswith(
+        "``` [[Source: 1]]\nrun()"
+    )
+
+
+def test_inline_code_with_dropped_inner_backticks_is_replaced_by_the_source_literal():
+    source = {1: "```\n--> : j?.attrs?.acmeIsDelegatedAdminAccount === `TRUE`\n```"}
+    guarded = guard_literal_code("`j?.attrs?.acmeIsDelegatedAdminAccount === TRUE`", source)
+    assert guarded == "`` j?.attrs?.acmeIsDelegatedAdminAccount === `TRUE` ``"
+    guarded = guard_literal_code(
+        "` !d &&     j?.attrs?.acmeIsAdminAccount == TRUE &&     (0, W.jsx)(X, { `",
+        TABLE_CELL_SOURCE,
+    )
+    assert OMISSION_MARKER not in guarded and "`TRUE`" in guarded
+    # A changed value is still omitted.
+    assert OMISSION_MARKER in guard_literal_code(
+        "`j?.attrs?.acmeIsDelegatedAdminAccount === FALSE`", source
+    )
+    # The literal backticks are content: the source text is restored, never the stripped one.
+    assert guard_literal_code(
+        "`m(label.view_mail, VIEW MAIL)`", {1: "m(`label.view_mail`, `VIEW MAIL`)"}
+    ) == "`` m(`label.view_mail`, `VIEW MAIL`) ``"
