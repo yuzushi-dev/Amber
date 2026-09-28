@@ -443,3 +443,17 @@ def test_quote_repair_needs_one_unambiguous_source_literal():
     changed = {1: "m(`label.view_mail`, `VIEW MAIL`)"}
     assert OMISSION_MARKER in guard_literal_code("`m('label.view', 'VIEW MAIL')`", changed)
     assert OMISSION_MARKER in guard_literal_code("`plain()`", {1: "other()"})
+
+
+def test_code_repeated_from_an_earlier_answer_is_accepted():
+    history = ["Install the tools:\n`apt install npm`\n`npm install prettier`"]
+    answer = "Step 1: `apt install npm` then `npm install prettier`."
+    assert guard_literal_code(answer, {1: "unrelated changelog"}, "improve", history) == answer
+
+
+def test_history_does_not_admit_new_code_or_leak_into_the_source_section():
+    history = ["Earlier: `apt install npm`"]
+    guarded = guard_literal_code("Run `apt install -y npm`.", {1: "unrelated"}, "", history)
+    assert OMISSION_MARKER in guarded
+    assert "[[Source: 1]]" in guarded
+    assert "Earlier:" not in guarded and "[[Source: -1]]" not in guarded

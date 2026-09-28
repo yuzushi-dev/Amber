@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections.abc import Sequence
 
 from src.core.generation.application.citations import protected_code_ranges
 
@@ -253,7 +254,12 @@ def _source_section(source_excerpts: dict[int, str]) -> str:
     return "\n\nOriginal source excerpts\n\n" + "\n\n".join(entries)
 
 
-def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str = "") -> str:
+def guard_literal_code(
+    answer: str,
+    source_excerpts: dict[int, str],
+    query: str = "",
+    history_answers: Sequence[str] = (),
+) -> str:
     """Omit marked code ranges that cannot be matched verbatim to one source.
 
     A range that differs from one source literal only in quote style is replaced
@@ -261,10 +267,22 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str 
 
     ``query`` is the user's question: an inline span that only echoes one of its
     terms is not a generated literal.
+
+    ``history_answers`` are earlier assistant answers of the conversation; code
+    repeated verbatim from them is accepted like source text (a follow-up often
+    reuses commands whose source chunks the new retrieval did not return).
+    ponytail: the history is client-supplied and not attributed to a model, so
+    in mixed-model chats code from an unguarded answer is trusted too; upgrade
+    path: server-side store of fragments that passed this guard, per conversation.
     """
     ranges = protected_code_ranges(answer)
     if not ranges:
         return answer
+    cited_sources = source_excerpts
+    source_excerpts = {**source_excerpts}
+    for index, text in enumerate(history_answers):
+        if text:
+            source_excerpts[-(index + 1)] = text
 
     ambiguous_groups = _ambiguous_inline_groups(answer, ranges, source_excerpts)
     checked_ranges = sorted(
@@ -316,6 +334,6 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str 
 
     # ponytail: wrapper parsing deliberately rejects nested/ambiguous and HTML
     # code unless the full raw span matches; improve only from measured rejects.
-    if rejected and source_excerpts:
-        answer += _source_section(source_excerpts)
+    if rejected and cited_sources:
+        answer += _source_section(cited_sources)
     return answer
