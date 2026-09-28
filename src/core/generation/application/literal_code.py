@@ -73,7 +73,13 @@ _QUOTE_CLASS = "['\"`]"
 
 
 def _quote_pattern(text: str) -> re.Pattern[str]:
-    return re.compile("".join(_QUOTE_CLASS if char in "'\"" else re.escape(char) for char in text))
+    # Quotes are interchangeable and a backtick may follow any character: models
+    # also drop the inner backticks of `` a == `TRUE` `` to fit one inline span.
+    # ponytail: no leading "`?" (it would grab an enclosing fence's backtick), so a
+    # literal that itself starts with a dropped backtick stays omitted.
+    return re.compile(
+        "".join((_QUOTE_CLASS if char in "'\"" else re.escape(char)) + "`?" for char in text)
+    )
 
 
 def _quote_repair(
@@ -82,16 +88,45 @@ def _quote_repair(
     """Source text for a literal whose only change is its quote style.
 
     Markdown inline code cannot hold a single backtick, so models rewrite
-    `` m(`a`) `` as ``m('a')``. When exactly one source literal matches with
-    quotes/backticks interchangeable, that source text replaces the fragment.
+    `` m(`a`) `` as ``m('a')`` or drop the backticks. When exactly one source
+    literal matches with quotes/backticks interchangeable or backticks removed,
+    that source text replaces the fragment.
     """
     canonical = _canonical(body)
-    if "'" not in canonical and '"' not in canonical:
-        return None
-    found = {m.group(0) for e in canonical_excerpts for m in _quote_pattern(canonical).finditer(e)}
+    found = [m.group(0) for e in canonical_excerpts for m in _quote_pattern(canonical).finditer(e)]
     flat = _flat(canonical)
-    found |= {m.group(0) for cell in table_cells for m in _quote_pattern(flat).finditer(cell)}
-    return found.pop() if len(found) == 1 else None
+    found += [m.group(0) for cell in table_cells for m in _quote_pattern(flat).finditer(cell)]
+    # The same literal found as prose and as a reflowed table cell is one match.
+    return found[0] if len({_flat(text) for text in found}) == 1 else None
+
+
+_FENCE_LINE = re.compile(r"( {0,3})(`{3,}|~{3,})([^\r\n]*)(\r\n|\r|\n)?")
+_CITATIONS = re.compile(r"(?:\[\[Source: [\d, ]+\]\][ \t]*)+")
+
+
+def _split_cited_fence_close(answer: str) -> str:
+    """Move ``[[Source: n]]`` off a closing fence line onto its own line.
+
+    CommonMark does not close a fence followed by text, so ``` [[Source: 3]]
+    would leave the block open to the end of the answer and the whole tail
+    would be checked (and omitted) as one code fragment.
+    """
+    out = []
+    opener = None
+    for line in answer.splitlines(keepends=True):
+        match = _FENCE_LINE.fullmatch(line)
+        if match and opener is None:
+            opener = match.group(2)
+        elif match and match.group(2)[0] == opener[0] and len(match.group(2)) >= len(opener):
+            rest = match.group(3).strip()
+            if not rest:
+                opener = None
+            elif _CITATIONS.fullmatch(rest):
+                eol = match.group(4) or ""
+                line = f"{match.group(1)}{match.group(2)}{eol or chr(10)}{rest}{eol}"
+                opener = None
+        out.append(line)
+    return "".join(out)
 
 
 def _code_markdown(fragment: str, text: str) -> str:
@@ -275,6 +310,7 @@ def guard_literal_code(
     in mixed-model chats code from an unguarded answer is trusted too; upgrade
     path: server-side store of fragments that passed this guard, per conversation.
     """
+    answer = _split_cited_fence_close(answer)
     ranges = protected_code_ranges(answer)
     if not ranges:
         return answer
