@@ -87,7 +87,7 @@ class QueryRewriter:
         history: list[dict] | str | None = None,
         global_rules: list[str] | None = None,
         memory_context: str | None = None,
-        timeout_sec: float = 4.5,
+        timeout_sec: float = 8.0,
         tenant_config: dict | None = None,
     ) -> str:
         """
@@ -97,7 +97,7 @@ class QueryRewriter:
             query: Current user query
             history: List of conversation turns or a formatted string
             timeout_sec: Hard deadline wrapped around the LLM call (asyncio.wait_for);
-                on expiry the original query is returned
+                on expiry the previous user questions + query are returned (_history_fallback)
 
         Returns:
             Rewritten query or original if failure/timeout
@@ -219,5 +219,5 @@ class QueryRewriter:
             return rewritten
 
         except Exception as e:
-            logger.error(f"Query rewrite failed: {e}")
-            return query
+            logger.error(f"Query rewrite failed: {e}, using previous user questions + original")
+            return _history_fallback(query, history)

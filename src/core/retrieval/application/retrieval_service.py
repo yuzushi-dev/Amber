@@ -261,12 +261,21 @@ class RetrievalService:
             or default_embedding_provider
             or default_embedding_model
         ):
+            # This factory also serves the rewriter/decomposer/HyDE/router, so it
+            # must carry the ollama_cloud credentials a tenant llm_steps override
+            # may route them to.
+            try:
+                runtime_settings = _get_settings()
+            except RuntimeError:
+                runtime_settings = None
             factory = build_provider_factory(
                 openai_api_key=openai_api_key,
                 anthropic_api_key=anthropic_api_key,
                 ollama_base_url=ollama_base_url,
                 default_embedding_provider=default_embedding_provider,
                 default_embedding_model=default_embedding_model,
+                ollama_cloud_base_url=getattr(runtime_settings, "ollama_cloud_base_url", None),
+                ollama_cloud_api_keys=getattr(runtime_settings, "ollama_cloud_api_keys", None),
             )
         else:
             factory = get_provider_factory()
