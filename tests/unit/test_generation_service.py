@@ -356,6 +356,8 @@ async def test_generate_keeps_domain_rules_with_tenant_system_prompt_override():
     assert '## DOMAIN RULES' in system_prompt
     assert 'Always answer with domain context.' in system_prompt
     assert 'Preserve every character of literal search patterns, operators, wildcards' in system_prompt
+    assert "Copy commands, command syntax lines, code snippets, and configuration lines verbatim" in system_prompt
+    assert "never rename it" in system_prompt
     assert 'paths, and commands' in system_prompt
     assert 'inline code or fenced code blocks; do not use emphasis' in system_prompt
     assert 'never present a mutating command as a verification step' in system_prompt

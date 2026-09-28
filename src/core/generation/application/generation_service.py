@@ -337,7 +337,13 @@ class GenerationService:
             "check or procedure and do not provide unsupported instructions.\n"
             "Preserve every character of literal search patterns, operators, wildcards, "
             "paths, and commands. Put these syntax-sensitive literals in inline code "
-            "or fenced code blocks; do not use emphasis for them."
+            "or fenced code blocks; do not use emphasis for them.\n"
+            "Copy commands, command syntax lines, code snippets, and configuration lines "
+            "verbatim from the sources, character for character, including the source's "
+            "own placeholder wording: keep a placeholder such as `Account name or id` "
+            "exactly as written, never rename it (e.g. to `{source_account}`). Do not add "
+            "or remove flags, options, sudo, variables, or quotes, and do not reformat, "
+            "merge, or split lines. Explain placeholders in prose outside the code."
         )
 
         if tenant_config.get("rag_system_prompt"):
