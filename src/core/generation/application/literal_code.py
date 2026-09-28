@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections.abc import Sequence
 
 from src.core.generation.application.citations import protected_code_ranges
 
@@ -66,6 +67,44 @@ def _table_cell_code(source_excerpts: dict[int, str]) -> list[str]:
 def _table_cell_match(body: str, table_cells: list[str]) -> bool:
     flat = _flat(_canonical(body))
     return bool(flat) and any(flat in cell for cell in table_cells)
+
+
+_QUOTE_CLASS = "['\"`]"
+
+
+def _quote_pattern(text: str) -> re.Pattern[str]:
+    return re.compile("".join(_QUOTE_CLASS if char in "'\"" else re.escape(char) for char in text))
+
+
+def _quote_repair(
+    body: str, canonical_excerpts: list[str], table_cells: list[str]
+) -> str | None:
+    """Source text for a literal whose only change is its quote style.
+
+    Markdown inline code cannot hold a single backtick, so models rewrite
+    `` m(`a`) `` as ``m('a')``. When exactly one source literal matches with
+    quotes/backticks interchangeable, that source text replaces the fragment.
+    """
+    canonical = _canonical(body)
+    if "'" not in canonical and '"' not in canonical:
+        return None
+    found = {m.group(0) for e in canonical_excerpts for m in _quote_pattern(canonical).finditer(e)}
+    flat = _flat(canonical)
+    found |= {m.group(0) for cell in table_cells for m in _quote_pattern(flat).finditer(cell)}
+    return found.pop() if len(found) == 1 else None
+
+
+def _code_markdown(fragment: str, text: str) -> str:
+    """Wrap source text like the fragment it replaces, with a fence it cannot close."""
+    run = max((len(m) for m in re.findall(r"`+", text)), default=0) + 1
+    trailing = fragment[len(fragment.rstrip("\r\n")) :]
+    opening = re.match(r" {0,3}(`{3,}|~{3,})([^\r\n]*)", fragment)
+    if opening is None and "\n" not in text and "\r" not in text:
+        fence = "`" * run
+        return f"{fence} {text} {fence}{trailing}"
+    fence = "`" * max(3, run)
+    info = opening.group(2) if opening else ""
+    return f"{fence}{info}\n{text}\n{fence}{trailing}"
 
 
 def _query_echo(fragment: str, query: str) -> bool:
@@ -215,15 +254,35 @@ def _source_section(source_excerpts: dict[int, str]) -> str:
     return "\n\nOriginal source excerpts\n\n" + "\n\n".join(entries)
 
 
-def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str = "") -> str:
+def guard_literal_code(
+    answer: str,
+    source_excerpts: dict[int, str],
+    query: str = "",
+    history_answers: Sequence[str] = (),
+) -> str:
     """Omit marked code ranges that cannot be matched verbatim to one source.
+
+    A range that differs from one source literal only in quote style is replaced
+    by that source text instead of being omitted.
 
     ``query`` is the user's question: an inline span that only echoes one of its
     terms is not a generated literal.
+
+    ``history_answers`` are earlier assistant answers of the conversation; code
+    repeated verbatim from them is accepted like source text (a follow-up often
+    reuses commands whose source chunks the new retrieval did not return).
+    ponytail: the history is client-supplied and not attributed to a model, so
+    in mixed-model chats code from an unguarded answer is trusted too; upgrade
+    path: server-side store of fragments that passed this guard, per conversation.
     """
     ranges = protected_code_ranges(answer)
     if not ranges:
         return answer
+    cited_sources = source_excerpts
+    source_excerpts = {**source_excerpts}
+    for index, text in enumerate(history_answers):
+        if text:
+            source_excerpts[-(index + 1)] = text
 
     ambiguous_groups = _ambiguous_inline_groups(answer, ranges, source_excerpts)
     checked_ranges = sorted(
@@ -260,6 +319,12 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str 
             continue
         if _query_echo(fragment, query):
             continue
+        repaired = (
+            _quote_repair(body, canonical_excerpts, table_cells) if body is not None else None
+        )
+        if repaired is not None:
+            replacements.append((start, end, _code_markdown(fragment, repaired)))
+            continue
         logger.info("Literal code guard omitted fragment: %r", fragment[:160])
         replacements.append((start, end, _omission(fragment)))
         rejected = True
@@ -269,6 +334,6 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str 
 
     # ponytail: wrapper parsing deliberately rejects nested/ambiguous and HTML
     # code unless the full raw span matches; improve only from measured rejects.
-    if rejected and source_excerpts:
-        answer += _source_section(source_excerpts)
+    if rejected and cited_sources:
+        answer += _source_section(cited_sources)
     return answer
