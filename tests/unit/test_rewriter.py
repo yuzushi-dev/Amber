@@ -344,3 +344,24 @@ def test_default_timeout_leaves_room_for_a_cloud_rewrite():
     from src.core.retrieval.application.query.rewriter import QueryRewriter
 
     assert inspect.signature(QueryRewriter.rewrite).parameters["timeout_sec"].default == 8.0
+
+
+@pytest.mark.asyncio
+async def test_provider_error_keeps_the_topic_like_a_timeout(caplog):
+    """A failing rewrite (e.g. misconfigured provider) must degrade like a
+    timeout: previous user questions + query, not the bare follow-up."""
+    mock_provider = MagicMock()
+
+    async def _generate(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    mock_provider.generate = _generate
+    mock_factory = MagicMock()
+    mock_factory.get_llm_provider.return_value = mock_provider
+    rewriter = QueryRewriter(provider=mock_provider, provider_factory=mock_factory)
+    p1, p2 = _patches()
+    with p1, p2, caplog.at_level("ERROR"):
+        result = await rewriter.rewrite("original query", history=HISTORY)
+
+    assert result == "previous turn original query"
+    assert any("Query rewrite failed" in r.message for r in caplog.records)

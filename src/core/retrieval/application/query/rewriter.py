@@ -219,5 +219,5 @@ class QueryRewriter:
             return rewritten
 
         except Exception as e:
-            logger.error(f"Query rewrite failed: {e}")
-            return query
+            logger.error(f"Query rewrite failed: {e}, using previous user questions + original")
+            return _history_fallback(query, history)
