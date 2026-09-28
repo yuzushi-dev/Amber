@@ -334,3 +334,13 @@ def test_timeout_fallback_keeps_the_topic_from_two_questions_back():
     assert _history_fallback("improve it", history) == "topic question draft a reply improve it"
     older = [{"role": "user", "content": "oldest"}, *history]
     assert _history_fallback("improve it", older) == "topic question draft a reply improve it"
+
+
+def test_default_timeout_leaves_room_for_a_cloud_rewrite():
+    """Measured on production: follow-up rewrites took 4-20s on a reasoning
+    model and ~1-6s on the economy model; 4.5s cut off almost all of them."""
+    import inspect
+
+    from src.core.retrieval.application.query.rewriter import QueryRewriter
+
+    assert inspect.signature(QueryRewriter.rewrite).parameters["timeout_sec"].default == 8.0
