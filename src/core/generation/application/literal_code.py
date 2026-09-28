@@ -1,5 +1,6 @@
 """Keep generated code only when it is present verbatim in supplied sources."""
 
+import logging
 import re
 
 from src.core.generation.application.citations import protected_code_ranges
@@ -8,6 +9,8 @@ OMISSION_MARKER = "[Code omitted: no verbatim match in the supplied sources.]"
 AMBIGUOUS_CODE_MARKER = (
     "[Code omitted: ambiguous code formatting. See original source excerpts.]"
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _source_match(fragment: str, source_excerpts: dict[int, str]) -> bool:
@@ -39,6 +42,39 @@ def _canonical(text: str) -> str:
 def _canonical_match(fragment: str, canonical_excerpts: list[str]) -> bool:
     canonical = _canonical(fragment)
     return bool(canonical) and any(canonical in excerpt for excerpt in canonical_excerpts)
+
+
+# Code that HTML-to-Markdown conversion squeezed into one table cell
+# (``| ```  a &&  b ``` |``). Only these cells are compared with every
+# whitespace run, newlines included, collapsed: elsewhere line structure stays
+# significant.
+_TABLE_CELL_CODE = re.compile(r"\|[ \t]*(`{3,})([^\r\n]+?)\1[ \t]*(?=\|)")
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _table_cell_code(source_excerpts: dict[int, str]) -> list[str]:
+    return [
+        _flat(_canonical(match.group(2)))
+        for excerpt in source_excerpts.values()
+        for match in _TABLE_CELL_CODE.finditer(excerpt)
+    ]
+
+
+def _table_cell_match(body: str, table_cells: list[str]) -> bool:
+    flat = _flat(_canonical(body))
+    return bool(flat) and any(flat in cell for cell in table_cells)
+
+
+def _query_echo(fragment: str, query: str) -> bool:
+    """A one-line inline span echoing the user's own term, e.g. `Outl*` for "Outl"."""
+    body = _inline_body(fragment)
+    if body is None or "\n" in body or "\r" in body:
+        return False
+    term = body.strip("*\"' ")
+    return bool(term) and term in query
 
 
 def _ambiguous_inline_groups(
@@ -179,8 +215,12 @@ def _source_section(source_excerpts: dict[int, str]) -> str:
     return "\n\nOriginal source excerpts\n\n" + "\n\n".join(entries)
 
 
-def guard_literal_code(answer: str, source_excerpts: dict[int, str]) -> str:
-    """Omit marked code ranges that cannot be matched verbatim to one source."""
+def guard_literal_code(answer: str, source_excerpts: dict[int, str], query: str = "") -> str:
+    """Omit marked code ranges that cannot be matched verbatim to one source.
+
+    ``query`` is the user's question: an inline span that only echoes one of its
+    terms is not a generated literal.
+    """
     ranges = protected_code_ranges(answer)
     if not ranges:
         return answer
@@ -200,6 +240,7 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str]) -> str:
     replacements = []
     rejected = False
     canonical_excerpts = [_canonical(excerpt) for excerpt in source_excerpts.values()]
+    table_cells = _table_cell_code(source_excerpts)
     for start, end in checked_ranges:
         fragment = answer[start:end]
         if (start, end) in ambiguous_groups:
@@ -212,9 +253,14 @@ def guard_literal_code(answer: str, source_excerpts: dict[int, str]) -> str:
             continue
         body = _unwrapped_body(fragment)
         if body is not None and (
-            _source_match(body, source_excerpts) or _canonical_match(body, canonical_excerpts)
+            _source_match(body, source_excerpts)
+            or _canonical_match(body, canonical_excerpts)
+            or _table_cell_match(body, table_cells)
         ):
             continue
+        if _query_echo(fragment, query):
+            continue
+        logger.info("Literal code guard omitted fragment: %r", fragment[:160])
         replacements.append((start, end, _omission(fragment)))
         rejected = True
 

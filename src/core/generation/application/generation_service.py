@@ -647,7 +647,7 @@ class GenerationService:
         # Step 4: Parse citations, map sources, and renumber markers so they
         # match the (cited-only) `sources` array returned to the client.
         normalized_answer, cited_sources = self._map_sources(
-            guard_literal_code(llm_result.text, context_result.source_excerpts),
+            guard_literal_code(llm_result.text, context_result.source_excerpts, query),
             context_result.used_candidates,
             doc_titles,
         )
@@ -1008,7 +1008,7 @@ class GenerationService:
             # Let the API layer map provider errors to structured SSE processing_error events.
             raise
 
-        guarded_answer = guard_literal_code(full_answer, prepared.source_excerpts)
+        guarded_answer = guard_literal_code(full_answer, prepared.source_excerpts, prepared.query)
         emitted_prefix = full_answer[:emitted_length]
         if not guarded_answer.startswith(emitted_prefix):
             raise RuntimeError("Literal code guard changed an already emitted prose prefix")

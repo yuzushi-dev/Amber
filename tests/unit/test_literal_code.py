@@ -373,3 +373,48 @@ def test_nbsp_in_html_sourced_command_is_formatting_only():
     assert guard_literal_code(answer, source) == answer
     changed = answer.replace("both", "http")
     assert guard_literal_code(changed, source).startswith("Run:\n\n" + OMISSION_MARKER)
+
+
+TABLE_CELL_SOURCE = {
+    1: "| **Option 2** |\n"
+    "| ```  !d &&     j?.attrs?.acmeIsAdminAccount == `TRUE` &&     (0, W.jsx)(X, { ``` |\n"
+}
+
+
+def test_code_squeezed_into_a_table_cell_matches_when_reflowed():
+    answer = (
+        "Insert:\n\n```js\n!d &&\n  j?.attrs?.acmeIsAdminAccount == `TRUE` &&\n"
+        "  (0, W.jsx)(X, {\n```"
+    )
+    assert guard_literal_code(answer, TABLE_CELL_SOURCE) == answer
+
+
+def test_table_cell_reflow_still_rejects_changed_literals_and_non_cell_sources():
+    changed = "```js\n!d &&\n  j?.attrs?.acmeIsAdminAccount == `FALSE` &&\n```"
+    assert OMISSION_MARKER in guard_literal_code(changed, TABLE_CELL_SOURCE)
+    # Outside table cells line structure stays significant (YAML indentation).
+    flattened = "```yaml\nroot: child: 1\n```"
+    assert OMISSION_MARKER in guard_literal_code(flattened, {1: "root:\n  child: 1"})
+
+
+def test_inline_span_echoing_a_query_term_is_kept():
+    answer = "Search for `Outl*` to match Outlook."
+    source = {1: "Place an asterisk (*) after a prefix to find similar words."}
+    query = 'Will a search for "Outl" find "Outlook"?'
+    assert guard_literal_code(answer, source, query) == answer
+    assert OMISSION_MARKER in guard_literal_code(answer, source)
+    assert OMISSION_MARKER in guard_literal_code("Search for `Outx*`.", source, query)
+    multi_line = "```\nOutl*\n```"
+    assert OMISSION_MARKER in guard_literal_code(multi_line, source, query)
+
+
+def test_rewritten_command_placeholders_stay_omitted():
+    source = {
+        1: '```\nuser$ acmectl backup doRestoreOnNewAccount Account name or id '
+        'destination_account "dd/MM/yyyy HH:mm:ss"|last\n```'
+    }
+    answer = (
+        '```bash\nuser$ acmectl backup doRestoreOnNewAccount {source_account} '
+        '{destination_account} "dd/MM/yyyy HH:mm:ss"|last\n```'
+    )
+    assert OMISSION_MARKER in guard_literal_code(answer, source, "restore on new account")
