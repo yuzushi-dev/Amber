@@ -31,17 +31,19 @@ _THINK_OPEN_TAG_RE = re.compile(r"<think>|<thinking>", re.IGNORECASE)
 
 
 def _history_fallback(query: str, history: list[dict] | str | None) -> str:
-    """No-LLM standalone query for a timed-out rewrite: the previous user question
-    (bounded) plus the current one, so a context-only follow-up ("improve those
-    commands") still retrieves the conversation's topic."""
+    """No-LLM standalone query for a timed-out rewrite: the last two user questions
+    (each bounded) plus the current one, so a context-only follow-up ("improve
+    those commands") still retrieves the conversation's topic even when the
+    previous question was itself a follow-up."""
     if isinstance(history, list):
         previous = [
             str(turn.get("content") or "").strip()
             for turn in history
             if turn.get("role", "user") == "user" and str(turn.get("content") or "").strip()
         ]
-        if previous and previous[-1] != query.strip():
-            return f"{previous[-1][:300]} {query}"
+        previous = [q[:300] for q in previous[-2:] if q != query.strip()]
+        if previous:
+            return " ".join([*previous, query])
     return query
 
 
@@ -170,7 +172,7 @@ class QueryRewriter:
             except TimeoutError:
                 logger.warning(
                     f"Query rewrite exceeded timeout ({timeout_sec:.2f}s), "
-                    "using previous user question + original"
+                    "using previous user questions + original"
                 )
                 return _history_fallback(query, history)
 
