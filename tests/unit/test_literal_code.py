@@ -31,7 +31,6 @@ def test_verbatim_and_unambiguous_wrappers_are_preserved(answer, source, expecte
 @pytest.mark.parametrize(
     "answer",
     [
-        "`call('x')`",  # generated mutation of backticks/quotes from the source
         "`select A`",  # case differs
         "<pre><code>run()</code></pre>",
         "    run()\n",
@@ -418,3 +417,29 @@ def test_rewritten_command_placeholders_stay_omitted():
         '{destination_account} "dd/MM/yyyy HH:mm:ss"|last\n```'
     )
     assert OMISSION_MARKER in guard_literal_code(answer, source, "restore on new account")
+
+
+def test_quote_style_mutation_is_replaced_by_the_source_literal():
+    source = {1: "call(`x`)\nrun()"}
+    guarded = guard_literal_code("Use `call('x')` here.", source)
+    assert guarded == "Use `` call(`x`) `` here."
+    assert OMISSION_MARKER not in guarded and "Original source excerpts" not in guarded
+
+
+def test_quote_repair_restores_reflowed_table_cell_code_in_a_fence():
+    answer = (
+        "```js\n!d &&\n  j?.attrs?.acmeIsAdminAccount == 'TRUE' &&\n"
+        "  (0, W.jsx)(X, {\n```\n"
+    )
+    guarded = guard_literal_code(answer, TABLE_CELL_SOURCE)
+    assert guarded == (
+        "```js\n!d && j?.attrs?.acmeIsAdminAccount == `TRUE` && (0, W.jsx)(X, {\n```\n"
+    )
+
+
+def test_quote_repair_needs_one_unambiguous_source_literal():
+    two = {1: "set(`A`)", 2: 'set("A")'}
+    assert OMISSION_MARKER in guard_literal_code("`set('A')`", two)
+    changed = {1: "m(`label.view_mail`, `VIEW MAIL`)"}
+    assert OMISSION_MARKER in guard_literal_code("`m('label.view', 'VIEW MAIL')`", changed)
+    assert OMISSION_MARKER in guard_literal_code("`plain()`", {1: "other()"})
