@@ -112,12 +112,12 @@ def _split_cited_fence_close(answer: str) -> str:
     would be checked (and omitted) as one code fragment.
     """
     out = []
-    opener = None
+    opener: str | None = None
     for line in answer.splitlines(keepends=True):
         match = _FENCE_LINE.fullmatch(line)
         if match and opener is None:
             opener = match.group(2)
-        elif match and match.group(2)[0] == opener[0] and len(match.group(2)) >= len(opener):
+        elif match and opener is not None and match.group(2)[0] == opener[0] and len(match.group(2)) >= len(opener):
             rest = match.group(3).strip()
             if not rest:
                 opener = None
