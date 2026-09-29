@@ -126,6 +126,9 @@ class FakeUnitOfWork:
     async def commit(self) -> None:
         pass
 
+    async def rollback(self) -> None:
+        pass
+
 
 class ExplodingStorage:
     """Raises once process_document reaches the storage-read step, so the

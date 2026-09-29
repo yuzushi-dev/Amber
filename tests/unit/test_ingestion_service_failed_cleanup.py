@@ -132,6 +132,9 @@ class FakeUnitOfWork:
     async def commit(self) -> None:
         pass
 
+    async def rollback(self) -> None:
+        pass
+
 
 class RaisingStorage:
     def get_file(self, storage_path: str):
@@ -163,3 +166,106 @@ async def test_process_document_failure_preserves_existing_artifacts(monkeypatch
     assert document.status == DocumentStatus.FAILED
     assert vector_store.delete_calls == []
     assert neo4j_client.writes == []
+
+
+class PoisonedSessionUnitOfWork:
+    """Mimics an AsyncSession whose flush failed: reads raise until rollback()."""
+
+    def __init__(self) -> None:
+        self.poisoned = False
+        self.rollbacks = 0
+
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+        self.poisoned = False
+
+
+class PoisonAwareRepository(FakeDocumentRepositoryForFailure):
+    def __init__(self, document: StubDocument, uow: PoisonedSessionUnitOfWork) -> None:
+        super().__init__(document)
+        self.uow = uow
+
+    async def get(self, document_id: str):
+        if self.uow.poisoned:
+            raise RuntimeError("This Session's transaction has been rolled back")
+        return self.document
+
+
+class PoisoningStorage:
+    """Fails like a flush rejected by Postgres: the session is left poisoned."""
+
+    def __init__(self, uow: PoisonedSessionUnitOfWork) -> None:
+        self.uow = uow
+
+    def get_file(self, storage_path: str):
+        self.uow.poisoned = True
+        raise ValueError("storage is down")
+
+
+@pytest.mark.asyncio
+async def test_process_document_failure_rolls_back_before_recording_error():
+    """A failed flush (e.g. NUL byte in chunk text) must not leave the doc stuck
+    with a stale processing_attempt_id and an empty error_message."""
+    document = StubDocument(
+        id="doc_8",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_8/file.txt",
+        filename="file.txt",
+        content_hash="hash-8",
+        metadata_={},
+    )
+    uow = PoisonedSessionUnitOfWork()
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = PoisonAwareRepository(document, uow)
+    service.unit_of_work = uow
+    service.storage = PoisoningStorage(uow)
+
+    with pytest.raises(ValueError, match="storage is down"):
+        await service.process_document("doc_8")
+
+    assert uow.rollbacks >= 1
+    assert document.status == DocumentStatus.FAILED
+    assert document.error_message
+    assert document.processing_attempt_id is None
+
+
+class PdfStorage:
+    def get_file(self, storage_path: str):
+        return b"%PDF-1.7\n\x00binary"
+
+
+class CapturingExtractor:
+    def __init__(self) -> None:
+        self.mime_type = None
+
+    async def extract(self, file_content, mime_type, filename):
+        self.mime_type = mime_type
+        raise ValueError("stop after extraction")
+
+
+@pytest.mark.asyncio
+async def test_process_document_sniffs_pdf_stored_with_wrong_content_type():
+    document = StubDocument(
+        id="doc_9",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_9/table.pdf",
+        filename="table.pdf",
+        content_hash="hash-9",
+        metadata_={"content_type": "text/html"},
+    )
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = FakeDocumentRepositoryForFailure(document)
+    service.unit_of_work = PoisonedSessionUnitOfWork()
+    service.storage = PdfStorage()
+    extractor = CapturingExtractor()
+    service.content_extractor = extractor
+
+    with pytest.raises(ValueError, match="stop after extraction"):
+        await service.process_document("doc_9")
+
+    assert extractor.mime_type == "application/pdf"
