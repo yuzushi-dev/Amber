@@ -480,29 +480,6 @@ class Neo4jClient:
             logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
             raise
 
-    async def delete_document_generation(
-        self, document_id: str, tenant_id: str, generation_id: str
-    ) -> int:
-        """Delete only the Chunk nodes written for one staging generation."""
-        query = """
-        MATCH (c:Chunk)
-        WHERE c.document_id = $document_id
-          AND c.tenant_id = $tenant_id
-          AND c.generation_id = $generation_id
-        WITH collect(c) AS chunks, count(c) AS deleted
-        FOREACH (chunk IN chunks | DETACH DELETE chunk)
-        RETURN deleted
-        """
-        result = await self.execute_write(
-            query,
-            {
-                "document_id": document_id,
-                "tenant_id": tenant_id,
-                "generation_id": generation_id,
-            },
-        )
-        return int(result[0]["deleted"]) if result else 0
-
     async def publish_document_generation(
         self, document_id: str, tenant_id: str, generation_id: str
     ) -> None:

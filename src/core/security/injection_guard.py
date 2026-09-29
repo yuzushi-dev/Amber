@@ -7,7 +7,6 @@ and whitespace normalization if the library is not installed.
 import html
 import logging
 import re
-import types
 
 logger = logging.getLogger(__name__)
 
@@ -85,41 +84,3 @@ class InjectionGuard:
                 text[:100],
             )
         return not is_injection
-
-    def format_secure_prompt(self, system: str, context: list[str], query: str) -> str:
-        """
-        Formats system instructions, context chunks, and user query securely by
-        wrapping sections with clear markers and XML tags to prevent prompt injection.
-        """
-        sanitized_query = self.sanitize_input(query)
-
-        formatted_chunks = []
-        for i, chunk in enumerate(context, 1):
-            sanitized_chunk = self.sanitize_input(chunk)
-            formatted_chunks.append(f"<chunk_{i}>\n{sanitized_chunk}\n</chunk_{i}>")
-        context_str = "\n".join(formatted_chunks)
-
-        return (
-            "### SYSTEM INSTRUCTIONS ###\n"
-            f"{system}\n\n"
-            "### CONTEXT ###\n"
-            f"{context_str}\n\n"
-            "### USER QUERY ###\n"
-            f"<user_query>\n{sanitized_query}\n</user_query>"
-        )
-
-    def get_analysis(self, text: str) -> object:
-        if not text:
-            return None
-        if _PROMPT_GUARD_AVAILABLE and self.guard is not None:
-            return self.guard.analyze(text)
-        # Fallback: use local detector and return a simple result object
-        from src.core.security.injection_detector import InjectionDetector
-        detector = InjectionDetector()
-        is_injection = detector.detect(text)
-        result = types.SimpleNamespace(
-            action="block" if is_injection else "allow",
-            severity="high" if is_injection else "none",
-            reasons=["heuristic_match"] if is_injection else [],
-        )
-        return result
