@@ -8,6 +8,7 @@ Orchestrates the evaluation of RAG outputs against a golden dataset using JudgeS
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 from src.core.admin_ops.application.evaluation.judge import JudgeService
 from src.core.generation.application.registry import PromptRegistry
@@ -19,8 +20,12 @@ from src.core.generation.domain.ports.provider_factory import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DEFAULT_DATASET_PATH = Path(__file__).with_name("golden_dataset.json")
 
-async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
+
+async def run_evaluation(
+    dataset_path: str | Path = DEFAULT_DATASET_PATH, provider_name: str = "openai"
+):
     """
     Runs evaluation for each entry in the golden dataset.
     """
@@ -84,4 +89,4 @@ async def run_evaluation(dataset_path: str, provider_name: str = "openai"):
 
 
 if __name__ == "__main__":
-    asyncio.run(run_evaluation("src/core/evaluation/golden_dataset.json"))
+    asyncio.run(run_evaluation())

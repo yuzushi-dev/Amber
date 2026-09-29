@@ -1,8 +1,8 @@
 [
     {
         "query": "What are the core components of the GraphRAG system?",
-        "ideal_context": "The system combines Milvus for vector search and Neo4j for graph-based retrieval, using a hybrid fusion approach with RRF.",
-        "ideal_answer": "The core components are Milvus (vector store), Neo4j (graph database), and a hybrid retrieval service that uses Reciprocal Rank Fusion (RRF) to combine results."
+        "ideal_context": "The system combines Milvus for vector search and Neo4j for graph-based retrieval. Milvus runs hybrid dense + sparse search fused with Reciprocal Rank Fusion (RRF); a query router picks the search mode (basic, local, global, drift, structured), and candidates are deduplicated and reranked.",
+        "ideal_answer": "The core components are Milvus (vector store, running hybrid dense + sparse search fused with Reciprocal Rank Fusion), Neo4j (knowledge graph used by the graph search modes), and a retrieval service that routes each query to a search mode and reranks the merged candidates."
     },
     {
         "query": "How does the system handle multi-hop queries?",
