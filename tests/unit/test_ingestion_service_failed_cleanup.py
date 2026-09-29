@@ -319,3 +319,48 @@ async def test_process_document_strips_nul_bytes_from_extracted_text(monkeypatch
         await service.process_document("doc_10")
 
     assert seen["result"].content == "ab"
+
+
+class ExpiringUnitOfWork(PoisonedSessionUnitOfWork):
+    """Like AsyncSession.rollback(): every loaded ORM object is expired, so
+    reading any attribute afterwards needs IO (MissingGreenlet in async code)."""
+
+    def __init__(self, repository: FakeDocumentRepositoryForFailure) -> None:
+        super().__init__()
+        self.repository = repository
+
+    async def rollback(self) -> None:
+        from sqlalchemy import inspect
+
+        await super().rollback()
+        generation = self.repository.generation
+        if generation is not None:
+            state = inspect(generation)
+            state._expire(state.dict, set())
+
+
+@pytest.mark.asyncio
+async def test_process_document_failure_handler_does_not_read_expired_generation():
+    document = StubDocument(
+        id="doc_11",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_11/file.txt",
+        filename="file.txt",
+        content_hash="hash-11",
+        metadata_={},
+    )
+    repository = FakeDocumentRepositoryForFailure(document)
+    uow = ExpiringUnitOfWork(repository)
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = repository
+    service.unit_of_work = uow
+    service.storage = PoisoningStorage(uow)
+
+    with pytest.raises(ValueError, match="storage is down"):
+        await service.process_document("doc_11")
+
+    assert uow.rollbacks >= 1
+    assert document.status == DocumentStatus.FAILED
+    assert document.error_message
+    assert document.processing_attempt_id is None
