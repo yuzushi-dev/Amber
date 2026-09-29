@@ -1,7 +1,7 @@
 """
 title: Amber (Knowledge Base)
 author: Amber
-version: 2.10.2
+version: 2.10.3
 description: Query the Amber Enterprise Knowledge Base directly via @amber mention or by selecting the Amber model. Requires per-user API key via UserValves.
 requirements: requests, pydantic, markdown-it-py==4.2.0
 """
@@ -296,6 +296,19 @@ class UserValves(BaseModel):
     )
 
 
+def format_source_entry(index: int, title_link: str, page_str: str, raw_text: str) -> str:
+    """One numbered entry of the sources section.
+
+    The snippet goes in a markdown blockquote without literal quotes: OpenWebUI's
+    blockquote styling already adds typographic quotes, so wrapping it in "..."
+    rendered as doubled quotes.
+    """
+    clean_snippet = " ".join(raw_text.split())
+    if len(clean_snippet) > 200:
+        clean_snippet = clean_snippet[:200] + "..."
+    return f"{index}. 📄 {title_link}{page_str}\n   > {clean_snippet}"
+
+
 class Pipe:
     class Valves(BaseModel):
         amber_api_url: str = Field(
@@ -540,12 +553,8 @@ class Pipe:
                         title_link = f"**{doc_name}**"
 
                     raw_text = s.get("text") or s.get("content_preview") or ""
-                    clean_snippet = " ".join(raw_text.split())
-                    if len(clean_snippet) > 200:
-                        clean_snippet = clean_snippet[:200] + "..."
-
                     sources_section.append(
-                        f'{valid_count}. 📄 {title_link}{page_str}\n   > "{clean_snippet}"'
+                        format_source_entry(valid_count, title_link, page_str, raw_text)
                     )
 
                 if valid_count > 0:
