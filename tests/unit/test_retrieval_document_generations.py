@@ -34,6 +34,25 @@ async def test_generated_results_are_kept_only_when_repository_exposes_same_gene
 
 
 @pytest.mark.asyncio
+async def test_all_legacy_results_are_still_validated_against_active_generation():
+    # Legacy (NULL-generation) chunks of a republished document must not be served
+    # even when no hit in the batch carries a generation id.
+    service = object.__new__(RetrievalService)
+    service.document_repository = SimpleNamespace(
+        get_chunks=lambda _ids: _async_result([SimpleNamespace(id="legacy", generation_id=None)])
+    )
+
+    results = [
+        SearchResult("legacy", "doc-never-regenerated", "tenant-1", 0.9),
+        SearchResult("legacy-of-republished", "doc-republished", "tenant-1", 0.8),
+    ]
+
+    validated = await service._filter_unpublished_generation_results(results)
+
+    assert [result.chunk_id for result in validated] == ["legacy"]
+
+
+@pytest.mark.asyncio
 async def test_vector_search_overfetches_before_generation_filtering():
     seen_limits = []
 

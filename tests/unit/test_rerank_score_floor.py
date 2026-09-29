@@ -9,6 +9,7 @@ only place a single configured floor can gate every query.
 Measured on the prod corpus with ms-marco-MiniLM-L-12-v2: chunks for a covered
 query score >= 0.82, chunks for a query with no coverage score ~0.0.
 """
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,7 +22,10 @@ from src.core.tenants.application.query_scopes import QueryScopes
 
 def _make_service(floor: float | None):
     document_repository = MagicMock()
-    document_repository.get_chunks = AsyncMock(return_value=[])
+    # Every vector hit resolves as a visible legacy chunk.
+    document_repository.get_chunks = AsyncMock(
+        side_effect=lambda ids: [SimpleNamespace(id=cid, generation_id=None) for cid in ids]
+    )
     document_repository.list_visible_document_ids = AsyncMock(return_value=[])
     document_repository.list_visible_document_ids_by_taxonomy = AsyncMock(return_value=[])
     document_repository.list_non_ready_document_ids_with_chunks = AsyncMock(return_value=[])
