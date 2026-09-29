@@ -420,7 +420,7 @@ def test_rewritten_command_placeholders_stay_omitted():
 
 QUOTA_SCRIPT_SOURCE = {
     1: "```\ncurl -X PUT \"https://${HOST}${QUOTA_REST_PATH}/config/accounts/"
-    "1d78ec87-82a5-4570-abd3-f29a327b7cc2\" --header 'X-Api-Version: 2' "
+    "00000000-0000-4000-8000-000000000001\" --header 'X-Api-Version: 2' "
     "--data '{\"limit\":{\"type\":\"limited\",\"value\":5368709120}}'\n```",
     2: "Read it back with `/services/storage/admin/quota`.",
 }
