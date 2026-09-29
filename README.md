@@ -9,6 +9,10 @@ Amber answers questions over a document collection by combining vector search wi
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/badge/release-v1.5.1-blue.svg)](https://github.com/yuzushi-dev/Amber/releases)
 
+<p align="center">
+  <a href="assets/video-explainer.mp4"><img src="assets/video-explainer.gif" width="960" alt="Amber answers a question from the docs, cites its sources, and a citation opens the exact passage; the same answer in OpenWebUI via @amber"></a>
+</p>
+
 ## Overview
 
 A plain RAG system retrieves chunks by vector similarity alone. That works until the answer depends on how things in the corpus relate to each other, and then it quietly returns the wrong five chunks. Amber builds that structure explicitly instead of hoping the embeddings encode it.
