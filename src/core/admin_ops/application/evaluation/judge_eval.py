@@ -94,10 +94,6 @@ def load_jsonl(path: Path) -> list[JudgeSample]:
     return samples
 
 
-# Backwards-compat alias (older imports referenced ``load_dataset``).
-load_dataset = load_jsonl
-
-
 def _parse_judge_response(
     text: str, rubric: Sequence[tuple[str, str]]
 ) -> tuple[dict[str, int], str]:

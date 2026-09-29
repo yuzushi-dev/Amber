@@ -39,29 +39,3 @@ class GraphTraversalGuard:
             A string containing the WHERE clause fragment.
         """
         return f"NOT {node_alias}.document_id IN ${param_name}"
-
-    @staticmethod
-    def filter_path_query(
-        base_query: str, check_nodes: list[str], param_name: str = "allowed_doc_ids"
-    ) -> str:
-        """
-        Injects ACL checks into a Cypher query.
-
-        Appends a WHERE/AND clause that restricts the given node aliases to
-        documents listed in the ``param_name`` parameter.  Callers must pass the
-        corresponding list in their query params.
-
-        For complex multi-match queries, prefer constructing the ACL clause
-        explicitly with ``get_acl_fragment``.
-
-        NOTE: This helper performs simple string injection and is not aware of
-        existing WHERE clauses — use only when the base_query has no WHERE yet.
-        Raises ValueError if check_nodes is empty (nothing to guard).
-        """
-        if not check_nodes:
-            raise ValueError("filter_path_query: check_nodes must not be empty")
-
-        fragments = " AND ".join(
-            GraphTraversalGuard.get_acl_fragment(alias, param_name) for alias in check_nodes
-        )
-        return f"{base_query}\nWHERE {fragments}"

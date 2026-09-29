@@ -291,13 +291,6 @@ def run_recovery_sync(min_age_minutes: int = STALE_MIN_AGE_MINUTES) -> dict[str,
 # (celery_app -> include[tasks] -> tasks -> recovery -> celery_app).
 
 
-def _get_celery_app():
-    """Lazy import of celery_app to break the circular-import cycle."""
-    from src.workers.celery_app import celery_app as _app  # noqa: PLC0415
-
-    return _app
-
-
 # Build the task using a lazy-binding pattern so we don't import celery_app at
 # module load time.  The shared_task decorator from Celery achieves exactly
 # this: it binds to whatever app is active at call time rather than at import

@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.core.admin_ops.domain.api_key import ApiKey, ApiKeyTenant
+from src.core.admin_ops.domain.api_key import ApiKeyTenant
 from src.core.ingestion.domain.document import Document
 from src.core.tenants.application.active_vector_collection import (
     ensure_active_vector_collection_config,
@@ -126,17 +126,6 @@ class TenantService:
             await self.session.commit()
             return True
         return False
-
-    async def get_tenant_keys(self, tenant_id: str) -> list[ApiKey]:
-        """Get all API keys linked to a tenant."""
-        query = (
-            select(ApiKey)
-            .join(ApiKeyTenant)
-            .where(ApiKeyTenant.tenant_id == tenant_id)
-            .options(selectinload(ApiKey.tenants))
-        )
-        result = await self.session.execute(query)
-        return result.scalars().all()
 
     async def get_tenant_document_counts(self, tenant_ids: list[str]) -> dict[str, int]:
         """Get document counts for a list of tenants."""

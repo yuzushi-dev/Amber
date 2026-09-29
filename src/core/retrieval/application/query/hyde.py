@@ -7,8 +7,6 @@ Generates hypothetical answers to bridge query-document semantic gaps.
 
 import logging
 
-import numpy as np
-
 from src.core.generation.application.prompts.query_analysis import HYDE_PROMPT
 from src.core.generation.domain.ports.provider_factory import (
     ProviderFactoryPort,
@@ -115,41 +113,3 @@ class HyDEService:
         except Exception as e:
             logger.error(f"HyDE generation failed: {e}")
             return []
-
-    def validate_consistency(
-        self,
-        embeddings: list[list[float]],
-        threshold: float = 0.7,
-    ) -> bool:
-        """
-        Check if generated hypotheses are semantically consistent.
-
-        Args:
-            embeddings: List of embedding vectors for the hypotheses
-            threshold: Minimum average cosine similarity to be considered consistent
-
-        Returns:
-            True if consistent, False otherwise
-        """
-        if len(embeddings) < 2:
-            return True
-
-        # Convert to numpy for easier calc
-        vecs = [np.array(e) for e in embeddings]
-
-        # Calculate pairwise similarities
-        sims = []
-        for i in range(len(vecs)):
-            for j in range(i + 1, len(vecs)):
-                norm_i = np.linalg.norm(vecs[i])
-                norm_j = np.linalg.norm(vecs[j])
-                if norm_i == 0 or norm_j == 0:
-                    sims.append(0.0)
-                    continue
-                sim = np.dot(vecs[i], vecs[j]) / (norm_i * norm_j)
-                sims.append(sim)
-
-        avg_sim = np.mean(sims)
-        logger.debug(f"HyDE consistency check: avg_sim={avg_sim:.4f}")
-
-        return avg_sim >= threshold

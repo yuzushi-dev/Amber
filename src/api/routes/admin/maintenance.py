@@ -937,25 +937,6 @@ async def _get_neo4j_stats_consolidated(tenant_id: str | None) -> dict:
         return {"entities_total": 0, "relationships_total": 0, "communities_total": 0}
 
 
-# Legacy functions kept for backwards compatibility (now call consolidated function)
-async def _get_neo4j_entity_count() -> int:
-    """Get entity count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated(None)
-    return stats.get("entities_total", 0)
-
-
-async def _get_neo4j_relationship_count() -> int:
-    """Get relationship count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated(None)
-    return stats.get("relationships_total", 0)
-
-
-async def _get_neo4j_community_count() -> int:
-    """Get community count from Neo4j. (Deprecated - use _get_neo4j_stats_consolidated)"""
-    stats = await _get_neo4j_stats_consolidated(None)
-    return stats.get("communities_total", 0)
-
-
 async def _get_cache_stats(tenant_id: str) -> CacheStats:
     """Get Redis cache statistics."""
     try:

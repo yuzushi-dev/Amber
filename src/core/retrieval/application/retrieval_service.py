@@ -36,7 +36,6 @@ from src.core.retrieval.application.query.router import QueryRouter
 from src.core.retrieval.application.query.sufficiency import SufficiencyEvaluator
 from src.core.retrieval.application.search.drift_search import DriftSearchService
 from src.core.retrieval.application.search.global_search import GlobalSearchService
-from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.retrieval.application.search.vector import VectorSearcher
 from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
 from src.core.retrieval.domain.ports.graph_store_port import GraphStorePort
@@ -333,9 +332,6 @@ class RetrievalService:
         )
 
         self.vector_searcher = VectorSearcher(self.vector_store)
-
-        # Use injected neo4j_client (already set in __init__ start)
-        self.graph_searcher = GraphSearcher(self.neo4j_client)
 
         # Advanced Search Modes
         llm = factory.get_llm_provider(

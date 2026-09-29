@@ -53,7 +53,3 @@ class PromptRegistry:
             return versions.get("latest", "")
 
         return versions[version]
-
-    def list_prompts(self) -> dict[str, list]:
-        """List all available prompts and their versions."""
-        return {name: list(versions.keys()) for name, versions in self._prompts.items()}

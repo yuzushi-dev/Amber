@@ -117,7 +117,6 @@ def _stub_ingestion_components(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
     monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
     monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
-    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
 
 
 def _existing_document(status: DocumentStatus):
@@ -158,7 +157,6 @@ async def test_upload_use_case_accepts_ports_only(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
     monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
     monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
-    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
     monkeypatch.setattr(service_module, "Document", StubDocument)
     _stub_cache_delete(monkeypatch)
 
@@ -198,7 +196,6 @@ async def test_upload_use_case_invalidates_tenant_stats_cache(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
     monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
     monkeypatch.setattr(service_module, "GraphProcessor", StubGraphProcessor)
-    monkeypatch.setattr(service_module, "GraphEnricher", StubGraphEnricher)
     monkeypatch.setattr(service_module, "Document", StubDocument)
 
     async def _direct_to_thread(func, *args, **kwargs):

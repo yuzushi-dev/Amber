@@ -148,11 +148,3 @@ def create_graph_tool(tenant_id: str) -> dict[str, Any]:
     }
 
     return {"func": query_graph, "schema": schema}
-
-
-# ---------------------------------------------------------------------------
-# Legacy bare list — kept so old import sites that only do
-#   ``from src.core.tools.graph import GRAPH_TOOLS``
-# still parse without error, but callers MUST migrate to create_graph_tool().
-# ---------------------------------------------------------------------------
-GRAPH_TOOLS: list[dict] = []  # Intentionally empty; use create_graph_tool(tenant_id) instead.

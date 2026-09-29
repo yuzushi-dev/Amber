@@ -8,12 +8,10 @@ Uses LLMs to process text and extract structured memory.
 
 import json
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from src.core.generation.application.memory.manager import memory_manager
 from src.core.generation.application.prompts.templates import (
-    CONVERSATION_SUMMARY_PROMPT,
     FACT_EXTRACTION_PROMPT,
 )
 from src.core.generation.domain.ports.provider_factory import get_llm_provider
@@ -146,108 +144,6 @@ class MemoryExtractor:
         except Exception as e:
             logger.error(f"Error during fact extraction for user {user_id}: {e}", exc_info=True)
             return []
-
-    async def summarize_and_save_conversation(
-        self,
-        tenant_id: str,
-        user_id: str,
-        conversation_id: str,
-        messages: list[dict[str, str]],
-        title: str | None = None,
-        tenant_config: dict[str, Any] | None = None,
-        *,
-        api_key_id: str,
-    ) -> str | None:
-        """
-        Summarize a conversation history and save it.
-
-        Args:
-            tenant_id: Tenant context
-            user_id: User identity
-            conversation_id: ID of the conversation
-            messages: List of message dicts {"role": "...", "content": "..."}
-            title: Optional title (will be generated if missing)
-
-        Returns:
-            The summary string if successful
-        """
-        if not messages:
-            return None
-
-        # Format messages for the prompt
-        # Scrub PII from all messages
-        formatted_history = ""
-        for msg in messages:
-            role = msg.get("role", "unknown")
-            content = self.scrubber.scrub_text(msg.get("content", ""))
-            formatted_history += f"{role.upper()}: {content}\n"
-
-        try:
-            # Generate Summary
-            prompt = CONVERSATION_SUMMARY_PROMPT.format(history=formatted_history)
-            logger.debug(f"Triggering conversation summarization for {conversation_id}")
-
-            from src.core.generation.application.llm_steps import resolve_llm_step_config
-            from src.core.generation.domain.ports.provider_factory import get_provider_factory
-            from src.core.generation.domain.provider_models import ProviderTier
-            from src.shared.kernel.runtime import get_settings
-
-            settings = get_settings()
-            tenant_config = tenant_config or {}
-            llm_cfg = resolve_llm_step_config(
-                tenant_config=tenant_config,
-                step_id="memory.conversation_summary",
-                settings=settings,
-            )
-            provider = get_provider_factory().get_llm_provider(
-                provider_name=llm_cfg.provider,
-                model=llm_cfg.model,
-                tier=ProviderTier.ECONOMY,
-            )
-            kwargs: dict[str, Any] = {}
-            if llm_cfg.temperature is not None:
-                kwargs["temperature"] = llm_cfg.temperature
-            if llm_cfg.seed is not None:
-                kwargs["seed"] = llm_cfg.seed
-
-            response = await provider.generate(
-                prompt=prompt,
-                max_tokens=512,
-                **kwargs,
-            )
-
-            summary = response.text.strip()
-            logger.debug(f"Summarization result: {summary[:100]}...")
-
-            # Generate Title if missing (simple extraction)
-            final_title = title
-            if not final_title:
-                # Use the first 50 chars of the first user message or a generic one
-                first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
-                if first_user_msg:
-                    raw_title = first_user_msg.get("content", "")[:50]
-                    final_title = self.scrubber.scrub_text(raw_title)
-                else:
-                    final_title = f"Conversation {datetime.now(UTC).strftime('%Y-%m-%d')}"
-
-            # Save to DB
-            await memory_manager.save_conversation_summary(
-                tenant_id=tenant_id,
-                user_id=user_id,
-                conversation_id=conversation_id,
-                title=final_title,
-                summary=summary,
-                metadata={"message_count": len(messages)},
-                api_key_id=api_key_id,
-            )
-            logger.info(f"Saved conversation summary for {conversation_id}")
-
-            return summary
-
-        except Exception as e:
-            logger.error(f"Error during conversation summarization: {e}", exc_info=True)
-            return None
-
 
 # Global instance
 memory_extractor = MemoryExtractor()

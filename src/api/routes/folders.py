@@ -20,10 +20,6 @@ class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
-class FolderUpdate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-
-
 class FolderResponse(BaseModel):
     id: str
     tenant_id: str
