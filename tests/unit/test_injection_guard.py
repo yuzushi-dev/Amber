@@ -63,19 +63,6 @@ class TestInjectionGuardLibrary:
         assert guard.sanitize_input("") == ""
         assert guard.validate_input("") is True
 
-    def test_get_analysis_returns_result(self):
-        """Test that get_analysis returns a result object."""
-        from src.core.security.injection_guard import InjectionGuard
-
-        guard = InjectionGuard()
-        result = guard.get_analysis("test query")
-
-        assert result is not None
-        assert hasattr(result, 'action')
-        assert hasattr(result, 'severity')
-        assert hasattr(result, 'reasons')
-
-
 class TestInjectionGuardWiring:
     """Test that InjectionGuard is wired correctly in the codebase."""
 

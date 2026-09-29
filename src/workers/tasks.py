@@ -432,10 +432,10 @@ async def _process_communities_async(
         detect_res = {"status": "skipped_by_checkpoint", "community_count": 0}
         if resume_from == "detection":
             if not skip_detection:
-                # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
-                # wipe that detect_communities() performs at the start of every full-Leiden run.
-                # If the task was revoked after we started running but before the destructive
-                # step, abort here so acks_late re-delivery can't silently re-wipe communities.
+                # Cooperative cancellation: check BEFORE detect_communities() writes a new
+                # community generation at the start of every full-Leiden run.
+                # If the task was revoked after we started running, abort here before any
+                # new generation is written.
                 if task_id and _is_revoked(task_id):
                     logger.info(
                         f"[Task {task_id}] Revoked before community detection/wipe; "

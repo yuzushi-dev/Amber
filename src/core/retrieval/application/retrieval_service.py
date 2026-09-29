@@ -234,7 +234,6 @@ class RetrievalService:
         # Injected clients via Ports
         vector_store: VectorStorePort,
         neo4j_client: GraphStorePort,  # Using GraphStorePort protocol, keeping name for compatibility if possible, or rename?
-        # neo4j_client is used by GraphSearcher etc. They expect a client like object.
         # If GraphStorePort matches Neo4jClient signature, we are good.
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,

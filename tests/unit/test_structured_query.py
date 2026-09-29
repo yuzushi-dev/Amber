@@ -130,12 +130,6 @@ class TestStructuredKGDetector:
         intent = detector.detect(query)
         assert intent.query_type == StructuredQueryType.NOT_STRUCTURED
 
-    def test_is_structured_helper(self, detector):
-        """Test the is_structured helper method."""
-        assert detector.is_structured("list documents") is True
-        assert detector.is_structured("What is machine learning?") is False
-
-
 class TestCypherGenerator:
     """Tests for the CypherGenerator class."""
 

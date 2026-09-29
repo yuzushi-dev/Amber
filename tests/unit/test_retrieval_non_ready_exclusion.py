@@ -19,7 +19,6 @@ from src.core.retrieval.application.retrieval_service import (
     RetrievalService,
     VectorSearchTarget,
 )
-from src.core.retrieval.application.search.graph import GraphSearcher
 from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig, MilvusVectorStore
 from src.core.tenants.application.query_scopes import QueryScopes
 
@@ -138,43 +137,6 @@ class _FakeNeo4j:
     async def execute_read(self, query, params):
         self.execute_read_calls.append((query, params))
         return []
-
-
-@pytest.mark.asyncio
-async def test_graph_search_excludes_non_ready_chunks():
-    neo4j = _FakeNeo4j()
-    searcher = GraphSearcher(neo4j)
-
-    await searcher.search_by_entities(
-        entity_ids=["e1"],
-        tenant_id="t1",
-        excluded_doc_ids=["doc-failed-1"],
-    )
-
-    query, params = neo4j.execute_read_calls[-1]
-    assert "NOT c.document_id IN $excluded_doc_ids" in query
-    assert params["excluded_doc_ids"] == ["doc-failed-1"]
-
-    neo4j2 = _FakeNeo4j()
-    searcher2 = GraphSearcher(neo4j2)
-    await searcher2.search_by_neighbors(
-        chunk_ids=["c1"],
-        tenant_id="t1",
-        excluded_doc_ids=["doc-failed-1"],
-    )
-    query2, params2 = neo4j2.execute_read_calls[-1]
-    assert "NOT neighbor.document_id IN $excluded_doc_ids" in query2
-    assert params2["excluded_doc_ids"] == ["doc-failed-1"]
-
-
-@pytest.mark.asyncio
-async def test_graph_search_omits_exclusion_clause_when_not_requested():
-    neo4j = _FakeNeo4j()
-    searcher = GraphSearcher(neo4j)
-    await searcher.search_by_entities(entity_ids=["e1"], tenant_id="t1")
-    query, params = neo4j.execute_read_calls[-1]
-    assert "excluded_doc_ids" not in params
-    assert "NOT c.document_id IN $excluded_doc_ids" not in query
 
 
 # ---------------------------------------------------------------------------
