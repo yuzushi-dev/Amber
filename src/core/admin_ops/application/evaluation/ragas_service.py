@@ -158,7 +158,7 @@ class RagasService:
             raise
 
     async def evaluate_sample(
-        self, query: str, context: str, response: str, reference: str | None = None
+        self, query: str, context: str, response: str
     ) -> RagasEvaluationResult:
         """
         Run full evaluation on a single sample.
@@ -167,7 +167,6 @@ class RagasService:
             query: The user's question
             context: The retrieved context
             response: The generated answer
-            reference: Optional reference answer for comparison
 
         Returns:
             RagasEvaluationResult with all available scores
