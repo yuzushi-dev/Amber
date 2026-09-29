@@ -601,9 +601,8 @@ class RetrievalService:
             metadata = getattr(result, "metadata", None) or {}
             return generation_id if generation_id is not None else metadata.get("generation_id")
 
-        if not any(result_generation_id(result) is not None for result in results):
-            return results
-
+        # Always validate: legacy (NULL-generation) hits of a republished document
+        # are hidden by get_chunks, even when no hit in the batch has a generation.
         get_chunks = getattr(self.document_repository, "get_chunks", None)
         if not callable(get_chunks):
             return [result for result in results if result_generation_id(result) is None]
