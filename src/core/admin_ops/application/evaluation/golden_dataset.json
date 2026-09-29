@@ -6,8 +6,8 @@
     },
     {
         "query": "How does the system handle multi-hop queries?",
-        "ideal_context": "Multi-hop queries are handled via a Beam Search traversal on the Neo4j knowledge graph starting from extracted entities.",
-        "ideal_answer": "It uses a GraphTraversalService that implements a Beam Search algorithm to explore entities and relationships in Neo4j across multiple hops."
+        "ideal_context": "Multi-hop queries are routed to DRIFT search: a primer retrieval gathers initial context, then the LLM generates follow-up questions for the missing pieces and runs them as sub-queries, iterating up to three times.",
+        "ideal_answer": "The query router sends multi-hop questions to DRIFT search, which starts from a primer retrieval and then iteratively generates and executes follow-up sub-queries to fill the gaps before merging the retrieved context."
     },
     {
         "query": "Who is the lead developer of Amber?",
