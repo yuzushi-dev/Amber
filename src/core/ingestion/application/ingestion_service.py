@@ -581,11 +581,18 @@ class IngestionService:
                 mime_type = stored_ct
             elif not mime_type:
                 mime_type = "application/octet-stream"
+            # Uploads can carry a wrong content type (e.g. a PDF sent as text/html);
+            # a text extractor then emits raw PDF streams full of binary/NUL bytes.
+            if file_content[:5] == b"%PDF-":
+                mime_type = "application/pdf"
 
             extractor = self.content_extractor or get_content_extractor()
             extraction_result = await extractor.extract(
                 file_content=file_content, mime_type=mime_type, filename=generation.filename
             )
+            # Postgres text columns reject NUL bytes and fail the whole flush.
+            if extraction_result.content and "\x00" in extraction_result.content:
+                extraction_result.content = extraction_result.content.replace("\x00", "")
 
             # 4b. Quality Gate: check extraction result against configured thresholds.
             # If any threshold is breached and mark_low_quality_as_needs_review is enabled,
@@ -1209,6 +1216,9 @@ class IngestionService:
         except Exception as e:
             logger.exception(f"Failed to process document {document_id}")
             try:
+                # A failed flush poisons the session; without a rollback every
+                # write below fails and the doc keeps a stale processing_attempt_id.
+                await self.unit_of_work.rollback()
                 document = await self.document_repository.get(document_id)
                 if document and getattr(document, "processing_attempt_id", None) == attempt_id:
                     # Use shared error mapping for structured persistence
