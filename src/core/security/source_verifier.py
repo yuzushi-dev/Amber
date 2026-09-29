@@ -30,16 +30,3 @@ class SourceVerifier:
         # We want STRICT grounding for security/trust.
 
         return False
-
-    def verify_answer_grounding(self, answer: str, context_chunks: list[str]) -> bool:
-        """
-        Checks if the answer implies citations that are supported by context.
-        Note: This is hard without parsing the answer's citation format.
-        Assuming answer contains [Source ID] or quoted text.
-
-        For MVP, we might rely on the LLM to output specific citation format like <cite>text</cite>
-        or check if quoted substrings > N chars exist in context.
-        """
-        # Placeholder for more advanced logic.
-        # For Phase 11 MVP, we provide the verification logic to be called by the Generator.
-        return True

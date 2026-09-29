@@ -17,7 +17,7 @@ import zipfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.admin_ops.domain.backup_job import BackupSchedule, BackupScope
@@ -362,38 +362,6 @@ class BackupService:
             zf.writestr("config/tenant_config.json", json.dumps(data, indent=2))
             logger.info("Added tenant configuration")
 
-    async def _add_vector_metadata(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
-        """Export vector store metadata (counts, not actual vectors)."""
-        from src.core.ingestion.domain.chunk import Chunk
-
-        try:
-            result = await self.session.execute(
-                select(func.count(Chunk.id)).where(Chunk.tenant_id == tenant_id)
-            )
-            chunk_count = result.scalar() or 0
-
-            data = {
-                "tenant_id": tenant_id,
-                "chunk_count": chunk_count,
-                "note": "Vectors cannot be exported directly. Re-indexing will be required after restore.",
-            }
-            zf.writestr("vectors/metadata.json", json.dumps(data, indent=2))
-            logger.info(f"Added vector metadata: {chunk_count} chunks")
-        except Exception as e:
-            logger.warning(f"Could not export vector metadata: {e}")
-            zf.writestr("vectors/metadata.json", json.dumps({"error": str(e)}, indent=2))
-
-    async def _add_graph_metadata(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
-        """Export graph database metadata (structure info, not full data)."""
-        # Note: Full neo4j export would require apoc.export which needs docker access
-        # For application-level backup, we just note that graph needs separate handling
-        data = {
-            "tenant_id": tenant_id,
-            "note": "Graph database entities are not included in application backup. Use scripts/backup.sh for full Neo4j backup.",
-        }
-        zf.writestr("graph/metadata.json", json.dumps(data, indent=2))
-        logger.info("Added graph metadata note")
-
     async def _add_backup_schedules(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export backup schedules as JSON."""
         result = await self.session.execute(
@@ -441,31 +409,6 @@ class BackupService:
             }
             for job in jobs
         ]
-
-    async def delete_backup(self, job_id: str, tenant_id: str) -> bool:
-        """Delete a backup file."""
-        from src.core.admin_ops.domain.backup_job import BackupJob
-
-        result = await self.session.execute(
-            select(BackupJob).where(BackupJob.id == job_id).where(BackupJob.tenant_id == tenant_id)
-        )
-        job = result.scalar_one_or_none()
-
-        if not job:
-            return False
-
-        # Delete from storage
-        if job.result_path:
-            try:
-                self.storage.delete_file(job.result_path)
-            except Exception as e:
-                logger.warning(f"Could not delete backup file from storage: {e}")
-
-        # Delete job record
-        await self.session.delete(job)
-        await self.session.commit()
-
-        return True
 
     async def _add_chunks_table(self, zf: zipfile.ZipFile, tenant_id: str) -> None:
         """Export chunks table as JSON."""

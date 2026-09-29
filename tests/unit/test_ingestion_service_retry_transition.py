@@ -46,7 +46,6 @@ def _stub_heavy_init_components(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", _StubInitComponent)
     monkeypatch.setattr(service_module, "EmbeddingService", _StubInitComponent)
     monkeypatch.setattr(service_module, "GraphProcessor", _StubInitComponent)
-    monkeypatch.setattr(service_module, "GraphEnricher", _StubInitComponent)
 
 
 class StubDocument:

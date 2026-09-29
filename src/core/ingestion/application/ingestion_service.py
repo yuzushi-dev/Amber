@@ -18,7 +18,6 @@ from uuid import uuid4
 from src.core.events.dispatcher import EventDispatcher, StateChangeEvent
 from src.core.generation.application.intelligence.strategies import STRATEGIES, DocumentDomain
 from src.core.generation.application.llm_steps import resolve_llm_step_config
-from src.core.graph.application.enrichment import GraphEnricher
 from src.core.graph.application.processor import GraphProcessor
 from src.core.ingestion.application.chunking.semantic import SemanticChunker
 from src.core.ingestion.application.document_taxonomy import classify_document_taxonomy
@@ -85,7 +84,6 @@ class IngestionService:
 
         # GraphProcessor uses global graph_writer internally, but that's handled by tasks.py patch for safety
         self.graph_processor = GraphProcessor()
-        self.graph_enricher = GraphEnricher(self.neo4j_client, self.vector_store)
 
     async def _update_status_for_attempt(
         self,

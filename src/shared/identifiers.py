@@ -31,7 +31,6 @@ CHUNK_ID_PATTERN = re.compile(r"^chunk_[a-f0-9]{16}_\d{5}$")
 ENTITY_ID_PATTERN = re.compile(r"^ent_[a-f0-9]{16}$")
 TENANT_ID_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{2,31}$")
 REQUEST_ID_PATTERN = re.compile(r"^req_[a-f0-9]{32}$")
-CONVERSATION_ID_PATTERN = re.compile(r"^conv_[a-f0-9]{16}$")
 
 
 # =============================================================================
@@ -101,22 +100,8 @@ def generate_request_id() -> RequestId:
     return RequestId(f"req_{uuid.uuid4().hex}")
 
 
-def generate_conversation_id() -> ConversationId:
-    """
-    Generate a unique conversation identifier.
-
-    Format: conv_<16 hex chars>
-    Example: conv_a1b2c3d4e5f67890
-
-    Returns:
-        ConversationId: Unique conversation identifier
-    """
-    return ConversationId(f"conv_{uuid.uuid4().hex[:16]}")
-
-
 # Type for query identifiers
 QueryId = NewType("QueryId", str)
-QUERY_ID_PATTERN = re.compile(r"^qry_[a-f0-9]{16}$")
 
 
 def generate_query_id() -> QueryId:

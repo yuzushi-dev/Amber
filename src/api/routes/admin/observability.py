@@ -30,11 +30,6 @@ router = APIRouter(
 )
 
 
-class MetricsResponse(BaseModel):
-    aggregated: AggregatedMetrics
-    recent_queries: list[dict]
-
-
 class DocumentShareFlagsResponse(BaseModel):
     enable_document_share_management: bool
     enable_upload_time_document_shares: bool

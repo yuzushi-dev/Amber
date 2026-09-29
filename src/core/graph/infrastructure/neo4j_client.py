@@ -239,17 +239,6 @@ class Neo4jClient:
             # Fallback for manual edge copy could be implemented here
             return False
 
-    async def find_orphan_nodes(self, tenant_id: str, limit: int = 100) -> list[str]:
-        """Find nodes with no relationships."""
-        query = """
-        MATCH (n:Entity {tenant_id: $tenant_id})
-        WHERE NOT (n)--()
-        RETURN n.name as id
-        LIMIT $limit
-        """
-        result = await self.execute_read(query, {"tenant_id": tenant_id, "limit": limit})
-        return [r["id"] for r in result]
-
     async def get_node_context(self, node_id: str, tenant_id: str) -> dict[str, Any]:
         """
         Get context for healing: Linked chunks and their node text.

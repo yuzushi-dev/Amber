@@ -57,10 +57,3 @@ class PIIScrubber:
         scrubbed = self.compiled_patterns["CREDIT_CARD"].sub("[CREDIT CARD REDACTED]", scrubbed)
 
         return scrubbed
-
-    def scrub_context_chunks(self, chunks: list[str]) -> list[str]:
-        """
-        Scrubs PII from a list of context chunks.
-        Preferred over streaming scrub for MVP simplicity.
-        """
-        return [self.scrub_text(chunk) for chunk in chunks]

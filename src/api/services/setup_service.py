@@ -702,51 +702,6 @@ class SetupService:
         self._write_setup_complete_to_redis()
         logger.info("Setup marked as complete")
 
-    async def check_required_services(self) -> dict[str, Any]:
-        """Check if required services (PostgreSQL, Neo4j, Milvus, Redis) are reachable."""
-        results = {}
-
-        # PostgreSQL check
-        try:
-            import asyncpg  # noqa: F401
-
-            # Just check import works, actual connection test would need config
-            results["postgresql"] = {"status": "available", "message": "Driver loaded"}
-        except ImportError:
-            results["postgresql"] = {"status": "error", "message": "Missing asyncpg"}
-
-        # Neo4j check
-        try:
-            import neo4j  # noqa: F401
-
-            results["neo4j"] = {"status": "available", "message": "Driver loaded"}
-        except ImportError:
-            results["neo4j"] = {"status": "error", "message": "Missing neo4j driver"}
-
-        # Milvus check
-        try:
-            import pymilvus  # noqa: F401
-
-            results["milvus"] = {"status": "available", "message": "Driver loaded"}
-        except ImportError:
-            results["milvus"] = {"status": "error", "message": "Missing pymilvus"}
-
-        # Redis check
-        try:
-            import redis  # noqa: F401
-
-            results["redis"] = {"status": "available", "message": "Driver loaded"}
-        except ImportError:
-            results["redis"] = {"status": "missing", "message": "redis not installed"}
-
-        all_available = all(r["status"] == "available" for r in results.values())
-
-        return {
-            "all_available": all_available,
-            "services": results,
-        }
-
-
 # Singleton instance
 _setup_service: SetupService | None = None
 

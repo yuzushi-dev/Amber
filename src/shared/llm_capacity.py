@@ -214,7 +214,6 @@ class RedisLLMCapacityLimiter:
     """Distributed capacity limiter using Redis leases."""
 
     def __init__(self, *, provider_key: str, settings: LLMCapacitySettings):
-        self._provider_key = provider_key
         self._settings = settings
         self._redis = None
 

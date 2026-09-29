@@ -30,7 +30,6 @@ from src.core.generation.domain.ports.provider_factory import (
 from src.core.generation.domain.ports.providers import LLMProviderPort
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.ingestion.domain.ports.document_repository import DocumentRepository
-from src.core.security.source_verifier import SourceVerifier
 from src.core.tenants.application.effective_config import (
     DEFAULT_TENANT_ID,
     merge_tenant_config,
@@ -234,8 +233,6 @@ class GenerationService:
                 factory = get_provider_factory()
             self.factory = factory
             self.llm = factory.get_llm_provider(tier=self.config.tier, with_failover=True)
-
-        self.verifier = SourceVerifier()
 
     def set_tenant_config_snapshot(self, tenant_config_snapshot: dict[str, Any]) -> None:
         """Use a detached tenant configuration for a session-free provider phase."""

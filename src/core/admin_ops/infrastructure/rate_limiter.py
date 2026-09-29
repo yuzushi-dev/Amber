@@ -161,66 +161,6 @@ class RateLimiter:
             # Re-raise so the middleware can decide fail-open vs fail-closed
             raise
 
-    async def check_concurrency(
-        self,
-        tenant_id: str,
-        resource: str,
-        max_concurrent: int,
-    ) -> tuple[bool, int]:
-        """
-        Check concurrent resource usage.
-
-        Args:
-            tenant_id: Tenant identifier
-            resource: Resource type (e.g., "ingestion")
-            max_concurrent: Maximum concurrent allowed
-
-        Returns:
-            tuple[bool, int]: (allowed, current_count)
-        """
-        key = f"concurrent:{tenant_id}:{resource}"
-
-        try:
-            redis = await self._get_redis()
-            current = await redis.get(key)
-            current_count = int(current) if current else 0
-
-            if current_count >= max_concurrent:
-                return False, current_count
-
-            return True, current_count
-
-        except Exception as e:
-            logger.error(f"Concurrency check error: {e}. Allowing request.")
-            return True, 0
-
-    async def increment_concurrent(self, tenant_id: str, resource: str) -> int:
-        """Increment concurrent count. Returns new count."""
-        key = f"concurrent:{tenant_id}:{resource}"
-        try:
-            redis = await self._get_redis()
-            count = await redis.incr(key)
-            await redis.expire(key, 86400)  # 24 hour expiry for safety
-            return count
-        except Exception as e:
-            logger.error(f"Increment concurrent error: {e}")
-            return 1
-
-    async def decrement_concurrent(self, tenant_id: str, resource: str) -> int:
-        """Decrement concurrent count. Returns new count."""
-        key = f"concurrent:{tenant_id}:{resource}"
-        try:
-            redis = await self._get_redis()
-            count = await redis.decr(key)
-            if count <= 0:
-                await redis.delete(key)
-                return 0
-            return count
-        except Exception as e:
-            logger.error(f"Decrement concurrent error: {e}")
-            return 0
-
-
 # Factory function for creating rate limiter (called by API middleware with settings)
 _rate_limiter: RateLimiter | None = None
 

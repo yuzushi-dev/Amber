@@ -179,15 +179,6 @@ LLM_STEP_DEFS: dict[str, LLMStepDef] = {
         default_temperature=0.1,
     ),
     # Admin / evaluation
-    "admin.quality_scorer": LLMStepDef(
-        id="admin.quality_scorer",
-        label="Quality Scorer",
-        feature="admin",
-        description="LLM scoring for quality metrics",
-        temperature_strategy="fixed",
-        seed_strategy="provider",
-        default_temperature=0.0,
-    ),
     "admin.judge_faithfulness": LLMStepDef(
         id="admin.judge_faithfulness",
         label="Judge Faithfulness",

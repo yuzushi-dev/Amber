@@ -223,10 +223,3 @@ class SparseEmbeddingService:
                 results.extend([{}] * len(batch_texts))
 
         return results
-
-    def get_token_map(self, sparse_vector: dict[int, float]) -> dict[str, float]:
-        """Convert token IDs to string tokens for debugging."""
-        if not self._tokenizer:
-            return {}
-
-        return {self._tokenizer.decode([k]): v for k, v in sparse_vector.items()}

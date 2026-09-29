@@ -51,25 +51,6 @@ def _is_revoked(task_id: str) -> bool:
         return False
 
 
-def _background_warmup():
-    """Run heavy model warming in a background thread."""
-    try:
-        logger.info("Starting background warmup for SparseEmbeddingService (SPLADE)...")
-        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-
-        service = SparseEmbeddingService()
-        if service.prewarm():
-            logger.info("SparseEmbeddingService background warmup completed.")
-        else:
-            logger.warning("SparseEmbeddingService background warmup returned False.")
-    except Exception as e:
-        logger.error(f"Failed to background warmup SparseEmbeddingService: {e}")
-
-
-# Trigger background warmup on module load (worker startup)
-# threading.Thread(target=_background_warmup, daemon=True).start()
-
-
 def run_async(coro):
     """Helper to run async code in sync Celery task."""
     try:

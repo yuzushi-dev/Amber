@@ -219,12 +219,10 @@ module = [
     "src.core.admin_ops.application.migration_service",
     "src.core.admin_ops.application.provisioning_service",
     "src.core.admin_ops.application.quality.*",
-    "src.core.admin_ops.application.quality_scorer",
     "src.core.admin_ops.application.restore_service",
     "src.core.admin_ops.application.rules_service",
     "src.core.admin_ops.application.tuning_service",
     "src.core.admin_ops.application.usage_tracker",
-    "src.core.admin_ops.application.verified_qa_service",
     "src.core.admin_ops.infrastructure.*",
     # API layer
     "src.amber_platform.composition_root",

@@ -41,7 +41,6 @@ Graph construction runs in two stages: iterative entity extraction, then communi
     *   **Summarization**: Each community is summarized by an LLM to create a "Community Node," enabling **Global Search** (answering "What is the main theme?" by reading summaries rather than thousands of raw chunks).
 *   **Quality Assurance (Hybrid Scoring)**: To prevent hallucinations and low-quality extractions, a strict scoring system is applied:
     *   **Intrinsic Confidence**: Entities with an LLM-generated `importance_score < 0.5` are automatically discarded.
-    *   **Extrinsic Validation**: A `QualityScorer` module evaluates generated answers and critical extractions on 4 dimensions: **Context Relevance**, **Completeness**, **Factual Grounding**, and **Coherence**, using a mix of LLM evaluation and heuristic checks.
 
 ## 3. Advanced Retrieval Logic
 

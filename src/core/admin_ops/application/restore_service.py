@@ -100,41 +100,6 @@ class RestoreService:
             return None
         return api_key_id
 
-    async def validate_backup(self, backup_path: str) -> BackupManifest:
-        """
-        Validate a backup ZIP file and return its manifest.
-
-        Args:
-            backup_path: Path to the backup file in storage
-
-        Returns:
-            BackupManifest with backup info
-
-        Raises:
-            ValueError: If backup is invalid
-        """
-        try:
-            file_bytes = self.storage.get_file(backup_path)
-            zip_buffer = io.BytesIO(file_bytes)
-
-            with zipfile.ZipFile(zip_buffer, "r") as zf:
-                # Check for manifest
-                if "manifest.json" not in zf.namelist():
-                    raise ValueError("Invalid backup: manifest.json not found")
-
-                manifest_data = json.loads(zf.read("manifest.json"))
-                manifest = BackupManifest(manifest_data)
-
-                if not manifest.is_valid:
-                    raise ValueError("Invalid backup: manifest is incomplete")
-
-                return manifest
-
-        except zipfile.BadZipFile as e:
-            raise ValueError("Invalid backup: not a valid ZIP file") from e
-        except FileNotFoundError as e:
-            raise ValueError("Backup file not found") from e
-
     async def restore(
         self,
         backup_path: str,
