@@ -183,35 +183,13 @@ def _initialize_worker_runtime(settings, init_providers):
     configure_database(settings.db.database_url)
 
     from src.amber_platform.composition_root import platform
+    from src.core.generation.infrastructure.providers.factory import (
+        init_providers_from_settings,
+    )
 
     asyncio.run(platform.initialize())
 
-    providers = getattr(settings, "providers", None)
-    openai_key = getattr(providers, "openai_api_key", None) or settings.openai_api_key
-    anthropic_key = getattr(providers, "anthropic_api_key", None) or settings.anthropic_api_key
-
-    # Initialize providers with API keys from settings
-    init_providers(
-        openai_api_key=openai_key,
-        anthropic_api_key=anthropic_key,
-        ollama_base_url=settings.ollama_base_url,
-        default_llm_provider=settings.default_llm_provider,
-        default_llm_model=settings.default_llm_model,
-        default_embedding_provider=settings.default_embedding_provider,
-        default_embedding_model=settings.default_embedding_model,
-        llm_fallback_local=settings.llm_fallback_local,
-        llm_fallback_economy=settings.llm_fallback_economy,
-        llm_fallback_standard=settings.llm_fallback_standard,
-        llm_fallback_premium=settings.llm_fallback_premium,
-        embedding_fallback_order=settings.embedding_fallback_order,
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_base_url=settings.openrouter_base_url,
-        nvidia_nim_api_key=settings.nvidia_nim_api_key,
-        nvidia_nim_base_url=settings.nvidia_nim_base_url,
-        llm_fallback_enabled=settings.llm_fallback_enabled,
-        ollama_cloud_base_url=settings.ollama_cloud_base_url,
-        ollama_cloud_api_keys=settings.ollama_cloud_api_keys,
-    )
+    init_providers_from_settings(settings, init_providers)
 
 
 @worker_ready.connect
