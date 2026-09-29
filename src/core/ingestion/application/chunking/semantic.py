@@ -327,7 +327,10 @@ class SemanticChunker:
         for i, chunk in enumerate(chunks):
             chunk.index = i
 
-            if i > 0 and self.chunk_overlap > 0:
+            # A chunk opening a new header section gets no overlap: the tail of the
+            # previous section would lead the chunk and mislead its contextual
+            # header (and embedding) about what the chunk is about.
+            if i > 0 and self.chunk_overlap > 0 and not self.HEADER_PATTERN.match(chunk.content):
                 # Get overlap content from previous chunk
                 prev_content = chunks[i - 1].content
                 overlap_tokens = self._get_last_n_tokens(prev_content, self.chunk_overlap)
