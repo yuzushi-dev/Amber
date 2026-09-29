@@ -14,6 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    services:
+      # Throwaway graph for tests/graph_cypher (real Cypher semantics, not mocks).
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/testpassword
+        ports:
+          - 7688:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p testpassword 'RETURN 1'"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,3 +60,9 @@ jobs:
 
       - name: Run quality gate
         run: bash scripts/verify.sh all
+
+      - name: Run graph Cypher tests
+        env:
+          AMBER_TEST_NEO4J_URI: bolt://localhost:7688
+          AMBER_TEST_NEO4J_PASSWORD: testpassword
+        run: ./.venv/bin/pytest -q tests/graph_cypher
