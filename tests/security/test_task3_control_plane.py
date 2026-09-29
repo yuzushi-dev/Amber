@@ -2,7 +2,6 @@
 Security tests for Task 3: control-plane route lockdown.
 
 Covers:
-- RAGAS routes require super_admin, not just admin
 - API key creation cannot escalate to super_admin/root scopes
 - Health /ready endpoint does not expose internal error strings
 - Setup _check_db_migration_status uses correct import path
@@ -12,36 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-
-# ── RAGAS: super_admin guard ──────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_ragas_stats_requires_super_admin():
-    """GET /admin/ragas/stats must reject callers with only 'admin' scope."""
-    from src.api.deps import verify_super_admin
-
-    request = MagicMock()
-    request.state.is_super_admin = False
-
-    with pytest.raises(HTTPException) as exc_info:
-        await verify_super_admin(request)
-    assert exc_info.value.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_ragas_router_dependency_is_super_admin():
-    """The RAGAS router's router-level dependency must be verify_super_admin."""
-    from src.api.routes.admin.ragas import router
-
-    # Inspect the router-level dependencies
-    dep_functions = [d.dependency for d in router.dependencies]
-    dep_names = [getattr(f, "__name__", repr(f)) for f in dep_functions]
-    assert "verify_super_admin" in dep_names, (
-        f"RAGAS router uses {dep_names!r} instead of verify_super_admin. "
-        "Any admin can reach RAGAS benchmark triggers."
-    )
-
 
 # ── API key scope escalation prevention ──────────────────────────────────────
 

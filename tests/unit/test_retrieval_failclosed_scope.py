@@ -10,7 +10,6 @@ pass a privileged query_scopes (enforce_groups=False) so benchmark evaluation
 is not blocked when a tenant has groups_enforced=True.
 """
 
-import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -108,16 +107,3 @@ async def test_retrieve_explicit_query_scopes_overrides_tenant_config():
     assert len(captured_scopes) > 0
     for scope in captured_scopes:
         assert scope.enforce_groups is False, "Explicit query_scopes must not be overridden"
-
-
-def test_worker_tasks_benchmark_passes_explicit_query_scopes():
-    """#28.2: workers/tasks.py benchmark retrieval must pass explicit query_scopes."""
-    import src.workers.tasks as tasks_module
-
-    source = inspect.getsource(tasks_module)
-
-    # Check that retrieve() call in benchmark execution passes worker_scopes
-    assert "worker_scopes = resolve_query_scopes" in source or "query_scopes=worker_scopes" in source or "query_scopes=resolve_query_scopes" in source, (
-        "workers/tasks.py must pass query_scopes to retrieval_service.retrieve() "
-        "so benchmark evaluation is not fail-closed when a tenant has groups_enforced=True."
-    )

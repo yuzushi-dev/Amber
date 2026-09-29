@@ -150,7 +150,6 @@ celery_app.conf.beat_schedule = {
 celery_app.conf.task_routes = {
     "src.workers.tasks.process_document": {"queue": "high_priority"},
     "src.workers.tasks.process_communities": {"queue": "low_priority"},
-    "src.workers.tasks.run_ragas_benchmark": {"queue": "evaluation"},
     # export_tasks uses default celery queue
     "src.workers.provisioning_tasks.provision_tenant": {"queue": "low_priority"},
 }

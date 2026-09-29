@@ -100,14 +100,6 @@ OPTIONAL_FEATURES: dict[str, Feature] = {
         size_mb=800,
         check_import="unstructured",
     ),
-    "ragas": Feature(
-        id="ragas",
-        name="RAGAS Evaluation",
-        description="Systematic RAG evaluation metrics (Est. ~1 min)",
-        packages=["ragas>=0.2.0", "huggingface-hub", "datasets", OPTIONAL_PROTOBUF_PIN],
-        size_mb=150,
-        check_import="ragas",
-    ),
 }
 
 

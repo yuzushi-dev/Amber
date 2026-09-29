@@ -173,7 +173,7 @@ Generation is provider-agnostic, streams over SSE, and attaches per-chunk citati
 - **Providers**: OpenAI, Anthropic, Ollama (local), Ollama Cloud (sequential API-key failover); tiered by role (extraction / RAG / evaluation).
 - **Complexity Routing**: A deterministic, no-LLM scorer rates each query across 9 dimensions and assigns a tier (`simple`/`standard`/`complex`/`reasoning`) that selects the Ollama model, opt-in per tenant.
 - **Citations & Grounding**: Chunk-level citations with relevance scores, source dedup, interactive citation explorer.
-- **Quality Guardrails**: Faithfulness and relevance checks, follow-up suggestions, Ragas evaluation integration.
+- **Quality Guardrails**: Faithfulness and relevance checks, follow-up suggestions, LLM-as-judge evaluation (`amber eval`).
 - **User Feedback**: Thumbs up/down, admin review queue, Q&A library, golden dataset export.
 
 ### Admin & Operations
@@ -264,7 +264,7 @@ flowchart TB
 |                | Extraction       | Unstructured, PyMuPDF4LLM | Multi-format document parsing             |
 |                | Reranking        | FlashRank                 | Fast semantic reranking                   |
 |                | Graph Clustering | igraph + leidenalg        | Community detection                       |
-|                | Evaluation       | Ragas                     | RAG metrics evaluation                    |
+|                | Evaluation       | LLM-as-judge              | Faithfulness and relevance scoring        |
 | **Infra**      | Orchestration    | Docker Compose            | Service orchestration                     |
 
 For extraction internals, retrieval fusion math, and the agentic ReAct loop, see [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -295,7 +295,6 @@ Conversation history is scoped to the authenticated API key; see [ARCHITECTURE.m
 | `GET`  | `/v1/admin/jobs`                           | List background jobs        |
 | `POST` | `/v1/admin/jobs/{id}/cancel`               | Cancel a job                 |
 | `POST` | `/v1/admin/maintenance/communities/detect` | Trigger community detection  |
-| `POST` | `/v1/admin/ragas/benchmark/run`            | Run evaluation               |
 | `GET`  | `/v1/connectors`                           | List available connector types |
 | `POST` | `/v1/connectors/{type}/sync`               | Trigger sync (full or incremental) |
 | `POST` | `/v1/connectors/{type}/ingest`             | Ingest selected items by ID   |

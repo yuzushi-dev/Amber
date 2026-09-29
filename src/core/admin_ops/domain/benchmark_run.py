@@ -2,7 +2,7 @@
 Benchmark Run Model
 ===================
 
-Stores Ragas benchmark run metadata and results.
+Stores evaluation benchmark run metadata and results.
 """
 
 import enum
@@ -24,7 +24,7 @@ class BenchmarkStatus(enum.StrEnum):
 
 class BenchmarkRun(Base, TimestampMixin):
     """
-    Tracks Ragas benchmark runs for evaluation.
+    Tracks evaluation benchmark runs (judge, locomo; legacy rows may say ragas).
     """
 
     __tablename__ = "benchmark_runs"
