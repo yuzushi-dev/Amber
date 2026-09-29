@@ -418,6 +418,53 @@ def test_rewritten_command_placeholders_stay_omitted():
     assert OMISSION_MARKER in guard_literal_code(answer, source, "restore on new account")
 
 
+QUOTA_SCRIPT_SOURCE = {
+    1: "```\ncurl -X PUT \"https://${HOST}${QUOTA_REST_PATH}/config/accounts/"
+    "1d78ec87-82a5-4570-abd3-f29a327b7cc2\" --header 'X-Api-Version: 2' "
+    "--data '{\"limit\":{\"type\":\"limited\",\"value\":5368709120}}'\n```",
+    2: "Read it back with `/services/storage/admin/quota`.",
+}
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        '`{"limit":{"type":"limited","value":VALUE}}`',
+        '`{"limit":{"type":"limited","value":value_in_bytes}}`',
+        '```json\n{\n  "limit": {"type": "limited", "value": <bytes>}\n}\n```',
+    ],
+)
+def test_json_body_with_one_numeric_placeholder_is_kept(answer):
+    assert guard_literal_code(answer, QUOTA_SCRIPT_SOURCE) == answer
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # a path inferred by analogy or composed from two sources is not in any source
+        "`/services/storage/admin/quota/config/cos/{id}`",
+        "`/services/storage/admin/quota/config/accounts/{id}`",
+        # new key, changed string, placeholder for a string leaf, two placeholders
+        '`{"limit":{"type":"limited","value":VALUE,"unit":"B"}}`',
+        '`{"limit":{"type":"unlimited","value":VALUE}}`',
+        '`{"limit":{"type":TYPE,"value":5368709120}}`',
+        '`{"limit":{"type":"limited","value":VALUE},"id":ID}`',
+        '`{"limit":VALUE}`',
+    ],
+)
+def test_inferred_paths_and_changed_json_bodies_stay_omitted(answer):
+    assert guard_literal_code(answer, QUOTA_SCRIPT_SOURCE).startswith(OMISSION_MARKER)
+
+
+def test_json_placeholder_count_ignores_json_literals():
+    source = {1: '--data \'{"soft":4294967296,"hard":5368709120,"notify":true}\''}
+    kept = '`{"soft":SOFT,"hard":5368709120,"notify":true}`'
+    assert guard_literal_code(kept, source) == kept
+    assert guard_literal_code('`{"soft":SOFT,"hard":HARD,"notify":true}`', source).startswith(
+        OMISSION_MARKER
+    )
+
+
 def test_quote_style_mutation_is_replaced_by_the_source_literal():
     source = {1: "call(`x`)\nrun()"}
     guarded = guard_literal_code("Use `call('x')` here.", source)
