@@ -102,7 +102,7 @@ def test_runtime_images_create_writable_user_cache_before_switching_user(dockerf
     )
 
 
-@pytest.mark.parametrize("feature_id", ["local_embeddings", "reranking", "ragas"])
+@pytest.mark.parametrize("feature_id", ["local_embeddings", "reranking"])
 def test_optional_ml_features_pin_protobuf_compatible_with_opentelemetry(feature_id: str):
     from src.api.services.setup_service import OPTIONAL_FEATURES
 

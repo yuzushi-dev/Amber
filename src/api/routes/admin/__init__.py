@@ -23,7 +23,6 @@ from src.api.routes.admin import (
     observability,
     providers,
     provisioning,
-    ragas,
     retention,
     rules,
     tenants,
@@ -38,7 +37,6 @@ router.include_router(curation.router)
 router.include_router(maintenance.router)
 router.include_router(observability.router)
 router.include_router(chat_history.router)
-router.include_router(ragas.router)
 router.include_router(keys.router)
 router.include_router(tenants.router)
 router.include_router(feedback.router)

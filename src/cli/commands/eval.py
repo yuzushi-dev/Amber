@@ -1,4 +1,4 @@
-"""Evaluation CLI: ragas (legacy) and LLM-as-judge (F4b)."""
+"""Evaluation CLI: LLM-as-judge (F4b), golden dataset and Locomo runs."""
 
 from __future__ import annotations
 
@@ -32,26 +32,9 @@ def list_frameworks() -> None:
     """List evaluation frameworks available in this build."""
     console.print(
         "[bold]Frameworks[/bold]\n"
-        "  - ragas       legacy ragas runner (worker task)\n"
         "  - judge       LLM-as-judge end-to-end (CLI driver below)\n"
         "  - locomo      [yellow]planned[/yellow] long-context conversational eval\n"
     )
-
-
-@app.command("ragas-run")
-def ragas_run(
-    dataset: str = typer.Argument(...),
-    tenant_id: str = typer.Option("default"),
-) -> None:
-    """Dispatch a legacy ragas benchmark run via Celery."""
-    try:
-        from src.workers.tasks import run_ragas_benchmark
-    except ImportError as exc:
-        typer.echo("ragas worker task not available; install optional extras first", err=True)
-        raise typer.Exit(code=1) from exc
-
-    result = run_ragas_benchmark.delay(dataset, tenant_id=tenant_id)
-    console.print(f"[green]Queued[/green] task_id={result.id} dataset={dataset}")
 
 
 @app.command("judge-run")

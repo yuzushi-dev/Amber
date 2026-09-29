@@ -9,7 +9,7 @@ set -euo pipefail
 
 readonly DEFAULT_SOURCE_VOLUME="amber2_pip-packages"
 readonly DEFAULT_TARGET_VOLUME="amber2_pip-packages-h3"
-readonly SUPPORTED_FEATURES=(local_embeddings reranking community_detection ragas)
+readonly SUPPORTED_FEATURES=(local_embeddings reranking community_detection)
 
 source_volume="$DEFAULT_SOURCE_VOLUME"
 target_volume="$DEFAULT_TARGET_VOLUME"
@@ -33,7 +33,7 @@ Required for --inventory, --apply and --verify:
 
 Required for --apply:
   --features IDS          Comma-separated managed non-parser IDs: local_embeddings,
-                          reranking, community_detection, ragas.
+                          reranking, community_detection.
 
 Options:
   --source-volume NAME    Legacy rollback volume (default: amber2_pip-packages).
@@ -147,7 +147,6 @@ modules = {
     "local_embeddings": "sentence_transformers",
     "reranking": "flashrank",
     "community_detection": "leidenalg",
-    "ragas": "ragas",
 }
 print(json.dumps({name: importlib.util.find_spec(module) is not None for name, module in modules.items()}))
 PY

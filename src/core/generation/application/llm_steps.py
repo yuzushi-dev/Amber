@@ -205,15 +205,6 @@ LLM_STEP_DEFS: dict[str, LLMStepDef] = {
         temperature_strategy="provider",
         seed_strategy="provider",
     ),
-    "admin.ragas_fallback": LLMStepDef(
-        id="admin.ragas_fallback",
-        label="RAGAS Fallback",
-        feature="admin",
-        description="Judge fallback used by RAGAS",
-        temperature_strategy="fixed",
-        seed_strategy="provider",
-        default_temperature=0.0,
-    ),
 }
 
 

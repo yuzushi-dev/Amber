@@ -58,12 +58,6 @@ const FEATURE_DETAILS: Record<string, string[]> = {
         'Packages: unstructured, python-magic, pymupdf4llm',
         'Size: ~800 MB',
         'Purpose: PDF, DOCX, and HTML extraction'
-    ],
-    'ragas': [
-        'Framework: Ragas (RAG Assessment)',
-        'Packages: ragas, datasets',
-        'Size: ~150 MB',
-        'Purpose: Automated faithfulness and relevancy scoring'
     ]
 }
 
