@@ -269,3 +269,53 @@ async def test_process_document_sniffs_pdf_stored_with_wrong_content_type():
         await service.process_document("doc_9")
 
     assert extractor.mime_type == "application/pdf"
+
+
+class NulExtractor:
+    async def extract(self, file_content, mime_type, filename):
+        from src.core.ingestion.infrastructure.extraction.base import ExtractionResult
+
+        return ExtractionResult(content="a\x00b", extractor_used="stub", confidence=1.0)
+
+
+@pytest.mark.asyncio
+async def test_process_document_strips_nul_bytes_from_extracted_text(monkeypatch):
+    seen = {}
+
+    document = StubDocument(
+        id="doc_10",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_10/file.txt",
+        filename="file.txt",
+        content_hash="hash-10",
+        metadata_={},
+    )
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = FakeDocumentRepositoryForFailure(document)
+    service.unit_of_work = PoisonedSessionUnitOfWork()
+    service.storage = PdfStorage()
+    service.content_extractor = NulExtractor()
+
+    from src.core.ingestion.infrastructure.extraction import config as extraction_config
+
+    class _Settings:
+        """Quality gate reads thresholds right after extraction; stop there."""
+
+        def __getattr__(self, name):
+            raise ValueError("stop after extraction")
+
+    monkeypatch.setattr(extraction_config, "extraction_settings", _Settings())
+    original_extract = service.content_extractor.extract
+
+    async def capture(*args, **kwargs):
+        result = await original_extract(*args, **kwargs)
+        seen["result"] = result
+        return result
+
+    service.content_extractor.extract = capture
+
+    with pytest.raises(ValueError, match="stop after extraction"):
+        await service.process_document("doc_10")
+
+    assert seen["result"].content == "ab"
