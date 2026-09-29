@@ -239,7 +239,11 @@ def golden_run(
 
     results = run(_orchestrate())
     if not any(r["status"] == "scored" for r in results):
-        console.print("[red]No item was scored[/red] (see no_retrieval / error above)")
+        console.print(
+            "[red]No item was scored[/red] (see no_retrieval / error above). "
+            "Generation retrieval only uses documents whose taxonomy edition is "
+            "'commercial', same as POST /query; check the tenant's documents."
+        )
         raise typer.Exit(code=1)
 
 
