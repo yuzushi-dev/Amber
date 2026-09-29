@@ -69,6 +69,38 @@ def _table_cell_match(body: str, table_cells: list[str]) -> bool:
     return bool(flat) and any(flat in cell for cell in table_cells)
 
 
+# A JSON request body copied from a source example with its one sample number
+# swapped for a placeholder (``{"value": VALUE}`` for ``{"value": 5368709120}``).
+_JSON_TOKEN = re.compile(
+    r'"(?:\\.|[^"\\])*"|<[^<>\s]+>|[A-Za-z_]\w*|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\S'
+)
+_JSON_NUMBER = r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"
+
+
+def _json_placeholder_match(body: str, canonical_excerpts: list[str]) -> bool:
+    body = body.strip()
+    if not body.startswith(("{", "[")):
+        return False
+    tokens = _JSON_TOKEN.findall(body)
+    slots = [
+        index
+        for index, token in enumerate(tokens)
+        if (token[0] == "<" or token[0].isalpha() or token[0] == "_")
+        and token not in ("true", "false", "null")
+    ]
+    # ponytail: exactly one unquoted placeholder, standing for a source number;
+    # quoted or several placeholders stay omitted until a measured reject needs them.
+    if len(slots) != 1:
+        return False
+    pattern = re.compile(
+        r"\s*".join(
+            _JSON_NUMBER if index == slots[0] else re.escape(token)
+            for index, token in enumerate(tokens)
+        )
+    )
+    return any(pattern.search(excerpt) for excerpt in canonical_excerpts)
+
+
 _QUOTE_CLASS = "['\"`]"
 
 
@@ -351,6 +383,7 @@ def guard_literal_code(
             _source_match(body, source_excerpts)
             or _canonical_match(body, canonical_excerpts)
             or _table_cell_match(body, table_cells)
+            or _json_placeholder_match(body, canonical_excerpts)
         ):
             continue
         if _query_echo(fragment, query):
