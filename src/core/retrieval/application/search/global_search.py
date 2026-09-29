@@ -38,7 +38,6 @@ class GlobalSearchService:
         tenant_id: str,
         level: int = 1,
         max_reports: int = 10,
-        relevance_threshold: float = 0.5,
         tenant_config: dict | None = None,
         allowed_doc_ids: list[str] | None = None,
     ) -> dict[str, Any]:
