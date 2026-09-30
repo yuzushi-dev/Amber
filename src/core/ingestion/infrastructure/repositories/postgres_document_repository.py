@@ -613,7 +613,13 @@ class PostgresDocumentRepository(DocumentRepository):
         async with self._session.begin_nested():
             result = await self._session.execute(
                 select(Chunk.document_id, Chunk)
-                .join(Document, Document.id == Chunk.document_id)
+                .join(
+                    Document,
+                    and_(
+                        Document.id == Chunk.document_id,
+                        Document.tenant_id == Chunk.tenant_id,
+                    ),
+                )
                 .where(
                     Chunk.document_id.in_(document_ids),
                     or_(

@@ -321,7 +321,7 @@ async def test_head_cap_limits_documents(monkeypatch):
     out = await service._append_document_continuations(chunks, allowed_ids={"a", "b"})
 
     assert [c["chunk_id"] for c in out] == ["a0", "a7", "b7", "a8", "b8"]
-    service.document_repository.get_first_chunks.assert_awaited_once_with(["a"])
+    service.document_repository.get_first_chunks.assert_awaited_once_with(["a", "b"])
 
 
 @pytest.mark.asyncio
@@ -350,6 +350,53 @@ async def test_repository_first_chunk_query_is_scoped_to_published_generation():
             )
         ).split()
     )
+    assert "documents.tenant_id = chunks.tenant_id" in sql
     assert "DISTINCT ON (chunks.document_id)" in sql
     assert "chunks.generation_id = documents.active_generation_id" in sql
     assert "ORDER BY chunks.document_id, chunks.index, chunks.id" in sql
+
+
+@pytest.mark.asyncio
+async def test_already_selected_head_does_not_consume_a_cap_slot(monkeypatch):
+    monkeypatch.setattr(rs, "MAX_DOCUMENT_HEADS", 2)
+    chunks = [
+        _chunk("a0", "a"),
+        _chunk("a7", "a"),
+        _chunk("b7", "b"),
+        _chunk("b8", "b"),
+        _chunk("c7", "c"),
+        _chunk("c8", "c"),
+    ]
+    service = _head_service({"a": _row("a0", "a"), "b": _row("b0", "b"), "c": _row("c0", "c")})
+
+    out = await service._append_document_continuations(chunks, allowed_ids={"a", "b", "c"})
+
+    assert [c["chunk_id"] for c in out] == ["a0", "a7", "b0", "b7", "b8", "c0", "c7", "c8"]
+    service.document_repository.get_first_chunks.assert_awaited_once_with(["a", "b", "c"])
+
+
+@pytest.mark.asyncio
+async def test_single_chunk_document_with_gap_continuation_gets_no_head():
+    gap_hit = {**_chunk("g11", "g"), "sufficiency_gap_hit": True}
+    service = _head_service({"g": _row("g0", "g")}, {"g11": _row("g12", "g")})
+
+    out = await service._append_document_continuations([gap_hit], allowed_ids={"g"})
+
+    assert [c["chunk_id"] for c in out] == ["g11", "g12"]
+    service.document_repository.get_first_chunks.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_head_and_continuation_on_same_document_without_duplicates():
+    chunks = [_chunk("a7", "a"), _chunk("a8", "a")]
+    service = _head_service({"a": _row("a0", "a")}, {"a8": _row("a9", "a")})
+
+    out = await service._append_document_continuations(chunks, allowed_ids={"a"})
+
+    assert [c["chunk_id"] for c in out] == ["a0", "a7", "a8", "a9"]
+    assert [c["source"] for c in out] == [
+        "document_head",
+        "vector",
+        "vector",
+        "document_continuation",
+    ]

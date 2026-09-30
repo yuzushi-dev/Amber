@@ -1360,7 +1360,8 @@ class RetrievalService:
         (up to rounds x SUFFICIENCY_GAP_HITS_PER_ROUND) plus up to
         MAX_DOCUMENT_CONTINUATIONS + MAX_GAP_CONTINUATIONS continuations; chunk-count
         metrics and evaluation contexts include them (``source="document_continuation"``).
-        A document with two or more final chunks also gets its first published chunk
+        A document with two or more selected chunks (added continuations do not
+        count) also gets its first published chunk
         (the article head, e.g. the stated prerequisites) inserted before its first
         selected chunk, for at most MAX_DOCUMENT_HEADS documents
         (``source="document_head"``).
@@ -1381,7 +1382,10 @@ class RetrievalService:
         allowed_ids: set[str],
         trace: list[dict[str, Any]] | None = None,
     ) -> list[Any]:
-        """Insert the first published chunk of multi-chunk documents before their first chunk."""
+        """Insert the first published chunk of multi-chunk documents before their first chunk.
+
+        ``per_document`` counts the selected chunks per document.
+        """
         fetch = getattr(self.document_repository, "get_first_chunks", None)
         document_ids = list(
             dict.fromkeys(
@@ -1389,40 +1393,45 @@ class RetrievalService:
                 for c in chunks
                 if per_document[c.get("document_id")] >= 2 and c.get("document_id") in allowed_ids
             )
-        )[:MAX_DOCUMENT_HEADS]
+        )
         if fetch is None or not document_ids:
             return chunks
         try:
-            heads = await fetch(document_ids)
+            fetched = await fetch(document_ids)
         except Exception as e:
             logger.warning(f"Document head lookup failed: {e}")
             return chunks
-        if not isinstance(heads, dict):
+        if not isinstance(fetched, dict):
             return chunks
 
+        # Cap after dropping heads that are already selected, so they do not use a slot.
         selected = {c.get("chunk_id") for c in chunks}
+        heads = {
+            doc_id: fetched[doc_id]
+            for doc_id in document_ids
+            if doc_id in fetched
+            and fetched[doc_id].id not in selected
+            and fetched[doc_id].document_id == doc_id
+        }
+        heads = dict(list(heads.items())[:MAX_DOCUMENT_HEADS])
+
         expanded: list[Any] = []
         added: list[dict[str, Any]] = []
-        done: set[Any] = set()
         for chunk in chunks:
-            doc_id = chunk.get("document_id")
-            head = heads.get(doc_id) if doc_id in document_ids and doc_id not in done else None
+            head = heads.pop(chunk.get("document_id"), None)
             if head is not None:
-                done.add(doc_id)
-                if head.id not in selected and head.document_id == doc_id:
-                    expanded.append(
-                        {
-                            "chunk_id": head.id,
-                            "document_id": head.document_id,
-                            "content": head.content,
-                            "metadata": head.metadata_,
-                            "score": chunk.get("score"),
-                            "score_type": chunk.get("score_type"),
-                            "source": "document_head",
-                        }
-                    )
-                    selected.add(head.id)
-                    added.append({"chunk_id": head.id, "before": chunk.get("chunk_id")})
+                expanded.append(
+                    {
+                        "chunk_id": head.id,
+                        "document_id": head.document_id,
+                        "content": head.content,
+                        "metadata": head.metadata_,
+                        "score": chunk.get("score"),
+                        "score_type": chunk.get("score_type"),
+                        "source": "document_head",
+                    }
+                )
+                added.append({"chunk_id": head.id, "before": chunk.get("chunk_id")})
             expanded.append(chunk)
         if trace is not None and added:
             trace.append({"step": "document_heads", "added": added})
