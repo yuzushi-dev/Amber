@@ -137,6 +137,10 @@ class DocumentRepository(Protocol):
         """Map each chunk id to the following chunk of the same published generation."""
         ...
 
+    async def get_first_chunks(self, document_ids: list[str]) -> dict[str, Chunk]:
+        """Map each document id to its lowest-index chunk of the published generation."""
+        ...
+
     async def publish_generation(
         self, document_id: str, generation: DocumentGeneration, attempt_id: str
     ) -> bool:

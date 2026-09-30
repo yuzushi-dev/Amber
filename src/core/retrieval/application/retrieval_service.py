@@ -108,6 +108,7 @@ _RERANK_TIMING_FIELDS = (
 # tuning per tenant is ever needed.
 MAX_DOCUMENT_CONTINUATIONS = 4
 MAX_GAP_CONTINUATIONS = 3
+MAX_DOCUMENT_HEADS = 2
 # At most this many gap queries run per sufficiency round, and at most this many
 # new chunks are admitted per round (one slot per gap query, round-robin).
 SUFFICIENCY_GAPS_PER_ROUND = 3  # gap queries (searches + reranks) per round
@@ -1359,9 +1360,91 @@ class RetrievalService:
         (up to rounds x SUFFICIENCY_GAP_HITS_PER_ROUND) plus up to
         MAX_DOCUMENT_CONTINUATIONS + MAX_GAP_CONTINUATIONS continuations; chunk-count
         metrics and evaluation contexts include them (``source="document_continuation"``).
+        A document with two or more selected chunks (added continuations do not
+        count) also gets its first published chunk
+        (the article head, e.g. the stated prerequisites) inserted before its first
+        selected chunk, for at most MAX_DOCUMENT_HEADS documents
+        (``source="document_head"``).
         """
         if not chunks or not all(isinstance(c, dict) for c in chunks):
             return chunks
+        per_document = Counter(c.get("document_id") for c in chunks)
+        expanded = await self._append_following_chunks(chunks, allowed_ids=allowed_ids, trace=trace)
+        return await self._prepend_document_heads(
+            expanded, per_document=per_document, allowed_ids=allowed_ids, trace=trace
+        )
+
+    async def _prepend_document_heads(
+        self,
+        chunks: list[Any],
+        *,
+        per_document: Counter,
+        allowed_ids: set[str],
+        trace: list[dict[str, Any]] | None = None,
+    ) -> list[Any]:
+        """Insert the first published chunk of multi-chunk documents before their first chunk.
+
+        ``per_document`` counts the selected chunks per document.
+        """
+        fetch = getattr(self.document_repository, "get_first_chunks", None)
+        document_ids = list(
+            dict.fromkeys(
+                c.get("document_id")
+                for c in chunks
+                if per_document[c.get("document_id")] >= 2 and c.get("document_id") in allowed_ids
+            )
+        )
+        if fetch is None or not document_ids:
+            return chunks
+        try:
+            fetched = await fetch(document_ids)
+        except Exception as e:
+            logger.warning(f"Document head lookup failed: {e}")
+            return chunks
+        if not isinstance(fetched, dict):
+            return chunks
+
+        # Cap after dropping heads that are already selected, so they do not use a slot.
+        selected = {c.get("chunk_id") for c in chunks}
+        heads = {
+            doc_id: fetched[doc_id]
+            for doc_id in document_ids
+            if doc_id in fetched
+            and fetched[doc_id].id not in selected
+            and fetched[doc_id].document_id == doc_id
+        }
+        heads = dict(list(heads.items())[:MAX_DOCUMENT_HEADS])
+
+        expanded: list[Any] = []
+        added: list[dict[str, Any]] = []
+        for chunk in chunks:
+            head = heads.pop(chunk.get("document_id"), None)
+            if head is not None:
+                expanded.append(
+                    {
+                        "chunk_id": head.id,
+                        "document_id": head.document_id,
+                        "content": head.content,
+                        "metadata": head.metadata_,
+                        "score": chunk.get("score"),
+                        "score_type": chunk.get("score_type"),
+                        "source": "document_head",
+                    }
+                )
+                added.append({"chunk_id": head.id, "before": chunk.get("chunk_id")})
+            expanded.append(chunk)
+        if trace is not None and added:
+            trace.append({"step": "document_heads", "added": added})
+        return expanded
+
+    async def _append_following_chunks(
+        self,
+        chunks: list[Any],
+        *,
+        allowed_ids: set[str],
+        trace: list[dict[str, Any]] | None = None,
+    ) -> list[Any]:
+        """Insert the chunk that follows each eligible selected chunk."""
         fetch = getattr(self.document_repository, "get_next_chunks", None)
         per_document = Counter(c.get("document_id") for c in chunks)
 

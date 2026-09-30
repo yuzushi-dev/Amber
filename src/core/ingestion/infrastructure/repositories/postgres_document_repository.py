@@ -604,6 +604,38 @@ class PostgresDocumentRepository(DocumentRepository):
             rows = result.all()
         return dict(rows)
 
+    async def get_first_chunks(self, document_ids: list[str]) -> dict[str, Chunk]:
+        """Map each document id to its lowest-index chunk of the published generation."""
+        if not document_ids:
+            return {}
+
+        # Savepoint: optional lookup, must not abort the shared request transaction.
+        async with self._session.begin_nested():
+            result = await self._session.execute(
+                select(Chunk.document_id, Chunk)
+                .join(
+                    Document,
+                    and_(
+                        Document.id == Chunk.document_id,
+                        Document.tenant_id == Chunk.tenant_id,
+                    ),
+                )
+                .where(
+                    Chunk.document_id.in_(document_ids),
+                    or_(
+                        and_(
+                            Document.active_generation_id.is_(None),
+                            Chunk.generation_id.is_(None),
+                        ),
+                        Chunk.generation_id == Document.active_generation_id,
+                    ),
+                )
+                .distinct(Chunk.document_id)
+                .order_by(Chunk.document_id, Chunk.index, Chunk.id)
+            )
+            rows = result.all()
+        return dict(rows)
+
     async def publish_generation(
         self, document_id: str, generation: DocumentGeneration, attempt_id: str
     ) -> bool:
