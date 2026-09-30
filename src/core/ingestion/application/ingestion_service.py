@@ -788,7 +788,10 @@ class IngestionService:
                 )
             )
             if enrichment_enabled and chunks_to_process:
-                from src.core.ingestion.application.chunking.contextual import ContextualEnricher
+                from src.core.ingestion.application.chunking.contextual import (
+                    ContextualEnricher,
+                    document_title_from_filename,
+                )
 
                 try:
                     enricher = ContextualEnricher()
@@ -797,6 +800,7 @@ class IngestionService:
                         extraction_result.content,
                         tenant_config=tenant_config,
                         settings=self.settings,
+                        document_title=document_title_from_filename(generation.filename),
                     )
                 except Exception as e:
                     logger.warning(f"Contextual enrichment skipped (error): {e}")
