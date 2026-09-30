@@ -7,6 +7,7 @@ Endpoints for monitoring system health and business metrics.
 
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -369,9 +370,20 @@ class UsageTotalsResponse(BaseModel):
     call_count: int
 
 
+class GroupUsageRowResponse(BaseModel):
+    key: str | None = None
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cost: float
+    call_count: int
+
+
 class UsageMetricsResponse(BaseModel):
     tenants: list[TenantUsageRowResponse]
     totals: UsageTotalsResponse
+    # Only set when group_by is requested; tenants/totals are unchanged.
+    groups: list[GroupUsageRowResponse] | None = None
 
 
 @router.get(
@@ -380,7 +392,9 @@ class UsageMetricsResponse(BaseModel):
     summary="Get Cross-Tenant Token Usage",
     description=(
         "Aggregate LLM token usage and costs from all tenants. "
-        "Super admin only. Supports filtering by tenant, date range, and operation type."
+        "Super admin only. Supports filtering by tenant, date range, and operation type; "
+        "optional group_by adds a breakdown by model, provider, operation, day, user "
+        "(client X-User-ID) or api_key."
     ),
 )
 async def get_usage_tokens(
@@ -388,6 +402,7 @@ async def get_usage_tokens(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     operation: str | None = None,
+    group_by: Literal["model", "provider", "operation", "day", "user", "api_key"] | None = None,
     session: AsyncSession = Depends(get_db_session),
 ):
     from src.core.admin_ops.application.usage_metrics_service import (
@@ -396,14 +411,14 @@ async def get_usage_tokens(
     )
 
     service = UsageMetricsService(session)
-    result = await service.get_tenant_aggregates(
-        UsageMetricsFilter(
-            tenant_id=tenant_id,
-            start_date=start_date,
-            end_date=end_date,
-            operation=operation,
-        )
+    usage_filter = UsageMetricsFilter(
+        tenant_id=tenant_id,
+        start_date=start_date,
+        end_date=end_date,
+        operation=operation,
     )
+    result = await service.get_tenant_aggregates(usage_filter)
+    groups = await service.get_group_aggregates(usage_filter, group_by) if group_by else None
 
     return UsageMetricsResponse(
         tenants=[
@@ -425,4 +440,5 @@ async def get_usage_tokens(
             cost=result.totals.cost,
             call_count=result.totals.call_count,
         ),
+        groups=[GroupUsageRowResponse(**vars(g)) for g in groups] if groups is not None else None,
     )
