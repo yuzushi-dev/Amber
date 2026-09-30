@@ -38,18 +38,18 @@ def test_normalize_model_strips_cloud_and_latest():
 
 
 def test_estimate_is_per_million_tokens():
-    # gemma4:31b = $0.13 in / $0.38 out per 1M tokens
+    # gemma4:31b = $0.14 in / $0.40 out per 1M tokens (ollama.com/pricing)
     cost = estimate_subscription_cost("gemma4:31b-cloud", TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000))
-    assert cost == pytest.approx(0.51)
+    assert cost == pytest.approx(0.54)
     assert estimate_subscription_cost("unknown-model", TokenUsage(input_tokens=10, output_tokens=10)) is None
 
 
 def test_env_override_extends_table(monkeypatch):
-    monkeypatch.setenv("AMBER_USAGE_PRICES_JSON", '{"glm-5.2:cloud": [1.0, 2.0]}')
-    cost = estimate_subscription_cost("glm-5.2:cloud", TokenUsage(input_tokens=1_000_000, output_tokens=500_000))
+    monkeypatch.setenv("AMBER_USAGE_PRICES_JSON", '{"qwen3-next:80b-cloud": [1.0, 2.0]}')
+    cost = estimate_subscription_cost("qwen3-next:80b-cloud", TokenUsage(input_tokens=1_000_000, output_tokens=500_000))
     assert cost == pytest.approx(2.0)
     monkeypatch.setenv("AMBER_USAGE_PRICES_JSON", "not json")
-    assert estimate_subscription_cost("gemma4:31b", TokenUsage(input_tokens=1_000_000, output_tokens=0)) == pytest.approx(0.13)
+    assert estimate_subscription_cost("gemma4:31b", TokenUsage(input_tokens=1_000_000, output_tokens=0)) == pytest.approx(0.14)
 
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_generation_zero_cost_gets_estimate_and_caller():
         metadata={"response_id": "r1"},
     )
     row = _saved(session)
-    assert row.cost == pytest.approx((1000 * 0.13 + 100 * 0.38) / 1_000_000)
+    assert row.cost == pytest.approx((1000 * 0.14 + 100 * 0.40) / 1_000_000)
     assert row.metadata_json == {"api_key_name": "openwebui", "response_id": "r1", "cost_kind": "subscription_equiv"}
 
 
@@ -85,7 +85,7 @@ async def test_real_cost_and_embeddings_untouched_unpriced_flagged():
     assert "cost_kind" not in _saved(session).metadata_json
 
     await tracker.record_usage(
-        tenant_id="default", operation="generation", provider="ollama", model="glm-5.2:cloud",
+        tenant_id="default", operation="generation", provider="ollama", model="qwen3-next:80b-cloud",
         usage=TokenUsage(input_tokens=10, output_tokens=10),
     )
     assert _saved(session).cost == 0.0

@@ -18,16 +18,17 @@ from src.shared.context import get_extra_context
 logger = structlog.get_logger(__name__)
 
 # List-price equivalent for models served through the Ollama / Ollama Cloud
-# subscription, USD per 1M tokens (input, output). The real cost is the flat
-# subscription fee, so rows priced from this table carry
-# metadata_json.cost_kind = "subscription_equiv". Same source as the ZTD-2022
-# report's prices.json (fetched 2026-09-30). Override or extend with
-# AMBER_USAGE_PRICES_JSON='{"model": [input, output]}'.
-# ponytail: models without a known list price stay at cost 0, cost_kind "unpriced".
+# subscription, USD per 1M tokens (input, output), from ollama.com/pricing
+# (fetched 2026-09-30). The real cost is the flat subscription fee, so rows
+# priced from this table carry metadata_json.cost_kind = "subscription_equiv".
+# Override or extend with AMBER_USAGE_PRICES_JSON='{"model": [input, output]}'.
+# ponytail: peak rate only (Ollama halves it off-peak) and no cached-input rate;
+# models Ollama does not list stay at cost 0 with cost_kind "unpriced".
 ESTIMATED_PRICES_PER_1M: dict[str, tuple[float, float]] = {
-    "gemma4:31b": (0.13, 0.38),  # deepinfra.com/google/gemma-4-31B-it
-    "gpt-oss:20b": (0.03, 0.14),  # deepinfra.com/openai/gpt-oss-20b
-    "qwen3-next:80b": (0.15, 1.2),  # alibabacloud model-studio pricing
+    "gemma4:31b": (0.14, 0.40),
+    "glm-5.2": (1.40, 4.40),
+    "gpt-oss:120b": (0.15, 0.60),
+    "gpt-oss:20b": (0.07, 0.30),
 }
 
 
