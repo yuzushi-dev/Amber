@@ -1304,6 +1304,24 @@ async def _query_stream_impl(
                 )
                 stream_rerank_latency_ms = retrieval_result.reranking_ms if retrieval_result else 0.0
 
+                # generate_stream() does not write usage_logs (only generate()
+                # does), so record the streamed answer here. Tokens are the same
+                # tokenizer estimate as QueryMetrics; record_usage never raises.
+                from src.core.admin_ops.application.usage_tracker import UsageTracker
+                from src.core.database.session import async_session_maker
+                from src.core.generation.domain.provider_models import TokenUsage
+                from src.shared.context import get_request_id
+
+                await UsageTracker(session_factory=async_session_maker).record_usage(
+                    tenant_id=tenant_id,
+                    operation="generation",
+                    provider=stream_provider or "unknown",
+                    model=stream_model or "unknown",
+                    usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+                    request_id=get_request_id(),
+                    metadata={"stream": True, "tokens": "estimated", "query_id": query_id},
+                )
+
                 metrics = QueryMetrics(
                     query_id=query_id,
                     tenant_id=tenant_id,

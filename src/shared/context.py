@@ -133,3 +133,13 @@ def get_extra_context() -> dict[str, Any]:
         dict: Extra context data
     """
     return _extra_context.get()
+
+
+def set_extra_context(data: dict[str, Any]) -> None:
+    """
+    Set extra context data (replaces any previous value).
+
+    Args:
+        data: Extra context data
+    """
+    _extra_context.set(data)

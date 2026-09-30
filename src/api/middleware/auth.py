@@ -16,7 +16,7 @@ from src.core.tenants.application.query_scopes import (
     resolve_query_scopes,
     resolve_super_admin_query_scopes,
 )
-from src.shared.context import set_current_tenant, set_permissions
+from src.shared.context import set_current_tenant, set_extra_context, set_permissions
 from src.shared.identifiers import TenantId
 from src.shared.security import mask_api_key
 
@@ -231,6 +231,14 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         set_current_tenant(tenant_id)
         set_permissions(permissions)
+        # Caller attribution for usage_logs. api_key_name is authenticated;
+        # x_user_id is client-supplied (spoofable), so both are kept apart.
+        set_extra_context(
+            {
+                "api_key_name": valid_key.name,
+                "x_user_id": (request.headers.get("X-User-ID") or "").strip()[:256] or None,
+            }
+        )
 
         # Resolve Tenant Role from the ApiKeyTenant association
         tenant_role = "user"  # Default role

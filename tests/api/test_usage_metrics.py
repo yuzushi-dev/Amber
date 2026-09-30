@@ -127,3 +127,26 @@ class TestUsageMetricsService:
         assert result.totals.total_tokens == 450
         assert abs(result.totals.cost - 0.03) < 1e-9
         assert result.totals.call_count == 15
+
+
+@pytest.mark.asyncio
+async def test_endpoint_group_by_adds_groups_and_keeps_tenants():
+    from src.api.routes.admin.observability import get_usage_tokens
+
+    tenant_row = MagicMock(tenant_id="default", tenant_name=None, input_tokens=10, output_tokens=5,
+                           total_tokens=15, cost=0.1, call_count=2)
+    group_row = MagicMock(key="gemma4:31b-cloud", input_tokens=10, output_tokens=5,
+                          total_tokens=15, cost=0.1, call_count=2)
+    tenant_result, group_result = MagicMock(), MagicMock()
+    tenant_result.all.return_value = [tenant_row]
+    group_result.all.return_value = [group_row]
+    session = AsyncMock(spec=AsyncSession)
+    session.execute.side_effect = [tenant_result, group_result]
+
+    resp = await get_usage_tokens(group_by="model", session=session)
+    assert resp.tenants[0].tenant_id == "default"
+    assert resp.groups[0].key == "gemma4:31b-cloud"
+    assert resp.groups[0].call_count == 2
+
+    session.execute.side_effect = [tenant_result]
+    assert (await get_usage_tokens(session=session)).groups is None

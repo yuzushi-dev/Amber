@@ -5,14 +5,59 @@ Usage Tracker Service
 Handles recording of model usage events to the database.
 """
 
+import json
+import os
 from typing import Any
 
 import structlog
 
 from src.core.admin_ops.domain.usage import UsageLog
 from src.core.generation.domain.provider_models import TokenUsage
+from src.shared.context import get_extra_context
 
 logger = structlog.get_logger(__name__)
+
+# List-price equivalent for models served through the Ollama / Ollama Cloud
+# subscription, USD per 1M tokens (input, output), from ollama.com/pricing
+# (fetched 2026-09-30). The real cost is the flat subscription fee, so rows
+# priced from this table carry metadata_json.cost_kind = "subscription_equiv".
+# Override or extend with AMBER_USAGE_PRICES_JSON='{"model": [input, output]}'.
+# ponytail: peak rate only (Ollama halves it off-peak) and no cached-input rate;
+# models Ollama does not list stay at cost 0 with cost_kind "unpriced".
+ESTIMATED_PRICES_PER_1M: dict[str, tuple[float, float]] = {
+    "gemma4:31b": (0.14, 0.40),
+    "glm-5.2": (1.40, 4.40),
+    "gpt-oss:120b": (0.15, 0.60),
+    "gpt-oss:20b": (0.07, 0.30),
+}
+
+
+def _normalize_model(model: str) -> str:
+    """gemma4:31b-cloud / glm-5.2:cloud / x:latest -> the base model name."""
+    for suffix in (":latest", ":cloud", "-cloud"):
+        if model.endswith(suffix):
+            return model[: -len(suffix)]
+    return model
+
+
+def _price_table() -> dict[str, tuple[float, float]]:
+    raw = os.environ.get("AMBER_USAGE_PRICES_JSON")
+    if not raw:
+        return ESTIMATED_PRICES_PER_1M
+    try:
+        extra = {_normalize_model(k): (float(v[0]), float(v[1])) for k, v in json.loads(raw).items()}
+    except (ValueError, TypeError, IndexError, AttributeError):
+        logger.warning("usage_prices.invalid_override", env="AMBER_USAGE_PRICES_JSON")
+        return ESTIMATED_PRICES_PER_1M
+    return {**ESTIMATED_PRICES_PER_1M, **extra}
+
+
+def estimate_subscription_cost(model: str, usage: TokenUsage) -> float | None:
+    """List-price equivalent in USD, or None when the model has no known price."""
+    price = _price_table().get(_normalize_model(model))
+    if price is None:
+        return None
+    return (usage.input_tokens * price[0] + usage.output_tokens * price[1]) / 1_000_000
 
 
 async def _configure_worker_session(session: Any) -> None:
@@ -62,6 +107,17 @@ class UsageTracker:
         """
         try:
             logger.debug("record_usage.start", operation=operation, provider=provider, model=model)
+            # Caller attribution set by the auth middleware; absent for
+            # background work (Celery ingestion, maintenance jobs).
+            caller = {k: v for k, v in (get_extra_context() or {}).items() if v}
+            metadata = {**caller, **(metadata or {})}
+            if operation == "generation" and not cost:
+                estimate = estimate_subscription_cost(model, usage)
+                if estimate is None:
+                    metadata["cost_kind"] = "unpriced"
+                else:
+                    cost = estimate
+                    metadata["cost_kind"] = "subscription_equiv"
             async with self.session_factory() as session:
                 await _configure_worker_session(session)
                 log_entry = UsageLog(
@@ -75,7 +131,7 @@ class UsageTracker:
                     cost=cost,
                     request_id=request_id,
                     trace_id=trace_id,
-                    metadata_json=metadata or {},
+                    metadata_json=metadata,
                 )
                 session.add(log_entry)
                 await session.commit()
