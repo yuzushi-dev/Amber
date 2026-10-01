@@ -174,15 +174,18 @@ async def _run(reconcile, *, skip_detection=False, gc_side_effect=None):
         ),
         patch.object(tasks, "_gc_community_embeddings", gc),
     ):
-        result = await _process_communities_async(
-            "tenant-1", skip_detection=skip_detection, reconcile_embeddings=reconcile
-        )
-    return result, calls, gc
+        try:
+            result = await _process_communities_async(
+                "tenant-1", skip_detection=skip_detection, reconcile_embeddings=reconcile
+            )
+        except Exception as exc:  # surfaced to the caller with the mocks for inspection
+            result = exc
+    return result, calls, gc, detector
 
 
 @pytest.mark.asyncio
 async def test_full_run_gc_happens_after_activation_with_the_activated_generation():
-    result, calls, gc = await _run(lambda: True)
+    result, calls, gc, _ = await _run(lambda: True)
     assert result["status"] == "success"
     assert calls == ["embed", "activate", "gc"]
     kwargs = gc.await_args.kwargs
@@ -192,7 +195,7 @@ async def test_full_run_gc_happens_after_activation_with_the_activated_generatio
 
 @pytest.mark.asyncio
 async def test_incremental_run_gc_has_no_activated_generation():
-    _, calls, gc = await _run(lambda: True, skip_detection=True)
+    _, calls, gc, _ = await _run(lambda: True, skip_detection=True)
     assert calls == ["embed", "gc"]
     assert gc.await_args.kwargs["activated_generation_id"] is None
 
@@ -200,16 +203,32 @@ async def test_incremental_run_gc_has_no_activated_generation():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reconcile", [None, lambda: False])  # no lock / lock lost by now
 async def test_no_gc_without_owning_the_lock_at_prune_time(reconcile):
-    _, calls, gc = await _run(reconcile)
+    _, calls, gc, _ = await _run(reconcile)
     assert "gc" not in calls
     gc.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_gc_failure_never_fails_the_run():
-    result, _, gc = await _run(lambda: True, gc_side_effect=RuntimeError("neo4j down"))
+    result, _, gc, _ = await _run(lambda: True, gc_side_effect=RuntimeError("neo4j down"))
     assert result["status"] == "success"
     gc.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_time_limit_after_activation_never_discards_the_live_generation():
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from src.workers.tasks import CommunityPhaseError
+
+    result, calls, _, detector = await _run(
+        lambda: True, gc_side_effect=SoftTimeLimitExceeded("time limit")
+    )
+
+    assert isinstance(result, CommunityPhaseError)
+    assert result.resume_from == "embedding"  # retry re-runs embedding + GC, not detection
+    assert "activate" in calls
+    detector.discard_generation.assert_not_awaited()
 
 
 def _reconcile_arg(redis_patch):

@@ -494,6 +494,7 @@ async def _process_communities_async(
 
     next_phase = resume_from
     generation_id = None
+    activated = False
     detector = None
     try:
         # 1. Detection or the pre-existing incremental update.
@@ -683,6 +684,9 @@ async def _process_communities_async(
 
         if generation_id and detector is not None:
             await detector.activate_generation(tenant_id, generation_id)
+            # From here on the generation is live: the error path must never discard it
+            # (the previous generation is already inactive).
+            activated = True
 
         if reconcile_embeddings is not None and reconcile_embeddings():
             try:
@@ -710,7 +714,7 @@ async def _process_communities_async(
             "embedding_resync_run_id": force_full_resync_id,
         }
     except Exception as e:
-        if generation_id and detector is not None:
+        if generation_id and detector is not None and not activated:
             try:
                 await detector.discard_generation(tenant_id, generation_id)
             except Exception as cleanup_error:
