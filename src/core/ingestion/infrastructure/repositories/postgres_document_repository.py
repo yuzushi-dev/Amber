@@ -541,18 +541,48 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.flush()
         return result.rowcount == 1
 
-    async def get_superseded_chunk_ids(self, document_id: str, generation_id: str) -> list[str]:
-        """Ids of the document's chunks outside ``generation_id`` (older generations and
-        legacy NULL-generation rows). The rows themselves are kept."""
+    async def get_superseded_artifacts(
+        self, document_id: str, published_generation_id: str
+    ) -> tuple[list[str], list[str]] | None:
+        """Older artifacts of a document that are safe to delete after a publish.
+
+        Only generations already published and since replaced count as superseded:
+        staging generations (an in-flight reprocess) and the pending one are never
+        included, and nothing is returned unless ``published_generation_id`` is still
+        the document's active generation. Legacy NULL-generation chunks are included
+        (hidden once a generation is active). Chunk rows themselves are kept.
+        """
         from src.core.ingestion.domain.chunk import Chunk
 
-        result = await self._session.execute(
-            select(Chunk.id).where(
-                Chunk.document_id == document_id,
-                or_(Chunk.generation_id.is_(None), Chunk.generation_id != generation_id),
+        doc = (
+            await self._session.execute(
+                select(Document.active_generation_id, Document.pending_generation_id).where(
+                    Document.id == document_id
+                )
             )
+        ).first()
+        if doc is None or doc.active_generation_id != published_generation_id:
+            return None
+        gens_query = select(DocumentGeneration.id).where(
+            DocumentGeneration.document_id == document_id,
+            DocumentGeneration.status == DocumentGenerationStatus.PUBLISHED.value,
+            DocumentGeneration.id != published_generation_id,
         )
-        return [row[0] for row in result.all()]
+        if doc.pending_generation_id:
+            gens_query = gens_query.where(DocumentGeneration.id != doc.pending_generation_id)
+        old_generation_ids = [row[0] for row in (await self._session.execute(gens_query)).all()]
+        chunk_filter = Chunk.generation_id.is_(None)
+        if old_generation_ids:
+            chunk_filter = or_(chunk_filter, Chunk.generation_id.in_(old_generation_ids))
+        chunk_ids = [
+            row[0]
+            for row in (
+                await self._session.execute(
+                    select(Chunk.id).where(Chunk.document_id == document_id, chunk_filter)
+                )
+            ).all()
+        ]
+        return old_generation_ids, chunk_ids
 
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
         """Retrieve chunks visible through the document's published generation."""
