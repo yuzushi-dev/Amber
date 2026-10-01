@@ -285,6 +285,8 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 # before embedding them; the global 1 h soft limit cut it off mid-embedding.
 COMMUNITY_SOFT_TIME_LIMIT = 3 * 60 * 60
 COMMUNITY_TIME_LIMIT = COMMUNITY_SOFT_TIME_LIMIT + 30 * 60
+# The per-tenant lock must outlive the hard limit, or a second run could start mid-run.
+COMMUNITY_LOCK_TTL = COMMUNITY_TIME_LIMIT + 15 * 60
 
 
 @celery_app.task(
@@ -333,8 +335,7 @@ def process_communities(
 
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
-    # Must outlive the task's hard time limit, or a second run could start mid-run.
-    lock_ttl_seconds = COMMUNITY_TIME_LIMIT + 15 * 60
+    lock_ttl_seconds = COMMUNITY_LOCK_TTL
 
     redis_client = None
     lock_acquired = False

@@ -250,7 +250,9 @@ async def test_each_batch_is_embedded_with_one_dense_and_one_sparse_call(
     embedding_service, vector_store, graph_client
 ):
     sparse = MagicMock()
-    sparse.embed_batch = MagicMock(side_effect=lambda texts: [{i: 1.0} for i in range(len(texts))])
+    sparse.embed_batch = MagicMock(
+        side_effect=lambda texts, *_a: [{i: 1.0} for i in range(len(texts))]
+    )
     service = CommunityEmbeddingService(embedding_service, vector_store, sparse)
     communities = [community(f"comm-{i}", summary=f"S{i}") for i in range(5)]
 
@@ -271,24 +273,43 @@ async def test_each_batch_is_embedded_with_one_dense_and_one_sparse_call(
     assert all(p["sparse_vector"] and p["embedding"] == [0.1, 0.2, 0.3] for p in payloads)
 
 
-@pytest.mark.asyncio
-async def test_a_time_limit_during_sparse_embedding_is_not_swallowed(
-    embedding_service, vector_store, graph_client, monkeypatch
-):
-    from celery.exceptions import SoftTimeLimitExceeded
-
+def _sparse_service(tokenizer):
     from src.core.retrieval.application import sparse_embeddings_service as sparse_module
 
     sparse = sparse_module.SparseEmbeddingService.__new__(sparse_module.SparseEmbeddingService)
-    monkeypatch.setattr(sparse, "_load_model", lambda: None, raising=False)
+    sparse._load_model = lambda: None
+    sparse._tokenizer = tokenizer
+    sparse._device = "cpu"
+    return sparse
+
+
+def test_embed_batch_reraises_a_task_time_limit():
+    from src.shared.exceptions import SoftTimeLimitExceeded
 
     def tokenizer(*_a, **_k):
         raise SoftTimeLimitExceeded()
 
-    sparse._tokenizer = tokenizer
-    sparse._device = "cpu"
-    service = CommunityEmbeddingService(embedding_service, vector_store, sparse)
+    with pytest.raises(SoftTimeLimitExceeded):
+        _sparse_service(tokenizer).embed_batch(["a", "b"])
 
+
+def test_embed_batch_still_degrades_model_errors_to_empty_vectors():
+    def tokenizer(*_a, **_k):
+        raise RuntimeError("model failure")
+
+    assert _sparse_service(tokenizer).embed_batch(["a", "b", "c"]) == [{}, {}, {}]
+
+
+@pytest.mark.asyncio
+async def test_a_time_limit_inside_the_sparse_thread_stops_the_sync(
+    embedding_service, vector_store, graph_client
+):
+    from src.shared.exceptions import SoftTimeLimitExceeded
+
+    def tokenizer(*_a, **_k):
+        raise SoftTimeLimitExceeded()
+
+    service = CommunityEmbeddingService(embedding_service, vector_store, _sparse_service(tokenizer))
     with pytest.raises(SoftTimeLimitExceeded):
         await service.sync_stale_communities(
             [community("comm-1")],
@@ -298,16 +319,91 @@ async def test_a_time_limit_during_sparse_embedding_is_not_swallowed(
             dimensions=3,
         )
     vector_store.upsert_chunks.assert_not_awaited()
+    graph_client.execute_write.assert_not_awaited()
 
 
-def test_community_task_time_limits_cover_a_full_run_and_the_lock_outlives_them():
-    import inspect
+@pytest.mark.asyncio
+async def test_sparse_failure_raises_a_clear_error_instead_of_a_schema_error(
+    embedding_service, vector_store, graph_client
+):
+    def tokenizer(*_a, **_k):
+        raise RuntimeError("CUDA/CPU OOM")
+
+    service = CommunityEmbeddingService(embedding_service, vector_store, _sparse_service(tokenizer))
+    with pytest.raises(RuntimeError, match="Sparse embedding failed"):
+        await service.sync_stale_communities(
+            [community("comm-1"), community("comm-2")],
+            graph_client=graph_client,
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=3,
+        )
+    vector_store.upsert_chunks.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_dense_vectors_raise_before_upsert(vector_store, graph_client):
+    dense = MagicMock()
+    dense.embed_texts = AsyncMock(return_value=([[0.1, 0.2, 0.3], []], None))
+    service = CommunityEmbeddingService(dense, vector_store)
+    with pytest.raises(RuntimeError, match="Dense embedding returned missing vectors"):
+        await service.sync_stale_communities(
+            [community("comm-1"), community("comm-2")],
+            graph_client=graph_client,
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=3,
+        )
+    vector_store.upsert_chunks.assert_not_awaited()
+
+
+def test_community_task_time_limits_and_lock_ttl():
+    from src.workers import tasks
+
+    assert tasks.process_communities.soft_time_limit == tasks.COMMUNITY_SOFT_TIME_LIMIT > 3600
+    assert tasks.process_communities.time_limit == tasks.COMMUNITY_TIME_LIMIT
+    assert tasks.COMMUNITY_LOCK_TTL > tasks.COMMUNITY_TIME_LIMIT > tasks.COMMUNITY_SOFT_TIME_LIMIT
+
+
+def test_the_task_takes_the_lock_with_the_ttl_constant():
+    from unittest.mock import patch
 
     from src.workers import tasks
 
-    assert tasks.process_communities.soft_time_limit == tasks.COMMUNITY_SOFT_TIME_LIMIT
-    assert tasks.process_communities.time_limit == tasks.COMMUNITY_TIME_LIMIT
-    assert tasks.COMMUNITY_SOFT_TIME_LIMIT > 3600
-    assert tasks.COMMUNITY_TIME_LIMIT > tasks.COMMUNITY_SOFT_TIME_LIMIT
-    source = inspect.getsource(tasks.process_communities._orig_run)
-    assert "lock_ttl_seconds = COMMUNITY_TIME_LIMIT +" in source
+    task = MagicMock()
+    task.request.id = "community-run-1"
+    client = MagicMock()
+    client.set.return_value = False  # someone else holds it: return before running
+    with (
+        patch("redis.Redis.from_url", return_value=client),
+        patch("src.workers.tasks._is_revoked", return_value=False),
+    ):
+        result = tasks.process_communities._orig_run.__func__(task, "tenant-1")
+
+    assert result["reason"] == "already_running"
+    assert client.set.call_args.kwargs == {"nx": True, "ex": tasks.COMMUNITY_LOCK_TTL}
+
+
+@pytest.mark.asyncio
+async def test_summarizer_does_not_swallow_a_task_time_limit(monkeypatch):
+    from src.core.graph.application.communities.summarizer import CommunitySummarizer
+    from src.shared.exceptions import SoftTimeLimitExceeded
+
+    summarizer = CommunitySummarizer.__new__(CommunitySummarizer)
+    summarizer.graph = MagicMock()
+    summarizer.graph.execute_write = AsyncMock()
+    summarizer._fetch_community_data = AsyncMock(
+        return_value={"entities": [{"name": "e"}], "child_summaries": []}
+    )
+
+    def time_limit(**_kwargs):  # raised inside the summarization try block
+        raise SoftTimeLimitExceeded()
+
+    monkeypatch.setattr(
+        "src.core.generation.application.llm_steps.resolve_llm_step_config", time_limit
+    )
+    monkeypatch.setattr("src.shared.kernel.runtime.get_settings", lambda: MagicMock())
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        await summarizer.summarize_community("comm-1", "tenant-1", {}, None)
+    summarizer.graph.execute_write.assert_not_awaited()  # not marked as failed

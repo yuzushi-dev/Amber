@@ -185,11 +185,19 @@ class CommunityEmbeddingService:
             # outran the task time limit before its embeddings were written.
             texts = [f"{c.get('title') or ''}: {c.get('summary') or ''}" for c in batch]
             dense_vectors, _ = await self.embedding_service.embed_texts(texts)
+            if len(dense_vectors) != len(batch) or not all(dense_vectors):
+                raise RuntimeError("Dense embedding returned missing vectors for a community batch")
             sparse_vectors: list[dict[int, float] | None] = [None] * len(batch)
             if self.sparse_embedding_service:
+                # Small internal batches: same speed as 8 on CPU, a third of the peak memory
+                # (~270 MB vs ~750 MB over the loaded model) inside 2 GiB worker containers.
                 sparse_vectors = await asyncio.to_thread(
-                    self.sparse_embedding_service.embed_batch, texts
+                    self.sparse_embedding_service.embed_batch, texts, 2
                 )
+                if len(sparse_vectors) != len(batch) or not all(sparse_vectors):
+                    # embed_batch degrades failures to empty vectors; the collection
+                    # requires sparse_vector, so fail here with the real cause.
+                    raise RuntimeError("Sparse embedding failed for a community batch")
             payloads = [
                 payload_for(c, d, sv)
                 for c, d, sv in zip(batch, dense_vectors, sparse_vectors, strict=True)

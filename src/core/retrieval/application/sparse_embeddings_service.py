@@ -9,18 +9,12 @@ Uses a Masked Language Model to generate token weights.
 import logging
 import threading
 
+from src.shared.exceptions import SoftTimeLimitExceeded
 from src.shared.h4_ml_runtime import (
     SPLADE_MODEL,
     SPLADE_REVISION,
     validated_h4_runtime_root,
 )
-
-try:
-    from celery.exceptions import SoftTimeLimitExceeded
-except ImportError:  # celery is optional outside the workers
-
-    class SoftTimeLimitExceeded(Exception):  # type: ignore[no-redef]
-        pass
 
 try:
     import torch
