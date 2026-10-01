@@ -8,6 +8,7 @@ Celery tasks for background document processing.
 import asyncio
 import logging
 import sys
+from typing import Any
 
 # Ensure custom packages are loadable
 if "/app/.packages" not in sys.path:
@@ -942,6 +943,19 @@ async def _communities_exist_async(tenant_id: str) -> bool:
         await driver.close()
 
 
+def _serves_published_content(document: Any, has_legacy_chunks: bool) -> bool:
+    """Whether a failed (re)processing must leave the document READY.
+
+    A document serves content through its active generation, or, for documents
+    ingested before generations existed, through legacy NULL-generation chunks
+    (``active_generation_id`` is NULL for them). Marking such a legacy document
+    FAILED removed it from retrieval although its published content was intact.
+    """
+    return bool(document.active_generation_id) or (
+        has_legacy_chunks and document.status == DocumentStatus.READY
+    )
+
+
 async def _mark_document_failed(document_id: str, error: str, tenant_id: str = ""):
     """Mark document as failed in DB."""
     from sqlalchemy import select
@@ -963,13 +977,26 @@ async def _mark_document_failed(document_id: str, error: str, tenant_id: str = "
             document = result.scalars().first()
 
             if document:
-                if document.active_generation_id:
+                from sqlalchemy import exists
+
+                has_legacy_chunks = bool(
+                    await session.scalar(
+                        select(
+                            exists().where(
+                                _Chunk.document_id == document_id,
+                                _Chunk.generation_id.is_(None),
+                            )
+                        )
+                    )
+                )
+                if _serves_published_content(document, has_legacy_chunks):
                     logger.warning(
                         "Keeping published document %s READY after replacement failure",
                         document_id,
                     )
                     return
                 document.status = DocumentStatus.FAILED
+                document.error_message = (error or "")[:2000] or None
                 await session.commit()
                 _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)
     finally:
