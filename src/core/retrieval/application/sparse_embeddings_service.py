@@ -16,6 +16,13 @@ from src.shared.h4_ml_runtime import (
 )
 
 try:
+    from celery.exceptions import SoftTimeLimitExceeded
+except ImportError:  # celery is optional outside the workers
+
+    class SoftTimeLimitExceeded(Exception):  # type: ignore[no-redef]
+        pass
+
+try:
     import torch
     from transformers import AutoModelForMaskedLM, AutoTokenizer
 
@@ -217,6 +224,10 @@ class SparseEmbeddingService:
                         }
                         results.append(sparse_vector)
 
+            except SoftTimeLimitExceeded:
+                # A task time limit is not a model failure: returning empty vectors here
+                # turned it into an unrelated vector-store schema error downstream.
+                raise
             except Exception as e:
                 logger.error(f"Error generating sparse embedding batch: {e}")
                 # Append empty dicts for the failed batch to maintain alignment

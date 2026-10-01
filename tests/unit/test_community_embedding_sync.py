@@ -8,7 +8,11 @@ from src.core.graph.application.communities.embeddings import CommunityEmbedding
 @pytest.fixture
 def embedding_service():
     service = MagicMock()
-    service.embed_single = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+    async def embed_texts(texts, **_kwargs):
+        return [[0.1, 0.2, 0.3] for _ in texts], None
+
+    service.embed_texts = AsyncMock(side_effect=embed_texts)
     return service
 
 
@@ -60,7 +64,7 @@ async def test_noop_incremental_skips_current_community(
 
     assert stats.candidates == 0
     assert stats.skipped_current == 1
-    embedding_service.embed_single.assert_not_awaited()
+    embedding_service.embed_texts.assert_not_awaited()
     vector_store.upsert_chunks.assert_not_awaited()
     graph_client.execute_write.assert_not_awaited()
 
@@ -87,7 +91,7 @@ async def test_changed_summary_embeds_only_that_community(
 
     assert stats.embedded == 1
     assert stats.skipped_current == 1
-    assert embedding_service.embed_single.await_args.args == ("Title: New summary",)
+    assert embedding_service.embed_texts.await_args.args == (["Title: New summary"],)
     payload = vector_store.upsert_chunks.await_args.args[0]
     assert [item["chunk_id"] for item in payload] == ["comm-changed"]
 
@@ -239,3 +243,71 @@ async def test_force_full_resync_retry_skips_batches_acknowledged_by_its_run(
     assert stats.skipped_current == 1
     payload = vector_store.upsert_chunks.await_args.args[0]
     assert [item["chunk_id"] for item in payload] == ["comm-2"]
+
+
+@pytest.mark.asyncio
+async def test_each_batch_is_embedded_with_one_dense_and_one_sparse_call(
+    embedding_service, vector_store, graph_client
+):
+    sparse = MagicMock()
+    sparse.embed_batch = MagicMock(side_effect=lambda texts: [{i: 1.0} for i in range(len(texts))])
+    service = CommunityEmbeddingService(embedding_service, vector_store, sparse)
+    communities = [community(f"comm-{i}", summary=f"S{i}") for i in range(5)]
+
+    stats = await service.sync_stale_communities(
+        communities,
+        graph_client=graph_client,
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=3,
+        batch_size=2,
+    )
+
+    assert stats.embedded == 5 and stats.batches == 3
+    assert [len(c.args[0]) for c in embedding_service.embed_texts.await_args_list] == [2, 2, 1]
+    assert [len(c.args[0]) for c in sparse.embed_batch.call_args_list] == [2, 2, 1]
+    payloads = [p for c in vector_store.upsert_chunks.await_args_list for p in c.args[0]]
+    assert [p["chunk_id"] for p in payloads] == [f"comm-{i}" for i in range(5)]
+    assert all(p["sparse_vector"] and p["embedding"] == [0.1, 0.2, 0.3] for p in payloads)
+
+
+@pytest.mark.asyncio
+async def test_a_time_limit_during_sparse_embedding_is_not_swallowed(
+    embedding_service, vector_store, graph_client, monkeypatch
+):
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from src.core.retrieval.application import sparse_embeddings_service as sparse_module
+
+    sparse = sparse_module.SparseEmbeddingService.__new__(sparse_module.SparseEmbeddingService)
+    monkeypatch.setattr(sparse, "_load_model", lambda: None, raising=False)
+
+    def tokenizer(*_a, **_k):
+        raise SoftTimeLimitExceeded()
+
+    sparse._tokenizer = tokenizer
+    sparse._device = "cpu"
+    service = CommunityEmbeddingService(embedding_service, vector_store, sparse)
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        await service.sync_stale_communities(
+            [community("comm-1")],
+            graph_client=graph_client,
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=3,
+        )
+    vector_store.upsert_chunks.assert_not_awaited()
+
+
+def test_community_task_time_limits_cover_a_full_run_and_the_lock_outlives_them():
+    import inspect
+
+    from src.workers import tasks
+
+    assert tasks.process_communities.soft_time_limit == tasks.COMMUNITY_SOFT_TIME_LIMIT
+    assert tasks.process_communities.time_limit == tasks.COMMUNITY_TIME_LIMIT
+    assert tasks.COMMUNITY_SOFT_TIME_LIMIT > 3600
+    assert tasks.COMMUNITY_TIME_LIMIT > tasks.COMMUNITY_SOFT_TIME_LIMIT
+    source = inspect.getsource(tasks.process_communities._orig_run)
+    assert "lock_ttl_seconds = COMMUNITY_TIME_LIMIT +" in source

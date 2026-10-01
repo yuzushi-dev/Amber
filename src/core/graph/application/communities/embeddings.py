@@ -149,13 +149,10 @@ class CommunityEmbeddingService:
                 batches=0,
             )
 
-        semaphore = asyncio.Semaphore(concurrency)
 
-        async def embed_community(community: dict[str, Any]) -> dict[str, Any]:
-            text = f"{community.get('title') or ''}: {community.get('summary') or ''}"
-            async with semaphore:
-                dense = await self.embedding_service.embed_single(text)
-
+        def payload_for(
+            community: dict[str, Any], dense: list[float], sparse: dict[int, float] | None
+        ) -> dict[str, Any]:
             payload = {
                 "chunk_id": community["id"],
                 "document_id": community["id"],
@@ -165,15 +162,8 @@ class CommunityEmbeddingService:
                 "title": community.get("title") or "",
                 "level": community.get("level"),
             }
-            if self.sparse_embedding_service:
-                try:
-                    sparse = self.sparse_embedding_service.embed_sparse(text)
-                    if sparse:
-                        payload["sparse_vector"] = sparse
-                except Exception as exc:
-                    logger.warning(
-                        "Sparse embedding failed for community %s: %s", community["id"], exc
-                    )
+            if sparse:
+                payload["sparse_vector"] = sparse
             return payload
 
         embedded = 0
@@ -190,8 +180,21 @@ class CommunityEmbeddingService:
                 )
 
             batch = candidates[offset : offset + batch_size]
-            payloads = await asyncio.gather(*(embed_community(community) for community in batch))
-            await self.vector_store.upsert_chunks(list(payloads))
+            # One dense call and one sparse call per batch: per-community calls (sparse
+            # synchronously on the event loop) took ~2.8 s each, so a full re-detection
+            # outran the task time limit before its embeddings were written.
+            texts = [f"{c.get('title') or ''}: {c.get('summary') or ''}" for c in batch]
+            dense_vectors, _ = await self.embedding_service.embed_texts(texts)
+            sparse_vectors: list[dict[int, float] | None] = [None] * len(batch)
+            if self.sparse_embedding_service:
+                sparse_vectors = await asyncio.to_thread(
+                    self.sparse_embedding_service.embed_batch, texts
+                )
+            payloads = [
+                payload_for(c, d, sv)
+                for c, d, sv in zip(batch, dense_vectors, sparse_vectors, strict=True)
+            ]
+            await self.vector_store.upsert_chunks(payloads)
             await self._mark_batch_embedded(
                 graph_client,
                 batch,
