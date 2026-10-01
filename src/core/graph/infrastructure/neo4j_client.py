@@ -511,6 +511,69 @@ class Neo4jClient:
             },
         )
 
+    async def delete_superseded_generation(
+        self, document_id: str, tenant_id: str, generation_id: str
+    ) -> dict[str, int]:
+        """Delete graph artifacts of the document's older generations after a publish.
+
+        Removes the document's Chunk nodes outside ``generation_id`` (older generations
+        and legacy NULL-generation chunks), the document's generation-scoped
+        relationships of older generations, then the entities those chunks mentioned
+        that are left with no mention at all. Communities losing members are marked
+        stale. Legacy relationships without ``document_id`` are shared across
+        documents and are left alone.
+        """
+        params = {
+            "document_id": document_id,
+            "tenant_id": tenant_id,
+            "generation_id": generation_id,
+        }
+        candidates = await self.execute_read(
+            """
+            MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NULL OR old.generation_id <> $generation_id
+            MATCH (old)-[:MENTIONS]->(e:Entity)
+            RETURN collect(DISTINCT elementId(e)) AS ids
+            """,
+            params,
+        )
+        entity_ids = candidates[0]["ids"] if candidates else []
+        chunks = await self.execute_write(
+            """
+            MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NULL OR old.generation_id <> $generation_id
+            DETACH DELETE old
+            RETURN count(*) AS n
+            """,
+            params,
+        )
+        rels = await self.execute_write(
+            """
+            MATCH ()-[r {document_id: $document_id, tenant_id: $tenant_id}]->()
+            WHERE r.generation_id IS NOT NULL AND r.generation_id <> $generation_id
+            DELETE r
+            RETURN count(*) AS n
+            """,
+            params,
+        )
+        entities = await self.execute_write(
+            """
+            MATCH (e:Entity {tenant_id: $tenant_id})
+            WHERE elementId(e) IN $entity_ids AND NOT EXISTS { MATCH (:Chunk)-[:MENTIONS]->(e) }
+            OPTIONAL MATCH (e)-[:BELONGS_TO]->(c:Community)
+            SET c.is_stale = true
+            WITH DISTINCT e
+            DETACH DELETE e
+            RETURN count(*) AS n
+            """,
+            {"tenant_id": tenant_id, "entity_ids": entity_ids},
+        )
+
+        def _n(rows):
+            return int(rows[0]["n"]) if rows else 0
+
+        return {"chunks": _n(chunks), "relationships": _n(rels), "entities": _n(entities)}
+
     async def prune_orphans(
         self, valid_doc_ids: list[str], valid_chunk_ids: list[str]
     ) -> dict[str, int]:

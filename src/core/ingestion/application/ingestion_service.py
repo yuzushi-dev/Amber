@@ -252,6 +252,33 @@ class IngestionService:
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
 
+    async def _delete_superseded_generation_artifacts(
+        self, document_id: str, tenant_id: str, generation_id: str, vector_store: Any
+    ) -> None:
+        """Best-effort removal of older generations' vectors and graph artifacts.
+
+        Runs only after Postgres published ``generation_id`` and Neo4j promoted it, so
+        the old artifacts are hidden already; without this they were kept forever
+        (stale vectors taking ANN slots, unpublished chunks and dead entities in the
+        graph). Postgres chunk rows are kept. Failures are logged, never raised.
+        """
+        get_ids = getattr(self.document_repository, "get_superseded_chunk_ids", None)
+        try:
+            old_ids = await get_ids(document_id, generation_id) if get_ids else []
+            if old_ids and vector_store is not None:
+                for i in range(0, len(old_ids), 500):
+                    await vector_store.delete_chunks(old_ids[i : i + 500], tenant_id)
+        except Exception as e:
+            logger.warning(f"Superseded vector cleanup failed for {document_id}: {e}")
+        delete_graph = getattr(self.neo4j_client, "delete_superseded_generation", None)
+        if delete_graph is None:
+            return
+        try:
+            counts = await delete_graph(document_id, tenant_id, generation_id)
+            logger.info(f"Superseded generation cleanup for {document_id}: {counts}")
+        except Exception as e:
+            logger.warning(f"Superseded graph cleanup failed for {document_id}: {e}")
+
     async def _invalidate_result_cache(
         self, tenant_id: str, reason: str, *, loud: bool = False
     ) -> None:
@@ -1198,6 +1225,10 @@ class IngestionService:
                     "Postgres published generation %s but Neo4j promotion failed: %s",
                     generation.id,
                     graph_publish_error,
+                )
+            else:
+                await self._delete_superseded_generation_artifacts(
+                    document.id, document.tenant_id, generation.id, vector_store
                 )
 
             await self.event_dispatcher.emit_state_change(

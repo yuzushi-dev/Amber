@@ -541,6 +541,19 @@ class PostgresDocumentRepository(DocumentRepository):
         await self._session.flush()
         return result.rowcount == 1
 
+    async def get_superseded_chunk_ids(self, document_id: str, generation_id: str) -> list[str]:
+        """Ids of the document's chunks outside ``generation_id`` (older generations and
+        legacy NULL-generation rows). The rows themselves are kept."""
+        from src.core.ingestion.domain.chunk import Chunk
+
+        result = await self._session.execute(
+            select(Chunk.id).where(
+                Chunk.document_id == document_id,
+                or_(Chunk.generation_id.is_(None), Chunk.generation_id != generation_id),
+            )
+        )
+        return [row[0] for row in result.all()]
+
     async def get_chunks(self, chunk_ids: list[str]) -> list[Chunk]:
         """Retrieve chunks visible through the document's published generation."""
         from src.core.ingestion.domain.chunk import Chunk

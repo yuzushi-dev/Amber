@@ -133,6 +133,10 @@ class DocumentRepository(Protocol):
         """Retrieve only chunks from each document's published generation."""
         ...
 
+    async def get_superseded_chunk_ids(self, document_id: str, generation_id: str) -> list[str]:
+        """Ids of the document's chunks that do not belong to ``generation_id``."""
+        ...
+
     async def get_next_chunks(self, chunk_ids: list[str]) -> dict[str, Chunk]:
         """Map each chunk id to the following chunk of the same published generation."""
         ...
