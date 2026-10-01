@@ -12,6 +12,7 @@ from src.core.generation.domain.ports.provider_factory import ProviderFactoryPor
 from src.core.generation.domain.provider_models import ProviderTier
 from src.core.graph.domain.ports.graph_client import GraphClientPort
 from src.core.utils.tokenizer import Tokenizer
+from src.shared.exceptions import SoftTimeLimitExceeded
 from src.shared.model_registry import llm_context_window
 from src.shared.provider_models import RateLimitError
 
@@ -120,6 +121,10 @@ class CommunitySummarizer:
         except RateLimitError as e:
             # Do not mark as failed; caller may retry with lower concurrency.
             logger.warning(f"Rate limited while summarizing community {community_id}: {e}")
+            raise
+
+        except SoftTimeLimitExceeded:
+            # A task time limit is not a summarization failure: stop the run.
             raise
 
         except Exception as e:
@@ -262,6 +267,8 @@ class CommunitySummarizer:
                         return ("ok", cid, None)
                     except RateLimitError as e:
                         return ("rate_limited", cid, e)
+                    except SoftTimeLimitExceeded:
+                        raise
                     except Exception as e:
                         # summarize_community handles most errors; this is a safety net.
                         logger.error(f"Unhandled exception while summarizing community {cid}: {e}")

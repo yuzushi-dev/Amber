@@ -8,6 +8,13 @@ Structured exception hierarchy for the GraphRAG system.
 from enum import StrEnum
 from typing import Any
 
+try:
+    from celery.exceptions import SoftTimeLimitExceeded
+except ImportError:  # celery is only installed where tasks run
+
+    class SoftTimeLimitExceeded(Exception):  # type: ignore[no-redef]
+        """Stand-in so code can re-raise a task time limit without depending on celery."""
+
 
 class ErrorCode(StrEnum):
     """Standard error codes for API responses."""
