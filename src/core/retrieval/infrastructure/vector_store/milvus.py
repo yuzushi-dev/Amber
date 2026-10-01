@@ -1010,7 +1010,10 @@ class MilvusVectorStore:
                         return ids
                     ids.extend(row[self.FIELD_CHUNK_ID] for row in batch)
             finally:
-                iterator.close()
+                try:
+                    iterator.close()
+                except Exception as close_error:
+                    logger.debug(f"Milvus iterator close failed: {close_error}")
 
         return await asyncio.to_thread(_collect)
 
