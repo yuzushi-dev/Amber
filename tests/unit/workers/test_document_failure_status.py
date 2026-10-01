@@ -12,8 +12,9 @@ from src.workers import tasks
 
 
 class _Session:
-    def __init__(self, document):
+    def __init__(self, document, legacy_chunks=False):
         self.document = document
+        self.legacy_chunks = legacy_chunks
         self.commit = AsyncMock()
 
     async def __aenter__(self):
@@ -25,13 +26,16 @@ class _Session:
     async def execute(self, _statement):
         return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: self.document))
 
+    async def scalar(self, _statement):  # EXISTS(legacy NULL-generation chunks)
+        return self.legacy_chunks
+
 
 def _run(coro):
     return asyncio.run(coro)
 
 
-def _fail_through_wrapper(document):
-    session = _Session(document)
+def _fail_through_wrapper(document, legacy_chunks=False):
+    session = _Session(document, legacy_chunks)
     sessionmaker = MagicMock(return_value=session)
     engine = MagicMock()
     engine.dispose = AsyncMock()
@@ -83,10 +87,26 @@ def test_failed_first_ingestion_marks_document_failed():
     session, publish_status = _fail_through_wrapper(document)
 
     assert document.status is DocumentStatus.FAILED
+    assert document.error_message == "boom"
     session.commit.assert_awaited_once()
     publish_status.assert_called_once_with(
         "document-1", DocumentStatus.FAILED.value, 100, error="boom"
     )
+
+
+def test_failed_reprocess_keeps_a_legacy_published_document_ready():
+    # ingested before generations: no active generation, serves NULL-generation chunks
+    document = SimpleNamespace(
+        id="document-1",
+        status=DocumentStatus.READY,
+        active_generation_id=None,
+    )
+
+    session, publish_status = _fail_through_wrapper(document, legacy_chunks=True)
+
+    assert document.status is DocumentStatus.READY
+    session.commit.assert_not_awaited()
+    publish_status.assert_not_called()
 
 
 @pytest.mark.asyncio

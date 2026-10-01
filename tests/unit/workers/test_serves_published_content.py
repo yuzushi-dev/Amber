@@ -1,8 +1,4 @@
-"""A failed reprocess must not hide a document that still serves content.
-
-Legacy documents (ingested before generations) have active_generation_id NULL but
-serve their NULL-generation chunks; the Celery failure handler marked them FAILED,
-which removed them from retrieval with no error recorded."""
+"""Decision table for keeping a document READY after a failed (re)processing."""
 
 from types import SimpleNamespace
 
@@ -26,14 +22,3 @@ from src.workers.tasks import _serves_published_content
 def test_serves_published_content(active, status, legacy, keep):
     doc = SimpleNamespace(active_generation_id=active, status=status)
     assert _serves_published_content(doc, legacy) is keep
-
-
-def test_failure_handler_records_the_error_and_checks_legacy_chunks():
-    import inspect
-
-    from src.workers import tasks
-
-    source = inspect.getsource(tasks._mark_document_failed)
-    assert "_serves_published_content(document, has_legacy_chunks)" in source
-    assert "_Chunk.generation_id.is_(None)" in source
-    assert "document.error_message =" in source
