@@ -20,9 +20,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 @pytest.mark.parametrize("graph_document_exists", [True, False])
 async def test_real_graph_delete_is_atomic_and_retriable(graph_document_exists):
     uri = os.environ.get("AMBER_TEST_NEO4J_URI")
-    if uri != "bolt://127.0.0.1:17687":
-        pytest.skip("Requires disposable Neo4j on localhost:17687")
-    graph = Neo4jClient(uri, "unused", "unused")
+    if uri not in {"bolt://127.0.0.1:17687", "bolt://localhost:7688"}:
+        pytest.skip("Requires disposable local Neo4j (port 17687 or CI port 7688)")
+    graph = Neo4jClient(uri, "neo4j", os.environ.get("AMBER_TEST_NEO4J_PASSWORD", "unused"))
     tenant = str(uuid4())
     params = {"tenant": tenant}
     document = SimpleNamespace(
