@@ -217,6 +217,26 @@ class CommunityEmbeddingService:
             batches=batches,
         )
 
+    async def prune_orphan_embeddings(self, tenant_id: str, keep_ids: set[str]) -> int:
+        """Delete the tenant's community embeddings whose community is not in ``keep_ids``.
+
+        Community nodes are replaced by every full detection (new ids per generation)
+        and removed by maintenance prunes, but their embedding rows were never deleted:
+        global search reads summaries straight from this collection, so it kept
+        serving vanished communities (7.6k of 8.5k rows on a production tenant).
+        """
+        list_ids = getattr(self.vector_store, "list_chunk_ids", None)
+        if list_ids is None:
+            return 0
+        orphan_ids = [cid for cid in await list_ids(tenant_id) if cid not in keep_ids]
+        for i in range(0, len(orphan_ids), 500):
+            await self.vector_store.delete_chunks(orphan_ids[i : i + 500], tenant_id)
+        if orphan_ids:
+            logger.info(
+                "Pruned %d orphan community embeddings for tenant %s", len(orphan_ids), tenant_id
+            )
+        return len(orphan_ids)
+
     async def _mark_batch_embedded(
         self,
         graph_client: Any,

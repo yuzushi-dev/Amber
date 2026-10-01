@@ -341,6 +341,9 @@ def process_communities(
         # If Redis is unavailable, proceed without the lock rather than blocking ingestion.
         logger.warning(f"[Task {self.request.id}] Could not acquire communities lock: {e}")
         lock_acquired = True
+        lock_owned = False
+    else:
+        lock_owned = lock_acquired
 
     if not lock_acquired:
         if redis_client is not None:
@@ -368,6 +371,9 @@ def process_communities(
                 force_full_resync_id=resync_run_id,
                 task_id=self.request.id,
                 resume_from=resume_from,
+                # embedding GC only under a real lock: without it another run's staged
+                # generation could look orphaned
+                reconcile_embeddings=lock_owned,
             )
         )
         return result
@@ -403,6 +409,7 @@ async def _process_communities_async(
     force_full_resync_id: str | None = None,
     task_id: str = "",
     resume_from: str = "detection",
+    reconcile_embeddings: bool = False,
 ) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -616,6 +623,22 @@ async def _process_communities_async(
 
         if generation_id and detector is not None:
             await detector.activate_generation(tenant_id, generation_id)
+
+        if reconcile_embeddings:
+            try:
+                keep_rows = await platform.neo4j_client.execute_read(
+                    """
+                    MATCH (c:Community {tenant_id: $tenant_id})
+                    WHERE coalesce(c.active, true) = true
+                    RETURN c.id AS id
+                    """,
+                    {"tenant_id": tenant_id},
+                )
+                keep_ids = {row["id"] for row in keep_rows or []}
+                if keep_ids:  # never wipe the collection on an empty/failed read
+                    await comm_embedding_svc.prune_orphan_embeddings(tenant_id, keep_ids)
+            except Exception as e:
+                logger.warning(f"Community embedding GC failed for tenant {tenant_id}: {e}")
 
         return {
             "status": "success",

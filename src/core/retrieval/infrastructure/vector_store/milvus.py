@@ -991,6 +991,29 @@ class MilvusVectorStore:
             logger.error(f"Failed to clean up vectors for tenant {tenant_id}: {e}")
             return False
 
+    async def list_chunk_ids(self, tenant_id: str, batch_size: int = 2000) -> list[str]:
+        """All primary ids stored for a tenant (ids only, no vectors)."""
+        await self.connect()
+        import asyncio
+
+        expr = f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}"
+
+        def _collect() -> list[str]:
+            ids: list[str] = []
+            iterator = self._collection.query_iterator(
+                expr=expr, output_fields=[self.FIELD_CHUNK_ID], batch_size=batch_size
+            )
+            try:
+                while True:
+                    batch = iterator.next()
+                    if not batch:
+                        return ids
+                    ids.extend(row[self.FIELD_CHUNK_ID] for row in batch)
+            finally:
+                iterator.close()
+
+        return await asyncio.to_thread(_collect)
+
     async def export_vectors(self, tenant_id: str, batch_size: int = 1000) -> AsyncIterator[dict]:
         """
         Export all vectors for a tenant.
