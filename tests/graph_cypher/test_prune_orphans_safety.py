@@ -12,9 +12,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 async def test_real_neo4j_preview_apply_threshold_and_rollback():
     uri = os.environ.get("AMBER_TEST_NEO4J_URI")
-    if uri != "bolt://127.0.0.1:17687":
-        pytest.skip("Requires disposable Neo4j on localhost:17687")
-    graph = Neo4jClient(uri, "unused", "unused")
+    if uri not in {"bolt://127.0.0.1:17687", "bolt://localhost:7688"}:
+        pytest.skip("Requires disposable local Neo4j (port 17687 or CI port 7688)")
+    graph = Neo4jClient(uri, "neo4j", os.environ.get("AMBER_TEST_NEO4J_PASSWORD", "unused"))
     tenant = str(uuid4())
     other = str(uuid4())
     ids = [str(i) for i in range(9)]
