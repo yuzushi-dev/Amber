@@ -270,13 +270,13 @@ export default function GlobalGraphPage() {
     const pruneOrphansMutation = useMutation({
         mutationFn: () => maintenanceApi.pruneOrphans(),
         onSuccess: (result) => {
-            toast.success(`Pruned orphans: ${result.message}`);
+            toast.success(result.message);
             // Invalidate everything to refresh
             queryClient.invalidateQueries({ queryKey: ['graph-top-nodes'] });
             queryClient.invalidateQueries({ queryKey: ['stats'] });
             setShowMaintenanceModal(false);
         },
-        onError: () => toast.error("Failed to prune orphans")
+        onError: () => toast.error("Failed to preview orphan cleanup")
     });
 
     const clearCacheMutation = useMutation({
@@ -503,8 +503,8 @@ export default function GlobalGraphPage() {
                                 </div>
                             </div>
                             <p className="text-xs leading-relaxed text-muted-foreground pr-4">
-                                Remove disconnected nodes that are not linked to any valid documents.
-                                Fixes visual inconsistencies in the graph exploration.
+                                Count disconnected nodes that are not linked to valid documents.
+                                Preview the cleanup without changing the graph.
                             </p>
                             <Button
                                 variant="outline"
@@ -515,7 +515,7 @@ export default function GlobalGraphPage() {
                             >
                                 {pruneOrphansMutation.isPending ? (
                                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                ) : "Run Cleanup"}
+                                ) : "Preview Cleanup"}
                             </Button>
                         </div>
 

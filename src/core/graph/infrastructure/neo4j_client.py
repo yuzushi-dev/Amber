@@ -575,98 +575,82 @@ class Neo4jClient:
             return await session.execute_write(_tx)
 
     async def prune_orphans(
-        self, valid_doc_ids: list[str], valid_chunk_ids: list[str]
+        self,
+        valid_doc_ids: list[str],
+        valid_chunk_ids: list[str],
+        *,
+        tenant_id: str,
+        dry_run: bool = True,
     ) -> dict[str, int]:
-        """
-        Remove chunks and entities that are not valid.
+        """Count orphans, refusing destructive pruning above 20% of any category."""
+        if not tenant_id or not valid_doc_ids or not valid_chunk_ids:
+            raise ValueError("Pruning requires a tenant and non-empty document/chunk IDs")
 
-        Args:
-            valid_doc_ids: List of valid Document IDs from Postgres.
-            valid_chunk_ids: List of valid Chunk IDs from Postgres.
+        parameters = {
+            "tenant_id": tenant_id,
+            "valid_doc_ids": valid_doc_ids,
+            "valid_chunk_ids": valid_chunk_ids,
+            "include_all_chunks": False,
+        }
+        # Project the state after invalid chunks disappear, also in dry-run mode.
+        predicates = {
+            "documents": ("Document", "NOT n.id IN $valid_doc_ids"),
+            "chunks": ("Chunk", "NOT n.id IN $valid_chunk_ids"),
+            "entities": (
+                "Entity",
+                """NOT EXISTS {
+                    MATCH (ch:Chunk {tenant_id: $tenant_id})-[:MENTIONS]->(n)
+                    WHERE $include_all_chunks OR ch.id IN $valid_chunk_ids
+                }""",
+            ),
+            "communities": (
+                "Community",
+                """NOT EXISTS {
+                    MATCH (ch:Chunk {tenant_id: $tenant_id})-[:MENTIONS]->
+                          (e:Entity {tenant_id: $tenant_id})
+                          -[:BELONGS_TO|IN_COMMUNITY]->
+                          (:Community {tenant_id: $tenant_id})<-[:PARENT_OF*0..]-(n)
+                    WHERE $include_all_chunks OR ch.id IN $valid_chunk_ids
+                }""",
+            ),
+        }
 
-        Returns:
-            Dictionary with counts of deleted items.
-        """
-        # 1. Delete orphan Documents
-        # If document ID is not in valid_doc_ids, delete it
-        # UNWIND creates rows, we want to filter EXISTING nodes against the list
-        # Passing huge lists to Cypher can be slow, but for maintenance it's acceptable usually.
-        # However, for huge datasets, logic should be inverted (find orphans via exclusion).
-
-        # Strategy:
-        # We can't pass ALL valid IDs if millions.
-        # But here we assume this usage is for maintenance/debugging or moderate scale.
-        # If lists are huge, we should batch. For now, simplistic implementation as requested.
-
-        counts = {"documents": 0, "chunks": 0, "entities": 0}
-
-        try:
-            # A. Prune Documents
-            # Find all documents in Graph
-            # Check if they are in valid_docs. If not, delete.
-            # Doing this entirely in Cypher requires passing the full list of valid IDs.
-            # "MATCH (d:Document) WHERE NOT d.id IN $valid_ids DETACH DELETE d"
-
-            # Batching is safer. But for now:
-            query_docs = """
-            MATCH (d:Document)
-            WHERE NOT d.id IN $valid_ids
-            DETACH DELETE d
-            RETURN count(d) as deleted
-            """
-            res_docs = await self.execute_write(query_docs, {"valid_ids": valid_doc_ids})
-            counts["documents"] = res_docs[0]["deleted"] if res_docs else 0
-
-            # B. Prune Chunks
-            query_chunks = """
-            MATCH (c:Chunk)
-            WHERE NOT c.id IN $valid_ids
-            DETACH DELETE c
-            RETURN count(c) as deleted
-            """
-            res_chunks = await self.execute_write(query_chunks, {"valid_ids": valid_chunk_ids})
-            counts["chunks"] = res_chunks[0]["deleted"] if res_chunks else 0
-
-            # C. Prune Entities (Orphans)
-            # STRATEGY CHANGE: Instead of just deleting completely isolated nodes (WHERE NOT (e)--()),
-            # we now delete ANY entity that is not mentioned by a valid chunk.
-            # This handles "island" clusters that are connected to each other but detached from the knowledge base.
-
-            # Since we just deleted invalid chunks in step B, we can trust existing chunks.
-            query_entities = """
-            MATCH (e:Entity)
-            WHERE NOT (:Chunk)-[:MENTIONS]->(e)
-            DETACH DELETE e
-            RETURN count(e) as deleted
-            """
-            res_entities = await self.execute_write(query_entities)
-            counts["entities"] = res_entities[0]["deleted"] if res_entities else 0
-
-            # D. Prune Stale Communities
-            # Delete communities that are not reachable from any Entity.
-            # This handles hierarchical communities (C <- C <- E) correctly.
-            # Note: We use DETACH DELETE to remove PARENT_OF relationships.
-            # Entities attach only to leaf (level 0) communities via BELONGS_TO;
-            # PARENT_OF points parent -> child, so an ancestor community c is
-            # reachable from an entity by walking PARENT_OF backwards (*0..)
-            # from the entity's leaf community up to c.
-            # Logic: If no Entity's leaf community is c or a descendant of c, it is empty.
-            query_communities = """
-            MATCH (c:Community)
-            WHERE NOT EXISTS { (:Entity)-[:BELONGS_TO]->()<-[:PARENT_OF*0..]-(c) }
-            DETACH DELETE c
-            RETURN count(c) as deleted
-            """
-
-            res_comm = await self.execute_write(query_communities)
-            counts["communities"] = res_comm[0]["deleted"] if res_comm else 0
-
-            logger.info(f"Pruned orphans: {counts}")
+        async def prune(tx):
+            counts = {}
+            candidates = {}
+            for key, (label, predicate) in predicates.items():
+                rows = await self._execute_tx(
+                    tx,
+                    f"""MATCH (n:{label} {{tenant_id: $tenant_id}})
+                    RETURN count(n) AS total,
+                           collect(CASE WHEN {predicate} THEN elementId(n) ELSE null END) AS candidate_ids""",
+                    parameters,
+                )
+                candidates[key] = rows[0]["candidate_ids"]
+                counts[key] = len(candidates[key])
+                if not dry_run and counts[key] > rows[0]["total"] * 0.2:
+                    raise ValueError(f"Refusing to prune more than 20% of {key} for {tenant_id}")
+            if not dry_run:
+                for key, (label, predicate) in predicates.items():
+                    rows = await self._execute_tx(
+                        tx,
+                        f"""MATCH (n:{label} {{tenant_id: $tenant_id}})
+                        WHERE elementId(n) IN $candidate_ids AND {predicate}
+                        DETACH DELETE n RETURN count(n) AS deleted""",
+                        {
+                            **parameters,
+                            "candidate_ids": candidates[key],
+                            "include_all_chunks": True,
+                        },
+                    )
+                    counts[key] = rows[0]["deleted"]
             return counts
 
-        except Exception as e:
-            logger.error(f"Failed to prune orphans: {e}")
-            raise
+        driver = await self.get_driver()
+        async with driver.session() as session:
+            if dry_run:
+                return await session.execute_read(prune)
+            return await session.execute_write(prune)
 
     async def get_top_nodes(self, tenant_id: str, limit: int = 15) -> list[dict[str, Any]]:
         """
