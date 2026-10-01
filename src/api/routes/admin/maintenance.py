@@ -314,18 +314,11 @@ async def clear_cache(pattern: str | None = None):
 
 
 @router.post("/prune/orphans", response_model=MaintenanceResult)
-async def prune_orphans():
-    """
-    Remove orphan nodes from the graph.
-
-    Finds and removes:
-    - Documents in Graph not in Postgres
-    - Chunks in Graph not in Postgres
-    - Entities not connected to anything
-    """
+async def prune_orphans(dry_run: bool = True, tenant_id: str | None = None):
+    """Count or remove graph orphans using each tenant's RLS-visible IDs."""
     import time
 
-    from sqlalchemy.future import select
+    from sqlalchemy import select, text
 
     from src.amber_platform.composition_root import platform
     from src.core.database.session import async_session_maker
@@ -333,44 +326,46 @@ async def prune_orphans():
     from src.core.ingestion.domain.document import Document
 
     start = time.time()
-
     try:
-        # 1. Fetch valid IDs from Postgres
+        if not dry_run and not tenant_id:
+            raise ValueError("Destructive pruning requires one explicit tenant_id")
+        snapshots = []
         async with async_session_maker() as session:
-            # We fetch all IDs.
-            # NOTE: Ideally this should be batched or streamed for massive datasets.
-            # But for maintenance tool it's acceptable to hold ID lists in memory for now (IDs are small).
-            # If > 100k docs, we should paginate.
+            await session.execute(text("SELECT set_config('app.is_super_admin', 'true', true)"))
+            tenants = await session.execute(text("SELECT id FROM tenants"))
+            tenant_ids = [row[0] for row in tenants.fetchall()]
+            if tenant_id is not None:
+                if tenant_id not in tenant_ids:
+                    raise ValueError("Unknown tenant_id")
+                tenant_ids = [tenant_id]
+            for tenant_id in tenant_ids:
+                await session.execute(
+                    text("SELECT set_config('app.current_tenant', :t, true)"), {"t": tenant_id}
+                )
+                docs = await session.execute(
+                    select(Document.id).where(Document.tenant_id == tenant_id)
+                )
+                chunks = await session.execute(select(Chunk.id).where(Chunk.tenant_id == tenant_id))
+                doc_ids = [str(uid) for uid in docs.scalars().all()]
+                chunk_ids = [str(uid) for uid in chunks.scalars().all()]
+                if not doc_ids or not chunk_ids:
+                    raise ValueError(f"Refusing pruning with empty IDs for tenant {tenant_id}")
+                snapshots.append((tenant_id, doc_ids, chunk_ids))
 
-            # Fetch valid Doc IDs
-            result_docs = await session.execute(select(Document.id))
-            valid_doc_ids = result_docs.scalars().all()
-
-            # Fetch valid Chunk IDs
-            result_chunks = await session.execute(select(Chunk.id))
-            valid_chunk_ids = result_chunks.scalars().all()
-
-        # 2. Call Neo4j Pruning
-        # Convert UUIDs to strings just in case
-        valid_doc_ids = [str(uid) for uid in valid_doc_ids]
-        valid_chunk_ids = [str(uid) for uid in valid_chunk_ids]
-
-        counts = await platform.neo4j_client.prune_orphans(valid_doc_ids, valid_chunk_ids)
-
-        orphans_removed = sum(counts.values())
-        duration = time.time() - start
-
-        message = f"Removed orphans: {counts}"
-        logger.info(f"Orphan pruning completed: {message}")
-
+        counts_by_tenant = {}
+        for tenant_id, doc_ids, chunk_ids in snapshots:
+            counts_by_tenant[tenant_id] = await platform.neo4j_client.prune_orphans(
+                doc_ids, chunk_ids, tenant_id=tenant_id, dry_run=dry_run
+            )
         return MaintenanceResult(
             operation="prune_orphans",
             status="success",
-            message=message,
-            items_affected=orphans_removed,
-            duration_seconds=round(duration, 3),
+            message=f"{'Dry run; orphan candidates' if dry_run else 'Removed orphans'}: {counts_by_tenant}",
+            items_affected=sum(sum(counts.values()) for counts in counts_by_tenant.values()),
+            duration_seconds=round(time.time() - start, 3),
         )
-
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to prune orphans: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
