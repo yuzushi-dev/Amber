@@ -8,6 +8,7 @@ Celery tasks for background document processing.
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
 from typing import Any
 
 # Ensure custom packages are loadable
@@ -15,7 +16,7 @@ if "/app/.packages" not in sys.path:
     sys.path.insert(0, "/app/.packages")
 
 from celery import Task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 
 from src.core.ingestion.domain.chunk import (
     Chunk as _Chunk,  # noqa: F401 — ensures SQLAlchemy mapper resolves Document.chunks at runtime
@@ -341,6 +342,9 @@ def process_communities(
         # If Redis is unavailable, proceed without the lock rather than blocking ingestion.
         logger.warning(f"[Task {self.request.id}] Could not acquire communities lock: {e}")
         lock_acquired = True
+        lock_owned = False
+    else:
+        lock_owned = lock_acquired
 
     if not lock_acquired:
         if redis_client is not None:
@@ -368,6 +372,13 @@ def process_communities(
                 force_full_resync_id=resync_run_id,
                 task_id=self.request.id,
                 resume_from=resume_from,
+                # embedding GC only while this run still owns the tenant lock (checked at
+                # prune time: the lock may have expired and another run may be staging)
+                reconcile_embeddings=(
+                    (lambda: _still_owns_lock(redis_client, lock_key, self.request.id))
+                    if lock_owned
+                    else None
+                ),
             )
         )
         return result
@@ -396,6 +407,61 @@ def process_communities(
                 pass
 
 
+def _still_owns_lock(redis_client: Any, lock_key: str, task_id: str) -> bool:
+    try:
+        current = redis_client.get(lock_key)
+    except Exception:
+        return False
+    if isinstance(current, bytes):
+        current = current.decode()
+    return current == task_id
+
+
+async def _gc_community_embeddings(
+    graph: Any,
+    embedding_service: Any,
+    tenant_id: str,
+    *,
+    activated_generation_id: str | None,
+    embedded_ids: set[str],
+) -> int:
+    """Delete embedding rows of communities that no longer exist or were superseded.
+
+    Keeps every existing Community node (including the generation-less misc community
+    and inactive legacy nodes); only when this run activated a new generation are the
+    nodes of older generations dropped from the keep set. Skips when the keep set does
+    not contain everything this run just embedded (wrong or partial read).
+    """
+    rows = await graph.execute_read(
+        """
+        MATCH (c:Community {tenant_id: $tenant_id})
+        RETURN c.id AS id, coalesce(c.active, true) AS active, c.generation_id AS generation_id
+        """,
+        {"tenant_id": tenant_id},
+    )
+    rows = rows or []
+    superseded = {
+        r["id"]
+        for r in rows
+        if activated_generation_id
+        and not r["active"]
+        and r["generation_id"]
+        and r["generation_id"] != activated_generation_id
+    }
+    keep_ids = {r["id"] for r in rows} - superseded
+    if not keep_ids or not embedded_ids <= keep_ids:
+        logger.warning(
+            "Skipping community embedding GC for tenant %s: keep set looks wrong "
+            "(keep=%d, embedded=%d, missing=%d)",
+            tenant_id,
+            len(keep_ids),
+            len(embedded_ids),
+            len(embedded_ids - keep_ids),
+        )
+        return 0
+    return await embedding_service.prune_orphan_embeddings(tenant_id, keep_ids)
+
+
 async def _process_communities_async(
     tenant_id: str,
     skip_detection: bool = False,
@@ -403,6 +469,7 @@ async def _process_communities_async(
     force_full_resync_id: str | None = None,
     task_id: str = "",
     resume_from: str = "detection",
+    reconcile_embeddings: Callable[[], bool] | None = None,
 ) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -427,6 +494,7 @@ async def _process_communities_async(
 
     next_phase = resume_from
     generation_id = None
+    activated = False
     detector = None
     try:
         # 1. Detection or the pre-existing incremental update.
@@ -616,6 +684,23 @@ async def _process_communities_async(
 
         if generation_id and detector is not None:
             await detector.activate_generation(tenant_id, generation_id)
+            # From here on the generation is live: the error path must never discard it
+            # (the previous generation is already inactive).
+            activated = True
+
+        if reconcile_embeddings is not None and reconcile_embeddings():
+            try:
+                await _gc_community_embeddings(
+                    platform.neo4j_client,
+                    comm_embedding_svc,
+                    tenant_id,
+                    activated_generation_id=generation_id,
+                    embedded_ids={c["id"] for c in ready_comms or []},
+                )
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception as e:
+                logger.warning(f"Community embedding GC failed for tenant {tenant_id}: {e}")
 
         return {
             "status": "success",
@@ -629,7 +714,7 @@ async def _process_communities_async(
             "embedding_resync_run_id": force_full_resync_id,
         }
     except Exception as e:
-        if generation_id and detector is not None:
+        if generation_id and detector is not None and not activated:
             try:
                 await detector.discard_generation(tenant_id, generation_id)
             except Exception as cleanup_error:
