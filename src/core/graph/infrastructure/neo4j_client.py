@@ -511,6 +511,69 @@ class Neo4jClient:
             },
         )
 
+    async def delete_superseded_generation(
+        self, document_id: str, tenant_id: str, old_generation_ids: list[str]
+    ) -> dict[str, int]:
+        """Delete graph artifacts of a document's superseded generations, in one transaction.
+
+        Targets only the given (already superseded) generations plus legacy
+        NULL-generation chunks of the document, never a staging generation. Removes
+        their generation-scoped relationships (found from the entities those chunks
+        mentioned, no graph-wide scan), the chunks, then the entities left with no
+        mention and no entity relationship; communities of deleted entities are
+        marked stale. Legacy relationships without ``document_id`` are shared across
+        documents and are left alone.
+        """
+        params = {
+            "document_id": document_id,
+            "tenant_id": tenant_id,
+            "old": list(old_generation_ids),
+        }
+        chunk_match = """
+            MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NULL OR old.generation_id IN $old
+        """
+
+        async def _tx(tx: Any) -> dict[str, int]:
+            async def one(query: str, query_params: dict[str, Any]) -> Any:
+                record = await (await tx.run(query, query_params)).single()
+                return record[0] if record else 0
+
+            entity_ids = await one(
+                chunk_match
+                + "MATCH (old)-[:MENTIONS]->(e:Entity) RETURN collect(DISTINCT elementId(e))",
+                params,
+            )
+            rels = await one(
+                """
+                MATCH (e:Entity) WHERE elementId(e) IN $entity_ids
+                MATCH (e)-[r]-()
+                WHERE r.document_id = $document_id AND r.generation_id IN $old
+                WITH DISTINCT r DELETE r RETURN count(*)
+                """,
+                {**params, "entity_ids": entity_ids},
+            )
+            chunks = await one(chunk_match + "DETACH DELETE old RETURN count(*)", params)
+            entities = await one(
+                """
+                MATCH (e:Entity {tenant_id: $tenant_id})
+                WHERE elementId(e) IN $entity_ids
+                  AND NOT EXISTS { MATCH (:Chunk)-[:MENTIONS]->(e) }
+                  AND NOT EXISTS {
+                    MATCH (e)-[x]-(:Entity) WHERE NOT type(x) IN ['BELONGS_TO', 'PARENT_OF']
+                  }
+                OPTIONAL MATCH (e)-[:BELONGS_TO]->(c:Community)
+                SET c.is_stale = true
+                WITH DISTINCT e DETACH DELETE e RETURN count(*)
+                """,
+                {"tenant_id": tenant_id, "entity_ids": entity_ids},
+            )
+            return {"chunks": chunks, "relationships": rels, "entities": entities}
+
+        driver = await self.get_driver()
+        async with driver.session() as session:
+            return await session.execute_write(_tx)
+
     async def prune_orphans(
         self, valid_doc_ids: list[str], valid_chunk_ids: list[str]
     ) -> dict[str, int]:

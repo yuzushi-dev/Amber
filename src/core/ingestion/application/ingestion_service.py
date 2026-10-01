@@ -252,6 +252,74 @@ class IngestionService:
         logger.info(f"Registered new document: {filename} (ID: {doc_id})")
         return new_doc
 
+    async def _promote_generation_and_cleanup(
+        self, document_id: str, tenant_id: str, generation_id: str, vector_store: Any
+    ) -> None:
+        """Expose the published generation in the graph, then drop superseded artifacts.
+
+        Cleanup runs only if the promotion succeeded; any failure is logged and never
+        fails the (already committed) ingestion.
+        """
+        try:
+            await self.neo4j_client.publish_document_generation(
+                document_id, tenant_id, generation_id
+            )
+        except Exception as graph_publish_error:
+            logger.error(
+                "Postgres published generation %s but Neo4j promotion failed: %s",
+                generation_id,
+                graph_publish_error,
+            )
+            return
+        await self._delete_superseded_generation_artifacts(
+            document_id, tenant_id, generation_id, vector_store
+        )
+
+    async def _delete_superseded_generation_artifacts(
+        self, document_id: str, tenant_id: str, generation_id: str, vector_store: Any
+    ) -> None:
+        """Best-effort removal of superseded generations' vectors and graph artifacts.
+
+        Publishing only hid the previous generation, so every reprocess left a full
+        copy behind (stale vectors taking ANN slots, unpublished chunks and dead
+        entities in the graph). Only generations already published and replaced are
+        targeted (plus legacy NULL-generation chunks), never a staging one, and
+        nothing runs if ``generation_id`` is no longer the active generation.
+        Postgres chunk rows are kept.
+
+        ponytail: vectors are deleted from the new generation's collection only; an
+        older generation stored in another collection (embedding-model switch) keeps
+        its vectors until that collection is dropped.
+        """
+        get_artifacts = getattr(self.document_repository, "get_superseded_artifacts", None)
+        if get_artifacts is None:
+            return
+        try:
+            artifacts = await get_artifacts(document_id, generation_id)
+        except Exception as e:
+            logger.warning(f"Superseded artifact lookup failed for {document_id}: {e}")
+            return
+        if artifacts is None:
+            logger.info(f"Skipping superseded cleanup for {document_id}: generation changed")
+            return
+        old_generation_ids, old_chunk_ids = artifacts
+        if not old_chunk_ids:
+            return
+        try:
+            if vector_store is not None:
+                for i in range(0, len(old_chunk_ids), 500):
+                    await vector_store.delete_chunks(old_chunk_ids[i : i + 500], tenant_id)
+        except Exception as e:
+            logger.warning(f"Superseded vector cleanup failed for {document_id}: {e}")
+        delete_graph = getattr(self.neo4j_client, "delete_superseded_generation", None)
+        if delete_graph is None:
+            return
+        try:
+            counts = await delete_graph(document_id, tenant_id, old_generation_ids)
+            logger.info(f"Superseded generation cleanup for {document_id}: {counts}")
+        except Exception as e:
+            logger.warning(f"Superseded graph cleanup failed for {document_id}: {e}")
+
     async def _invalidate_result_cache(
         self, tenant_id: str, reason: str, *, loud: bool = False
     ) -> None:
@@ -1189,16 +1257,9 @@ class IngestionService:
                 raise RuntimeError("document generation lost pending ownership before publish")
             await self.unit_of_work.commit()
 
-            try:
-                await self.neo4j_client.publish_document_generation(
-                    document.id, document.tenant_id, generation.id
-                )
-            except Exception as graph_publish_error:
-                logger.error(
-                    "Postgres published generation %s but Neo4j promotion failed: %s",
-                    generation.id,
-                    graph_publish_error,
-                )
+            await self._promote_generation_and_cleanup(
+                document.id, document.tenant_id, generation.id, vector_store
+            )
 
             await self.event_dispatcher.emit_state_change(
                 StateChangeEvent(

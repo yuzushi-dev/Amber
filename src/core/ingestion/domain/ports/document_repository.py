@@ -133,6 +133,13 @@ class DocumentRepository(Protocol):
         """Retrieve only chunks from each document's published generation."""
         ...
 
+    async def get_superseded_artifacts(
+        self, document_id: str, published_generation_id: str
+    ) -> tuple[list[str], list[str]] | None:
+        """``(old_generation_ids, chunk_ids)`` safe to delete after a publish, or None
+        when ``published_generation_id`` is no longer the document's active one."""
+        ...
+
     async def get_next_chunks(self, chunk_ids: list[str]) -> dict[str, Chunk]:
         """Map each chunk id to the following chunk of the same published generation."""
         ...
