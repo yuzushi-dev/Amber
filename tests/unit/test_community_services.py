@@ -123,10 +123,26 @@ class TestCommunitySummarizer:
     async def test_summarize_community_no_data(self, mock_neo4j, mock_factory):
         summarizer = CommunitySummarizer(mock_neo4j, mock_factory)
         mock_neo4j.execute_read.return_value = []
+        mock_neo4j.execute_write.return_value = [{"id": "comm_0_empty"}]
 
         with patch("src.shared.kernel.runtime.get_settings"):
-            result = await summarizer.summarize_community("comm_0_empty", "tenant_1")
+            result = await summarizer.summarize_community(
+                "comm_0_empty", "tenant_1", generation_id="generation_1"
+            )
+
         assert result == {}
+        query, params = mock_neo4j.execute_write.await_args.args
+        assert "tenant_id: $tenant_id" in query
+        assert "c.generation_id = $generation_id" in query
+        assert "[:BELONGS_TO|IN_COMMUNITY]" in query
+        assert "[:PARENT_OF]" in query
+        assert "c.status = 'empty', c.is_stale = false" in query
+        assert params == {
+            "id": "comm_0_empty",
+            "tenant_id": "tenant_1",
+            "generation_id": "generation_1",
+        }
+        mock_factory.get_llm_provider.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_summarize_community_failure_keeps_ready_summary_available(
