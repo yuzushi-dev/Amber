@@ -193,7 +193,7 @@ class CommunitySummarizer:
         WHERE c.tenant_id = $tenant_id
           AND ($generation_id IS NULL OR c.generation_id = $generation_id)
           AND ($generation_id IS NOT NULL OR coalesce(c.active, true) = true)
-          AND (c.summary IS NULL OR c.is_stale = true)
+          AND (c.is_stale = true OR (c.summary IS NULL AND coalesce(c.status, '') <> 'empty'))
         RETURN c.id as id, coalesce(c.level, 0) as level
         ORDER BY c.level ASC
         """

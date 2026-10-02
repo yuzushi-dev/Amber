@@ -145,6 +145,20 @@ class TestCommunitySummarizer:
         mock_factory.get_llm_provider.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_summarize_all_stale_excludes_terminal_empty_communities(
+        self, mock_neo4j, mock_factory
+    ):
+        mock_neo4j.execute_read.return_value = []
+
+        await CommunitySummarizer(mock_neo4j, mock_factory).summarize_all_stale("tenant_1")
+
+        query = " ".join(mock_neo4j.execute_read.await_args.args[0].split())
+        assert (
+            "AND (c.is_stale = true OR "
+            "(c.summary IS NULL AND coalesce(c.status, '') <> 'empty'))" in query
+        )
+
+    @pytest.mark.asyncio
     async def test_summarize_community_failure_keeps_ready_summary_available(
         self, mock_neo4j, mock_factory
     ):
