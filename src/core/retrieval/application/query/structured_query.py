@@ -145,11 +145,6 @@ class StructuredKGDetector:
             original_query=query,
         )
 
-    def is_structured(self, query: str) -> bool:
-        """Quick check if query is structured."""
-        return self.detect(query).query_type != StructuredQueryType.NOT_STRUCTURED
-
-
 class CypherGenerator:
     """Generates safe, parameterized Cypher queries for structured intents."""
 

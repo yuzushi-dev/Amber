@@ -8,6 +8,13 @@ Structured exception hierarchy for the GraphRAG system.
 from enum import StrEnum
 from typing import Any
 
+try:
+    from celery.exceptions import SoftTimeLimitExceeded
+except ImportError:  # celery is only installed where tasks run
+
+    class SoftTimeLimitExceeded(Exception):  # type: ignore[no-redef]
+        """Stand-in so code can re-raise a task time limit without depending on celery."""
+
 
 class ErrorCode(StrEnum):
     """Standard error codes for API responses."""
@@ -76,28 +83,6 @@ class AppException(Exception):
 # =============================================================================
 
 
-class UnauthorizedError(AppException):
-    """Raised when authentication fails or is missing."""
-
-    def __init__(self, message: str = "Authentication required"):
-        super().__init__(
-            code=ErrorCode.UNAUTHORIZED,
-            message=message,
-            status_code=401,
-        )
-
-
-class ForbiddenError(AppException):
-    """Raised when the user lacks permission for an action."""
-
-    def __init__(self, message: str = "Permission denied"):
-        super().__init__(
-            code=ErrorCode.FORBIDDEN,
-            message=message,
-            status_code=403,
-        )
-
-
 class NotFoundError(AppException):
     """Raised when a requested resource doesn't exist."""
 
@@ -134,79 +119,9 @@ class RateLimitError(AppException):
         )
 
 
-class PayloadTooLargeError(AppException):
-    """Raised when upload exceeds size limit."""
-
-    def __init__(self, max_size_mb: int, received_mb: float):
-        super().__init__(
-            code=ErrorCode.PAYLOAD_TOO_LARGE,
-            message=f"Upload exceeds maximum size of {max_size_mb}MB",
-            status_code=413,
-            details={"max_size_mb": max_size_mb, "received_mb": received_mb},
-        )
-
-
-class ConcurrencyLimitError(AppException):
-    """Raised when concurrency limit is exceeded."""
-
-    def __init__(self, resource: str, limit: int):
-        super().__init__(
-            code=ErrorCode.CONCURRENCY_LIMIT,
-            message=f"Maximum concurrent {resource} ({limit}) reached. Please wait.",
-            status_code=429,
-            details={"resource": resource, "limit": limit},
-        )
-
-
-class ConflictError(AppException):
-    """Raised when there's a conflict with existing data."""
-
-    def __init__(self, message: str, details: dict[str, Any] | None = None):
-        super().__init__(
-            code=ErrorCode.CONFLICT,
-            message=message,
-            status_code=409,
-            details=details,
-        )
-
-
 # =============================================================================
 # 5xx Server Error Exceptions
 # =============================================================================
-
-
-class InternalError(AppException):
-    """Raised for unexpected internal errors."""
-
-    def __init__(self, message: str = "An unexpected error occurred"):
-        super().__init__(
-            code=ErrorCode.INTERNAL_ERROR,
-            message=message,
-            status_code=500,
-        )
-
-
-class ServiceUnavailableError(AppException):
-    """Raised when the service is temporarily unavailable."""
-
-    def __init__(self, message: str = "Service temporarily unavailable"):
-        super().__init__(
-            code=ErrorCode.SERVICE_UNAVAILABLE,
-            message=message,
-            status_code=503,
-        )
-
-
-class DependencyError(AppException):
-    """Raised when an external dependency fails."""
-
-    def __init__(self, dependency: str, message: str | None = None):
-        super().__init__(
-            code=ErrorCode.DEPENDENCY_ERROR,
-            message=message or f"Dependency unavailable: {dependency}",
-            status_code=503,
-            details={"dependency": dependency},
-        )
 
 
 class TimeoutError(AppException):

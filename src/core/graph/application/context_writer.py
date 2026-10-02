@@ -220,45 +220,5 @@ class ContextGraphWriter:
             logger.warning(f"Failed to log feedback to Context Graph: {e}")
             return None
 
-    async def get_chunk_feedback_stats(self, chunk_id: str, tenant_id: str = "") -> dict[str, Any]:
-        """
-        Get feedback statistics for a specific chunk.
-
-        This enables the "demote negatively-rated chunks" feature.
-
-        Returns:
-            Dict with positive_count, negative_count, and net_score
-        """
-        try:
-            graph_client = get_graph_client()
-            await graph_client.connect()
-
-            result = await graph_client.execute_read(
-                f"""
-                MATCH (f:{NodeLabel.UserFeedback.value})-[:{RelationshipType.RATES.value}]->(t:{NodeLabel.Turn.value})-[:{RelationshipType.RETRIEVED.value}]->(c:{NodeLabel.Chunk.value} {{id: $chunk_id, tenant_id: $tenant_id}})
-                RETURN
-                    sum(CASE WHEN f.is_positive THEN 1 ELSE 0 END) as positive_count,
-                    sum(CASE WHEN NOT f.is_positive THEN 1 ELSE 0 END) as negative_count
-                """,
-                {"chunk_id": chunk_id, "tenant_id": tenant_id},
-            )
-
-            if result:
-                record = result[0]
-                positive = record.get("positive_count", 0) or 0
-                negative = record.get("negative_count", 0) or 0
-                return {
-                    "positive_count": positive,
-                    "negative_count": negative,
-                    "net_score": positive - negative,
-                }
-
-            return {"positive_count": 0, "negative_count": 0, "net_score": 0}
-
-        except Exception as e:
-            logger.warning(f"Failed to get chunk feedback stats: {e}")
-            return {"positive_count": 0, "negative_count": 0, "net_score": 0}
-
-
 # Singleton instance
 context_graph_writer = ContextGraphWriter()

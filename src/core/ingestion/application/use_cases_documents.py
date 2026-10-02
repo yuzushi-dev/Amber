@@ -304,6 +304,10 @@ class DeleteDocumentResult:
     status: str = "deleted"
 
 
+class DocumentDeletionConflict(RuntimeError):
+    """The document is currently being processed."""
+
+
 class DeleteDocumentUseCase:
     """
     Use case for deleting a document.
@@ -336,11 +340,11 @@ class DeleteDocumentUseCase:
         """
         from sqlalchemy import select
 
-        from src.core.ingestion.domain.document import Document
+        from src.core.ingestion.domain.document import Document, DocumentGeneration
 
         # 1. Access Control & Metadata
         # Even if the document is gone from Postgres, we need fixed info for cleanup.
-        query = select(Document).where(Document.id == request.document_id)
+        query = select(Document).where(Document.id == request.document_id).with_for_update()
         if not request.is_super_admin:
             query = query.where(Document.tenant_id == request.tenant_id)
 
@@ -351,34 +355,38 @@ class DeleteDocumentUseCase:
         if document is None and not request.is_super_admin:
             raise LookupError(f"Document {request.document_id} not found")
 
+        if document and document.processing_attempt_id:
+            raise DocumentDeletionConflict("Document is being processed; retry deletion later")
+
         # We determine storage path and tenant_id
         # If document not in Postgres, we use request info for best-effort cleanup
         tenant_id = document.tenant_id if document else request.tenant_id
         storage_path = document.storage_path if document else f"{tenant_id}/{request.document_id}/"
 
+        storage_paths = {storage_path}
+        if document:
+            generations = await self._session.execute(
+                select(DocumentGeneration.storage_path).where(
+                    DocumentGeneration.document_id == request.document_id,
+                    DocumentGeneration.tenant_id == tenant_id,
+                )
+            )
+            storage_paths.update(generations.scalars().all())
+
         # 2. Delete from Neo4j (Hardened Query)
         try:
             # Collect communities of entities that will become orphaned by this deletion.
             # Must run BEFORE deletion so we can still traverse the graph.
-            affected_community_ids: list[str] = []
-            try:
-                collect_cypher = """
-                MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
-                MATCH (d)-[:HAS_CHUNK]->(ch:Chunk)-[:MENTIONS]->(e:Entity)
-                WHERE NOT EXISTS {
-                    MATCH (other:Chunk)-[:MENTIONS]->(e)
-                    WHERE NOT (d)-[:HAS_CHUNK]->(other)
-                }
-                MATCH (e)-[:BELONGS_TO]->(c:Community)
-                RETURN collect(DISTINCT c.id) AS ids
-                """
-                rows = await self._graph_client.execute_read(
-                    collect_cypher,
-                    {"document_id": request.document_id, "tenant_id": tenant_id},
-                )
-                affected_community_ids = rows[0]["ids"] if rows else []
-            except Exception as e:
-                logger.warning(f"Failed to collect affected communities before deletion: {e}")
+            collect_cypher = """
+            MATCH (d:Document {id: $document_id, tenant_id: $tenant_id})
+            MATCH (d)-[:HAS_CHUNK]->(ch:Chunk)-[:MENTIONS]->(e:Entity)
+            WHERE NOT EXISTS {
+                MATCH (other:Chunk)-[:MENTIONS]->(e)
+                WHERE NOT (d)-[:HAS_CHUNK]->(other)
+            }
+            MATCH (e)-[:BELONGS_TO]->(c:Community)
+            RETURN collect(DISTINCT c.id) AS affected_ids
+            """
 
             # This query ensures we also clean up entities that no longer have ANY mentions.
             #
@@ -408,11 +416,6 @@ class DeleteDocumentUseCase:
             WHERE entity IS NOT NULL AND NOT (entity)<-[:MENTIONS]-()
             DETACH DELETE entity
             """
-            await self._graph_client.execute_write(
-                cypher,
-                {"document_id": request.document_id, "tenant_id": tenant_id},
-            )
-            logger.info(f"Cleaned up Neo4j data for document {request.document_id}")
 
             # Defensive sweep: the query above reaches chunks via the HAS_CHUNK
             # edge, but some :Chunk nodes are only linked to the document by the
@@ -424,10 +427,6 @@ class DeleteDocumentUseCase:
             MATCH (c:Chunk {document_id: $document_id, tenant_id: $tenant_id})
             DETACH DELETE c
             """
-            await self._graph_client.execute_write(
-                orphan_chunk_cypher,
-                {"document_id": request.document_id, "tenant_id": tenant_id},
-            )
 
             # Post-deletion cleanup: Remove communities and isolated entities that became orphans
             # This is a best-effort background cleanup to keep the graph healthy
@@ -436,7 +435,6 @@ class DeleteDocumentUseCase:
             WHERE NOT EXISTS { (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) }
             DETACH DELETE c
             """
-            await self._graph_client.execute_write(cleanup_cypher, {"tenant_id": tenant_id})
 
             # Clean isolated entities (no relationships at all or only connected to other entities but not chunks)
             # More aggressive: Delete any Entity that is NOT reachable from a Chunk
@@ -458,29 +456,33 @@ class DeleteDocumentUseCase:
             WHERE NOT (:Chunk)-[:MENTIONS]->(e)
             DETACH DELETE e
             """
-            await self._graph_client.execute_write(orphan_cypher, {"tenant_id": tenant_id})
 
-            # Mark partially-emptied communities stale so the summarizer re-processes them.
-            # Communities fully emptied are already deleted above; this only touches survivors.
-            if affected_community_ids:
-                mark_stale_cypher = """
+            # Each subquery returns one aggregate row, even when it matches nothing.
+            # Collect affected IDs and mutate the graph in one transaction so retries
+            # cannot lose community-staleness metadata after a partial cleanup.
+            graph_query = "CALL { " + collect_cypher + " }\n"
+            for index, query in enumerate(
+                [cypher, orphan_chunk_cypher, orphan_cypher, cleanup_cypher]
+            ):
+                graph_query += f"CALL {{ {query} RETURN count(*) AS cleaned_{index} }}\n"
+            graph_query += """
+            CALL {
+                WITH affected_ids
                 MATCH (c:Community {tenant_id: $tenant_id})
-                WHERE c.id IN $ids
+                WHERE c.id IN affected_ids
                   AND EXISTS { (:Entity)-[:BELONGS_TO]->(c) }
                 SET c.is_stale = true
                 RETURN count(c) AS marked
-                """
-                rows = await self._graph_client.execute_write(
-                    mark_stale_cypher,
-                    {"tenant_id": tenant_id, "ids": affected_community_ids},
-                )
-                marked = rows[0]["marked"] if rows else 0
-                logger.info(
-                    f"Marked {marked} communities stale after deleting {request.document_id}"
-                )
+            }
+            RETURN marked
+            """
+            await self._graph_client.execute_write(
+                graph_query, {"document_id": request.document_id, "tenant_id": tenant_id}
+            )
 
         except Exception as e:
             logger.warning(f"Failed to delete graph data for document {request.document_id}: {e}")
+            raise
 
         # 3. Delete from Milvus
         try:
@@ -493,17 +495,16 @@ class DeleteDocumentUseCase:
                     await vector_store.disconnect()
         except Exception as e:
             logger.warning(f"Failed to delete vectors for document {request.document_id}: {e}")
+            raise
 
-        # 4. Delete from MinIO
+        # 4. Delete every generation's source before cascading its database row.
         try:
-            if hasattr(self._storage, "delete_file"):
-                # Best effort: if it was a folder or specific file
-                # In register_document it is f"{tenant_id}/{doc_id}/{filename}"
-                # We might need to delete the whole doc folder
-                self._storage.delete_file(storage_path)
-                logger.info(f"Cleaned up MinIO file: {storage_path}")
+            for path in sorted(storage_paths):
+                self._storage.delete_file(path)
+                logger.info(f"Cleaned up MinIO file: {path}")
         except Exception as e:
             logger.warning(f"Failed to delete file from storage: {e}")
+            raise
 
         # 5. Delete from DB (Last, if exists)
         if document:

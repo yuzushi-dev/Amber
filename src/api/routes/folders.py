@@ -20,10 +20,6 @@ class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
-class FolderUpdate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-
-
 class FolderResponse(BaseModel):
     id: str
     tenant_id: str
@@ -217,6 +213,7 @@ async def delete_folder(
         from src.core.ingestion.application.use_cases_documents import (
             DeleteDocumentRequest,
             DeleteDocumentUseCase,
+            DocumentDeletionConflict,
         )
 
         # 1. Get all documents in the folder
@@ -241,18 +238,15 @@ async def delete_folder(
         )
 
         # 3. Delete each document
-        for doc in documents:
-            try:
+        try:
+            for doc in documents:
                 await use_case.execute(
                     DeleteDocumentRequest(
                         document_id=doc.id, tenant_id=tenant_id, is_super_admin=False
                     )
                 )
-            except Exception:
-                # Log error but continue deleting others/folder?
-                # Or abort? Ideally we want best effort cleanup.
-                # logger variable is not available in this scope, let's just print or ignore for now as use_case logs internally
-                pass
+        except DocumentDeletionConflict as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
 
     else:
         # Default behavior: Unfile documents

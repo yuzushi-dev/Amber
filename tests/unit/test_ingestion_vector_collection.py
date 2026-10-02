@@ -163,7 +163,6 @@ async def test_ingestion_uses_active_vector_collection(monkeypatch):
     monkeypatch.setattr(service_module, "EmbeddingService", StubEmbeddingService)
     monkeypatch.setattr(service_module, "SemanticChunker", StubChunker)
     monkeypatch.setattr(service_module, "GraphProcessor", lambda *a, **k: SimpleNamespace())
-    monkeypatch.setattr(service_module, "GraphEnricher", lambda *a, **k: SimpleNamespace())
     monkeypatch.setattr(
         "src.core.ingestion.application.chunking.semantic.SemanticChunker", StubChunker
     )

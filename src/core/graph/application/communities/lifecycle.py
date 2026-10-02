@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from src.core.graph.domain.ports.graph_client import GraphClientPort
 
@@ -46,17 +45,6 @@ class CommunityLifecycleManager:
                 f"Marked {count} communities for tenant {tenant_id} as stale due to entity changes"
             )
 
-    async def mark_stale_by_tenant(self, tenant_id: str):
-        """
-        Marks all communities for a tenant as stale.
-        """
-        query = """
-        MATCH (c:Community {tenant_id: $tenant_id})
-        SET c.is_stale = true, c.updated_at = datetime()
-        """
-        await self.graph.execute_write(query, {"tenant_id": tenant_id})
-        logger.info(f"Marked all communities for tenant {tenant_id} as stale")
-
     async def cleanup_orphans(self, tenant_id: str):
         """
         Finds entities without communities and assigns them to a 'Misc' community.
@@ -96,19 +84,3 @@ class CommunityLifecycleManager:
             link_query, {"tenant_id": tenant_id, "entity_names": entity_names}
         )
         logger.info(f"Assigned {len(entity_names)} entities to 'Misc' community")
-
-    async def get_community_stats(self, tenant_id: str) -> dict[str, Any]:
-        """Returns stats about communities for a tenant."""
-        query = """
-        MATCH (c:Community {tenant_id: $tenant_id})
-        RETURN
-            count(c) as total,
-            sum(case when c.is_stale then 1 else 0 end) as stale,
-            sum(case when c.status = 'ready' then 1 else 0 end) as ready,
-            sum(case when c.status = 'failed' then 1 else 0 end) as failed,
-            max(c.level) as max_level
-        """
-        results = await self.graph.execute_read(query, {"tenant_id": tenant_id})
-        if not results:
-            return {"total": 0}
-        return results[0]

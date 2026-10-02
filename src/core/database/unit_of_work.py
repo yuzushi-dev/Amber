@@ -128,7 +128,3 @@ class SqlAlchemyUnitOfWork:
         """Rollback the current transaction."""
         if self.session:
             await self.session.rollback()
-
-
-# Type alias for UoW factory functions
-UnitOfWorkFactory = Callable[[str, bool], SqlAlchemyUnitOfWork]

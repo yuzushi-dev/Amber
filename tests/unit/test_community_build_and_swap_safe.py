@@ -13,7 +13,6 @@ async def test_detection_stages_without_cleaning_active_communities():
     graph = AsyncMock()
     graph.execute_read.return_value = [{"community_count": 1, "invalid_links": 0}]
     detector = CommunityDetector(graph)
-    detector._cleanup_old_communities = AsyncMock()
     detector._fetch_l0_graph = AsyncMock(return_value=(["entity-1"], []))
     detector._run_hierarchical_leiden = lambda *_args: [
         {
@@ -27,7 +26,6 @@ async def test_detection_stages_without_cleaning_active_communities():
 
     result = await detector.detect_communities("tenant-1")
 
-    detector._cleanup_old_communities.assert_not_awaited()
     assert result["generation_id"]
     query, params = graph.execute_write.await_args.args
     assert "comm.active = false" in query

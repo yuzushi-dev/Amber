@@ -1,4 +1,4 @@
-"""Evaluation CLI: ragas (legacy) and LLM-as-judge (F4b)."""
+"""Evaluation CLI: LLM-as-judge (F4b), golden dataset and Locomo runs."""
 
 from __future__ import annotations
 
@@ -32,26 +32,9 @@ def list_frameworks() -> None:
     """List evaluation frameworks available in this build."""
     console.print(
         "[bold]Frameworks[/bold]\n"
-        "  - ragas       legacy ragas runner (worker task)\n"
         "  - judge       LLM-as-judge end-to-end (CLI driver below)\n"
         "  - locomo      [yellow]planned[/yellow] long-context conversational eval\n"
     )
-
-
-@app.command("ragas-run")
-def ragas_run(
-    dataset: str = typer.Argument(...),
-    tenant_id: str = typer.Option("default"),
-) -> None:
-    """Dispatch a legacy ragas benchmark run via Celery."""
-    try:
-        from src.workers.tasks import run_ragas_benchmark
-    except ImportError as exc:
-        typer.echo("ragas worker task not available; install optional extras first", err=True)
-        raise typer.Exit(code=1) from exc
-
-    result = run_ragas_benchmark.delay(dataset, tenant_id=tenant_id)
-    console.print(f"[green]Queued[/green] task_id={result.id} dataset={dataset}")
 
 
 @app.command("judge-run")
@@ -157,6 +140,94 @@ def judge_run(
 
     run_id = asyncio.run(_orchestrate())
     console.print(f"[green]Eval complete[/green] run_id=[cyan]{run_id}[/cyan]")
+
+
+async def answer_with_pipeline(query: str, tenant_id: str) -> tuple[str, list[str]]:
+    """Retrieve + generate through the production services, like POST /query.
+
+    Returns the answer and the FULL content of every retrieved chunk (the API
+    only exposes 100-char previews, too short to judge faithfulness).
+
+    A fresh session per call: RLS GUCs are set inside the session's transaction,
+    so a rollback after a failed item would silently hide every document from
+    the following ones if the session were shared. The session is privileged
+    and groups are NOT enforced, so the eval sees every document of the tenant.
+    """
+    from src.amber_platform import composition_root
+    from src.cli import _session
+    from src.core.database import session as db_session
+    from src.core.tenants.application.query_scopes import resolve_query_scopes
+    from src.shared.kernel.models.query import QueryOptions
+
+    async with _session.session_scope() as session:
+        await db_session.configure_worker_session(session, tenant_id)
+        options = QueryOptions()
+        retrieval = await composition_root.build_retrieval_service(session).retrieve(
+            for_generation=True,
+            query=query,
+            tenant_id=tenant_id,
+            top_k=options.max_chunks,
+            options=options,
+            query_scopes=resolve_query_scopes(tenant_id, enforce_groups=False),
+        )
+        if not retrieval.chunks:
+            return "", []
+        generation = await composition_root.build_generation_service(session).generate(
+            query=query,
+            candidates=retrieval.chunks,
+            options={"tenant_id": tenant_id},
+        )
+        return generation.answer, [str(c.get("content") or "") for c in retrieval.chunks]
+
+
+@app.command("golden-run")
+def golden_run(
+    tenant_id: str = typer.Option("default", help="Tenant whose documents are searched"),
+    dataset: Path | None = typer.Option(
+        None, exists=True, readable=True, help="Golden JSON dataset (default: bundled one)"
+    ),
+    judge_provider: str = typer.Option("openai", help="Provider for the judge model"),
+) -> None:
+    """Golden dataset through the real retrieval + generation, scored by JudgeService."""
+    from src.core.admin_ops.application.evaluation.run_eval import (
+        DEFAULT_DATASET_PATH,
+        run_evaluation,
+    )
+
+    async def _orchestrate() -> list[dict[str, Any]]:
+        # Same bootstrap as a worker process, in a single event loop.
+        from src.amber_platform.composition_root import platform
+        from src.api.config import settings
+        from src.core.database.session import configure_database
+        from src.core.generation.infrastructure.providers.factory import (
+            init_providers_from_settings,
+        )
+        from src.shared.kernel.runtime import configure_settings
+
+        # Same call as the worker bootstrap; Settings does not formally match
+        # SettingsProtocol (celery_app hides this behind a mypy override).
+        configure_settings(cast(Any, settings))
+        configure_database(settings.db.database_url)
+        init_providers_from_settings(settings)
+        await platform.initialize()
+        try:
+            return await run_evaluation(
+                dataset or DEFAULT_DATASET_PATH,
+                provider_name=judge_provider,
+                tenant_id=tenant_id,
+                answer_fn=answer_with_pipeline,
+            )
+        finally:
+            await platform.shutdown()
+
+    results = run(_orchestrate())
+    if not any(r["status"] == "scored" for r in results):
+        console.print(
+            "[red]No item was scored[/red] (see no_retrieval / error above). "
+            "Generation retrieval only uses documents whose taxonomy edition is "
+            "'commercial', same as POST /query; check the tenant's documents."
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command("locomo-run")

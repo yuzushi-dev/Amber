@@ -47,7 +47,6 @@ def _lightweight_service(monkeypatch):
     monkeypatch.setattr(service_module, "SemanticChunker", _Noop)
     monkeypatch.setattr(service_module, "EmbeddingService", _Noop)
     monkeypatch.setattr(service_module, "GraphProcessor", _Noop)
-    monkeypatch.setattr(service_module, "GraphEnricher", _Noop)
 
     async def direct(func, *args, **kwargs):
         return func(*args, **kwargs)

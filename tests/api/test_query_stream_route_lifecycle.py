@@ -121,6 +121,14 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
     monkeypatch.setattr(
         "src.core.admin_ops.application.metrics.collector.MetricsCollector", _MetricsCollector
     )
+    recorded_usage = []
+
+    async def record_usage(_self, **kwargs):
+        recorded_usage.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.core.admin_ops.application.usage_tracker.UsageTracker.record_usage", record_usage
+    )
 
     app = FastAPI()
 
@@ -172,3 +180,9 @@ def test_query_stream_route_has_no_request_scoped_database_dependency(monkeypatc
     assert generation.prepare_kwargs["conversation_history"] == expected_history
     assert generation.prepare_kwargs["options"]["include_trace"] is True
     assert recorded_metrics[0].search_mode == "basic"
+    # streamed answers are written to usage_logs (generate_stream itself does not)
+    assert len(recorded_usage) == 1
+    assert recorded_usage[0]["operation"] == "generation"
+    assert recorded_usage[0]["provider"] == "test"
+    assert recorded_usage[0]["usage"].output_tokens > 0
+    assert recorded_usage[0]["metadata"]["stream"] is True

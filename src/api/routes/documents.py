@@ -1103,6 +1103,7 @@ async def delete_document(
     from src.core.ingestion.application.use_cases_documents import (
         DeleteDocumentRequest,
         DeleteDocumentUseCase,
+        DocumentDeletionConflict,
     )
 
     permissions = getattr(http_request.state, "permissions", [])
@@ -1142,13 +1143,13 @@ async def delete_document(
                 document_id=document_id, tenant_id=tenant_id, is_super_admin=is_super_admin
             )
         )
+    except DocumentDeletionConflict as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except LookupError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error deleting document {document_id}: {e}")
-        # In case of other errors, we might still want to return 500 or just generic error
-        # Use case swallows non-critical errors (graph/milvus cleanup failure),
-        # so this catches unexpected ones.
+        # Cleanup failures keep the document row available for retry.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during deletion",

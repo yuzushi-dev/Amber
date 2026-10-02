@@ -8,13 +8,15 @@ Celery tasks for background document processing.
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
+from typing import Any
 
 # Ensure custom packages are loadable
 if "/app/.packages" not in sys.path:
     sys.path.insert(0, "/app/.packages")
 
 from celery import Task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 
 from src.core.ingestion.domain.chunk import (
     Chunk as _Chunk,  # noqa: F401 — ensures SQLAlchemy mapper resolves Document.chunks at runtime
@@ -49,25 +51,6 @@ def _is_revoked(task_id: str) -> bool:
     except Exception as exc:
         logger.warning(f"[Task {task_id}] revocation check failed (ignoring): {exc}")
         return False
-
-
-def _background_warmup():
-    """Run heavy model warming in a background thread."""
-    try:
-        logger.info("Starting background warmup for SparseEmbeddingService (SPLADE)...")
-        from src.core.retrieval.application.sparse_embeddings_service import SparseEmbeddingService
-
-        service = SparseEmbeddingService()
-        if service.prewarm():
-            logger.info("SparseEmbeddingService background warmup completed.")
-        else:
-            logger.warning("SparseEmbeddingService background warmup returned False.")
-    except Exception as e:
-        logger.error(f"Failed to background warmup SparseEmbeddingService: {e}")
-
-
-# Trigger background warmup on module load (worker startup)
-# threading.Thread(target=_background_warmup, daemon=True).start()
 
 
 def run_async(coro):
@@ -298,12 +281,22 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
             raise
 
 
+# A full re-detection on a ~40k-entity graph summarizes ~1.9k communities (~25 min)
+# before embedding them; the global 1 h soft limit cut it off mid-embedding.
+COMMUNITY_SOFT_TIME_LIMIT = 3 * 60 * 60
+COMMUNITY_TIME_LIMIT = COMMUNITY_SOFT_TIME_LIMIT + 30 * 60
+# The per-tenant lock must outlive the hard limit, or a second run could start mid-run.
+COMMUNITY_LOCK_TTL = COMMUNITY_TIME_LIMIT + 15 * 60
+
+
 @celery_app.task(
     bind=True,
     name="src.workers.tasks.process_communities",
     base=BaseTask,
     max_retries=2,
     queue="low_priority",
+    soft_time_limit=COMMUNITY_SOFT_TIME_LIMIT,
+    time_limit=COMMUNITY_TIME_LIMIT,
 )
 def process_communities(
     self,
@@ -342,7 +335,7 @@ def process_communities(
 
     # Coalesce community runs: multiple documents can trigger this task; only run one per tenant at a time.
     lock_key = f"locks:process_communities:{tenant_id}"
-    lock_ttl_seconds = 60 * 60 * 2  # 2h safety TTL in case of worker crash
+    lock_ttl_seconds = COMMUNITY_LOCK_TTL
 
     redis_client = None
     lock_acquired = False
@@ -359,6 +352,9 @@ def process_communities(
         # If Redis is unavailable, proceed without the lock rather than blocking ingestion.
         logger.warning(f"[Task {self.request.id}] Could not acquire communities lock: {e}")
         lock_acquired = True
+        lock_owned = False
+    else:
+        lock_owned = lock_acquired
 
     if not lock_acquired:
         if redis_client is not None:
@@ -386,6 +382,13 @@ def process_communities(
                 force_full_resync_id=resync_run_id,
                 task_id=self.request.id,
                 resume_from=resume_from,
+                # embedding GC only while this run still owns the tenant lock (checked at
+                # prune time: the lock may have expired and another run may be staging)
+                reconcile_embeddings=(
+                    (lambda: _still_owns_lock(redis_client, lock_key, self.request.id))
+                    if lock_owned
+                    else None
+                ),
             )
         )
         return result
@@ -414,6 +417,61 @@ def process_communities(
                 pass
 
 
+def _still_owns_lock(redis_client: Any, lock_key: str, task_id: str) -> bool:
+    try:
+        current = redis_client.get(lock_key)
+    except Exception:
+        return False
+    if isinstance(current, bytes):
+        current = current.decode()
+    return current == task_id
+
+
+async def _gc_community_embeddings(
+    graph: Any,
+    embedding_service: Any,
+    tenant_id: str,
+    *,
+    activated_generation_id: str | None,
+    embedded_ids: set[str],
+) -> int:
+    """Delete embedding rows of communities that no longer exist or were superseded.
+
+    Keeps every existing Community node (including the generation-less misc community
+    and inactive legacy nodes); only when this run activated a new generation are the
+    nodes of older generations dropped from the keep set. Skips when the keep set does
+    not contain everything this run just embedded (wrong or partial read).
+    """
+    rows = await graph.execute_read(
+        """
+        MATCH (c:Community {tenant_id: $tenant_id})
+        RETURN c.id AS id, coalesce(c.active, true) AS active, c.generation_id AS generation_id
+        """,
+        {"tenant_id": tenant_id},
+    )
+    rows = rows or []
+    superseded = {
+        r["id"]
+        for r in rows
+        if activated_generation_id
+        and not r["active"]
+        and r["generation_id"]
+        and r["generation_id"] != activated_generation_id
+    }
+    keep_ids = {r["id"] for r in rows} - superseded
+    if not keep_ids or not embedded_ids <= keep_ids:
+        logger.warning(
+            "Skipping community embedding GC for tenant %s: keep set looks wrong "
+            "(keep=%d, embedded=%d, missing=%d)",
+            tenant_id,
+            len(keep_ids),
+            len(embedded_ids),
+            len(embedded_ids - keep_ids),
+        )
+        return 0
+    return await embedding_service.prune_orphan_embeddings(tenant_id, keep_ids)
+
+
 async def _process_communities_async(
     tenant_id: str,
     skip_detection: bool = False,
@@ -421,6 +479,7 @@ async def _process_communities_async(
     force_full_resync_id: str | None = None,
     task_id: str = "",
     resume_from: str = "detection",
+    reconcile_embeddings: Callable[[], bool] | None = None,
 ) -> dict:
     """Async implementation of community processing."""
     from src.amber_platform.composition_root import build_vector_store_factory, platform
@@ -445,16 +504,17 @@ async def _process_communities_async(
 
     next_phase = resume_from
     generation_id = None
+    activated = False
     detector = None
     try:
         # 1. Detection or the pre-existing incremental update.
         detect_res = {"status": "skipped_by_checkpoint", "community_count": 0}
         if resume_from == "detection":
             if not skip_detection:
-                # Cooperative cancellation: check BEFORE the destructive _cleanup_old_communities
-                # wipe that detect_communities() performs at the start of every full-Leiden run.
-                # If the task was revoked after we started running but before the destructive
-                # step, abort here so acks_late re-delivery can't silently re-wipe communities.
+                # Cooperative cancellation: check BEFORE detect_communities() writes a new
+                # community generation at the start of every full-Leiden run.
+                # If the task was revoked after we started running, abort here before any
+                # new generation is written.
                 if task_id and _is_revoked(task_id):
                     logger.info(
                         f"[Task {task_id}] Revoked before community detection/wipe; "
@@ -634,6 +694,23 @@ async def _process_communities_async(
 
         if generation_id and detector is not None:
             await detector.activate_generation(tenant_id, generation_id)
+            # From here on the generation is live: the error path must never discard it
+            # (the previous generation is already inactive).
+            activated = True
+
+        if reconcile_embeddings is not None and reconcile_embeddings():
+            try:
+                await _gc_community_embeddings(
+                    platform.neo4j_client,
+                    comm_embedding_svc,
+                    tenant_id,
+                    activated_generation_id=generation_id,
+                    embedded_ids={c["id"] for c in ready_comms or []},
+                )
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception as e:
+                logger.warning(f"Community embedding GC failed for tenant {tenant_id}: {e}")
 
         return {
             "status": "success",
@@ -647,7 +724,7 @@ async def _process_communities_async(
             "embedding_resync_run_id": force_full_resync_id,
         }
     except Exception as e:
-        if generation_id and detector is not None:
+        if generation_id and detector is not None and not activated:
             try:
                 await detector.discard_generation(tenant_id, generation_id)
             except Exception as cleanup_error:
@@ -961,6 +1038,19 @@ async def _communities_exist_async(tenant_id: str) -> bool:
         await driver.close()
 
 
+def _serves_published_content(document: Any, has_legacy_chunks: bool) -> bool:
+    """Whether a failed (re)processing must leave the document READY.
+
+    A document serves content through its active generation, or, for documents
+    ingested before generations existed, through legacy NULL-generation chunks
+    (``active_generation_id`` is NULL for them). Marking such a legacy document
+    FAILED removed it from retrieval although its published content was intact.
+    """
+    return bool(document.active_generation_id) or (
+        has_legacy_chunks and document.status == DocumentStatus.READY
+    )
+
+
 async def _mark_document_failed(document_id: str, error: str, tenant_id: str = ""):
     """Mark document as failed in DB."""
     from sqlalchemy import select
@@ -982,13 +1072,26 @@ async def _mark_document_failed(document_id: str, error: str, tenant_id: str = "
             document = result.scalars().first()
 
             if document:
-                if document.active_generation_id:
+                from sqlalchemy import exists
+
+                has_legacy_chunks = bool(
+                    await session.scalar(
+                        select(
+                            exists().where(
+                                _Chunk.document_id == document_id,
+                                _Chunk.generation_id.is_(None),
+                            )
+                        )
+                    )
+                )
+                if _serves_published_content(document, has_legacy_chunks):
                     logger.warning(
                         "Keeping published document %s READY after replacement failure",
                         document_id,
                     )
                     return
                 document.status = DocumentStatus.FAILED
+                document.error_message = (error or "")[:2000] or None
                 await session.commit()
                 _publish_status(document_id, DocumentStatus.FAILED.value, 100, error=error)
     finally:
@@ -1016,333 +1119,3 @@ def _publish_status(document_id: str, status: str, progress: int, error: str = N
             r.close()
     except Exception as e:
         logger.warning(f"Failed to publish status: {e}")
-
-
-def _publish_benchmark_status(benchmark_id: str, status: str, progress: int, error: str = None):
-    """Publish benchmark status update to Redis Pub/Sub."""
-    import json
-
-    try:
-        import redis
-
-        from src.api.config import settings
-
-        r = redis.Redis.from_url(settings.db.redis_url)
-        channel = f"benchmark:{benchmark_id}:status"
-        message = {"benchmark_id": benchmark_id, "status": status, "progress": progress}
-        if error:
-            message["error"] = error
-
-        r.publish(channel, json.dumps(message))
-        r.close()
-    except Exception as e:
-        logger.warning(f"Failed to publish benchmark status: {e}")
-
-
-@celery_app.task(
-    bind=True, name="src.workers.tasks.run_ragas_benchmark", base=BaseTask, max_retries=1
-)
-def run_ragas_benchmark(self, benchmark_run_id: str, tenant_id: str) -> dict:
-    """
-    Execute a Ragas benchmark run.
-
-    Steps:
-    1. Fetch BenchmarkRun from DB
-    2. Update status to RUNNING
-    3. Load the golden dataset
-    4. For each sample, run the RAG pipeline and evaluate with RagasService
-    5. Aggregate results and store in DB
-    6. Update status to COMPLETED
-
-    Args:
-        benchmark_run_id: ID of the BenchmarkRun to execute
-        tenant_id: Tenant context
-
-    Returns:
-        dict: Benchmark result summary
-    """
-    logger.info(f"[Task {self.request.id}] Starting benchmark run {benchmark_run_id}")
-
-    try:
-        result = run_async(_run_ragas_benchmark_async(benchmark_run_id, tenant_id, self.request.id))
-        logger.info(f"[Task {self.request.id}] Completed benchmark run {benchmark_run_id}")
-        return result
-
-    except Exception as e:
-        logger.error(f"[Task {self.request.id}] Failed benchmark run {benchmark_run_id}: {e}")
-
-        # Update benchmark status to FAILED
-        try:
-            run_async(_mark_benchmark_failed(benchmark_run_id, str(e), tenant_id))
-        except Exception as fail_err:
-            logger.error(f"Failed to mark benchmark as failed: {fail_err}")
-
-        raise
-
-
-async def _run_ragas_benchmark_async(benchmark_run_id: str, tenant_id: str, task_id: str) -> dict:
-    """Async implementation of Ragas benchmark execution."""
-    import json
-    from datetime import UTC, datetime
-
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import sessionmaker
-
-    from src.api.config import settings
-
-    # Defer heavy imports to after status update
-    # from src.core.admin_ops.application.evaluation.ragas_service import RagasService
-    from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
-
-    # Create async session
-    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
-
-    try:
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-        async with async_session() as session:
-            from src.core.database.session import configure_worker_session
-
-            await configure_worker_session(session, tenant_id)
-            # Fetch benchmark run
-            result = await session.execute(
-                select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
-            )
-            benchmark = result.scalars().first()
-
-            if not benchmark:
-                raise ValueError(f"BenchmarkRun {benchmark_run_id} not found")
-
-            # Update status to RUNNING
-            benchmark.status = BenchmarkStatus.RUNNING
-            benchmark.started_at = datetime.now(UTC)
-            benchmark.metrics = {"progress": 5}
-            await session.commit()
-            _publish_benchmark_status(benchmark_run_id, "running", 5)
-
-            # Load golden dataset
-            # 1. Try uploads dir
-            # 2. Try src/core/evaluation
-            # 3. Try tests/data
-
-            # Note: We need to handle potential path persistence issues.
-            # Ideally benchmark.dataset_name is just the filename.
-
-            potential_paths = [
-                f"/app/uploads/datasets/{benchmark.dataset_name}",
-                f"src/core/evaluation/{benchmark.dataset_name}",
-                f"tests/data/{benchmark.dataset_name}",
-            ]
-
-            dataset = None
-            for p in potential_paths:
-                try:
-                    with open(p) as f:
-                        dataset = json.load(f)
-                    logger.info(f"Loaded dataset from {p}")
-                    break
-                except FileNotFoundError:
-                    continue
-
-            if not dataset:
-                raise FileNotFoundError(
-                    f"Dataset {benchmark.dataset_name} not found in any search path"
-                )
-
-            # Update progress: Dataset loaded
-            benchmark.metrics = {"progress": 10}
-            await session.commit()
-            _publish_benchmark_status(benchmark_run_id, "running", 10)
-
-            # Initialize RAG Services
-            from openai import AsyncOpenAI
-
-            from src.core.admin_ops.application.evaluation.ragas_service import RagasService
-            from src.core.generation.application.generation_service import GenerationService
-            from src.core.retrieval.application.retrieval_service import (
-                RetrievalConfig,
-                RetrievalService,
-            )
-
-            # Initialize Ragas
-            client = AsyncOpenAI(api_key=settings.openai_api_key)
-            ragas_service = RagasService(llm_client=client)
-
-            # Fetch Tenant Config for RAG Services
-            from src.core.tenants.infrastructure.repositories.postgres_tenant_repository import (
-                PostgresTenantRepository,
-            )
-
-            resolved_ollama_url = settings.ollama_base_url
-            try:
-                # We need a separate session or query execution to get tenant config
-                # Since we are already in an async session, we can reuse it
-                t_repo = PostgresTenantRepository(session)
-                t_obj = await t_repo.get(tenant_id)
-                if t_obj and t_obj.config:
-                    resolved_ollama_url = t_obj.config.get("ollama_base_url") or resolved_ollama_url
-            except Exception as e:
-                logger.warning(f"Failed to fetch tenant config for benchmark: {e}")
-
-            # Initialize RAG Pipeline
-            from src.core.ingestion.infrastructure.repositories.postgres_document_repository import (
-                PostgresDocumentRepository,
-            )
-
-            document_repository = PostgresDocumentRepository(session)
-            retrieval_config = RetrievalConfig(
-                milvus_host=settings.db.milvus_host,
-                milvus_port=settings.db.milvus_port,
-            )
-            retrieval_service = RetrievalService(
-                document_repository=document_repository,
-                openai_api_key=settings.openai_api_key,
-                anthropic_api_key=settings.anthropic_api_key,
-                ollama_base_url=resolved_ollama_url,
-                redis_url=settings.db.redis_url,
-                config=retrieval_config,
-            )
-            generation_service = GenerationService(
-                document_repository=document_repository,
-                openai_api_key=settings.openai_api_key,
-                anthropic_api_key=settings.anthropic_api_key,
-                ollama_base_url=resolved_ollama_url,
-            )
-
-            # Update progress: Services initialized
-            benchmark.metrics = {"progress": 15}
-            await session.commit()
-            _publish_benchmark_status(benchmark_run_id, "running", 15)
-
-            # Run evaluation on each sample
-            details = []
-            total_samples = len(dataset)
-
-            logger.info(f"Starting benchmark execution for {total_samples} samples...")
-
-            for i, sample in enumerate(dataset):
-                query = sample.get("query", sample.get("question", ""))
-
-                # 1. Execute Retrieval (privileged background task: search all tenant documents)
-                from src.core.tenants.application.query_scopes import resolve_query_scopes
-
-                worker_scopes = resolve_query_scopes(tenant_id, enforce_groups=False)
-                retrieval_result = await retrieval_service.retrieve(
-                    for_generation=True,
-                    query=query, tenant_id=tenant_id, top_k=5, query_scopes=worker_scopes
-                )
-
-                # 2. Execute Generation
-                if retrieval_result.chunks:
-                    gen_result = await generation_service.generate(
-                        query=query, candidates=retrieval_result.chunks
-                    )
-                    generated_answer = gen_result.answer
-                    retrieved_contexts = [c.get("content", "") for c in retrieval_result.chunks]
-                else:
-                    generated_answer = "I couldn't find any relevant information."
-                    retrieved_contexts = []
-
-                logger.info(f"Processing Sample {i + 1}/{total_samples} - Query: {query[:30]}...")
-
-                # Evaluate using RagasService
-                # Pass GENERATED answer and RETRIEVED contexts (this is the real benchmark)
-                eval_result = await ragas_service.evaluate_sample(
-                    query=query,
-                    context=retrieved_contexts,  # Pass list of strings
-                    response=generated_answer,
-                )
-
-                import math
-
-                def clean_score(score):
-                    if score is None:
-                        return None
-                    if isinstance(score, float) and (math.isnan(score) or math.isinf(score)):
-                        return None
-                    return score
-
-                details.append(
-                    {
-                        "query": query,
-                        "faithfulness": clean_score(eval_result.faithfulness),
-                        "response_relevancy": clean_score(eval_result.response_relevancy),
-                        "context_precision": clean_score(eval_result.context_precision),
-                        "context_recall": clean_score(eval_result.context_recall),
-                    }
-                )
-
-                # Publish progress (Scale 15% to 100%)
-                metrics_progress = 15 + int((i + 1) / total_samples * 85)
-                _publish_benchmark_status(benchmark_run_id, "running", metrics_progress)
-
-                # Update progress in DB for polling UI
-                benchmark.metrics = {"progress": metrics_progress}
-                await session.commit()
-
-            # Aggregate metrics
-            faith_scores = [d["faithfulness"] for d in details if d["faithfulness"] is not None]
-            rel_scores = [
-                d["response_relevancy"] for d in details if d["response_relevancy"] is not None
-            ]
-
-            metrics = {
-                "faithfulness": sum(faith_scores) / len(faith_scores) if faith_scores else 0.0,
-                "response_relevancy": sum(rel_scores) / len(rel_scores) if rel_scores else 0.0,
-                "samples_evaluated": len(details),
-            }
-
-            # Update benchmark with results
-            benchmark.status = BenchmarkStatus.COMPLETED
-            benchmark.completed_at = datetime.now(UTC)
-            benchmark.metrics = metrics
-            benchmark.details = details
-            await session.commit()
-
-            _publish_benchmark_status(benchmark_run_id, "completed", 100)
-
-            return {
-                "benchmark_run_id": benchmark_run_id,
-                "status": "completed",
-                "metrics": metrics,
-                "samples_evaluated": len(details),
-                "task_id": task_id,
-            }
-    finally:
-        await engine.dispose()
-
-
-async def _mark_benchmark_failed(benchmark_run_id: str, error: str, tenant_id: str = ""):
-    """Mark benchmark as failed in DB."""
-    from datetime import UTC, datetime
-
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import sessionmaker
-
-    from src.api.config import settings
-    from src.core.admin_ops.domain.benchmark_run import BenchmarkRun, BenchmarkStatus
-
-    engine = create_async_engine(settings.db.app_database_url or settings.db.database_url)
-
-    try:
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-        async with async_session() as session:
-            from src.core.database.session import configure_worker_session
-
-            await configure_worker_session(session, tenant_id)
-            result = await session.execute(
-                select(BenchmarkRun).where(BenchmarkRun.id == benchmark_run_id)
-            )
-            benchmark = result.scalars().first()
-
-            if benchmark:
-                benchmark.status = BenchmarkStatus.FAILED
-                benchmark.completed_at = datetime.now(UTC)
-                benchmark.error_message = error
-                await session.commit()
-                _publish_benchmark_status(benchmark_run_id, "failed", 100, error=error)
-    finally:
-        await engine.dispose()

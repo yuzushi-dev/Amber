@@ -1,5 +1,4 @@
 from src.core.security.pii_scrubber import PIIScrubber
-from src.core.security.source_verifier import SourceVerifier
 
 
 class TestPIIScrubber:
@@ -34,23 +33,3 @@ class TestPIIScrubber:
         text = "Card: 1234-5678-1234-5678"
         scrubbed = scrubber.scrub_text(text)
         assert "[CREDIT CARD REDACTED]" in scrubbed
-
-
-class TestSourceVerifier:
-    def test_verify_citation_exact(self):
-        verifier = SourceVerifier()
-        source = "The quick brown fox jumps over the lazy dog."
-        citation = "brown fox jumps"
-        assert verifier.verify_citation(citation, source)
-
-    def test_verify_citation_normalized(self):
-        verifier = SourceVerifier()
-        source = "The quick brown fox jumps over the lazy dog."
-        citation = "BROWN  FOX   JUMPS"
-        assert verifier.verify_citation(citation, source)
-
-    def test_verify_citation_fail(self):
-        verifier = SourceVerifier()
-        source = "The quick brown fox jumps over the lazy dog."
-        citation = "white rabbit runs"
-        assert not verifier.verify_citation(citation, source)

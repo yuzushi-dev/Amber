@@ -290,17 +290,6 @@ async def trigger_sync(
     )
 
 
-class ConnectorItemResponse(BaseModel):
-    """Response model for a connector item."""
-
-    id: str
-    title: str
-    url: str
-    updated_at: datetime
-    content_type: str
-    metadata: dict[str, Any]
-
-
 class IngestItemsRequest(BaseModel):
     """Request to ingest specific items."""
 

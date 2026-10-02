@@ -354,22 +354,6 @@ platform = PlatformRegistry()
 # -----------------------------------------------------------------------------
 
 
-def build_neo4j_client():
-    """Build a Neo4j client with settings from composition root.
-
-    DEPRECATED: Use `platform.neo4j_client` instead.
-    """
-    return platform.neo4j_client
-
-
-def build_minio_client():
-    """Build a MinIO client with settings from composition root.
-
-    DEPRECATED: Use `platform.minio_client` instead.
-    """
-    return platform.minio_client
-
-
 def build_milvus_config():
     """Build Milvus configuration from settings."""
     from src.core.retrieval.infrastructure.vector_store.milvus import MilvusConfig
@@ -415,30 +399,6 @@ def build_session_factory():
     from src.core.database.session import get_session_maker
 
     return get_session_maker()
-
-
-def build_uow_factory():
-    """
-    Build a Unit of Work factory function.
-
-    Returns a factory that creates UoW instances with the given tenant context.
-
-    Usage:
-        uow_factory = build_uow_factory()
-        async with uow_factory(tenant_id, is_super_admin=False) as uow:
-            # use uow.session for DB operations
-            ...
-    """
-    from src.core.database.unit_of_work import SqlAlchemyUnitOfWork
-
-    session_maker = build_session_factory()
-
-    def make_uow(tenant_id: str, is_super_admin: bool = False) -> SqlAlchemyUnitOfWork:
-        return SqlAlchemyUnitOfWork(
-            session_maker, tenant_id=tenant_id, is_super_admin=is_super_admin
-        )
-
-    return make_uow
 
 
 # -----------------------------------------------------------------------------

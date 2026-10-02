@@ -451,8 +451,8 @@ export const maintenanceApi = {
         return response.data
     },
 
-    pruneOrphans: async () => {
-        const response = await apiClient.post<MaintenanceResult>('/admin/maintenance/prune/orphans')
+    pruneOrphans: async (dryRun = true) => {
+        const response = await apiClient.post<MaintenanceResult>('/admin/maintenance/prune/orphans', undefined, { params: { dry_run: dryRun } })
         return response.data
     },
 

@@ -64,8 +64,13 @@ async def test_stale_cache_hit_falls_back_to_live_search():
     sub-query must not be silently dropped — a live search must run and its
     chunks must make it into the final result."""
     document_repository = MagicMock()
-    # The cache's chunk_ids don't match anything in the repository anymore.
-    document_repository.get_chunks = AsyncMock(return_value=[])
+    # The cache's chunk_ids don't match anything in the repository anymore;
+    # only the live-search chunk still resolves.
+    document_repository.get_chunks = AsyncMock(
+        side_effect=lambda ids: [
+            SimpleNamespace(id=cid, generation_id=None) for cid in ids if cid == "fresh-chunk-1"
+        ]
+    )
     document_repository.list_visible_document_ids = AsyncMock(return_value=[])
     document_repository.list_visible_document_ids_by_taxonomy = AsyncMock(return_value=[])
 

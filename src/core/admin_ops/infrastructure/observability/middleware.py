@@ -6,45 +6,13 @@ Middleware for request tracing and structured logging.
 """
 
 import time
-import uuid
 from collections.abc import Callable
 
 import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.core.admin_ops.infrastructure.observability.tracer import (
-    reset_current_request_id,
-    set_current_request_id,
-)
-
 logger = structlog.stdlib.get_logger(__name__)
-
-
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    """
-    Assigns a unique ID to each request and sets it in the logging context.
-    """
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Check if client sent a request ID
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-
-        # Set context var (for legacy tracer)
-        token = set_current_request_id(request_id)
-
-        # Also bind into structlog contextvars so all downstream logs include it
-        structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(request_id=request_id)
-
-        try:
-            response = await call_next(request)
-            # Add header to response
-            response.headers["X-Request-ID"] = request_id
-            return response
-        finally:
-            reset_current_request_id(token)
-            structlog.contextvars.clear_contextvars()
 
 
 class StructuredLoggingMiddleware(BaseHTTPMiddleware):

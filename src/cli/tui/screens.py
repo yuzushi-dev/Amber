@@ -439,7 +439,6 @@ class EvalScreen(Vertical):
             "Launching runs is keyboard-driven from the CLI:\n"
             "  amber eval judge-run <dataset.jsonl> --judge-model ...\n"
             "  amber eval locomo-run <locomo.json> --judge-model ...\n"
-            "  amber eval ragas-run <dataset.json>\n"
             "Select a running row below to follow live progress.",
             id="eval-hint",
         )

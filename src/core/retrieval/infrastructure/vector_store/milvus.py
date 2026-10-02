@@ -126,7 +126,6 @@ class MilvusVectorStore:
 
         self._client = None
         self._collection = None
-        self._connected = False
 
     async def connect(self) -> None:
         """Connect to Milvus and ensure collection exists."""
@@ -134,7 +133,6 @@ class MilvusVectorStore:
 
         # FIX: Check global connection state first
         if milvus["connections"].has_connection("default"):
-            self._connected = True
             # Still need to ensure collection exists even if connected
             # But we can't do that easily without the blocking call logic below.
             # However, usually connection is enough.
@@ -177,7 +175,6 @@ class MilvusVectorStore:
             if self._collection is None:
                 await self._create_collection(milvus)
 
-            self._connected = True
             logger.info(f"Connected to Milvus at {self.config.host}:{self.config.port}")
 
         except TimeoutError as e:
@@ -293,8 +290,6 @@ class MilvusVectorStore:
         """
         if self._collection:
             self._collection = None
-
-        self._connected = False
 
     async def disconnect(self) -> None:
         """
@@ -701,21 +696,6 @@ class MilvusVectorStore:
             logger.error(f"Failed to delete chunks: {e}")
             raise
 
-    async def get_stats(self) -> dict[str, Any]:
-        """Get collection statistics."""
-        await self.connect()
-
-        try:
-            stats = self._collection.describe()
-            return {
-                "collection_name": self.config.collection_name,
-                "num_entities": self._collection.num_entities,
-                "schema": str(stats),
-            }
-        except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
-            return {"error": str(e)}
-
     async def get_collection_dimensions(self) -> int | None:
         """Return the vector dimensions for the configured collection, if present."""
         milvus = _get_milvus()
@@ -975,7 +955,6 @@ class MilvusVectorStore:
             milvus = _get_milvus()
             milvus["utility"].drop_collection(self.config.collection_name)
             self._collection = None
-            self._connected = False
             logger.warning(f"Dropped collection {self.config.collection_name}")
             return True
         except Exception as e:
@@ -1011,6 +990,32 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"Failed to clean up vectors for tenant {tenant_id}: {e}")
             return False
+
+    async def list_chunk_ids(self, tenant_id: str, batch_size: int = 2000) -> list[str]:
+        """All primary ids stored for a tenant (ids only, no vectors)."""
+        await self.connect()
+        import asyncio
+
+        expr = f"{self.FIELD_TENANT_ID} == {json.dumps(tenant_id)}"
+
+        def _collect() -> list[str]:
+            ids: list[str] = []
+            iterator = self._collection.query_iterator(
+                expr=expr, output_fields=[self.FIELD_CHUNK_ID], batch_size=batch_size
+            )
+            try:
+                while True:
+                    batch = iterator.next()
+                    if not batch:
+                        return ids
+                    ids.extend(row[self.FIELD_CHUNK_ID] for row in batch)
+            finally:
+                try:
+                    iterator.close()
+                except Exception as close_error:
+                    logger.debug(f"Milvus iterator close failed: {close_error}")
+
+        return await asyncio.to_thread(_collect)
 
     async def export_vectors(self, tenant_id: str, batch_size: int = 1000) -> AsyncIterator[dict]:
         """

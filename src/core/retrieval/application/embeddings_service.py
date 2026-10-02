@@ -68,8 +68,6 @@ class EmbeddingService:
 
     # Retry configuration
     MAX_RETRIES = 5
-    RETRY_MIN_WAIT = 1.0  # seconds
-    RETRY_MAX_WAIT = 60.0  # seconds
 
     def __init__(
         self,
@@ -264,53 +262,3 @@ class EmbeddingService:
 # =============================================================================
 # Document Embedding Integration
 # =============================================================================
-
-
-async def process_document_embeddings(
-    document_id: str,
-    chunks: list[dict[str, Any]],
-    embedding_service: EmbeddingService,
-    update_callback: Any | None = None,
-) -> dict[str, list[float]]:
-    """
-    Process embeddings for document chunks.
-
-    Args:
-        document_id: Document ID for logging
-        chunks: List of chunk dicts with 'id' and 'content' keys
-        embedding_service: Configured embedding service
-        update_callback: Optional callback for progress updates
-
-    Returns:
-        Dict mapping chunk_id -> embedding
-    """
-    if not chunks:
-        return {}
-
-    logger.info(f"Generating embeddings for {len(chunks)} chunks from document {document_id}")
-
-    # Extract texts maintaining order
-    chunk_ids = [c["id"] for c in chunks]
-    texts = [c["content"] for c in chunks]
-
-    # Generate embeddings
-    embeddings, stats = await embedding_service.embed_texts(
-        texts=texts,
-        show_progress=True,
-    )
-
-    logger.info(
-        f"Completed embeddings for document {document_id}: "
-        f"{stats.total_tokens} tokens, {stats.total_latency_ms:.0f}ms, "
-        f"${stats.total_cost:.6f}"
-    )
-
-    if stats.failed_texts > 0:
-        logger.warning(f"{stats.failed_texts} chunks failed to embed")
-
-    # Build result mapping
-    return {
-        chunk_id: embedding
-        for chunk_id, embedding in zip(chunk_ids, embeddings, strict=False)
-        if embedding  # Skip failed embeddings
-    }

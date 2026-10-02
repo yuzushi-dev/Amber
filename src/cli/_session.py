@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from typing import Any, TypeVar
 
@@ -37,8 +37,3 @@ async def session_scope() -> AsyncIterator[Any]:
             yield session
     finally:
         await engine.dispose()
-
-
-async def with_session(fn: Callable[[AsyncSession], Awaitable[T]]) -> T:
-    async with session_scope() as session:
-        return await fn(session)

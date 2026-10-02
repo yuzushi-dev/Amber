@@ -7,7 +7,7 @@ Token-aware batching for efficient API calls.
 
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from src.core.utils.tokenizer import DEFAULT_ENCODING, Tokenizer
 from src.shared.model_registry import DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL
@@ -169,49 +169,3 @@ def batch_texts_for_embedding(
     )
     logger.debug('batch_texts_for_embedding: created %d batches', len(result))
     return result
-
-
-class BatchProcessor:
-    """
-    Generic batch processor with progress tracking.
-
-    Usage:
-        processor = BatchProcessor(
-            items=texts,
-            batch_size=100,
-            process_fn=process_batch,
-        )
-        results = await processor.process_all()
-    """
-
-    def __init__(
-        self,
-        items: list[Any],
-        batch_size: int,
-        process_fn: Callable[[list[Any]], Any],
-    ):
-        self.items = items
-        self.batch_size = batch_size
-        self.process_fn = process_fn
-        self.processed_count = 0
-        self.total_count = len(items)
-
-    @property
-    def progress(self) -> float:
-        """Get progress as a percentage."""
-        if self.total_count == 0:
-            return 100.0
-        return (self.processed_count / self.total_count) * 100
-
-    async def process_all(self) -> list[Any]:
-        """Process all items in batches."""
-        results = []
-        batches = batch_by_count(self.items, self.batch_size)
-
-        for batch in batches:
-            result = await self.process_fn(batch)
-            results.append(result)
-            self.processed_count += len(batch)
-            logger.debug(f"Processed batch: {self.progress:.1f}% complete")
-
-        return results

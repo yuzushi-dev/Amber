@@ -14,11 +14,12 @@ Reference: https://www.anthropic.com/news/contextual-retrieval
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-CONTEXT_PROMPT = """<document_excerpt>
+CONTEXT_PROMPT = """{document_title_block}<document_excerpt>
 {document_excerpt}
 </document_excerpt>
 
@@ -30,7 +31,19 @@ Here is the chunk we want to situate within the document above:
 Write a short context (1-2 sentences, max 80 tokens) that situates this chunk \
 within the overall document for the purposes of improving search retrieval of \
 the chunk. Name the specific entity, section or topic the chunk belongs to. \
-Answer ONLY with the context, nothing else."""
+{document_title_instruction}Answer ONLY with the context, nothing else."""
+
+
+def document_title_from_filename(filename: str | None) -> str | None:
+    """Readable title from an ingested filename: drop the extension, a leading
+    numeric article id (e.g. Zendesk ``27632952006812-``) and separators."""
+    if not filename:
+        return None
+    stem = filename.rsplit("/", 1)[-1]
+    stem = stem.rsplit(".", 1)[0] if "." in stem else stem
+    stem = re.sub(r"^\d{6,}[-_ ]+", "", stem)
+    title = re.sub(r"\s+", " ", re.sub(r"[-_]+", " ", stem)).strip()
+    return title or None
 
 
 class ContextualEnricher:
@@ -65,16 +78,28 @@ class ContextualEnricher:
         chunk_content: str,
         document_excerpt: str,
         *,
+        document_title: str | None = None,
         temperature: float = 0.0,
     ) -> str | None:
         """Single LLM call -> short situating context, or None on failure."""
+        # The excerpt rarely carries the document title (scoped HTML drops it), so a
+        # short chunk like "valid for Ubuntu 24.04" would get a context that never
+        # says which article it belongs to. Pass the title and ask for it.
         prompt = CONTEXT_PROMPT.format(
+            document_title_block=(
+                f"<document_title>{document_title}</document_title>\n\n" if document_title else ""
+            ),
+            document_title_instruction=(
+                "Start with the document title. " if document_title else ""
+            ),
             document_excerpt=document_excerpt,
             chunk_content=chunk_content,
         )
         try:
             response = await provider.generate(prompt=prompt, temperature=temperature)
-            text = (getattr(response, "content", None) or getattr(response, "text", "") or "").strip()
+            text = (
+                getattr(response, "content", None) or getattr(response, "text", "") or ""
+            ).strip()
             if not text:
                 return None
             return text[: self.max_context_chars]
@@ -90,6 +115,7 @@ class ContextualEnricher:
         tenant_config: dict[str, Any],
         settings: Any,
         with_failover: bool = True,
+        document_title: str | None = None,
     ) -> int:
         """
         Enrich ``chunks`` (domain Chunk objects) in place. Returns the number of
@@ -133,6 +159,7 @@ class ContextualEnricher:
                     provider,
                     chunk.content,
                     excerpt,
+                    document_title=document_title,
                     temperature=llm_config.temperature or 0.0,
                 )
             if not context:

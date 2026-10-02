@@ -11,7 +11,6 @@ async def test_analyze_feedback_positive_ignores():
     """Positive feedback should be ignored."""
     service = TuningService(session_factory=MagicMock())
     service.get_tenant_config = AsyncMock()
-    service.update_tenant_weights = AsyncMock()
 
     await service.analyze_feedback_for_tuning("tenant1", "req1", is_positive=True)
 
@@ -50,17 +49,13 @@ async def test_analyze_feedback_retrieval_failure_suggestion():
         with patch("src.shared.kernel.runtime.get_settings"):
             with patch.object(service, "get_tenant_config", new_callable=AsyncMock) as mock_config:
                 mock_config.return_value = {}
-                with patch.object(service, "update_tenant_weights", new_callable=AsyncMock):
-                    await service.analyze_feedback_for_tuning(
-                        "tenant1",
-                        "req1",
-                        is_positive=False,
-                        comment="Wrong answer",
-                        selected_snippets=["snippet1"],
-                    )
+                await service.analyze_feedback_for_tuning(
+                    "tenant1",
+                    "req1",
+                    is_positive=False,
+                    comment="Wrong answer",
+                    selected_snippets=["snippet1"],
+                )
 
-                    # Verify LLM was called
-                    mock_llm.generate.assert_called_once()
-
-                    # Since we only LOG the action currently, we can't assert update_tenant_weights
-                    # But we verify it ran without error and the logic path was taken (coverage)
+                # Verify LLM was called
+                mock_llm.generate.assert_called_once()

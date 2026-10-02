@@ -239,17 +239,6 @@ class Neo4jClient:
             # Fallback for manual edge copy could be implemented here
             return False
 
-    async def find_orphan_nodes(self, tenant_id: str, limit: int = 100) -> list[str]:
-        """Find nodes with no relationships."""
-        query = """
-        MATCH (n:Entity {tenant_id: $tenant_id})
-        WHERE NOT (n)--()
-        RETURN n.name as id
-        LIMIT $limit
-        """
-        result = await self.execute_read(query, {"tenant_id": tenant_id, "limit": limit})
-        return [r["id"] for r in result]
-
     async def get_node_context(self, node_id: str, tenant_id: str) -> dict[str, Any]:
         """
         Get context for healing: Linked chunks and their node text.
@@ -491,29 +480,6 @@ class Neo4jClient:
             logger.error(f"Failed to delete tenant data for {tenant_id}: {e}")
             raise
 
-    async def delete_document_generation(
-        self, document_id: str, tenant_id: str, generation_id: str
-    ) -> int:
-        """Delete only the Chunk nodes written for one staging generation."""
-        query = """
-        MATCH (c:Chunk)
-        WHERE c.document_id = $document_id
-          AND c.tenant_id = $tenant_id
-          AND c.generation_id = $generation_id
-        WITH collect(c) AS chunks, count(c) AS deleted
-        FOREACH (chunk IN chunks | DETACH DELETE chunk)
-        RETURN deleted
-        """
-        result = await self.execute_write(
-            query,
-            {
-                "document_id": document_id,
-                "tenant_id": tenant_id,
-                "generation_id": generation_id,
-            },
-        )
-        return int(result[0]["deleted"]) if result else 0
-
     async def publish_document_generation(
         self, document_id: str, tenant_id: str, generation_id: str
     ) -> None:
@@ -545,99 +511,146 @@ class Neo4jClient:
             },
         )
 
-    async def prune_orphans(
-        self, valid_doc_ids: list[str], valid_chunk_ids: list[str]
+    async def delete_superseded_generation(
+        self, document_id: str, tenant_id: str, old_generation_ids: list[str]
     ) -> dict[str, int]:
+        """Delete graph artifacts of a document's superseded generations, in one transaction.
+
+        Targets only the given (already superseded) generations plus legacy
+        NULL-generation chunks of the document, never a staging generation. Removes
+        their generation-scoped relationships (found from the entities those chunks
+        mentioned, no graph-wide scan), the chunks, then the entities left with no
+        mention and no entity relationship; communities of deleted entities are
+        marked stale. Legacy relationships without ``document_id`` are shared across
+        documents and are left alone.
         """
-        Remove chunks and entities that are not valid.
-
-        Args:
-            valid_doc_ids: List of valid Document IDs from Postgres.
-            valid_chunk_ids: List of valid Chunk IDs from Postgres.
-
-        Returns:
-            Dictionary with counts of deleted items.
+        params = {
+            "document_id": document_id,
+            "tenant_id": tenant_id,
+            "old": list(old_generation_ids),
+        }
+        chunk_match = """
+            MATCH (old:Chunk {document_id: $document_id, tenant_id: $tenant_id})
+            WHERE old.generation_id IS NULL OR old.generation_id IN $old
         """
-        # 1. Delete orphan Documents
-        # If document ID is not in valid_doc_ids, delete it
-        # UNWIND creates rows, we want to filter EXISTING nodes against the list
-        # Passing huge lists to Cypher can be slow, but for maintenance it's acceptable usually.
-        # However, for huge datasets, logic should be inverted (find orphans via exclusion).
 
-        # Strategy:
-        # We can't pass ALL valid IDs if millions.
-        # But here we assume this usage is for maintenance/debugging or moderate scale.
-        # If lists are huge, we should batch. For now, simplistic implementation as requested.
+        async def _tx(tx: Any) -> dict[str, int]:
+            async def one(query: str, query_params: dict[str, Any]) -> Any:
+                record = await (await tx.run(query, query_params)).single()
+                return record[0] if record else 0
 
-        counts = {"documents": 0, "chunks": 0, "entities": 0}
+            entity_ids = await one(
+                chunk_match
+                + "MATCH (old)-[:MENTIONS]->(e:Entity) RETURN collect(DISTINCT elementId(e))",
+                params,
+            )
+            rels = await one(
+                """
+                MATCH (e:Entity) WHERE elementId(e) IN $entity_ids
+                MATCH (e)-[r]-()
+                WHERE r.document_id = $document_id AND r.generation_id IN $old
+                WITH DISTINCT r DELETE r RETURN count(*)
+                """,
+                {**params, "entity_ids": entity_ids},
+            )
+            chunks = await one(chunk_match + "DETACH DELETE old RETURN count(*)", params)
+            entities = await one(
+                """
+                MATCH (e:Entity {tenant_id: $tenant_id})
+                WHERE elementId(e) IN $entity_ids
+                  AND NOT EXISTS { MATCH (:Chunk)-[:MENTIONS]->(e) }
+                  AND NOT EXISTS {
+                    MATCH (e)-[x]-(:Entity) WHERE NOT type(x) IN ['BELONGS_TO', 'PARENT_OF']
+                  }
+                OPTIONAL MATCH (e)-[:BELONGS_TO]->(c:Community)
+                SET c.is_stale = true
+                WITH DISTINCT e DETACH DELETE e RETURN count(*)
+                """,
+                {"tenant_id": tenant_id, "entity_ids": entity_ids},
+            )
+            return {"chunks": chunks, "relationships": rels, "entities": entities}
 
-        try:
-            # A. Prune Documents
-            # Find all documents in Graph
-            # Check if they are in valid_docs. If not, delete.
-            # Doing this entirely in Cypher requires passing the full list of valid IDs.
-            # "MATCH (d:Document) WHERE NOT d.id IN $valid_ids DETACH DELETE d"
+        driver = await self.get_driver()
+        async with driver.session() as session:
+            return await session.execute_write(_tx)
 
-            # Batching is safer. But for now:
-            query_docs = """
-            MATCH (d:Document)
-            WHERE NOT d.id IN $valid_ids
-            DETACH DELETE d
-            RETURN count(d) as deleted
-            """
-            res_docs = await self.execute_write(query_docs, {"valid_ids": valid_doc_ids})
-            counts["documents"] = res_docs[0]["deleted"] if res_docs else 0
+    async def prune_orphans(
+        self,
+        valid_doc_ids: list[str],
+        valid_chunk_ids: list[str],
+        *,
+        tenant_id: str,
+        dry_run: bool = True,
+    ) -> dict[str, int]:
+        """Count orphans, refusing destructive pruning above 20% of any category."""
+        if not tenant_id or not valid_doc_ids or not valid_chunk_ids:
+            raise ValueError("Pruning requires a tenant and non-empty document/chunk IDs")
 
-            # B. Prune Chunks
-            query_chunks = """
-            MATCH (c:Chunk)
-            WHERE NOT c.id IN $valid_ids
-            DETACH DELETE c
-            RETURN count(c) as deleted
-            """
-            res_chunks = await self.execute_write(query_chunks, {"valid_ids": valid_chunk_ids})
-            counts["chunks"] = res_chunks[0]["deleted"] if res_chunks else 0
+        parameters = {
+            "tenant_id": tenant_id,
+            "valid_doc_ids": valid_doc_ids,
+            "valid_chunk_ids": valid_chunk_ids,
+            "include_all_chunks": False,
+        }
+        # Project the state after invalid chunks disappear, also in dry-run mode.
+        predicates = {
+            "documents": ("Document", "NOT n.id IN $valid_doc_ids"),
+            "chunks": ("Chunk", "NOT n.id IN $valid_chunk_ids"),
+            "entities": (
+                "Entity",
+                """NOT EXISTS {
+                    MATCH (ch:Chunk {tenant_id: $tenant_id})-[:MENTIONS]->(n)
+                    WHERE $include_all_chunks OR ch.id IN $valid_chunk_ids
+                }""",
+            ),
+            "communities": (
+                "Community",
+                """NOT EXISTS {
+                    MATCH (ch:Chunk {tenant_id: $tenant_id})-[:MENTIONS]->
+                          (e:Entity {tenant_id: $tenant_id})
+                          -[:BELONGS_TO|IN_COMMUNITY]->
+                          (:Community {tenant_id: $tenant_id})<-[:PARENT_OF*0..]-(n)
+                    WHERE $include_all_chunks OR ch.id IN $valid_chunk_ids
+                }""",
+            ),
+        }
 
-            # C. Prune Entities (Orphans)
-            # STRATEGY CHANGE: Instead of just deleting completely isolated nodes (WHERE NOT (e)--()),
-            # we now delete ANY entity that is not mentioned by a valid chunk.
-            # This handles "island" clusters that are connected to each other but detached from the knowledge base.
-
-            # Since we just deleted invalid chunks in step B, we can trust existing chunks.
-            query_entities = """
-            MATCH (e:Entity)
-            WHERE NOT (:Chunk)-[:MENTIONS]->(e)
-            DETACH DELETE e
-            RETURN count(e) as deleted
-            """
-            res_entities = await self.execute_write(query_entities)
-            counts["entities"] = res_entities[0]["deleted"] if res_entities else 0
-
-            # D. Prune Stale Communities
-            # Delete communities that are not reachable from any Entity.
-            # This handles hierarchical communities (C <- C <- E) correctly.
-            # Note: We use DETACH DELETE to remove PARENT_OF relationships.
-            # Entities attach only to leaf (level 0) communities via BELONGS_TO;
-            # PARENT_OF points parent -> child, so an ancestor community c is
-            # reachable from an entity by walking PARENT_OF backwards (*0..)
-            # from the entity's leaf community up to c.
-            # Logic: If no Entity's leaf community is c or a descendant of c, it is empty.
-            query_communities = """
-            MATCH (c:Community)
-            WHERE NOT EXISTS { (:Entity)-[:BELONGS_TO]->()<-[:PARENT_OF*0..]-(c) }
-            DETACH DELETE c
-            RETURN count(c) as deleted
-            """
-
-            res_comm = await self.execute_write(query_communities)
-            counts["communities"] = res_comm[0]["deleted"] if res_comm else 0
-
-            logger.info(f"Pruned orphans: {counts}")
+        async def prune(tx):
+            counts = {}
+            candidates = {}
+            for key, (label, predicate) in predicates.items():
+                rows = await self._execute_tx(
+                    tx,
+                    f"""MATCH (n:{label} {{tenant_id: $tenant_id}})
+                    RETURN count(n) AS total,
+                           collect(CASE WHEN {predicate} THEN elementId(n) ELSE null END) AS candidate_ids""",
+                    parameters,
+                )
+                candidates[key] = rows[0]["candidate_ids"]
+                counts[key] = len(candidates[key])
+                if not dry_run and counts[key] > rows[0]["total"] * 0.2:
+                    raise ValueError(f"Refusing to prune more than 20% of {key} for {tenant_id}")
+            if not dry_run:
+                for key, (label, predicate) in predicates.items():
+                    rows = await self._execute_tx(
+                        tx,
+                        f"""MATCH (n:{label} {{tenant_id: $tenant_id}})
+                        WHERE elementId(n) IN $candidate_ids AND {predicate}
+                        DETACH DELETE n RETURN count(n) AS deleted""",
+                        {
+                            **parameters,
+                            "candidate_ids": candidates[key],
+                            "include_all_chunks": True,
+                        },
+                    )
+                    counts[key] = rows[0]["deleted"]
             return counts
 
-        except Exception as e:
-            logger.error(f"Failed to prune orphans: {e}")
-            raise
+        driver = await self.get_driver()
+        async with driver.session() as session:
+            if dry_run:
+                return await session.execute_read(prune)
+            return await session.execute_write(prune)
 
     async def get_top_nodes(self, tenant_id: str, limit: int = 15) -> list[dict[str, Any]]:
         """

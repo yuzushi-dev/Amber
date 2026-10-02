@@ -185,41 +185,6 @@ class TuningService:
         self._effective_config_cache[tenant_id] = (effective_config, time.monotonic(), redis_version)
         return effective_config
 
-    async def update_tenant_weights(self, tenant_id: str, weights: dict[str, float]):
-        """
-        Updates the retrieval weights for a tenant.
-        """
-        try:
-            async with self.session_factory() as session:
-                result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
-                tenant = result.scalar_one_or_none()
-                if tenant:
-                    if not tenant.config:
-                        tenant.config = {}
-
-                    for k, v in weights.items():
-                        tenant.config[f"{k}_weight"] = v
-
-                    session.add(tenant)
-                    await session.commit()
-
-                    await self.log_change(
-                        tenant_id=tenant_id,
-                        actor="system",
-                        action="update_weights",
-                        target_type="tenant",
-                        target_id=tenant_id,
-                        changes={"weights": weights},
-                    )
-
-                    self.invalidate_cache(tenant_id)
-                    # Eagerly await the version bump (we are already in an async
-                    # context); invalidate_cache also schedules it, but awaiting
-                    # here ensures the key is set before this coroutine returns.
-                    await self._bump_redis_version(tenant_id)
-        except Exception as e:
-            logger.error(f"Failed to update tenant weights for {tenant_id}: {e}")
-
     async def log_change(
         self,
         tenant_id: str,

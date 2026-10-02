@@ -43,6 +43,9 @@ class FakeResult:
     def scalars(self):
         return self
 
+    def all(self):
+        return []
+
     def first(self):
         return self._document
 
@@ -115,6 +118,10 @@ class FakeGraph:
     async def execute_write(self, query, parameters=None):
         self.writes.append((query, parameters))
         parameters = parameters or {}
+        if "CALL {" in query:
+            for block in query.split("CALL {")[2:]:
+                await self.execute_write(block, parameters)
+            return []
 
         if "FOREACH (ch IN chunks | DETACH DELETE ch)" in query:
             # Primary document-scoped cleanup (the fixed query).
@@ -179,7 +186,9 @@ def _make_use_case(graph: FakeGraph, document) -> DeleteDocumentUseCase:
 @pytest.mark.unit
 async def test_primary_cypher_groups_by_document_not_by_chunk():
     """Structural guard: the buggy per-chunk grouping must never come back."""
-    document = SimpleNamespace(tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt")
+    document = SimpleNamespace(
+        processing_attempt_id=None, tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt"
+    )
     graph = FakeGraph(chunks={}, entities={})
     use_case = _make_use_case(graph, document)
 
@@ -194,7 +203,9 @@ async def test_primary_cypher_groups_by_document_not_by_chunk():
 @pytest.mark.unit
 async def test_entity_mentioned_by_two_chunks_of_same_deleted_document_is_removed():
     """Issue #109 scenario: entity mentioned by 2+ chunks of the SAME document."""
-    document = SimpleNamespace(tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt")
+    document = SimpleNamespace(
+        processing_attempt_id=None, tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt"
+    )
     chunks = {
         "chunk-1": {
             "tenant_id": "tenant-1",
@@ -223,7 +234,9 @@ async def test_entity_mentioned_by_two_chunks_of_same_deleted_document_is_remove
 @pytest.mark.unit
 async def test_entity_mentioned_by_another_documents_chunk_is_kept():
     """An entity still mentioned by a chunk of a DIFFERENT, non-deleted document survives."""
-    document = SimpleNamespace(tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt")
+    document = SimpleNamespace(
+        processing_attempt_id=None, tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt"
+    )
     chunks = {
         "chunk-1": {
             "tenant_id": "tenant-1",
@@ -258,7 +271,9 @@ async def test_tenant_wide_sweep_catches_entity_orphaned_via_property_linked_chu
     the property-linked chunk deletion pass plus the tenant-wide defensive
     sweep -- the reason that sweep is kept rather than removed.
     """
-    document = SimpleNamespace(tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt")
+    document = SimpleNamespace(
+        processing_attempt_id=None, tenant_id="tenant-1", storage_path="tenant-1/doc-1/file.txt"
+    )
     chunks = {
         "chunk-property-only": {
             "tenant_id": "tenant-1",
