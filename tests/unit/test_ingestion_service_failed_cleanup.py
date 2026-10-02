@@ -318,3 +318,131 @@ async def test_process_document_strips_nul_bytes_from_extracted_text(monkeypatch
         await service.process_document("doc_10")
 
     assert seen["result"].content == "ab"
+
+
+class ExpiringUnitOfWork(PoisonedSessionUnitOfWork):
+    """Like AsyncSession.rollback(): every loaded ORM object is expired, so
+    reading any attribute afterwards needs IO (MissingGreenlet in async code)."""
+
+    def __init__(self, repository: FakeDocumentRepositoryForFailure) -> None:
+        super().__init__()
+        self.repository = repository
+
+    async def rollback(self) -> None:
+        from sqlalchemy import inspect
+
+        await super().rollback()
+        generation = self.repository.generation
+        if generation is not None:
+            state = inspect(generation)
+            state._expire(state.dict, set())
+
+
+@pytest.mark.asyncio
+async def test_process_document_failure_handler_does_not_read_expired_generation():
+    document = StubDocument(
+        id="doc_11",
+        tenant_id="tenant-1",
+        status=DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_11/file.txt",
+        filename="file.txt",
+        content_hash="hash-11",
+        metadata_={},
+    )
+    repository = FakeDocumentRepositoryForFailure(document)
+    uow = ExpiringUnitOfWork(repository)
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = repository
+    service.unit_of_work = uow
+    service.storage = PoisoningStorage(uow)
+
+    with pytest.raises(ValueError, match="storage is down"):
+        await service.process_document("doc_11")
+
+    assert uow.rollbacks >= 1
+    assert document.status == DocumentStatus.FAILED
+    assert document.error_message
+    assert document.processing_attempt_id is None
+
+
+class ExpiringPoisoningStorage(PoisoningStorage):
+    """A failed flush can expire ORM state before the handler starts."""
+
+    def __init__(self, uow, repository):
+        super().__init__(uow)
+        self.repository = repository
+
+    def get_file(self, storage_path):
+        from sqlalchemy import inspect
+
+        generation = self.repository.generation
+        self.generation_id = generation.id
+        state = inspect(generation)
+        state._expire(state.dict, set())
+        return super().get_file(storage_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_generation", [False, True])
+@pytest.mark.parametrize("preserve_published", [False, True])
+async def test_failure_handler_handles_generation_already_expired_before_rollback(
+    existing_generation, preserve_published,
+):
+    document = StubDocument(
+        id="doc_expired_flush",
+        tenant_id="tenant-1",
+        status=DocumentStatus.READY if preserve_published else DocumentStatus.INGESTED,
+        storage_path="tenant-1/doc_expired_flush/file.txt",
+        filename="file.txt",
+        content_hash="hash_expired_flush",
+        metadata_={},
+        active_generation_id="published_gen" if preserve_published else None,
+    )
+    repository = FakeDocumentRepositoryForFailure(document)
+    if existing_generation:
+        repository.generation = service_module.DocumentGeneration(
+            id="gen_existing",
+            document_id=document.id,
+            tenant_id=document.tenant_id,
+            filename=document.filename,
+            content_hash=document.content_hash,
+            storage_path=document.storage_path,
+            metadata_={},
+        )
+        document.pending_generation_id = "gen_existing"
+
+        async def delete_chunks(generation_id):
+            return 0
+
+        repository.delete_chunks_by_generation = delete_chunks
+
+    failed_ids = []
+    mark_failed = repository.mark_generation_failed
+
+    async def record_failed(generation_id, error_message):
+        failed_ids.append(generation_id)
+        await mark_failed(generation_id, error_message)
+
+    repository.mark_generation_failed = record_failed
+    uow = ExpiringUnitOfWork(repository)
+    service = make_service(vector_store=FakeVectorStore(), neo4j_client=FakeNeo4jClient())
+    service.document_repository = repository
+    service.unit_of_work = uow
+    service.storage = ExpiringPoisoningStorage(uow, repository)
+
+    with pytest.raises(ValueError, match="storage is down"):
+        await service.process_document(document.id, force=preserve_published)
+
+    assert uow.rollbacks >= 1
+    assert repository.generation.status == "failed"
+    assert repository.generation.error_message
+    assert document.processing_attempt_id is None
+    if preserve_published:
+        assert document.status == DocumentStatus.READY
+        assert document.active_generation_id == "published_gen"
+        assert document.pending_generation_id is None
+        assert service.vector_store.delete_calls == []
+    else:
+        assert document.status == DocumentStatus.FAILED
+        assert document.error_message
+    assert failed_ids == [service.storage.generation_id]

@@ -538,10 +538,13 @@ class IngestionService:
             )
             return
         generation = None
+        # A failed flush may expire ORM attributes before explicit rollback.
+        generation_id: str | None = None
         try:
             if pending_generation_id:
                 generation = await self.document_repository.get_generation(pending_generation_id)
                 if generation is not None:
+                    generation_id = generation.id
                     # A retry (re-upload with the same content-hash, or a
                     # stale-lock sweep) reaches here with pending_generation_id
                     # still pointing at the PREVIOUS attempt's generation row.
@@ -577,6 +580,7 @@ class IngestionService:
                 keywords=list(getattr(document, "keywords", None) or []),
                 hashtags=list(getattr(document, "hashtags", None) or []),
             )
+            generation_id = generation.id
             await self.document_repository.save_generation(generation)
             document.pending_generation_id = generation.id
             await self.document_repository.save(document)
@@ -1296,11 +1300,12 @@ class IngestionService:
                         logger.error(f"Failed to map error for {document_id}: {map_err}")
                         error_message = f"{type(e).__name__}: {str(e)}"
 
-                    await self.document_repository.mark_generation_failed(
-                        generation.id, error_message
-                    )
+                    if generation_id:
+                        await self.document_repository.mark_generation_failed(
+                            generation_id, error_message
+                        )
                     if preserve_published:
-                        if document.pending_generation_id == generation.id:
+                        if document.pending_generation_id == generation_id:
                             document.pending_generation_id = None
                             await self.document_repository.save(document)
                     else:
