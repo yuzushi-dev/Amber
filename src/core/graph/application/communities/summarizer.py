@@ -62,9 +62,27 @@ class CommunitySummarizer:
         # 1. Fetch data for community
         data = await self._fetch_community_data(community_id, tenant_id, generation_id)
         if not data["entities"] and not data["child_summaries"]:
-            logger.warning(
-                f"Community {community_id} has no entities and no child summaries. Skipping."
+            emptied = await self.graph.execute_write(
+                """
+                MATCH (c:Community {id: $id, tenant_id: $tenant_id})
+                SET c.status = c.status
+                WITH c
+                WHERE ($generation_id IS NULL OR c.generation_id = $generation_id)
+                  AND NOT EXISTS { MATCH (:Entity)-[:BELONGS_TO|IN_COMMUNITY]->(c) }
+                  AND NOT EXISTS { MATCH (c)-[:PARENT_OF]->(:Community) }
+                SET c.status = 'empty', c.is_stale = false
+                RETURN c.id AS id
+                """,
+                {
+                    "id": community_id,
+                    "tenant_id": tenant_id,
+                    "generation_id": generation_id,
+                },
             )
+            if emptied:
+                logger.info(f"Community {community_id} is empty")
+            else:
+                logger.info(f"Community {community_id} changed while it was being summarized")
             return {}
 
         # 2. Resolve the target model before rendering so the input has a hard budget.
@@ -175,7 +193,7 @@ class CommunitySummarizer:
         WHERE c.tenant_id = $tenant_id
           AND ($generation_id IS NULL OR c.generation_id = $generation_id)
           AND ($generation_id IS NOT NULL OR coalesce(c.active, true) = true)
-          AND (c.summary IS NULL OR c.is_stale = true)
+          AND (c.is_stale = true OR (c.summary IS NULL AND coalesce(c.status, '') <> 'empty'))
         RETURN c.id as id, coalesce(c.level, 0) as level
         ORDER BY c.level ASC
         """
