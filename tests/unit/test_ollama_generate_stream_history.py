@@ -73,6 +73,20 @@ def provider():
 
 
 @pytest.mark.asyncio
+async def test_chat_uses_requested_model_or_provider_default(provider):
+    p, fake_client = provider
+
+    await p.chat(messages=[], model="requested-model")
+    assert fake_client.chat.completions.last_call_kwargs["model"] == "requested-model"
+
+    await p.chat(messages=[])
+    assert fake_client.chat.completions.last_call_kwargs["model"] == p.default_model
+
+    await p.chat(messages=[], model=None)
+    assert fake_client.chat.completions.last_call_kwargs["model"] == p.default_model
+
+
+@pytest.mark.asyncio
 async def test_generate_stream_with_history_orders_messages(provider):
     """system_prompt + 4 history messages + current prompt, in that order."""
     p, fake_client = provider

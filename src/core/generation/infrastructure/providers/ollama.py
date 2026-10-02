@@ -283,7 +283,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         **kwargs: Any,
     ) -> Any:
         """Direct chat completion with tool support."""
-        model = self.default_model
+        model = kwargs.pop("model", None) or self.default_model
 
         work_class = kwargs.pop("work_class", "chat")
         kwargs.pop("tenant_id", None)
